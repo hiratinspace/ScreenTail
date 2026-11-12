@@ -108,9 +108,20 @@ public sealed class ForegroundWatcherTests
         }
         catch (TimeoutException)
         {
-            Assert.Fail($"The watcher never reported the window in front by its new title (in front before the rename: {inFrontBefore}, after: {inFrontAfter}, now: {window.IsForeground}; object ids the test's hook saw for it: {witness.ObjectIds(window.Handle)}).");
+            Assert.Fail($"The watcher never reported the window in front by its new title (in front before the rename: {inFrontBefore}, after: {inFrontAfter}, now: {window.IsForeground}; object ids the test's hook saw for it: {witness.ObjectIds(window.Handle)}; {WhereTheWatcherIs(watcher, window)}).");
         }
     }
+
+    /// <summary>
+    /// Where the watcher's name hook was and which window it believed was in front, for a rename it never
+    /// reported. Thread ids, a yes or no and a count, never a title (INV-10). Without them the laptop's two
+    /// failures of the test above could only say that the rename reached a hook of the test's own, not
+    /// whether the watcher's hook had been left on another window's thread (ST-031).
+    /// </summary>
+    private static string WhereTheWatcherIs(WindowsForegroundWatcher watcher, DesktopWindow window) =>
+        string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"the watcher's name hook on thread {watcher.NameHookThread} (0 is every thread or none), the window's thread {Performance.IdleHookTests.ThreadOf(window.Handle)}, the watcher's last report is this window: {watcher.Current.Handle == window.Handle}, name hook refusals {watcher.NameHookRefusals}");
 
     [Fact]
     public async Task AWindowThatOnlyMovesAroundIsNeverReportedAsTheForegroundWindow()
@@ -409,7 +420,7 @@ public sealed class ForegroundWatcherTests
         }
         catch (TimeoutException)
         {
-            Assert.Fail($"The watcher held the rename for the poll instead of re-offering it after the settle time (in front now: {window.IsForeground}; object ids the test's hook saw: {witness.ObjectIds(window.Handle)}).");
+            Assert.Fail($"The watcher held the rename for the poll instead of re-offering it after the settle time (in front now: {window.IsForeground}; object ids the test's hook saw: {witness.ObjectIds(window.Handle)}; {WhereTheWatcherIs(watcher, window)}).");
         }
     }
 

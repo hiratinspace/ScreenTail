@@ -170,10 +170,14 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
                 if (message.Message == WM_TIMER && _settleTimer != IntPtr.Zero && message.WParam == _settleTimer)
                 {
                     // The one-shot settle timer: a retitle the filter held is offered again now, rather
-                    // than waiting for the poll.
+                    // than waiting for the poll. What it reports is whatever is in front now, which may not
+                    // be the window that was held, so the name hook follows it as the poll's does: a window
+                    // reported from here with the hook elsewhere would have its renames go unheard.
                     _ = KillTimer(IntPtr.Zero, _settleTimer);
                     _settleTimer = IntPtr.Zero;
-                    Publish(_filter.Flush(Read(GetForegroundWindow())));
+                    var window = GetForegroundWindow();
+                    FollowFront(window);
+                    Publish(_filter.Flush(Read(window)));
                 }
                 else if (message.Message == WM_TIMER)
                 {
@@ -251,16 +255,15 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
             return;
         }
 
-        // Belt and braces over the two hooks above: only these event types may say what is in front, so a
-        // future change to the subscription cannot quietly start feeding scope decisions the wrong window.
-        if (!ForegroundEvents.Interesting(eventType))
-        {
-            return;
-        }
-
-        // A name change matters only for the window already in front; every other window renaming itself is
-        // noise, and there is a lot of it.
-        if (eventType == ForegroundEvents.ObjectNameChange && (objectId != OBJID_WINDOW || window != GetForegroundWindow()))
+        // Only the window in front is news (ForegroundEvents.WindowInFront): a rename only from the window
+        // in front, and a foreground event about the window in front now rather than the one it names. Only
+        // the two event types may say what is in front at all, belt and braces over the two hooks above, so
+        // a future change to the subscription cannot quietly start feeding scope decisions the wrong window.
+        // The window in front is asked once, so the hook below follows the same window renames are checked
+        // against: taking a foreground event's word once left the hook on the thread of a window no longer
+        // in front, and the renames of the one that was went unheard (ST-031).
+        var front = ForegroundEvents.WindowInFront(eventType, window, objectId, GetForegroundWindow());
+        if (front == IntPtr.Zero)
         {
             return;
         }
@@ -269,10 +272,10 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
         // retitle straight after the switch reaches the new hook instead of falling between the two.
         if (eventType == ForegroundEvents.SystemForeground)
         {
-            FollowFront(window);
+            FollowFront(front);
         }
 
-        var observed = Read(window);
+        var observed = Read(front);
         var offered = _filter.Offer(observed);
         if (offered is null && !observed.SameAs(_filter.Reported))
         {
@@ -478,13 +481,12 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     private delegate void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint dwmsEventTime);
 
-    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
-
     // Deliberately no WINEVENT_SKIPOWNPROCESS. The capture service owns no windows, so it filtered nothing
     // in production — but it did hide the test's own window, which sent the acceptance test down the polling
     // path and reported 259 ms against a 100 ms budget. Seeing our own UI come to the front is wanted
     // anyway: ST-040 needs to know when the technician is in Review rather than in the remote session.
-    private const int OBJID_WINDOW = 0;
+    private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
     private const uint WM_QUIT = 0x0012;
     private const uint WM_TIMER = 0x0113;
     private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;

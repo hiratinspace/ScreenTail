@@ -35,7 +35,17 @@ public static class ForegroundEvents
 
     /// <summary>
     /// The window an event is news about, or zero when it is news about nothing in front. Only the window in
-    /// front counts.
+    /// front counts, and Windows' answer to "what is in front now" is the one source of it (ST-031).
+    ///
+    /// A rename is news only from the window in front, as its own title (<see cref="WindowObject"/>): every
+    /// other window renaming itself is noise, and there is a lot of it. A foreground event is news about the
+    /// window in front now, which is usually the window it names, but not always: an event handed over after
+    /// the foreground has moved on, or one an application raised about a window of its own, names a window
+    /// that is not in front. The watcher moves its name hook to the thread of the window this returns and
+    /// checks renames against the window in front, so taking the event's word would leave the hook on a
+    /// thread whose window is not in front, and every rename of the window that is would be dropped until the
+    /// next foreground change or the poll. While Windows names nothing in front, for a moment during a
+    /// switch, the event's own window is the best answer there is.
     /// </summary>
     /// <param name="eventType">The event's type, one <see cref="Interesting"/> accepts.</param>
     /// <param name="window">The window the event names.</param>
@@ -53,7 +63,7 @@ public static class ForegroundEvents
             return objectId == WindowObject && window == foreground ? window : 0;
         }
 
-        return window;
+        return foreground != 0 ? foreground : window;
     }
 
     /// <summary>The window class of a classic console, drawn by conhost.</summary>
