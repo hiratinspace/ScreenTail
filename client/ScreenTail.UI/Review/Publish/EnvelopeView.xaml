@@ -128,57 +128,60 @@
             </Grid>
         </Border>
 
-        <!-- As and Time share a line, as in the reference: two short values side by side. -->
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="24" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
+        <!-- As and Time share a line, as in the reference: two short values side by side under one
+             hairline that runs the envelope's width. A rule per value broke it in two at the gap. -->
+        <Border Style="{StaticResource Envelope.Line}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
-            <!-- As: a visible two-way choice, Internal note by default (v0.4.1 Q2). Never behind Options. -->
-            <Border Grid.Column="0" Style="{StaticResource Envelope.Line}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Envelope.Label}" Text="As" />
-                    <Border Style="{StaticResource Segment.Group}" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
-                            <RadioButton Style="{StaticResource Segment}"
-                                         IsChecked="{Binding IsInternal}"
-                                         GroupName="NoteType"
-                                         AutomationProperties.Name="{x:Static core:PublishPanel.InternalLabel}">
-                                <StackPanel Orientation="Horizontal">
-                                    <controls:Glyph FontFamily="{DynamicResource Font.icon}" FontSize="{DynamicResource Size.sm}" VerticalAlignment="Center" Text="&#xE72E;" />
-                                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="{x:Static core:PublishPanel.InternalLabel}" />
-                                </StackPanel>
-                            </RadioButton>
-                            <RadioButton Style="{StaticResource Segment}"
-                                         IsChecked="{Binding IsDiscussion}"
-                                         GroupName="NoteType"
-                                         ToolTip="{Binding DiscussionHint}"
-                                         AutomationProperties.Name="{x:Static core:PublishPanel.DiscussionLabel}"
-                                         AutomationProperties.HelpText="{Binding DiscussionHint}">
-                                <TextBlock VerticalAlignment="Center" Text="{x:Static core:PublishPanel.DiscussionLabel}" />
-                            </RadioButton>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </Border>
+                <!-- As: a visible two-way choice, Internal note by default (v0.4.1 Q2). Never behind Options. -->
+                <Border Grid.Column="0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Envelope.Label}" Text="As" />
+                        <Border Style="{StaticResource Segment.Group}" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal">
+                                <RadioButton Style="{StaticResource Segment}"
+                                             IsChecked="{Binding IsInternal}"
+                                             GroupName="NoteType"
+                                             AutomationProperties.Name="{x:Static core:PublishPanel.InternalLabel}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:Glyph FontFamily="{DynamicResource Font.icon}" FontSize="{DynamicResource Size.sm}" VerticalAlignment="Center" Text="&#xE72E;" />
+                                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="{x:Static core:PublishPanel.InternalLabel}" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton Style="{StaticResource Segment}"
+                                             IsChecked="{Binding IsDiscussion}"
+                                             GroupName="NoteType"
+                                             ToolTip="{Binding DiscussionHint}"
+                                             AutomationProperties.Name="{x:Static core:PublishPanel.DiscussionLabel}"
+                                             AutomationProperties.HelpText="{Binding DiscussionHint}">
+                                    <TextBlock VerticalAlignment="Center" Text="{x:Static core:PublishPanel.DiscussionLabel}" />
+                                </RadioButton>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
 
-            <!-- Time: the entry in minutes, and what it was before rounding, so the number is not taken for the time worked. -->
-            <Border Grid.Column="2" Style="{StaticResource Envelope.Line}">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Envelope.Label}" Text="Time" />
-                    <TextBox Width="{DynamicResource Layout.field-narrow}"
-                             VerticalAlignment="Center"
-                             Style="{StaticResource Input.Default}"
-                             Text="{Binding Minutes, UpdateSourceTrigger=PropertyChanged}"
-                             AutomationProperties.Name="Minutes"
-                             AutomationProperties.HelpText="{Binding TimeNote}" />
-                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="min" />
-                    <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding TimeNote}" />
-                </StackPanel>
-            </Border>
-        </Grid>
+                <!-- Time: the entry in minutes, and what it was before rounding, so the number is not taken for the time worked. -->
+                <Border Grid.Column="2">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Envelope.Label}" Text="Time" />
+                        <TextBox Width="{DynamicResource Layout.field-narrow}"
+                                 VerticalAlignment="Center"
+                                 Style="{StaticResource Input.Default}"
+                                 Text="{Binding Minutes, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Minutes"
+                                 AutomationProperties.HelpText="{Binding TimeNote}" />
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="min" />
+                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding TimeNote}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
 
         <!-- Also: every destination as a chip. Each label says what an earlier publish left (O3); the name
              says it in words. The article's reason is its own line, so a chip is one line. -->

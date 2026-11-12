@@ -615,7 +615,7 @@ public sealed class PublishPanel
     /// <summary>
     /// The session's facts, for the row under the destinations: minutes captured, steps checked,
     /// screenshots and items masked in what was sent, and how long from opening Review to the first
-    /// landing. Counts and times only. Empty before anything was sent.
+    /// landing (left out when that cannot be known). Counts and times only. Empty before anything was sent.
     /// </summary>
     public IReadOnlyList<ReceiptFact> ReceiptFacts
     {
@@ -641,10 +641,11 @@ public sealed class PublishPanel
             var masked = _session.Frames.Where(f => sent.Contains(f.Id)).Sum(f => f.MaskedRegions.Count);
             facts.Add(new(masked.ToString(CultureInfo.InvariantCulture), "items masked"));
 
-            if (SentAt is { } at)
+            // Under a second is no time a person took: the clock did not see Review open (a panel made
+            // already published), so the fact is left out rather than shown as "0 s".
+            if (SentAt is { } at && at - _openedAt is var took && took >= TimeSpan.FromSeconds(1))
             {
-                var took = at - _openedAt;
-                facts.Add(new(took < TimeSpan.FromMinutes(1) ? string.Create(CultureInfo.InvariantCulture, $"{Math.Max(0, (int)took.TotalSeconds)} s") : InMinutes(took), "open to published"));
+                facts.Add(new(took < TimeSpan.FromMinutes(1) ? string.Create(CultureInfo.InvariantCulture, $"{(int)took.TotalSeconds} s") : InMinutes(took), "open to published"));
             }
 
             return facts;

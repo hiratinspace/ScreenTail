@@ -111,6 +111,25 @@ public sealed class ReceiptTests
     }
 
     [Fact]
+    public async Task NoOpenToPublishedWhenTheClockNeverSawReviewOpen()
+    {
+        // A send in the same instant the panel was made: no person took that, so no "0 s".
+        var time = new ManualTime(new DateTimeOffset(2026, 11, 11, 14, 20, 0, TimeSpan.Zero));
+        var panel = new PublishPanel(
+            Session(draft: Draft()) with { Frames = [Frame("f1", masked: 1)] },
+            Both,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) => Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, true, Ticket))]),
+            time: time);
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        await panel.PublishAsync(Draft(), ["f1"]);
+
+        Assert.DoesNotContain(panel.ReceiptFacts, f => f.Caption == "open to published");
+        Assert.Contains(panel.ReceiptFacts, f => f is { Value: "1", Caption: "screenshots" });
+        Assert.Contains(panel.ReceiptFacts, f => f is { Value: "1", Caption: "items masked" });
+    }
+
+    [Fact]
     public async Task TheChangeLineNamesThePsaOnceTheNoteLanded()
     {
         var panel = await PublishedAsync(d => new DestinationResult(d, true, Ticket));

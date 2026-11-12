@@ -180,6 +180,10 @@ public partial class ShellWindow : Window
                 ? new DestinationResult(d, false, null, "ConnectWise refused the member")
                 : new DestinationResult(d, true, d == Destination.KbArticle ? article : new Uri("https://na.myconnectwise.net/v4_6_release/services/system_io/Service/fv_sr100_request.rails?service_recid=48213")))];
 
+        // What the strip would send, as the running Review passes it: the frames the technician kept in.
+        // An empty list made the receipt say 0 screenshots and 0 items masked for a session with three.
+        IReadOnlyList<string> included = [.. new Core.Review.Filmstrip(fixture).ToPublish().Select(frame => frame.Id)];
+
         switch (variant)
         {
             case "preview-no-psa":
@@ -190,18 +194,18 @@ public partial class ShellWindow : Window
                 return new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
             case "preview-published":
                 {
-                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
+                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)), time: new SampleClock());
                     panel.Suggest(ticket);
                     panel.KbArticle = true;
-                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    panel.PublishAsync(fixture.Draft!, included).GetAwaiter().GetResult();
                     return panel;
                 }
 
             case "preview-partial":
                 {
-                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: true)));
+                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: true)), time: new SampleClock());
                     panel.Suggest(ticket);
-                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    panel.PublishAsync(fixture.Draft!, included).GetAwaiter().GetResult();
                     return panel;
                 }
 
@@ -217,10 +221,11 @@ public partial class ShellWindow : Window
                         connected,
                         (q, _) => Task.FromResult(Search(q)),
                         (r, _) => Task.FromResult(Unmapped(r)),
-                        mapping: new CompanyMapping(_ => Task.FromResult(Companies()), (_, _, _) => Task.FromResult(true)));
+                        mapping: new CompanyMapping(_ => Task.FromResult(Companies()), (_, _, _) => Task.FromResult(true)),
+                        time: new SampleClock());
                     panel.Suggest(ticket);
                     panel.KbArticle = true;
-                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    panel.PublishAsync(fixture.Draft!, included).GetAwaiter().GetResult();
                     return panel;
                 }
 
@@ -230,6 +235,24 @@ public partial class ShellWindow : Window
                     panel.Suggest(ticket);
                     return panel;
                 }
+        }
+    }
+
+    /// <summary>
+    /// The sample receipts' clock: Review opened at 14:20 and published 4 min 12 s later, the first
+    /// reading being the panel's "opened" and every later one the publish. The system clock would read
+    /// the same instant twice, since the sample publishes as the panel is made.
+    /// </summary>
+    private sealed class SampleClock : TimeProvider
+    {
+        private static readonly DateTimeOffset Opened = new(2026, 9, 15, 14, 20, 0, TimeSpan.Zero);
+        private bool _read;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            var now = _read ? Opened + new TimeSpan(0, 4, 12) : Opened;
+            _read = true;
+            return now;
         }
     }
 
