@@ -93,6 +93,20 @@ internal sealed class ContrastPalette
         ["state.danger"] = "WindowText",
         ["confidence.low"] = "WindowText",
         ["text.on-accent"] = "HighlightText",
+        ["brand.signature"] = "WindowText",
+        ["brand.ribbon.band"] = "Window",
+        ["brand.ribbon.fold"] = "Window",
+        ["shell.bg"] = "Window",
+        ["shell.hover"] = "Window",
+        ["shell.text"] = "WindowText",
+        ["shell.muted"] = "WindowText",
+        ["shell.accent"] = "Highlight",
+        ["shell.line"] = "WindowText",
+        ["shell.recording"] = "WindowText",
+        ["shell.paused"] = "WindowText",
+        ["shell.published"] = "WindowText",
+        ["shell.scope"] = "WindowText",
+        ["shell.offline"] = "GrayText",
     };
 
     public string Name { get; }
