@@ -52,14 +52,6 @@ public sealed class NoteLandingTests
         Assert.Equal("2 items masked, 2 on screenshots no step shows", NoteLanding.Masking([Frame("f8", 1), Frame("f9", 1)], onSteps));
     }
 
-    [Fact]
-    public void TheLineUnderTheNoteIsTheMaskingThenTheSaveState()
-    {
-        Assert.Equal("2 items masked, none left to review · Saved", NoteLanding.Footer("2 items masked, none left to review", "Saved"));
-        Assert.Equal("Nothing masked", NoteLanding.Footer("Nothing masked", string.Empty));
-        Assert.Equal("Nothing masked", NoteLanding.Footer("Nothing masked", null));
-    }
-
     [Theory]
     [InlineData("screenshot 2", true, false, "screenshot 2")]
     [InlineData(null, false, false, "not attached")]

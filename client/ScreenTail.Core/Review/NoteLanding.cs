@@ -100,13 +100,6 @@ public static class NoteLanding
             : string.Create(CultureInfo.InvariantCulture, $"{items}, {unseen.Sum(frame => frame.MaskedRegions.Count)} on {where} no step shows");
     }
 
-    /// <summary>The line under the note: the masking count, then the save state when there is one.</summary>
-    public static string Footer(string masking, string? save)
-    {
-        ArgumentNullException.ThrowIfNull(masking);
-        return string.IsNullOrEmpty(save) ? masking : $"{masking} · {save}";
-    }
-
     /// <summary>
     /// The step's frame in words, for a screen reader and the line under its thumbnail: "screenshot 2"
     /// when it goes out, "not attached" when it was left out, "withheld" when it never can be.

@@ -7,10 +7,86 @@ using ScreenTail.Shared.Schema;
 
 namespace ScreenTail.UI.Review;
 
-/// <summary>One frame chip under a step: "frame 2", which highlights the filmstrip and jumps on click.</summary>
-/// <param name="Label">What the technician reads. The frame's position in the session, not its id — an id
-/// is a fact about the database and "frame f-0002" is not something anyone can find on the screen.</param>
-public sealed record FrameChip(string Id, string Label);
+/// <summary>A masked rectangle, in the frame's own pixels, drawn over the step's thumbnail.</summary>
+public sealed record MaskBox(System.Windows.Thickness Offset, double Width, double Height);
+
+/// <summary>
+/// A step's own frame (Spec v0.6.0 §5 S3: "Each step row carries its own frame and quote"), drawn on the
+/// step's row as its thumbnail. The picture is the strip's: the same <see cref="FrameItem"/>, loaded at
+/// thumbnail size from what the store holds once redacted (INV-1), so a blur in the strip shows here too.
+/// </summary>
+/// <remarks>
+/// Was the v0.5 "frame 2" chip, which highlighted the filmstrip and jumped on click. It keeps the frame's
+/// strip label for its spoken name, so the strip and the step call one frame by one name.
+/// </remarks>
+public sealed partial class FrameChip : ObservableObject
+{
+    internal FrameChip(string id, string label, FrameItem? item)
+    {
+        Id = id;
+        Label = label;
+        Item = item;
+        Masks = MasksOf(item);
+    }
+
+    public string Id { get; }
+
+    /// <summary>
+    /// The frame's place in the session, "frame 2", as the strip shows it: not its id, which is a fact about
+    /// the database and not something anyone can find on the screen.
+    /// </summary>
+    public string Label { get; }
+
+    /// <summary>The strip's frame, for the thumbnail and its state. Null where there is no strip (the note's own harness).</summary>
+    public FrameItem? Item { get; }
+
+    /// <summary>Where it goes, as the ticket says it: "screenshot 2", "not attached" or "withheld".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SpokenName))]
+    private string _place = "not attached";
+
+    /// <summary>Still in the strip. A deleted frame leaves its step's row too, and comes back if the delete is undone.</summary>
+    [ObservableProperty]
+    private bool _present = true;
+
+    /// <summary>The step this frame is on, for the button's name: two steps can show one frame.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SpokenName))]
+    private string _step = "Step";
+
+    /// <summary>"Step 2 screenshot, frame 2, screenshot 2": what the button is called, unique on the note.</summary>
+    public string SpokenName => $"{Step} screenshot, {Label}, {Place}";
+
+    /// <summary>The frame's size in its own pixels, which the masks are measured in.</summary>
+    public double FrameWidth => Math.Max(1, Item?.Cell.Frame.Width ?? 16);
+
+    public double FrameHeight => Math.Max(1, Item?.Cell.Frame.Height ?? 9);
+
+    /// <summary>
+    /// Every masked region, drawn over the thumbnail as an opaque box (Spec v0.6.0 §5 S3: "A masked part of
+    /// a frame stays masked"). The picture is already painted over by the redaction worker; the box marks
+    /// where, so no scale of thumbnail can show what was there.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(MaskedLabel))]
+    private IReadOnlyList<MaskBox> _masks;
+
+    /// <summary>"2 masked" under the thumbnail, or empty.</summary>
+    public string MaskedLabel => Masks.Count == 0 ? string.Empty : $"{Masks.Count} masked";
+
+    internal void Update(IReadOnlyList<string> attached, bool present)
+    {
+        Present = present;
+        var place = NoteLanding.ScreenshotPlaces([Id], attached);
+        Place = NoteLanding.FrameState(place, Item?.Included ?? place is not null, Item?.Cell.Withheld ?? false);
+        Masks = MasksOf(Item);
+        OnPropertyChanged(nameof(FrameWidth));
+        OnPropertyChanged(nameof(FrameHeight));
+    }
+
+    private static IReadOnlyList<MaskBox> MasksOf(FrameItem? item) =>
+        item is null ? [] : [.. item.Cell.Frame.MaskedRegions.Select(r => new MaskBox(new System.Windows.Thickness(r.X, r.Y, 0, 0), r.Width, r.Height))];
+}
 
 /// <summary>
 /// One step, adapted for binding. It holds no editing rules: every mutation goes back through
@@ -21,12 +97,13 @@ public sealed partial class StepRow : ObservableObject
     private readonly NoteDraft _note;
     private readonly NoteStep _step;
 
-    internal StepRow(NoteDraft note, NoteStep step, IReadOnlyList<FrameChip> frames, string? quote)
+    internal StepRow(NoteDraft note, NoteStep step, IReadOnlyList<FrameChip> frames, string? quote, string? time)
     {
         _note = note;
         _step = step;
         Frames = frames;
         Quote = quote;
+        Time = time;
         _text = step.Text;
     }
 
@@ -39,11 +116,17 @@ public sealed partial class StepRow : ObservableObject
 
     public bool HasQuote => Quote is not null;
 
-    /// <summary>Whether the ⚠ marker is up. Spec §7: never the only signal — the word "Inferred" is beside it.</summary>
+    /// <summary>When it happened, "14:04", on the session's clock; null for a step the technician added.</summary>
+    public string? Time { get; }
+
+    /// <summary>Whether the ⚠ marker is up. Spec §7: never the only signal: the words "Inferred from screen only" are beside it.</summary>
     public bool NeedsVerification => _step.NeedsVerification;
 
     /// <summary>Spec §5 S3, verbatim.</summary>
     public string VerificationTooltip { get; } = "Inferred from screen only. Please verify.";
+
+    /// <summary>The line an inferred step carries (Spec v0.6.0 §5 S3).</summary>
+    public string InferredLine { get; } = NoteLanding.Inferred;
 
     [ObservableProperty]
     private string _text;
@@ -51,6 +134,29 @@ public sealed partial class StepRow : ObservableObject
     /// <summary>"Step 2": the step box's name for a screen reader, kept in step with the list's order.</summary>
     [ObservableProperty]
     private string _place = "Step";
+
+    /// <summary>"2": the number the ticket gives the step ("2. Started the service").</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ConfirmName))]
+    [NotifyPropertyChangedFor(nameof(EditName))]
+    private string _number = string.Empty;
+
+    /// <summary>A transcript line picked in the timeline is this step's: the row is marked, as the strip's frame was.</summary>
+    [ObservableProperty]
+    private bool _isCurrent;
+
+    /// <summary>"Looks right, step 3": the label first (WCAG 2.5.3), then which step, since every inferred row has one.</summary>
+    public string ConfirmName => $"Looks right, step {Number}";
+
+    public string EditName => $"Edit step {Number}";
+
+    partial void OnPlaceChanged(string value)
+    {
+        foreach (var frame in Frames)
+        {
+            frame.Step = value;
+        }
+    }
 
     partial void OnTextChanged(string value)
     {
@@ -91,18 +197,23 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
     private readonly Dictionary<string, string> _quotes;
     private readonly Dictionary<string, string> _frameLabels;
     private readonly Action<string?>? _showFrame;
+    private readonly FilmstripViewModel? _strip;
     private bool _disposed;
 
     /// <param name="write">Persists the note. Called by the autosave, one write at a time.</param>
     /// <param name="confirm">Shows the typed-confirmation dialog and returns whether it was satisfied.</param>
     /// <param name="discard">Deletes the session and its raw data. Null in the render harness.</param>
     /// <param name="retryDraft">Asks for the note again after a failed draft (ST-061).</param>
-    /// <param name="showFrame">Selects a frame in the filmstrip when its chip is clicked (T-165).</param>
+    /// <param name="showFrame">Opens a step's frame when its thumbnail is pressed (T-165): selected in the strip and enlarged.</param>
     /// <param name="draftPending">The draft is queued for the backend (ST-013): on its way, not failed.</param>
     /// <param name="discardBlocked">
     /// Why Discard may not be asked about right now, or null when it may: a session (this one or another)
     /// is being captured, or the service is not answering. Asked before the dialog, because Spec §4 allows
     /// no modal during a recording, and again once it is answered.
+    /// </param>
+    /// <param name="strip">
+    /// The session's screenshots, whose frames each step row shows (Spec v0.6.0 §5 S3) and whose included
+    /// list says what each is called on the ticket. Null in the note's own harness, which shows none.
     /// </param>
     public NoteEditorViewModel(
         Session session,
@@ -114,11 +225,13 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         TimeProvider? time = null,
         Action<string?>? showFrame = null,
         bool draftPending = false,
-        Func<string?>? discardBlocked = null)
+        Func<string?>? discardBlocked = null,
+        FilmstripViewModel? strip = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
         _showFrame = showFrame;
+        _strip = strip;
         _confirm = confirm ?? (_ => false);
         _discard = discard;
         _discardBlocked = discardBlocked;
@@ -154,6 +267,20 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         // for every step, and the names follow a reorder, an added step and a removed one (ST-084).
         Steps.CollectionChanged += (_, _) => Number();
         Number();
+
+        // What each frame is called on the ticket, whether it is still there, and the masking count all
+        // follow the strip: Space, Del and its undo, and a blur that adds a region.
+        if (strip is not null)
+        {
+            strip.PropertyChanged += OnStripChanged;
+            strip.Items.CollectionChanged += OnStripItemsChanged;
+            foreach (var item in strip.Items.OfType<FrameItem>())
+            {
+                item.PropertyChanged += OnFrameChanged;
+            }
+        }
+
+        RefreshFrames();
     }
 
     private void Number()
@@ -161,7 +288,108 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         for (var i = 0; i < Steps.Count; i++)
         {
             Steps[i].Place = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Step {i + 1}");
+            Steps[i].Number = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
+    }
+
+    /// <summary>The note shows the strip's frames, and "All screenshots" opens it.</summary>
+    public bool HasStrip => _strip is not null;
+
+    /// <summary>"3 of 3 included", on the button that opens the whole strip.</summary>
+    public string StripHeader => _strip?.Header ?? string.Empty;
+
+    /// <summary>"All screenshots, 3 of 3 included": the button's name, its label first (WCAG 2.5.3).</summary>
+    public string AllScreenshotsName => $"All screenshots, {StripHeader}";
+
+    /// <summary>The quiet line over the note (Spec v0.6.0 §5 S3).</summary>
+    public string Guide { get; } = NoteLanding.Guide;
+
+    /// <summary>What an empty section says: it is left off the ticket.</summary>
+    public string EmptySection { get; } = NoteLanding.EmptySection;
+
+    /// <summary>Under the note, before the save state: "2 items masked, none left to review" (Spec v0.6.0 §5 S3).</summary>
+    public string MaskingLabel { get; private set; } = "Nothing masked";
+
+    /// <summary>Opens the whole strip in the note's place: the frames no step shows, and Del with its undo.</summary>
+    [RelayCommand]
+    private void ShowAllScreenshots()
+    {
+        if (_strip is { } strip)
+        {
+            strip.Browsing = true;
+        }
+    }
+
+    /// <summary>`Space` on a step's frame: in or out of the publish, through the strip's own command, as `Space` there.</summary>
+    [RelayCommand]
+    private async Task ToggleFrameAsync(FrameChip? chip)
+    {
+        if (_strip is { } strip && chip?.Item is { } item && strip.Items.Contains(item))
+        {
+            await strip.ToggleIncludeCommand.ExecuteAsync(item).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// A transcript line picked in the timeline: the step that frame is on is marked, since the strip that
+    /// used to show the selection is no longer beside the note.
+    /// </summary>
+    public void Highlight(string? frameId)
+    {
+        foreach (var row in Steps)
+        {
+            row.IsCurrent = frameId is not null && row.Frames.Any(frame => frame.Id == frameId);
+        }
+    }
+
+    private void OnStripChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(FilmstripViewModel.Header) or nameof(FilmstripViewModel.PublishHeldBecause))
+        {
+            RefreshFrames();
+        }
+    }
+
+    private void OnStripItemsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        foreach (var item in e.NewItems?.OfType<FrameItem>() ?? [])
+        {
+            item.PropertyChanged -= OnFrameChanged;
+            item.PropertyChanged += OnFrameChanged;
+        }
+
+        RefreshFrames();
+    }
+
+    private void OnFrameChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(FrameItem.Cell) or nameof(FrameItem.Included))
+        {
+            RefreshFrames();
+        }
+    }
+
+    /// <summary>Each step's frame as the strip has it now, and the masking count over what goes out.</summary>
+    private void RefreshFrames()
+    {
+        if (_strip is not { } strip)
+        {
+            return;
+        }
+
+        var attached = strip.IncludedFrameIds;
+        var present = strip.Items.OfType<FrameItem>().ToDictionary(item => item.Id, StringComparer.Ordinal);
+        foreach (var chip in Steps.SelectMany(row => row.Frames))
+        {
+            chip.Update(attached, present.ContainsKey(chip.Id));
+        }
+
+        var going = attached.Where(present.ContainsKey).Select(id => present[id].Cell.Frame);
+        var onSteps = Steps.SelectMany(row => row.Frames).Select(frame => frame.Id).ToHashSet(StringComparer.Ordinal);
+        MaskingLabel = NoteLanding.Masking(going, onSteps);
+        OnPropertyChanged(nameof(MaskingLabel));
+        OnPropertyChanged(nameof(StripHeader));
+        OnPropertyChanged(nameof(AllScreenshotsName));
     }
 
     public bool HasDraft { get; }
@@ -264,11 +492,21 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
 
         _disposed = true;
         _note.Changed -= OnNoteChanged;
+        if (_strip is { } strip)
+        {
+            strip.PropertyChanged -= OnStripChanged;
+            strip.Items.CollectionChanged -= OnStripItemsChanged;
+            foreach (var item in strip.Items.OfType<FrameItem>())
+            {
+                item.PropertyChanged -= OnFrameChanged;
+            }
+        }
+
         await _save.FlushAsync().ConfigureAwait(false);
         _save.Dispose();
     }
 
-    /// <summary>A frame chip: selects that frame in the filmstrip, or clears the selection when it is not there.</summary>
+    /// <summary>A step's frame: opens it (selected in the strip and enlarged), or clears the strip's selection when it is not there.</summary>
     [RelayCommand]
     private void ShowFrame(string? frameId) => _showFrame?.Invoke(frameId);
 
@@ -480,9 +718,11 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
 
     private StepRow RowFor(NoteStep step)
     {
+        var items = _strip?.Items.OfType<FrameItem>().ToDictionary(item => item.Id, StringComparer.Ordinal);
         var frames = step.FrameRefs
             .Where(_frameLabels.ContainsKey)
-            .Select(id => new FrameChip(id, _frameLabels[id]))
+            .Distinct(StringComparer.Ordinal)
+            .Select(id => new FrameChip(id, _frameLabels[id], items?.GetValueOrDefault(id)))
             .ToList();
 
         // One line, and only when it exists: Spec shows the step's own words quoted under it, not a
@@ -491,7 +731,15 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
             .Select(id => _quotes.GetValueOrDefault(id))
             .FirstOrDefault(text => !string.IsNullOrWhiteSpace(text));
 
-        return new StepRow(_note, step, frames, quote is null ? null : $"“{quote}”");
+        if (_strip is { } strip)
+        {
+            foreach (var chip in frames)
+            {
+                chip.Update(strip.IncludedFrameIds, items!.ContainsKey(chip.Id));
+            }
+        }
+
+        return new StepRow(_note, step, frames, quote is null ? null : $"“{quote}”", NoteLanding.StepTime(_session, step.FrameRefs, step.TranscriptRefs));
     }
 
     private void OnNoteChanged()

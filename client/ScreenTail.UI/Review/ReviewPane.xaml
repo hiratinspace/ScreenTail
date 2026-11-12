@@ -17,16 +17,15 @@
         <KeyBinding Modifiers="Ctrl" Key="S" Command="{Binding Note.SaveNowCommand}" />
     </UserControl.InputBindings>
     <!-- Spec v0.6.0 §5 S3, Outbox: the envelope header over the session (subject line, Discard, Publish,
-         then To, As, Time and Also), the note and the screenshots under it, and the timeline row (ST-076)
+         then To, As, Time and Also), the note as it will land under it, and the timeline row (ST-076)
          below. After publishing, the receipt takes the place of all three: a state of the same pane, never
-         a dialog. The note editor and the screenshots keep their v0.5 layout until their own PR. -->
+         a dialog. -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
     </UserControl.Resources>
     <Grid>
-        <!-- The session: envelope, panes, timeline. The panes never get less than layout.pane-min-height,
-             so the note and the screenshots stay usable and an open timeline sits below them, never over
-             them. The form fills the pane when that fits; when it does not (a short window, the timeline
+        <!-- The session: envelope, note, timeline. The note never gets less than layout.pane-min-height,
+             so it stays usable and an open timeline sits below it, never over it. The form fills the pane when that fits; when it does not (a short window, the timeline
              open, the picker out) the whole form scrolls instead, and Tab brings each control into view.
              The code-behind sets the form's floor from what the envelope and the timeline take. -->
         <ScrollViewer x:Name="FormScroll"
@@ -156,29 +155,55 @@
                     </StackPanel>
                 </Border>
 
-                <!-- The gaps between the panes are the splitters, 28 px wide: Spec §7's smallest target, in a column
-                     of their own, so they cover nothing. Reaching over the panes' edges instead put them on top of
-                     the note's and the screenshots' scroll bars, and a drag there resized a pane instead of
-                     scrolling it (ST-084 review). In tree order, so Tab goes note, splitter, screenshots. -->
+                <!-- The note is the screen (Spec v0.6.0 §1.1): one pane, each step with its own frame, so the
+                     v0.5 screenshot column, its splitter and the "frame 2" chips are gone. The whole strip
+                     opens in the note's place (Alt+2, or "All screenshots" under the note), and so does a
+                     step's frame, enlarged, where B blurs it; Esc or Alt+1 is back to the note. Over it rather
+                     than beside it, so an enlarged frame has the pane's whole width to be checked and blurred
+                     on. The note is hidden under it, out of the Tab order, and keeps its place. -->
                 <Grid Grid.Row="1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="5*" MinWidth="340" />
-                        <ColumnDefinition Width="28" />
-                        <ColumnDefinition Width="4*" MinWidth="230" />
-                    </Grid.ColumnDefinitions>
-
-                    <Border Grid.Column="0" Style="{StaticResource Pane}">
+                    <Border x:Name="NotePane">
+                        <Border.Style>
+                            <Style BasedOn="{StaticResource Pane}" TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Strip.Shown}" Value="True">
+                                        <Setter Property="Visibility" Value="Hidden" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
                         <review:NoteEditorView x:Name="Note" DataContext="{Binding Note}" />
                     </Border>
 
-                    <GridSplitter Grid.Column="1"
-                                  Width="28"
-                                  HorizontalAlignment="Stretch"
-                                  Style="{StaticResource SplitPane.Splitter}"
-                                  AutomationProperties.Name="Resize the note pane" />
+                    <Border x:Name="StripPane"
+                            Style="{StaticResource Pane}"
+                            Visibility="{Binding Strip.Shown, Converter={StaticResource Visible}}"
+                            IsVisibleChanged="OnStripShown"
+                            KeyDown="OnStripPaneKeyDown">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
 
-                    <Border Grid.Column="2" Style="{StaticResource Pane}">
-                        <review:FilmstripView x:Name="Strip" DataContext="{Binding Strip}" />
+                            <!-- The way back, first in the Tab order, and the key that does it. -->
+                            <Button x:Name="BackToNote"
+                                    Grid.Row="0"
+                                    Margin="12,12,0,0"
+                                    HorizontalAlignment="Left"
+                                    Style="{StaticResource Button.Ghost}"
+                                    Click="OnBackToNote"
+                                    AutomationProperties.Name="Back to the note"
+                                    AutomationProperties.AcceleratorKey="Alt+1">
+                                <StackPanel Orientation="Horizontal">
+                                    <controls:Glyph Style="{StaticResource Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xE72B;" />
+                                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Back to the note" />
+                                    <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.KeyHint}" Foreground="{DynamicResource Brush.text.muted}" Text="Alt+1" />
+                                </StackPanel>
+                            </Button>
+
+                            <review:FilmstripView x:Name="Strip" Grid.Row="1" DataContext="{Binding Strip}" />
+                        </Grid>
                     </Border>
                 </Grid>
 

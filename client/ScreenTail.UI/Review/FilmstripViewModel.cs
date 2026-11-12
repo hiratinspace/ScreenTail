@@ -188,6 +188,20 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     public bool IsEnlarged => Enlarged is not null;
 
     /// <summary>
+    /// The whole strip is open in the note's place (Spec v0.6.0 §5 S3, as built v0.6.5): Alt+2 or "All
+    /// screenshots". The note carries each step's own frame, so the strip is where the frames no step
+    /// shows, Del and its undo are.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(Shown))]
+    private bool _browsing;
+
+    /// <summary>The strip or an enlarged frame is over the note: browsing, or a frame opened from its step.</summary>
+    public bool Shown => Browsing || IsEnlarged;
+
+    partial void OnEnlargedChanged(FrameItem? value) => OnPropertyChanged(nameof(Shown));
+
+    /// <summary>
     /// Fills in the thumbnails. Called once the pane is up, so the first paint is not blocked on IO, and
     /// cancelled when the pane goes, so a closed Review stops pulling pictures over the shared pipe (E-105).
     ///

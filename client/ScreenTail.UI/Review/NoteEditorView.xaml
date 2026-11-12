@@ -5,12 +5,22 @@
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              Background="Transparent"
              AutomationProperties.Name="Note">
+    <!-- Spec v0.6.0 §5 S3, "The note is edited in place as it will land": Problem, Steps, Result and
+         Follow-ups in the ticket's plain-text form, each line edited where it is read, so there is no
+         preview to drift out of sync. Each step carries its own frame, time and quote; an inferred step
+         says so with Looks right and Edit; under the note, the masking count and the save state. -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
 
-        <!-- A section's name above its field: the pane's own hierarchy, a step quieter than its title. -->
-        <Style x:Key="Note.Section" BasedOn="{StaticResource Text.Label}" TargetType="TextBlock">
-            <Setter Property="Margin" Value="0,0,0,6" />
+        <!-- A section's heading, as the ticket's plain text has it: Size.lg semibold, text.primary (v0.5.0). -->
+        <Style x:Key="Note.Section" BasedOn="{StaticResource Text.SectionHeading}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+
+        <!-- Under an empty section: the formatter leaves it off the ticket, so the note says so. -->
+        <Style x:Key="Note.Empty" BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,2,0,0" />
+            <Setter Property="Text" Value="{Binding DataContext.EmptySection, RelativeSource={RelativeSource AncestorType=UserControl}}" />
         </Style>
     </UserControl.Resources>
 
@@ -22,14 +32,14 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <!-- The pane's title, like the other two. -->
+        <!-- What this is and how to change it, quietly, where the v0.5 pane had its title. -->
         <TextBlock Grid.Row="0"
-                   Margin="20,18,20,12"
-                   Style="{StaticResource Text.SectionHeading}"
-                   Text="Note" />
+                   Margin="24,16,24,12"
+                   Style="{StaticResource Text.Muted}"
+                   Text="{Binding Guide}" />
 
         <!-- Banners. Spec §7: never colour alone, so each carries a glyph and the kind as a word. -->
-        <controls:Repeater Grid.Row="1" Margin="20,0,20,4" ItemsSource="{Binding Banners}">
+        <controls:Repeater Grid.Row="1" Margin="24,0,24,4" ItemsSource="{Binding Banners}">
             <ItemsControl.ItemTemplate>
                 <DataTemplate>
                     <!-- Announced from its words below: a Border has no automation peer, so a live region on it
@@ -47,8 +57,7 @@
                         </Border.Style>
                         <!-- A Grid, not a horizontal StackPanel: a StackPanel measures its children with
                              infinite width, so TextWrapping never fires and the sentence is cut off at the
-                             pane edge mid-word. The first version hid that behind MaxWidth="420", which is
-                             a magic number that is wrong at every other pane width. -->
+                             pane edge mid-word. -->
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
@@ -129,125 +138,300 @@
                        Text="{Binding DraftPendingMessage}" />
         </StackPanel>
 
-        <ScrollViewer Grid.Row="2"
-                      Padding="20,4,14,8"
+        <ScrollViewer x:Name="NoteScroll"
+                      Grid.Row="2"
+                      Padding="24,0,18,8"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Visibility="{Binding HasDraft, Converter={StaticResource Visible}}">
+            <!-- The text boxes reach 8 px past the headings (their padding), so the words line up under them. -->
             <StackPanel>
                 <TextBlock Style="{StaticResource Note.Section}" Text="Problem" />
-                <TextBox Style="{StaticResource Input.Multiline}"
-                         Margin="0,0,0,20"
+                <TextBox Style="{StaticResource Input.InPlace}"
+                         Margin="-8,0,0,0"
                          Text="{Binding Problem, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Problem" />
+                <TextBlock>
+                    <TextBlock.Style>
+                        <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Problem}" Value="">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
 
-                <TextBlock Style="{StaticResource Note.Section}" Text="Steps" />
-                <controls:Repeater x:Name="StepList" ItemsSource="{Binding Steps}" Margin="0,0,0,12">
+                <TextBlock Margin="0,20,0,4" Style="{StaticResource Note.Section}" Text="Steps" />
+                <controls:Repeater x:Name="StepList" ItemsSource="{Binding Steps}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate DataType="{x:Type review:StepRow}">
-                            <Grid Margin="0,0,0,12">
-                                <Grid.ColumnDefinitions>
-                                    <!-- Reserved whether or not the rule is drawn. With Auto the column
-                                         collapses when the marker clears, so pressing Alt+C slid the step
-                                         thirteen pixels left and left it out of line with its neighbours. -->
-                                    <ColumnDefinition Width="11" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
+                            <!-- One step, as it lands ("2. Started the service"), with its evidence on its own
+                                 row (Spec §1.1: "Evidence sits beside the claim"): the time, then the frame. -->
+                            <Border Margin="-8,0,0,4" Padding="8,6,0,6" CornerRadius="{DynamicResource Radius.control}" BorderThickness="0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="Transparent" />
+                                        <Style.Triggers>
+                                            <!-- A transcript line picked in the timeline is this step's. -->
+                                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                                <Setter Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <!-- Reserved whether or not the rule is drawn. With Auto the column
+                                             collapses when the marker clears, so pressing Alt+C slid the step
+                                             sideways and left it out of line with its neighbours. -->
+                                        <ColumnDefinition Width="9" />
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
 
-                                <!-- The ⚠ rule down the left edge. One of three signals, not the signal. -->
-                                <Border Grid.Column="0"
-                                        Width="3"
-                                        HorizontalAlignment="Left"
-                                        CornerRadius="1.5"
-                                        Background="{DynamicResource Brush.confidence.low}"
-                                        Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />
+                                    <!-- The ⚠ rule down the left edge. One of three signals, not the signal. -->
+                                    <Border Grid.Column="0"
+                                            Width="3"
+                                            HorizontalAlignment="Left"
+                                            CornerRadius="1.5"
+                                            Background="{DynamicResource Brush.confidence.low}"
+                                            Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />
 
-                                <StackPanel Grid.Column="1">
-                                    <TextBox Style="{StaticResource Input.Multiline}"
-                                             PreviewKeyDown="OnStepKeyDown"
-                                             Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
-                                             AutomationProperties.Name="{Binding Place}" />
+                                    <!-- The number the ticket gives it, level with the text's first line. -->
+                                    <TextBlock Grid.Column="1"
+                                               Margin="0,6,0,0"
+                                               VerticalAlignment="Top"
+                                               Style="{StaticResource Text.Secondary}"
+                                               FontWeight="{DynamicResource Weight.semibold}"
+                                               Text="{Binding Number, StringFormat={}{0}.}" />
 
-                                    <WrapPanel Orientation="Horizontal" Margin="0,6,0,0">
-                                        <!-- Glyph, word and rule: readable with no colour at all (Spec §7). -->
-                                        <ContentControl Style="{StaticResource Badge.Confidence}"
-                                                        Margin="0,0,6,0"
-                                                        VerticalAlignment="Center"
-                                                        Content="⚠ Inferred"
-                                                        ToolTip="{Binding VerificationTooltip}"
-                                                        AutomationProperties.HelpText="{Binding VerificationTooltip}"
-                                                        Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}" />
+                                    <StackPanel Grid.Column="2">
+                                        <TextBox Style="{StaticResource Input.InPlace}"
+                                                 Margin="-8,0,0,0"
+                                                 PreviewKeyDown="OnStepKeyDown"
+                                                 Text="{Binding Text, UpdateSourceTrigger=PropertyChanged}"
+                                                 AutomationProperties.Name="{Binding Place}" />
 
-                                        <controls:Repeater ItemsSource="{Binding Frames}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <StackPanel Orientation="Horizontal" />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <!-- The chip selects its frame in the strip through the note's
-                                                     ShowFrameCommand, which ReviewViewModel hands to the strip (T-165). -->
-                                                <DataTemplate>
-                                                    <Button Style="{StaticResource Chip}"
-                                                            Margin="0,0,6,0"
-                                                            Content="{Binding Label}"
+                                        <!-- What was said, set as a quotation: a rule at the left and the
+                                             monospace face, so it never reads as part of the step. -->
+                                        <Border Margin="2,6,0,0"
+                                                Padding="10,0,0,0"
+                                                BorderBrush="{DynamicResource Brush.border.strong}"
+                                                BorderThickness="2,0,0,0"
+                                                Visibility="{Binding HasQuote, Converter={StaticResource Visible}}">
+                                            <TextBlock Style="{StaticResource Text.Mono}"
+                                                       TextWrapping="Wrap"
+                                                       Foreground="{DynamicResource Brush.text.muted}"
+                                                       Text="{Binding Quote}" />
+                                        </Border>
+
+                                        <!-- Inferred (Spec v0.6.0 §5 S3): the glyph in confidence.low, the words
+                                             in body colour, then Looks right (Alt+C) and Edit. Glyph, words and
+                                             rule: readable with no colour at all (Spec §7). -->
+                                        <WrapPanel Margin="0,8,0,0"
+                                                   Orientation="Horizontal"
+                                                   Visibility="{Binding NeedsVerification, Converter={StaticResource Visible}}">
+                                            <StackPanel Margin="0,0,12,0" VerticalAlignment="Center" Orientation="Horizontal" ToolTip="{Binding VerificationTooltip}">
+                                                <controls:Glyph Style="{StaticResource Icon}"
+                                                                Foreground="{DynamicResource Brush.confidence.low}"
+                                                                FontSize="{DynamicResource Size.sm}"
+                                                                Text="&#xE7BA;" />
+                                                <TextBlock Margin="6,0,0,0"
+                                                           VerticalAlignment="Center"
+                                                           Style="{StaticResource Text.Body}"
+                                                           FontSize="{DynamicResource Size.sm}"
+                                                           Text="{Binding InferredLine}" />
+                                            </StackPanel>
+                                            <Button Margin="0,0,8,0"
+                                                    Style="{StaticResource Button.Secondary}"
+                                                    Command="{Binding DataContext.ConfirmStepCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Click="OnConfirmClick"
+                                                    AutomationProperties.Name="{Binding ConfirmName}"
+                                                    AutomationProperties.AcceleratorKey="Alt+C"
+                                                    AutomationProperties.HelpText="{Binding VerificationTooltip}">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock VerticalAlignment="Center" Text="Looks right" />
+                                                    <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.KeyHint}" Foreground="{DynamicResource Brush.text.muted}" Text="Alt+C" />
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Style="{StaticResource Button.Ghost}"
+                                                    Content="Edit"
+                                                    Click="OnEditClick"
+                                                    AutomationProperties.Name="{Binding EditName}" />
+                                        </WrapPanel>
+                                    </StackPanel>
+
+                                    <!-- When, on the session's clock: the transcript's own times. -->
+                                    <TextBlock Grid.Column="3"
+                                               Margin="16,7,16,0"
+                                               VerticalAlignment="Top"
+                                               Style="{StaticResource Text.Muted}"
+                                               Text="{Binding Time}" />
+
+                                    <!-- The step's frame (the v0.5 screenshot column and "frame 2" chips go):
+                                         its thumbnail is the button. Enter or a click enlarges it over the note,
+                                         Space includes or excludes it, as in the strip; what it is called on
+                                         the ticket is under it. -->
+                                    <controls:Repeater Grid.Column="4" ItemsSource="{Binding Frames}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate DataType="{x:Type review:FrameChip}">
+                                                <StackPanel Width="160"
+                                                            Margin="0,2,0,6"
+                                                            Visibility="{Binding Present, Converter={StaticResource Visible}}">
+                                                    <Button Width="160"
+                                                            Height="90"
+                                                            Style="{StaticResource StepFrame}"
                                                             Tag="{Binding Id}"
                                                             Command="{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                            CommandParameter="{Binding Id}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </controls:Repeater>
-                                    </WrapPanel>
-
-                                    <!-- What was said, set as a quotation: a rule at the left and the
-                                         monospace face, so it never reads as part of the step. -->
-                                    <Border Margin="2,8,0,0"
-                                            Padding="10,0,0,0"
-                                            BorderBrush="{DynamicResource Brush.border.strong}"
-                                            BorderThickness="2,0,0,0"
-                                            Visibility="{Binding HasQuote, Converter={StaticResource Visible}}">
-                                        <TextBlock Style="{StaticResource Text.Mono}"
-                                                   TextWrapping="Wrap"
-                                                   Foreground="{DynamicResource Brush.text.muted}"
-                                                   Text="{Binding Quote}" />
-                                    </Border>
-                                </StackPanel>
-                            </Grid>
+                                                            CommandParameter="{Binding Id}"
+                                                            PreviewKeyDown="OnFrameKeyDown"
+                                                            ToolTip="Enter or click to enlarge, B there to blur. Space includes or excludes it."
+                                                            AutomationProperties.Name="{Binding SpokenName}"
+                                                            AutomationProperties.HelpText="Enter enlarges it. Space includes or excludes it.">
+                                                        <Border ClipToBounds="True" CornerRadius="{DynamicResource Radius.control}">
+                                                            <Grid>
+                                                                <!-- Under the picture: shows while it loads, covered once it arrives. -->
+                                                                <controls:Glyph HorizontalAlignment="Center"
+                                                                                Style="{StaticResource Icon}"
+                                                                                FontSize="{DynamicResource Size.lg}"
+                                                                                Foreground="{DynamicResource Brush.text.muted}"
+                                                                                Text="&#xEB9F;" />
+                                                                <!-- The picture and its masks in the frame's own pixels, scaled together,
+                                                                     so a mask covers the same part at every size. -->
+                                                                <Viewbox Stretch="Uniform">
+                                                                    <Grid Width="{Binding FrameWidth}" Height="{Binding FrameHeight}">
+                                                                        <Image Source="{Binding Item.Thumbnail}"
+                                                                               Stretch="Fill"
+                                                                               AutomationProperties.Name="{Binding Label}" />
+                                                                        <controls:Repeater ItemsSource="{Binding Masks}">
+                                                                            <ItemsControl.ItemsPanel>
+                                                                                <ItemsPanelTemplate>
+                                                                                    <Grid />
+                                                                                </ItemsPanelTemplate>
+                                                                            </ItemsControl.ItemsPanel>
+                                                                            <ItemsControl.ItemTemplate>
+                                                                                <DataTemplate DataType="{x:Type review:MaskBox}">
+                                                                                    <Rectangle Width="{Binding Width}"
+                                                                                               Height="{Binding Height}"
+                                                                                               Margin="{Binding Offset}"
+                                                                                               HorizontalAlignment="Left"
+                                                                                               VerticalAlignment="Top"
+                                                                                               Fill="{DynamicResource Brush.shell.bg}" />
+                                                                                </DataTemplate>
+                                                                            </ItemsControl.ItemTemplate>
+                                                                        </controls:Repeater>
+                                                                    </Grid>
+                                                                </Viewbox>
+                                                            </Grid>
+                                                            <!-- Left out: dimmed, and the words under it say so (never opacity alone). -->
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Place}" Value="not attached">
+                                                                            <Setter Property="Opacity" Value="0.4" />
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Place}" Value="withheld">
+                                                                            <Setter Property="Opacity" Value="0.4" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                        </Border>
+                                                    </Button>
+                                                    <WrapPanel Margin="2,4,0,0" Orientation="Horizontal">
+                                                        <TextBlock Margin="0,0,10,0" Style="{StaticResource Text.Muted}" Text="{Binding Place}" />
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <StackPanel.Style>
+                                                                <Style TargetType="StackPanel">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding MaskedLabel}" Value="">
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </StackPanel.Style>
+                                                            <controls:Glyph Style="{StaticResource Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xE72E;" />
+                                                            <TextBlock Margin="4,0,0,0" Style="{StaticResource Text.Muted}" Text="{Binding MaskedLabel}" />
+                                                        </StackPanel>
+                                                    </WrapPanel>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </controls:Repeater>
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </controls:Repeater>
 
-                <TextBlock Style="{StaticResource Note.Section}" Text="Result" />
-                <TextBox Style="{StaticResource Input.Multiline}"
-                         Margin="0,0,0,20"
+                <TextBlock Margin="0,16,0,4" Style="{StaticResource Note.Section}" Text="Result" />
+                <TextBox Style="{StaticResource Input.InPlace}"
+                         Margin="-8,0,0,0"
                          Text="{Binding Result, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Result" />
+                <TextBlock>
+                    <TextBlock.Style>
+                        <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Result}" Value="">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
 
-                <TextBlock Style="{StaticResource Note.Section}" Text="Follow-ups" />
-                <TextBox Style="{StaticResource Input.Multiline}"
-                         Margin="0,0,0,4"
+                <TextBlock Margin="0,20,0,4" Style="{StaticResource Note.Section}" Text="Follow-ups" />
+                <TextBox Style="{StaticResource Input.InPlace}"
+                         Margin="-8,0,0,0"
                          Text="{Binding FollowUps, UpdateSourceTrigger=PropertyChanged}"
                          AutomationProperties.Name="Follow-ups, one per line" />
+                <TextBlock>
+                    <TextBlock.Style>
+                        <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding FollowUps}" Value="">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Footer: the save indicator, what is left to check, and the chords that apply to this pane.
-             Spec §5 S3 puts the map where it is used rather than only in the ? sheet. -->
+        <!-- Under the note (Spec v0.6.0 §5 S3): the masking count and the save state, "2 items masked, none
+             left to review · Saved"; then the chords for this pane and the way to the whole strip. -->
         <Border Grid.Row="3"
-                Padding="20,10"
+                Padding="24,8"
                 BorderBrush="{DynamicResource Brush.border.subtle}"
                 BorderThickness="0,1,0,0">
-            <!-- Two lines: what is left to do, then the chords. Side by side they wrapped into each
-                 other at the pane's usual width. -->
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <WrapPanel Grid.Column="0" VerticalAlignment="Center" Orientation="Horizontal">
                     <TextBlock VerticalAlignment="Center"
-                               Foreground="{DynamicResource Brush.text.secondary}"
-                               Text="{Binding SaveLabel}"
-                               AutomationProperties.Name="{Binding SaveLabel}"
-                               controls:LiveRegion.Setting="Polite">
-                        <!-- Gone when there is nothing to say: an empty, zero-sized text is an element a screen
-                             reader finds with nothing in it, and Accessibility Insights fails it (ST-084). -->
+                               Style="{StaticResource Text.Secondary}"
+                               FontSize="{DynamicResource Size.sm}"
+                               Text="{Binding MaskingLabel}" />
+
+                    <!-- The save state after a dot, and only when there is one: the harness persists nothing,
+                         and an editor that says "Saved" about a note going nowhere is the lie it exists to
+                         prevent. An empty, zero-sized text is an element with nothing in it (ST-084). -->
+                    <TextBlock Margin="6,0"
+                               VerticalAlignment="Center"
+                               Text="·">
                         <TextBlock.Style>
                             <Style BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
                                 <Style.Triggers>
@@ -258,32 +442,45 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-
-                    <!-- Spaced from the save label only when there is one, so it never starts indented. -->
                     <TextBlock VerticalAlignment="Center"
-                               Text="{Binding UnverifiedLabel}">
+                               Foreground="{DynamicResource Brush.text.secondary}"
+                               Text="{Binding SaveLabel}"
+                               AutomationProperties.Name="{Binding SaveLabel}"
+                               controls:LiveRegion.Setting="Polite">
                         <TextBlock.Style>
                             <Style BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
-                                <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
-                                <Setter Property="Margin" Value="12,0,0,0" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding SaveLabel}" Value="">
-                                        <Setter Property="Margin" Value="0" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding SaveLabel}" Value="{x:Null}">
-                                        <Setter Property="Margin" Value="0" />
+                                        <Setter Property="Visibility" Value="Collapsed" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                </StackPanel>
+                </WrapPanel>
 
-                <TextBlock Margin="0,4,0,0"
-                           Style="{StaticResource Text.Muted}"
-                           FontSize="{DynamicResource Size.xs}"
-                           Text="Alt+C confirm · Alt+↑↓ reorder · Ctrl+S save" />
-            </StackPanel>
+                <StackPanel Grid.Column="1" Margin="16,0,0,0" Orientation="Horizontal">
+                    <TextBlock Margin="0,0,12,0"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Muted}"
+                               FontSize="{DynamicResource Size.xs}"
+                               Text="Alt+C looks right · Alt+↑↓ reorder · Ctrl+S save" />
+
+                    <!-- The whole strip, in the note's place: the frames no step shows, Del and its undo. -->
+                    <Button Style="{StaticResource Button.Secondary}"
+                            Command="{Binding ShowAllScreenshotsCommand}"
+                            Visibility="{Binding HasStrip, Converter={StaticResource Visible}}"
+                            AutomationProperties.Name="{Binding AllScreenshotsName}"
+                            AutomationProperties.AcceleratorKey="Alt+2">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xEB9F;" />
+                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="All screenshots" />
+                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding StripHeader}" />
+                            <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.KeyHint}" Foreground="{DynamicResource Brush.text.muted}" Text="Alt+2" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
     </Grid>
 </UserControl>

@@ -396,6 +396,63 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- In place (Spec v0.6.0 §5 S3, "The note is edited in place as it will land"): the note's own text,
+         read as the ticket will show it. At rest it is the text on the pane; the edge shows on hover, and
+         focus is the accent outline at 2 px and the focus ring, as on every other field. -->
+    <Style x:Key="Input.InPlace" BasedOn="{StaticResource Input.Multiline}" TargetType="TextBox">
+        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource Radius.control}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Top" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brush.border.control}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.bg.surface}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                            <Setter TargetName="Chrome" Property="BorderThickness" Value="2" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.text.muted}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A step's frame on its row (Spec v0.6.0 §5 S3): the thumbnail is the button. Its edge is the control
+         edge, so the picture reads as something to press, and hover and press tint it like a chip. -->
+    <Style x:Key="StepFrame" TargetType="Button">
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+        <Setter Property="Template" Value="{StaticResource Button.Template}" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.pressed}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <Style x:Key="Input.Error" BasedOn="{StaticResource Input.Default}" TargetType="TextBox">
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
     </Style>

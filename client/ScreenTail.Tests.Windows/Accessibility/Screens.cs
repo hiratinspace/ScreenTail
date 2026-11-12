@@ -25,7 +25,7 @@ internal static class Screens
     public static readonly string[] All =
     [
         "review", "review-no-psa", "review-published", "review-partial", "review-needs-mapping", "review-timeline", "review-enlarged",
-        "review-blur-box", "history", "settings", "service-down",
+        "review-blur-box", "review-note-inferred", "review-note-masked", "review-strip", "review-step-enlarged", "history", "settings", "service-down",
         "onboarding-welcome", "onboarding-activate", "onboarding-permissions", "onboarding-tools", "onboarding-connect", "onboarding-tryit", "onboarding-done",
         "diagnostics", "diagnostics-unanswered",
         "confirm-discard", "confirm-bulk-discard", "confirm-erase", "shortcut-sheet",
@@ -39,7 +39,8 @@ internal static class Screens
         {
             case var review when review.StartsWith("review", StringComparison.Ordinal):
                 var enlarged = review is "review-enlarged" or "review-blur-box";
-                window = await ShellAsync(state => state.OpenSession(enlarged ? "preview" : review.Replace("review", "preview", StringComparison.Ordinal)));
+                var sample = enlarged || review is "review-strip" or "review-step-enlarged" ? "preview" : review.Replace("review", "preview", StringComparison.Ordinal);
+                window = await ShellAsync(state => state.OpenSession(sample));
                 await PaneAsync<ReviewPane>(window);
                 if (enlarged)
                 {
@@ -49,6 +50,17 @@ internal static class Screens
                 if (review == "review-blur-box")
                 {
                     _ = await OpenBlurBoxAsync(window);
+                }
+
+                // The whole strip over the note (Alt+2), and a step's own frame enlarged over it.
+                if (review == "review-strip")
+                {
+                    _ = await FocusFirstFrameAsync(window);
+                }
+
+                if (review == "review-step-enlarged")
+                {
+                    await EnlargeFirstStepsFrameAsync(window);
                 }
 
                 break;
@@ -207,10 +219,21 @@ internal static class Screens
         Audit.Descendants(shell).OfType<ReviewPane>().Single().DataContext as ReviewViewModel
         ?? throw new InvalidOperationException("The Review pane has no view model.");
 
-    /// <summary>Puts keyboard focus on the strip's first screenshot, as a click or the arrows would.</summary>
+    /// <summary>
+    /// Puts keyboard focus on the strip's first screenshot, as a click or the arrows would. In Review the
+    /// strip opens over the note (Spec v0.6.0 §5 S3, as built v0.6.5), so it is opened first with Alt+2,
+    /// the way a technician gets there.
+    /// </summary>
     public static async Task<ListBoxItem> FocusFirstFrameAsync(Window shell)
     {
         var strip = Audit.Descendants(shell).OfType<FilmstripView>().Single();
+        if (!strip.IsVisible)
+        {
+            _ = Keys.Press(shell, Key.D2, ModifierKeys.Alt);
+            await UntilAsync(() => strip.IsVisible);
+            Assert.True(strip.IsVisible, "Alt+2 did not open the screenshots over the note.");
+        }
+
         var item = Audit.Descendants(strip).OfType<ListBoxItem>().First(i => i.DataContext is FrameItem);
         _ = item.Focus();
         item.IsSelected = true;
@@ -230,6 +253,21 @@ internal static class Screens
         await UntilAsync(() => Review(shell).Strip.IsEnlarged);
         await DrawnAsync(shell);
         Assert.True(Review(shell).Strip.IsEnlarged, "Enter on a screenshot did not enlarge it.");
+    }
+
+    /// <summary>The first step's frame, pressed with Enter on its row: enlarged over the note (Spec v0.6.0 §5 S3).</summary>
+    public static async Task<Button> EnlargeFirstStepsFrameAsync(Window shell)
+    {
+        var note = Audit.Descendants(shell).OfType<NoteEditorView>().Single();
+        var frame = Audit.Descendants(note).OfType<Button>().First(b => b.DataContext is FrameChip && b.IsVisible);
+        _ = frame.Focus();
+        await Audit.Settle();
+        Assert.True(frame.IsKeyboardFocused, "The first step's frame did not take keyboard focus.");
+        _ = Keys.Press(shell, Key.Enter);
+        await UntilAsync(() => Review(shell).Strip.IsEnlarged);
+        await DrawnAsync(shell);
+        Assert.True(Review(shell).Strip.IsEnlarged, "Enter on a step's frame did not enlarge it.");
+        return frame;
     }
 
     /// <summary>`B` on the enlarged screenshot: the blur box out, in the middle of the picture, with focus on it.</summary>
