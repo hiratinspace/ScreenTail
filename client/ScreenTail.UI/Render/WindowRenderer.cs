@@ -144,15 +144,25 @@ internal static class WindowRenderer
         {
             var asked = box.Value;
             var frameHeight = Math.Max(0, window.ActualHeight - root.ActualHeight);
-            var outer = new Size(asked.Width, height is { } tall ? tall + frameHeight : asked.Height);
-            if (!double.IsNaN(outer.Width) && Math.Abs(window.Width - outer.Width) >= 0.5)
+            var outer = new Size(
+                double.IsNaN(asked.Width) ? window.ActualWidth : asked.Width,
+                height is { } tall ? tall + frameHeight : double.IsNaN(asked.Height) ? window.ActualHeight : asked.Height);
+            if ((Math.Abs(window.ActualWidth - outer.Width) >= 0.5 || Math.Abs(window.ActualHeight - outer.Height) >= 0.5)
+                && PresentationSource.FromVisual(window) is HwndSource source)
             {
-                window.Width = outer.Width;
-            }
-
-            if (!double.IsNaN(outer.Height) && Math.Abs(window.Height - outer.Height) >= 0.5)
-            {
-                window.Height = outer.Height;
+                // Setting Width and Height goes through WM_WINDOWPOSCHANGING, where Windows caps a window
+                // at the screen's size, and answering WM_GETMINMAXINFO did not lift the cap (the second
+                // hosted run still made the shell 1044x788). SWP_NOSENDCHANGING skips that message, so the
+                // window takes the size; WPF hears of it through WM_SIZE and lays out as normal.
+                var scale = source.CompositionTarget?.TransformToDevice.M11 ?? 1;
+                _ = SetWindowPos(
+                    source.Handle,
+                    IntPtr.Zero,
+                    0,
+                    0,
+                    (int)Math.Round(outer.Width * scale),
+                    (int)Math.Round(outer.Height * scale),
+                    SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpNoSendChanging);
             }
 
             window.UpdateLayout();
@@ -216,52 +226,28 @@ internal static class WindowRenderer
         VisualTreeHelper.GetChildrenCount(window) > 0 ? VisualTreeHelper.GetChild(window, 0) as FrameworkElement : null;
 
     /// <summary>
-    /// Remembers the size the window's XAML asks for, and lets the window be bigger than the screen.
+    /// Remembers the size the window's XAML asks for, so <see cref="Lay"/> can give the window that size.
     /// Called before the window is shown: showing it on the runner rewrites
-    /// <see cref="FrameworkElement.Width"/> to what fitted.
-    ///
-    /// Windows caps a window at the screen's size through <c>WM_GETMINMAXINFO</c>. The harness's windows
-    /// answer that message with no cap, so a render is the layout a technician's bigger screen gets and a
-    /// tall render of a scrolling page is the page. Only harness windows are ever passed here.
+    /// <see cref="FrameworkElement.Width"/> to what fitted. Only harness windows are ever passed here.
     /// </summary>
     public static T Intend<T>(T window)
         where T : Window
     {
         ArgumentNullException.ThrowIfNull(window);
         Intended.AddOrUpdate(window, new StrongBox<Size>(new Size(window.Width, window.Height)));
-        if (PresentationSource.FromVisual(window) is HwndSource shown)
-        {
-            shown.AddHook(Uncapped);
-        }
-        else
-        {
-            window.SourceInitialized += (_, _) => (PresentationSource.FromVisual(window) as HwndSource)?.AddHook(Uncapped);
-        }
-
         return window;
     }
 
-    private const int WmGetMinMaxInfo = 0x0024;
-
-    /// <summary>Lifts the screen-size cap from <c>MINMAXINFO</c>: <c>ptMaxSize</c> at 8 and <c>ptMaxTrackSize</c> at 32.</summary>
-    private static IntPtr Uncapped(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (message == WmGetMinMaxInfo && lParam != IntPtr.Zero)
-        {
-            // Windows fills the defaults before it sends the message, so only the caps change here, and
-            // the message is answered so nothing after this puts them back.
-            foreach (var offset in new[] { 8, 12, 32, 36 })
-            {
-                Marshal.WriteInt32(lParam, offset, 16_000);
-            }
-
-            handled = true;
-        }
-
-        return IntPtr.Zero;
-    }
-
     private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Intended = [];
+
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoSendChanging = 0x0400;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     private static void Write(RenderTargetBitmap bitmap, string path)
     {
