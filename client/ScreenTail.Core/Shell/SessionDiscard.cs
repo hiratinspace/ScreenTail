@@ -14,8 +14,9 @@ namespace ScreenTail.Core.Shell;
 /// Neither asks anything while the session is still being captured: Spec §4 allows no modal during a
 /// recording, and Review of the running session is read-only until it stops (§5 S2). The screen says why
 /// beside the button instead, which a keyboard user can reach. The service would stop a recording session
-/// before discarding it all the same (v0.4.1 Q3); this keeps the dialog off the screen. History's bulk
-/// discard asks nothing while any session is being captured, and asks again once its dialog is answered.
+/// before discarding it all the same (v0.4.1 Q3); this keeps the dialog off the screen. Review's Discard
+/// and History's bulk discard ask nothing while any session is being captured, and ask again once their
+/// dialog is answered.
 ///
 /// Platform-neutral, so the flow is tested on the Mac over a real pipe (ADR-0002).
 /// </summary>
@@ -33,6 +34,9 @@ public sealed class SessionDiscard(
 
     /// <summary>History's bulk discard while some other session is being captured.</summary>
     public const string WhileCapturing = "A session is being captured. Stop it first, then discard the selected sessions.";
+
+    /// <summary>Review's Discard of a finished session while some other session is being captured.</summary>
+    public const string ReviewWhileCapturing = "A session is being captured. Stop it first, then discard this one.";
 
     private readonly ShellState _state = state ?? throw new ArgumentNullException(nameof(state));
     private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<ConfirmationIssued?>> _request = request ?? throw new ArgumentNullException(nameof(request));
@@ -75,23 +79,40 @@ public sealed class SessionDiscard(
     public string? BulkBlockedBecause(IReadOnlyCollection<string> sessionIds) =>
         BlockedBecause(sessionIds) ?? (Capturing(_state.Snapshot.KnownCapture) ? WhileCapturing : null);
 
+    /// <summary>
+    /// Why Review's Discard cannot ask about the session it shows right now, or null. Stricter than
+    /// <see cref="BlockedBecause"/> in the same way as <see cref="BulkBlockedBecause"/>: its typed dialog
+    /// is a modal, and Spec §4 allows none while any session is being captured, whichever one Review
+    /// shows. The shown session is still named when it is the live one.
+    /// </summary>
+    public string? ReviewBlockedBecause(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return BlockedBecause([sessionId]) ?? (Capturing(_state.Snapshot.KnownCapture) ? ReviewWhileCapturing : null);
+    }
+
     /// <summary>Whether <paramref name="error"/> is one of the reasons a discard waits for capture to stop, which leaves the screen as it is.</summary>
     public static bool SaysCapturing(string? error) =>
-        error is StillCapturing or OneStillCapturing or WhileCapturing;
+        error is StillCapturing or OneStillCapturing or WhileCapturing or ReviewWhileCapturing;
 
-    private static bool Capturing(CaptureStateSnapshot? capture) =>
+    /// <summary>Whether <paramref name="capture"/> is a session being captured: recording, paused, suppressed or still finalizing.</summary>
+    internal static bool Capturing(CaptureStateSnapshot? capture) =>
         capture?.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing;
 
     /// <summary>
     /// Review's Discard, once the technician has typed DISCARD in the dialog. A token is asked for now,
     /// fresh, as <see cref="ConfirmedAction"/> asks for its second: a service that asks for anything but
     /// DISCARD is not one the technician agreed with, and nothing is sent.
+    ///
+    /// The note pane asks <see cref="ReviewBlockedBecause"/> before it shows the dialog and again once it
+    /// is answered; this asks once more, here, as the last thing before the service is: a session may
+    /// have begun, or the service gone, while DISCARD was typed.
     /// </summary>
     public async Task<ConfirmedResult> FromReviewAsync(string sessionId, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         IReadOnlyList<string> ids = [sessionId];
-        if (BlockedBecause(ids) is { } blocked)
+        if (ReviewBlockedBecause(sessionId) is { } blocked)
         {
             return Blocked(blocked);
         }

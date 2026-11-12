@@ -127,7 +127,7 @@ public partial class ShellWindow : Window
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
-                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.CompletedTask),
+                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
                 new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
         DataContext = _model;

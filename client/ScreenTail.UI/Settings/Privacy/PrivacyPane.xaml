@@ -118,8 +118,21 @@
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Your data" />
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Style="{StaticResource Button.Secondary}" Content="Export audit log" Command="{Binding ExportAuditCommand}" />
-                    <Button Margin="8,0,0,0" Style="{StaticResource Button.Danger}" Content="Delete everything on this device…" Command="{Binding EraseEverythingCommand}" />
+                    <Button Margin="8,0,0,0"
+                            Style="{StaticResource Button.Danger}"
+                            Content="Delete everything on this device…"
+                            Command="{Binding EraseEverythingCommand}"
+                            AutomationProperties.Name="Delete everything on this device"
+                            AutomationProperties.HelpText="Deletes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will be asked to type DELETE EVERYTHING." />
                 </StackPanel>
+                <!-- Why it did not happen (a session is being captured, the service is not answering, or it
+                     refused): beside the button, never a dialog, and read out as it changes (Spec §4). -->
+                <TextBlock Margin="0,6,0,0"
+                           Style="{StaticResource Text.Error}"
+                           TextWrapping="Wrap"
+                           Text="{Binding EraseProblem}"
+                           Visibility="{Binding EraseProblemVisibility}"
+                           controls:LiveRegion.Setting="Assertive" />
                 <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Delete removes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will type DELETE EVERYTHING to confirm. It cannot be undone." />
             </StackPanel>
         </Border>

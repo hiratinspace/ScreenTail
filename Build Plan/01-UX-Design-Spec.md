@@ -219,7 +219,7 @@ Window default 1280×800, minimum 1024×680. Three resizable panes plus a collap
 **Bottom panel — Timeline & transcript**
 - Collapsed by default to a 40 px scrubber; `Alt+T` toggles. Expanded: 220 px with monospace transcript lines `[14:02:10] clearing the queue now`; clicking a line highlights its frame; markers for clicks (dots), frames (squares), suppression (striped), scope (violet band), "mark moment" (flag).
 
-**Header actions:** `Discard` (ghost, danger on hover → typed confirmation "DISCARD"), `Publish ▸` mirrors the right pane's button.
+**Header actions:** `Discard` (ghost, danger on hover → typed confirmation "DISCARD"), `Publish ▸` mirrors the right pane's button. While any session is being captured Discard asks nothing (§4): the line beside it says "This session is still being captured. Stop it first, then discard it." for the live session and "A session is being captured. Stop it first, then discard this one." for any other; if one starts while DISCARD is typed, nothing is discarded and the line says the same.
 
 **Shortcuts:** `Ctrl+Enter` Publish · `Ctrl+S` save now · `Alt+1/2/3` focus pane · `Alt+T` timeline · `Alt+C` confirm step · `Alt+↑/↓` reorder · `Space` include/exclude · `B` blur · arrows, `Shift`+arrows, `Ctrl`, `Enter`, `Esc` place, size, apply or put away the blur box · `Del` delete frame · `?` shortcut sheet · `Esc` close enlarged frame (put the blur box away first, when it is out).
 
@@ -237,7 +237,7 @@ Sections: *Remote tools* (list with toggles per tool and browser pattern; "Add c
 
 ### S6 — Settings → Privacy & Redaction
 
-Sections: *What leaves this device* (a short data-flow diagram in plain language: captured on device → redacted on device → summary request (or local model) → you publish); *Local-only mode* toggle (locked if policy) with quality note; *Excluded apps and windows* (list, add process/title/URL; defaults labeled "Recommended"); *Redaction patterns* (toggles: SSN, cards, API keys, passwords; custom regex with live validator and test box); *Retention* (slider 1–30 days; shows what is deleted vs kept); *Usage telemetry* (toggle with the exact list of fields sent); *Your data* (Export audit log · Delete everything — typed "DELETE").
+Sections: *What leaves this device* (a short data-flow diagram in plain language: captured on device → redacted on device → summary request (or local model) → you publish); *Local-only mode* toggle (locked if policy) with quality note; *Excluded apps and windows* (list, add process/title/URL; defaults labeled "Recommended"); *Redaction patterns* (toggles: SSN, cards, API keys, passwords; custom regex with live validator and test box); *Retention* (slider 1–30 days; shows what is deleted vs kept); *Usage telemetry* (toggle with the exact list of fields sent); *Your data* (Export audit log · Delete everything — typed "DELETE"). While a session is being captured, Delete everything asks nothing (§4): the line under the buttons says "A session is being captured. Stop it first, then delete everything.", and the same if one starts while the phrase is typed. Its other refusals are said there too, never in a message box.
 
 ### S7 — Settings → Integrations
 
