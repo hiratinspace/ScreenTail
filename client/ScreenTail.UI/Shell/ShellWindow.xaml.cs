@@ -147,12 +147,14 @@ public partial class ShellWindow : Window
     private static PublishPanel SamplePublish(Shared.Schema.Session fixture, string variant)
     {
         var ticket = new TicketMatch("48213", "Printer offline", "Acme Dental");
-        var connected = new[] { "connectwise" };
+        // Both providers, so each link in the result list is named for the one it goes to.
+        var connected = new[] { "connectwise", "hudu" };
+        var article = new Uri("https://acme.huducloud.com/kba/printer-offline-spooler");
         IReadOnlyList<TicketMatch> Search(string _) => [ticket, new("48190", "VPN drops hourly", "Acme Dental"), new("48007", "New starter laptop", "Bright Smiles")];
         IReadOnlyList<DestinationResult> Publish(PublishRequest request, bool failTime) =>
             [.. request.Destinations.Select(d => d == Destination.TimeEntry && failTime
                 ? new DestinationResult(d, false, null, "ConnectWise refused the member")
-                : new DestinationResult(d, true, new Uri("https://na.myconnectwise.net/v4_6_release/services/system_io/Service/fv_sr100_request.rails?service_recid=48213")))];
+                : new DestinationResult(d, true, d == Destination.KbArticle ? article : new Uri("https://na.myconnectwise.net/v4_6_release/services/system_io/Service/fv_sr100_request.rails?service_recid=48213")))];
 
         switch (variant)
         {
@@ -162,6 +164,7 @@ public partial class ShellWindow : Window
                 {
                     var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
                     panel.Suggest(ticket);
+                    panel.KbArticle = true;
                     panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
                     return panel;
                 }
