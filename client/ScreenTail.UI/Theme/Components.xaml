@@ -326,7 +326,7 @@
         <Setter Property="CaretBrush" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource Brush.accent.primary}" />
         <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.control}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
         <Setter Property="Template">
@@ -414,7 +414,7 @@
         <Setter Property="CaretBrush" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="SelectionBrush" Value="{DynamicResource Brush.accent.primary}" />
         <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.control}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
         <Setter Property="Template">
@@ -725,7 +725,7 @@
         <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.control}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />

@@ -28,6 +28,9 @@
     <SolidColorBrush x:Key="Brush.border.subtle" Color="{DynamicResource {x:Static SystemColors.ActiveBorderColorKey}}" />
     <Color x:Key="Token.border.strong">{x:Static SystemColors.WindowFrameColor}</Color>
     <SolidColorBrush x:Key="Brush.border.strong" Color="{DynamicResource {x:Static SystemColors.WindowFrameColorKey}}" />
+    <!-- An input's edge: the same system frame colour the inputs used before border.control existed. -->
+    <Color x:Key="Token.border.control">{x:Static SystemColors.WindowFrameColor}</Color>
+    <SolidColorBrush x:Key="Brush.border.control" Color="{DynamicResource {x:Static SystemColors.WindowFrameColorKey}}" />
     <Color x:Key="Token.text.primary">{x:Static SystemColors.WindowTextColor}</Color>
     <SolidColorBrush x:Key="Brush.text.primary" Color="{DynamicResource {x:Static SystemColors.WindowTextColorKey}}" />
     <Color x:Key="Token.text.secondary">{x:Static SystemColors.WindowTextColor}</Color>
