@@ -1,0 +1,233 @@
+<UserControl x:Class="ScreenTail.UI.Review.Publish.EnvelopeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
+             xmlns:core="clr-namespace:ScreenTail.Core.Review.Publish;assembly=ScreenTail.Core"
+             Background="Transparent"
+             AutomationProperties.Name="Where the note goes">
+    <!-- Spec v0.6.0 §5 S3, the envelope: four labelled lines over the note, each a value read in one pass.
+         To is the bound ticket with Change (Ctrl+T), As a visible two-way choice, Time the entry and its
+         rounding, Also the other destinations as chips. The subject line, Discard and Publish sit above
+         these, in the Review pane's header, so Publish lines up with the title the way Send does. -->
+    <UserControl.Resources>
+        <!-- The line's name in the left column: quiet, and the same width on every line so the values align. -->
+        <Style x:Key="Envelope.Label" BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
+            <Setter Property="Width" Value="{DynamicResource Layout.envelope-label}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+        <!-- One line of the envelope: a hairline above it and a row's height, like an email header's fields. -->
+        <Style x:Key="Envelope.Line" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.subtle}" />
+            <Setter Property="BorderThickness" Value="0,1,0,0" />
+            <Setter Property="MinHeight" Value="{DynamicResource Layout.row-height}" />
+            <Setter Property="Padding" Value="0,4" />
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <!-- ST-090: the backend's Development demo PSA, named where the technician is looking. -->
+        <Border Style="{StaticResource Banner.Info}"
+                Margin="0,0,0,8"
+                Visibility="{Binding DemoVisibility}"
+                AutomationProperties.Name="Demo PSA">
+            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding DemoNotice}" />
+        </Border>
+
+        <!-- To: the ticket as a value, why it is that one, and Change. With none, "No ticket yet" and
+             Choose a ticket, and Publish waits with its reason beside it. -->
+        <Border Style="{StaticResource Envelope.Line}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource Envelope.Label}" Text="To" />
+                <StackPanel Grid.Column="1">
+                    <WrapPanel Orientation="Horizontal">
+                        <Border Margin="0,2,12,2"
+                                Padding="{DynamicResource Padding.control}"
+                                VerticalAlignment="Center"
+                                Background="{DynamicResource Brush.bg.raised}"
+                                BorderBrush="{DynamicResource Brush.border.control}"
+                                BorderThickness="1"
+                                CornerRadius="{DynamicResource Radius.control}"
+                                Visibility="{Binding TicketChipVisibility}"
+                                AutomationProperties.Name="{Binding ToValue}">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" TextWrapping="NoWrap" Text="{Binding TicketId}" />
+                                <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Body}" TextWrapping="NoWrap" Text="{Binding TicketRest}" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Margin="0,0,12,0"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource Text.Secondary}"
+                                   Text="{Binding ToValue}"
+                                   Visibility="{Binding NoTicketVisibility}" />
+                        <TextBlock Margin="0,0,12,0"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource Text.Muted}"
+                                   Text="{Binding MatchedFrom}" />
+                        <StackPanel Orientation="Horizontal" Visibility="{Binding ChangeVisibility}">
+                            <Button x:Name="ChangeButton"
+                                    Style="{StaticResource Button.Ghost}"
+                                    Foreground="{DynamicResource Brush.accent.primary}"
+                                    Content="{Binding ChangeLabel}"
+                                    Command="{Binding ChangeTicketCommand}"
+                                    AutomationProperties.Name="{Binding ChangeLabel}"
+                                    AutomationProperties.AcceleratorKey="Ctrl+T" />
+                            <Border Margin="4,0,0,0" Style="{StaticResource KeyCap}">
+                                <TextBlock Style="{StaticResource Text.KeyHint}" Text="Ctrl+T" />
+                            </Border>
+                        </StackPanel>
+                    </WrapPanel>
+
+                    <!-- The picker, open in place under the value (Ctrl+T or Change). Recent tickets on focus;
+                         Enter or a click takes the highlighted one and closes it, Esc closes it as it was. -->
+                    <StackPanel Margin="0,4,0,4" MaxWidth="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left" Visibility="{Binding PickerVisibility}">
+                        <TextBox x:Name="TicketSearch"
+                                 Width="{DynamicResource Layout.content-max-width}"
+                                 Style="{StaticResource Input.Default}"
+                                 Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
+                                 GotKeyboardFocus="OnTicketFocus"
+                                 AutomationProperties.Name="Search tickets"
+                                 AutomationProperties.HelpText="Recent tickets on focus; type three characters or a ticket number to search. Esc closes the search.">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Escape" Command="{Binding CloseTicketPickerCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <TextBlock Margin="0,8,0,0"
+                                   Style="{StaticResource Text.Muted}"
+                                   Text="{Binding MatchesHeading}"
+                                   Visibility="{Binding MatchesVisibility}" />
+                        <ListBox x:Name="TicketMatches"
+                                 MaxHeight="180"
+                                 Margin="0,4,0,0"
+                                 ItemsSource="{Binding Matches}"
+                                 SelectedItem="{Binding SelectedMatch}"
+                                 DisplayMemberPath="Label"
+                                 Visibility="{Binding MatchesVisibility}"
+                                 PreviewKeyDown="OnMatchesKey"
+                                 MouseLeftButtonUp="OnMatchClicked"
+                                 AutomationProperties.Name="Matching tickets">
+                            <!-- Each ticket is read as its row, not as the record behind it (ST-084). -->
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                    <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                        </ListBox>
+                        <Button Margin="0,8,0,0"
+                                HorizontalAlignment="Left"
+                                Style="{StaticResource Button.Ghost}"
+                                Content="Done"
+                                Command="{Binding CloseTicketPickerCommand}"
+                                AutomationProperties.Name="Done choosing a ticket" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- As and Time share a line, as in the reference: two short values side by side. -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="24" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- As: a visible two-way choice, Internal note by default (v0.4.1 Q2). Never behind Options. -->
+            <Border Grid.Column="0" Style="{StaticResource Envelope.Line}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Envelope.Label}" Text="As" />
+                    <Border Style="{StaticResource Segment.Group}" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <RadioButton Style="{StaticResource Segment}"
+                                         IsChecked="{Binding IsInternal}"
+                                         GroupName="NoteType"
+                                         AutomationProperties.Name="{x:Static core:PublishPanel.InternalLabel}">
+                                <StackPanel Orientation="Horizontal">
+                                    <controls:Glyph FontFamily="{DynamicResource Font.icon}" FontSize="{DynamicResource Size.sm}" VerticalAlignment="Center" Text="&#xE72E;" />
+                                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="{x:Static core:PublishPanel.InternalLabel}" />
+                                </StackPanel>
+                            </RadioButton>
+                            <RadioButton Style="{StaticResource Segment}"
+                                         IsChecked="{Binding IsDiscussion}"
+                                         GroupName="NoteType"
+                                         ToolTip="{Binding DiscussionHint}"
+                                         AutomationProperties.Name="{x:Static core:PublishPanel.DiscussionLabel}"
+                                         AutomationProperties.HelpText="{Binding DiscussionHint}">
+                                <TextBlock VerticalAlignment="Center" Text="{x:Static core:PublishPanel.DiscussionLabel}" />
+                            </RadioButton>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Time: the entry in minutes, and what it was before rounding, so the number is not taken for the time worked. -->
+            <Border Grid.Column="2" Style="{StaticResource Envelope.Line}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Envelope.Label}" Text="Time" />
+                    <TextBox Width="{DynamicResource Layout.field-narrow}"
+                             VerticalAlignment="Center"
+                             Style="{StaticResource Input.Default}"
+                             Text="{Binding Minutes, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Minutes"
+                             AutomationProperties.HelpText="{Binding TimeNote}" />
+                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="min" />
+                    <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding TimeNote}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Also: every destination as a chip. Each label says what an earlier publish left (O3); the name
+             says it in words. The article's reason is its own line, so a chip is one line. -->
+        <Border Style="{StaticResource Envelope.Line}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource Envelope.Label}" VerticalAlignment="Top" Margin="0,8,0,0" Text="Also" />
+                <StackPanel Grid.Column="1">
+                    <WrapPanel Orientation="Horizontal">
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding TicketNoteLabel}" IsChecked="{Binding TicketNote}" AutomationProperties.Name="{Binding TicketNoteName}" />
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding TimeEntryLabel}" IsChecked="{Binding TimeEntry}" AutomationProperties.Name="{Binding TimeEntryName}" />
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding KbLabel}" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}" AutomationProperties.HelpText="{Binding KbReason}" />
+                    </WrapPanel>
+                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" Text="{Binding KbReason}" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- A publish that threw before any destination answered: said here, since there is no receipt. -->
+        <TextBlock Margin="0,8,0,0"
+                   Style="{StaticResource Text.Error}"
+                   Text="{Binding PublishError}"
+                   controls:LiveRegion.Setting="Assertive" />
+
+        <!-- O3: an earlier publish reached the ticket, or may have. The same box as the receipt's, in the
+             tab order before the note, and spent on one send. -->
+        <Border Style="{StaticResource Banner.Warning}"
+                Margin="0,8,0,0"
+                Visibility="{Binding EarlierVisibility}"
+                AutomationProperties.Name="Check the ticket first">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.paused}" Text="&#xE9CE;" />
+                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="Not confirmed" />
+                </StackPanel>
+                <TextBlock Margin="0,4,0,0"
+                           Style="{StaticResource Text.Body}"
+                           Text="{Binding EarlierPrompt}"
+                           controls:LiveRegion.Setting="Polite" />
+                <CheckBox Margin="0,8,0,0"
+                          IsChecked="{Binding TicketChecked}"
+                          IsEnabled="{Binding CanCheckTicket}"
+                          AutomationProperties.Name="{Binding CheckTicketLabel}">
+                    <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CheckTicketLabel}" />
+                </CheckBox>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

@@ -95,7 +95,7 @@ public sealed class OutboxControlsTests
         Assert.Contains("{DynamicResource Brush.shell.recording}", colours);
 
         // The receipt rule is the ribbon band (Spec §2.1).
-        Assert.Contains(receipt.Descendants(Wpf + "Border"), b => (string?)b.Attribute("Background") == "{DynamicResource Brush.brand.ribbon.band}");
+        Assert.Contains(receipt.Descendants(Wpf + "Border"), b => (string?)b.Attribute("BorderBrush") == "{DynamicResource Brush.brand.ribbon.band}");
     }
 
     [Theory]

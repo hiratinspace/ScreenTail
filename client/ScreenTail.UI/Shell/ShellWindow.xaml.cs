@@ -132,7 +132,11 @@ public partial class ShellWindow : Window
 
                 // The sample state is recording session "preview", so its Review shows Discard held with
                 // the reason beside it, as the running application does.
-                discardBlocked: () => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording, SessionId: var live } && live == id ? SessionDiscard.StillCapturing : null)),
+                discardBlocked: () => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording, SessionId: var live } && live == id ? SessionDiscard.StillCapturing : null,
+
+                // The receipt's Next to check over the sample rows; opening one is the store's, as in the app.
+                next: new Review.Publish.NextSessions(_ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()), state.OpenSession),
+                openSettings: () => state.Navigate(ShellView.Settings))),
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
@@ -158,9 +162,10 @@ public partial class ShellWindow : Window
     }
 
     /// <summary>
-    /// The publish pane in each state Spec §5 S3 draws, keyed by the session id the harness opens:
-    /// a chosen ticket with a PSA connected, no PSA at all, everything published, a time entry that
-    /// failed with Retry offered, and an article waiting on the company mapping (ST-097). Fakes complete
+    /// The envelope and the receipt in each state Spec v0.6.0 §5 S3 draws, keyed by the session id the
+    /// harness opens: a suggested ticket with a PSA connected, no ticket yet, no PSA at all, everything
+    /// published, a time entry that failed with Retry offered, and an article waiting on the company
+    /// mapping (ST-097). Fakes complete
     /// synchronously, so the state is there by the render.
     /// </summary>
     private static PublishPanel SamplePublish(Shared.Schema.Session fixture, string variant)
@@ -179,6 +184,10 @@ public partial class ShellWindow : Window
         {
             case "preview-no-psa":
                 return PublishPanel.Unconnected(fixture);
+
+            // A PSA connected and no ticket bound: To reads "No ticket yet" and Publish waits with its reason.
+            case "preview-no-ticket":
+                return new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
             case "preview-published":
                 {
                     var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
@@ -360,6 +369,7 @@ public partial class ShellWindow : Window
             ("recording", () => { }),
             ("review", () => state.OpenSession("preview")),
             ("review-no-psa", () => state.OpenSession("preview-no-psa")),
+            ("review-no-ticket", () => state.OpenSession("preview-no-ticket")),
             ("review-published", () => state.OpenSession("preview-published")),
             ("review-partial", () => state.OpenSession("preview-partial")),
             ("review-needs-mapping", () => state.OpenSession("preview-needs-mapping")),

@@ -72,6 +72,9 @@
   --layout-hit-target-min: 28px;
   --layout-hud-control: 32px;
   --layout-content-max-width: 760px;
+  --layout-envelope-label: 52px;
+  --layout-field-narrow: 72px;
+  --layout-side-column: 300px;
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-pill: 999px;

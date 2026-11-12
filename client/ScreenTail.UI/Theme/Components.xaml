@@ -594,6 +594,154 @@
         </Setter>
     </Style>
 
+    <!-- Segment: one choice of a segmented control (Spec v0.6.0 §5 S3, the envelope's As line). Radio
+         buttons in a Segment.Group, so the choice is visible and one key press away. The chosen one is the
+         selection tint with its words in semibold and a 2 px accent bar under them, so it is told by shape
+         and weight as well as colour; in high contrast the tint is the window colour and the bar and the
+         weight remain. -->
+    <Style x:Key="Segment.Group" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.control}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource Radius.control}" />
+        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+    </Style>
+    <Style x:Key="Segment" TargetType="RadioButton">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
+        <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
+        <Setter Property="FontWeight" Value="{DynamicResource Weight.regular}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="MinHeight" Value="{DynamicResource Layout.hit-target-min}" />
+        <Setter Property="Padding" Value="{DynamicResource Padding.control}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="Chrome"
+                            Background="{TemplateBinding Background}"
+                            CornerRadius="{DynamicResource Radius.control}"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                            <Border x:Name="Bar"
+                                    Height="{DynamicResource Focus.width}"
+                                    Margin="{DynamicResource Padding.control}"
+                                    VerticalAlignment="Bottom"
+                                    Background="{DynamicResource Brush.accent.primary}"
+                                    Visibility="Collapsed" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+                            <Setter TargetName="Bar" Property="Visibility" Value="Visible" />
+                            <Setter Property="FontWeight" Value="{DynamicResource Weight.semibold}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.text.muted}" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Check chip: a destination in the envelope's Also line, a check box drawn as a bordered chip with
+         its box inside, so each destination reads as a value that is on or off. -->
+    <Style x:Key="CheckChip" BasedOn="{StaticResource {x:Type CheckBox}}" TargetType="CheckBox">
+        <Setter Property="Padding" Value="{DynamicResource Padding.control}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Chrome"
+                            Background="{DynamicResource Brush.bg.raised}"
+                            BorderBrush="{DynamicResource Brush.border.control}"
+                            BorderThickness="1"
+                            CornerRadius="{DynamicResource Radius.control}"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="Box"
+                                    Width="{DynamicResource Icon.control}"
+                                    Height="{DynamicResource Icon.control}"
+                                    VerticalAlignment="Center"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="1"
+                                    CornerRadius="{DynamicResource Radius.control}">
+                                <Path x:Name="Tick"
+                                      Width="9"
+                                      Height="7"
+                                      Data="M0.5,4 L3.5,7 L9.5,0.5"
+                                      Stretch="Fill"
+                                      Stroke="{DynamicResource Brush.text.on-accent}"
+                                      StrokeThickness="2"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round"
+                                      Visibility="Collapsed" />
+                            </Border>
+                            <ContentPresenter Grid.Column="1"
+                                              Margin="8,0,0,0"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Box" Property="Background" Value="{DynamicResource Brush.accent.primary}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="Box" Property="Background" Value="{DynamicResource Brush.bg.raised}" />
+                            <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+                            <Setter TargetName="Tick" Property="Stroke" Value="{DynamicResource Brush.text.muted}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.text.muted}" />
+                            <Setter Property="Cursor" Value="Arrow" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A shortcut beside the control it belongs to ("Ctrl+T"): small, quiet, outlined like a key cap. -->
+    <Style x:Key="KeyCap" TargetType="Border">
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource Radius.control}" />
+        <Setter Property="Padding" Value="8,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextElement.Foreground" Value="{DynamicResource Brush.text.muted}" />
+    </Style>
+    <!-- The shortcut's words, in a key cap or inside the button it presses ("Publish  Ctrl+Enter"): the
+         foreground is inherited, so on the filled button it is the on-accent colour. -->
+    <Style x:Key="Text.KeyHint" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
+        <Setter Property="FontSize" Value="{DynamicResource Size.xs}" />
+        <Setter Property="FontWeight" Value="{DynamicResource Weight.regular}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+    </Style>
+
     <!-- Toggle: default and locked (admin). Off is an outlined track, on is the accent, as Windows 11 draws it. -->
     <Style TargetType="controls:ToggleSwitch">
         <Setter Property="Width" Value="40" />

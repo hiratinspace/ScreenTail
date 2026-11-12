@@ -9,7 +9,8 @@ namespace ScreenTail.UI.Review;
 /// filmstrip through the note's own ShowFrameCommand (T-165), so nothing here carries it.
 ///
 /// The one key it handles is Spec §5 S3's Alt+1/2/3, which moves focus to the note, the screenshots or
-/// the publish pane: focus is the view's business, so it lives here (ST-084 found it unbound).
+/// the envelope (the receipt, once published): focus is the view's business, so it lives here (ST-084
+/// found it unbound).
 /// </summary>
 public partial class ReviewPane : UserControl
 {
@@ -39,7 +40,7 @@ public partial class ReviewPane : UserControl
     {
         Key.D1 => Note,
         Key.D2 => Strip,
-        Key.D3 => Publish,
+        Key.D3 => Receipt.IsVisible ? (FrameworkElement)Receipt : Publish,
         _ => null,
     };
 }

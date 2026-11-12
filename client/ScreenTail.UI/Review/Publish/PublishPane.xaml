@@ -1,211 +1,160 @@
 <UserControl x:Class="ScreenTail.UI.Review.Publish.PublishPane"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              Background="Transparent"
-             AutomationProperties.Name="Publish">
+             AutomationProperties.Name="Receipt">
+    <!-- Spec v0.6.0 §5 S3, the receipt: after publishing, the session pane becomes this (a state of the
+         same pane, never a dialog). What landed where, one row per destination with its state in a word,
+         a glyph and a colour and its provider-named link; the session's facts; that editing happens in
+         the PSA from here; and on the right, the next session to check, one key away. -->
+    <UserControl.InputBindings>
+        <!-- Enter opens the next session to check. A focused button takes its own Enter first, so Enter on
+             a link opens the link and Enter on Retry retries. -->
+        <KeyBinding Key="Return" Command="{Binding OpenNextCommand}" />
+    </UserControl.InputBindings>
     <UserControl.Resources>
-        <!-- A field's name, with the space above it that separates one group from the next. -->
-        <Style x:Key="Publish.Field" BasedOn="{StaticResource Text.Label}" TargetType="TextBlock">
-            <Setter Property="Margin" Value="0,18,0,6" />
+        <!-- A figure in the facts row: the number large, what it counts small under it. -->
+        <Style x:Key="Receipt.Figure" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{DynamicResource Font.display}" />
+            <Setter Property="FontSize" Value="{DynamicResource Size.xl}" />
+            <Setter Property="FontWeight" Value="{DynamicResource Weight.semibold}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
         </Style>
     </UserControl.Resources>
-    <Grid>
 
-        <!-- Before publishing: the ticket, how the note goes, and where. The form scrolls; the button is
-             pinned at the bottom of the pane, so the one primary action on the screen is always in view. -->
-        <Grid Visibility="{Binding FormVisibility}">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+        <Grid Margin="0,0,8,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="24" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
 
-            <TextBlock Grid.Row="0" Margin="20,18,20,4" Style="{StaticResource Text.SectionHeading}" Text="Publish" />
-
-            <ScrollViewer Grid.Row="1"
-                          Padding="20,0,14,12"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
+            <Border Grid.Column="0" Style="{StaticResource Card}" Padding="0" VerticalAlignment="Top">
                 <StackPanel>
-                    <!-- ST-090: the backend's Development demo PSA, named where the technician is looking. -->
-                    <Border Style="{StaticResource Banner.Info}"
-                            Margin="0,10,0,0"
-                            Visibility="{Binding DemoVisibility}"
-                            AutomationProperties.Name="Demo PSA">
-                        <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding DemoNotice}" />
-                    </Border>
-
-                    <TextBlock Style="{StaticResource Publish.Field}" Margin="0,12,0,6" Text="Ticket" />
-                    <TextBox Style="{StaticResource Input.Default}"
-                             Text="{Binding Query, UpdateSourceTrigger=PropertyChanged}"
-                             GotKeyboardFocus="OnTicketFocus"
-                             AutomationProperties.Name="Search tickets"
-                             AutomationProperties.HelpText="Recent tickets on focus; type three characters or a ticket number to search" />
-                    <TextBlock Margin="0,8,0,0"
-                               Style="{StaticResource Text.Muted}"
-                               FontSize="{DynamicResource Size.xs}"
-                               Text="{Binding MatchesHeading}"
-                               Visibility="{Binding MatchesVisibility}" />
-                    <ListBox MaxHeight="180"
-                             Margin="0,4,0,0"
-                             ItemsSource="{Binding Matches}"
-                             SelectedItem="{Binding SelectedMatch}"
-                             DisplayMemberPath="Label"
-                             Visibility="{Binding MatchesVisibility}"
-                             AutomationProperties.Name="Matching tickets">
-                        <!-- Each ticket is read as its row, not as the record behind it (ST-084). -->
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
-                                <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
-                            </Style>
-                        </ListBox.ItemContainerStyle>
-                    </ListBox>
-                    <WrapPanel Margin="0,8,0,0" Orientation="Horizontal" Visibility="{Binding TicketVisibility}">
-                        <TextBlock Margin="0,0,8,0" Style="{StaticResource Text.Body}" Text="{Binding TicketLabel}" VerticalAlignment="Center" />
-                        <ContentControl Style="{StaticResource Badge.Suggested}"
-                                        VerticalAlignment="Center"
-                                        Content="Suggested from window title"
-                                        Visibility="{Binding SuggestedVisibility}" />
-                    </WrapPanel>
-
-                    <TextBlock Style="{StaticResource Publish.Field}" Text="Note type" />
-                    <StackPanel Orientation="Horizontal">
-                        <RadioButton Content="Internal" IsChecked="{Binding IsInternal}" GroupName="NoteType" />
-                        <RadioButton Margin="20,0,0,0" Content="Discussion" IsChecked="{Binding IsDiscussion}" GroupName="NoteType" />
-                    </StackPanel>
-                    <TextBlock Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding DiscussionHint}" Margin="0,4,0,0" />
-
-                    <TextBlock Style="{StaticResource Publish.Field}" Text="Time entry" />
-                    <StackPanel Orientation="Horizontal">
-                        <TextBox Width="80"
-                                 Style="{StaticResource Input.Default}"
-                                 Text="{Binding Minutes, UpdateSourceTrigger=PropertyChanged}"
-                                 AutomationProperties.Name="Minutes" />
-                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="minutes" />
-                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding RoundingNote}" />
-                    </StackPanel>
-
-                    <TextBlock Style="{StaticResource Publish.Field}" Text="Destinations" />
-                    <!-- O3: each label says what an earlier publish left; the name says it in words. -->
-                    <CheckBox Content="{Binding TicketNoteLabel}" IsChecked="{Binding TicketNote}" AutomationProperties.Name="{Binding TicketNoteName}" />
-                    <CheckBox Margin="0,2,0,0" Content="{Binding TimeEntryLabel}" IsChecked="{Binding TimeEntry}" AutomationProperties.Name="{Binding TimeEntryName}" />
-                    <!-- The KB label carries its reason, so it wraps under the box rather than off the pane. -->
-                    <CheckBox Margin="0,2,0,0" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}">
-                        <TextBlock Margin="0,4" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding KbLabel}" />
-                    </CheckBox>
-                </StackPanel>
-            </ScrollViewer>
-
-            <Border Grid.Row="2"
-                    Padding="20,14,20,16"
-                    BorderBrush="{DynamicResource Brush.border.subtle}"
-                    BorderThickness="0,1,0,0">
-                <StackPanel>
-                    <!-- O3: an earlier publish reached the ticket, or may have. The same box as the result
-                         list's, in the tab order before Publish, and spent on one send. -->
-                    <Border Style="{StaticResource Banner.Warning}"
-                            Margin="0,0,0,12"
-                            Visibility="{Binding EarlierVisibility}"
-                            AutomationProperties.Name="Check the ticket first">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource Text.Body}"
-                                       TextWrapping="Wrap"
-                                       Text="{Binding EarlierPrompt}"
-                                       controls:LiveRegion.Setting="Polite" />
-                            <CheckBox Margin="0,10,0,0"
-                                      IsChecked="{Binding TicketChecked}"
-                                      IsEnabled="{Binding CanCheckTicket}"
-                                      AutomationProperties.Name="{Binding CheckTicketLabel}">
-                                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding CheckTicketLabel}" />
-                            </CheckBox>
-                        </StackPanel>
-                    </Border>
-                    <Button Style="{StaticResource Button.Primary}"
-                            MinHeight="36"
-                            HorizontalAlignment="Stretch"
-                            Content="Publish   Ctrl+Enter"
-                            Command="{Binding PublishCommand}"
-                            IsEnabled="{Binding CanPublish}"
-                            Visibility="{Binding PublishVisibility}"
-                            AutomationProperties.HelpText="{Binding BlockedBecause}" />
-
-                    <!-- v0.4.3: the reason beside the button, never only in a tooltip a keyboard user cannot reach. -->
-                    <TextBlock Margin="0,8,0,0"
-                               Style="{StaticResource Text.Muted}"
-                               TextWrapping="Wrap"
-                               Text="{Binding BlockedBecause}"
-                               Visibility="{Binding BlockedVisibility}"
-                               controls:LiveRegion.Setting="Polite" />
-
-                    <!-- No integration: the button is replaced, not disabled (Spec §5 S3). -->
-                    <Border Style="{StaticResource Banner.Info}" Visibility="{Binding ConnectVisibility}">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="Connect a PSA to publish" />
-                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Text="Nothing can be published until a PSA is connected. Connect one in Settings, under Integrations." />
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-            </Border>
-        </Grid>
-
-        <!-- After publishing: what landed, where, and Retry for what did not. -->
-        <ScrollViewer Padding="20,18,14,16"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      Visibility="{Binding ResultsVisibility}">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Publish" />
-                    <ContentControl Margin="10,0,0,0"
+                    <!-- The heading on a frame plate, the brand's ground, ruled underneath with the ribbon band
+                         (Spec §2.1: the receipt rule). The glyph takes the state's colour on the frame; the
+                         words carry the state. In high contrast the plate and the band are the window colour
+                         and the words and glyph remain. -->
+                    <Border Margin="12,12,12,0"
+                            Padding="{DynamicResource Padding.card}"
+                            Background="{DynamicResource Brush.shell.bg}"
+                            BorderBrush="{DynamicResource Brush.brand.ribbon.band}"
+                            BorderThickness="0,0,0,4"
+                            CornerRadius="{DynamicResource Radius.control}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0"
+                                    Width="{DynamicResource Layout.control-height}"
+                                    Height="{DynamicResource Layout.control-height}"
+                                    Margin="0,0,16,0"
                                     VerticalAlignment="Center"
-                                    Style="{StaticResource Badge.Published}"
-                                    Content="Published"
-                                    Visibility="{Binding PublishedVisibility}" />
-                </StackPanel>
-                <TextBlock Margin="0,12,0,0"
-                           Style="{StaticResource Text.Body}"
-                           TextWrapping="Wrap"
-                           Text="{Binding Summary}"
-                           controls:LiveRegion.Setting="Assertive" />
-                <controls:Repeater Margin="0,14,0,0" ItemsSource="{Binding Results}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <!-- One row per destination: the mark in its state's colour, the name and the state
-                                 in a word, then the link on its own line, named for the provider it goes to, so a
-                                 long provider name never pushes the destination off the pane. -->
-                            <Border Margin="0,0,0,8"
-                                    Padding="12,10"
-                                    Background="{DynamicResource Brush.bg.raised}"
-                                    BorderBrush="{DynamicResource Brush.border.subtle}"
                                     BorderThickness="1"
-                                    CornerRadius="{DynamicResource Radius.control}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="22" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <!-- State colours are indicators (Spec §2.1): the glyph takes it, the words stay text.primary. -->
-                                    <TextBlock Grid.Column="0" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" AutomationProperties.Name="{Binding MarkName}">
-                                        <TextBlock.Style>
-                                            <Style BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
-                                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding State}" Value="Sent">
-                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.state.published}" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding State}" Value="Failed">
-                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
-                                    <StackPanel Grid.Column="1">
-                                        <WrapPanel Orientation="Horizontal">
-                                            <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding Label}" />
+                                    CornerRadius="{DynamicResource Radius.pill}">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.published}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ReceiptTone}" Value="Partial">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.paused}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ReceiptTone}" Value="NotConfirmed">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.paused}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ReceiptTone}" Value="Failed">
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.recording}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <controls:Glyph HorizontalAlignment="Center" Text="{Binding ReceiptGlyph}">
+                                    <controls:Glyph.Style>
+                                        <Style BasedOn="{StaticResource Icon}" TargetType="controls:Glyph">
+                                            <Setter Property="Foreground" Value="{DynamicResource Brush.shell.published}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ReceiptTone}" Value="Partial">
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.shell.paused}" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding ReceiptTone}" Value="NotConfirmed">
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.shell.paused}" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding ReceiptTone}" Value="Failed">
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.shell.recording}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </controls:Glyph.Style>
+                                </controls:Glyph>
+                            </Border>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource Text.ScreenTitle}"
+                                           Foreground="{DynamicResource Brush.shell.text}"
+                                           Text="{Binding ReceiptHeading}"
+                                           controls:LiveRegion.Setting="Assertive" />
+                                <TextBlock Margin="0,4,0,0"
+                                           Style="{StaticResource Text.Muted}"
+                                           Foreground="{DynamicResource Brush.shell.muted}"
+                                           Text="{Binding ReceiptSubline}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <StackPanel Margin="{DynamicResource Padding.card}">
+                        <!-- What happened, in Spec §6's words, when the heading does not already say it all. -->
+                        <TextBlock Margin="0,0,0,12"
+                                   Style="{StaticResource Text.Body}"
+                                   Text="{Binding Summary}"
+                                   Visibility="{Binding SummaryVisibility}" />
+
+                        <controls:Repeater ItemsSource="{Binding Results}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <!-- One row per destination: the mark in its state's colour, the destination and
+                                         what went there, the state in a word, and the link named for the provider. -->
+                                    <Border Padding="0,12" BorderBrush="{DynamicResource Brush.border.subtle}" BorderThickness="0,1,0,0">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto" />
+                                                <RowDefinition Height="Auto" />
+                                            </Grid.RowDefinitions>
+                                            <!-- State colours are indicators (Spec §2.1): the glyph takes it, the words stay text.primary. -->
+                                            <TextBlock Grid.Column="0"
+                                                       Width="{DynamicResource Icon.nav}"
+                                                       Margin="0,0,12,0"
+                                                       VerticalAlignment="Center"
+                                                       FontWeight="{DynamicResource Weight.semibold}"
+                                                       Text="{Binding Mark}"
+                                                       AutomationProperties.Name="{Binding MarkName}">
+                                                <TextBlock.Style>
+                                                    <Style BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Sent">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.published}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="Failed">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <WrapPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                                                <TextBlock Margin="0,0,8,0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Label}" />
+                                                <TextBlock Style="{StaticResource Text.Secondary}" Text="{Binding Detail}" Visibility="{Binding DetailVisibility}" />
+                                            </WrapPanel>
                                             <!-- The state in a word: the tint and border agree with it, the words carry it. -->
-                                            <ContentControl VerticalAlignment="Center" Content="{Binding Badge}">
+                                            <ContentControl Grid.Column="2" Margin="12,0" VerticalAlignment="Center" Content="{Binding Badge}">
                                                 <ContentControl.Style>
                                                     <Style BasedOn="{StaticResource Badge.Unconfirmed}" TargetType="ContentControl">
                                                         <Style.Triggers>
@@ -221,87 +170,167 @@
                                                     </Style>
                                                 </ContentControl.Style>
                                             </ContentControl>
-                                        </WrapPanel>
-                                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Error}" Visibility="{Binding ErrorVisibility}" />
-                                        <Button Margin="-10,4,0,0"
-                                                HorizontalAlignment="Left"
-                                                Style="{StaticResource Button.Ghost}"
-                                                Foreground="{DynamicResource Brush.accent.primary}"
-                                                Content="{Binding LinkText}"
-                                                AutomationProperties.Name="{Binding LinkName}"
-                                                Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                CommandParameter="{Binding Link}"
-                                                Visibility="{Binding LinkVisibility}" />
-                                    </StackPanel>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </controls:Repeater>
-                <!-- ST-097 AC2: the article's company is not mapped, so ask once, here, and remember the answer.
-                     Shown in place of Retry, which would only fail the same way. -->
-                <Border Style="{StaticResource Banner.Warning}"
-                        Margin="0,4,0,12"
-                        Visibility="{Binding MappingVisibility}"
-                        AutomationProperties.Name="Company mapping">
-                    <StackPanel>
-                        <TextBlock Style="{StaticResource Text.Body}"
-                                   TextWrapping="Wrap"
-                                   Text="{Binding MappingPrompt}"
-                                   controls:LiveRegion.Setting="Polite" />
-                        <ComboBox Margin="0,10,0,0"
-                                  ItemsSource="{Binding Companies}"
-                                  SelectedItem="{Binding SelectedCompany}"
-                                  DisplayMemberPath="Name"
-                                  AutomationProperties.Name="Company in the documentation platform">
-                            <ComboBox.ItemContainerStyle>
-                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
-                                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-                                </Style>
-                            </ComboBox.ItemContainerStyle>
-                        </ComboBox>
-                        <TextBlock Margin="0,6,0,0"
-                                   Style="{StaticResource Text.Error}"
-                                   TextWrapping="Wrap"
-                                   Text="{Binding MappingError}"
-                                   Visibility="{Binding MappingErrorVisibility}"
-                                   controls:LiveRegion.Setting="Assertive" />
-                        <Button Margin="0,10,0,0"
-                                Style="{StaticResource Button.Primary}"
+                                            <Button Grid.Column="3"
+                                                    VerticalAlignment="Center"
+                                                    Style="{StaticResource Button.Ghost}"
+                                                    Foreground="{DynamicResource Brush.accent.primary}"
+                                                    Content="{Binding LinkText}"
+                                                    AutomationProperties.Name="{Binding LinkName}"
+                                                    Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding Link}"
+                                                    Visibility="{Binding LinkVisibility}" />
+                                            <TextBlock Grid.Row="1"
+                                                       Grid.Column="1"
+                                                       Grid.ColumnSpan="3"
+                                                       Margin="0,4,0,0"
+                                                       Style="{StaticResource Text.Muted}"
+                                                       Text="{Binding Error}"
+                                                       Visibility="{Binding ErrorVisibility}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </controls:Repeater>
+
+                        <!-- ST-097 AC2: the article's company is not mapped, so ask once, here, and remember the
+                             answer. Shown in place of Retry, which would only fail the same way. -->
+                        <Border Style="{StaticResource Banner.Warning}"
+                                Margin="0,4,0,12"
+                                Visibility="{Binding MappingVisibility}"
+                                AutomationProperties.Name="Company mapping">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Body}"
+                                           Text="{Binding MappingPrompt}"
+                                           controls:LiveRegion.Setting="Polite" />
+                                <ComboBox Margin="0,8,0,0"
+                                          MaxWidth="{DynamicResource Layout.content-max-width}"
+                                          HorizontalAlignment="Left"
+                                          MinWidth="{DynamicResource Layout.side-column}"
+                                          ItemsSource="{Binding Companies}"
+                                          SelectedItem="{Binding SelectedCompany}"
+                                          DisplayMemberPath="Name"
+                                          AutomationProperties.Name="Company in the documentation platform">
+                                    <ComboBox.ItemContainerStyle>
+                                        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                            <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                                        </Style>
+                                    </ComboBox.ItemContainerStyle>
+                                </ComboBox>
+                                <TextBlock Margin="0,4,0,0"
+                                           Style="{StaticResource Text.Error}"
+                                           Text="{Binding MappingError}"
+                                           Visibility="{Binding MappingErrorVisibility}"
+                                           controls:LiveRegion.Setting="Assertive" />
+                                <Button Margin="0,8,0,0"
+                                        Style="{StaticResource Button.Secondary}"
+                                        HorizontalAlignment="Left"
+                                        Content="Map and publish the article"
+                                        Command="{Binding MapAndPublishCommand}"
+                                        IsEnabled="{Binding CanMap}" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Something may already be on the ticket. Publish, Ctrl+Enter and Retry wait until the
+                             technician ticks the box, which is in the tab order and spent on the next send. -->
+                        <Border Style="{StaticResource Banner.Warning}"
+                                Margin="0,4,0,12"
+                                Visibility="{Binding CheckTicketVisibility}"
+                                AutomationProperties.Name="Check the ticket first">
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource Text.Body}"
+                                           Text="{Binding CheckTicketPrompt}"
+                                           controls:LiveRegion.Setting="Polite" />
+                                <CheckBox Margin="0,8,0,0"
+                                          IsChecked="{Binding TicketChecked}"
+                                          IsEnabled="{Binding CanCheckTicket}"
+                                          AutomationProperties.Name="{Binding CheckTicketLabel}">
+                                    <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CheckTicketLabel}" />
+                                </CheckBox>
+                            </StackPanel>
+                        </Border>
+                        <Button Margin="0,0,0,12"
+                                Style="{StaticResource Button.Secondary}"
                                 HorizontalAlignment="Left"
-                                Content="Map and publish the article"
-                                Command="{Binding MapAndPublishCommand}"
-                                IsEnabled="{Binding CanMap}" />
+                                Content="{Binding RetryLabel}"
+                                AutomationProperties.Name="{Binding RetryName}"
+                                Command="{Binding RetryCommand}"
+                                IsEnabled="{Binding CanRetry}"
+                                Visibility="{Binding RetryVisibility}"
+                                AutomationProperties.HelpText="{Binding CheckTicketPrompt}" />
+
+                        <!-- The session's facts: counts and times only. -->
+                        <Border Padding="0,16,0,0" BorderBrush="{DynamicResource Brush.border.subtle}" BorderThickness="0,1,0,0">
+                            <controls:Repeater ItemsSource="{Binding ReceiptFacts}" Focusable="False">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <UniformGrid Rows="1" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,0,12,0" AutomationProperties.Name="{Binding Caption}">
+                                            <TextBlock Style="{StaticResource Receipt.Figure}" Text="{Binding Value}" />
+                                            <TextBlock Style="{StaticResource Text.Muted}" Text="{Binding Caption}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </controls:Repeater>
+                        </Border>
+
+                        <TextBlock Margin="0,16,0,0" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" Text="{Binding ChangeNote}" />
                     </StackPanel>
-                </Border>
-                <!-- Something may already be on the ticket. Publish, Ctrl+Enter and Retry wait until the
-                     technician ticks the box, which is in the tab order and spent on the next send. -->
-                <Border Style="{StaticResource Banner.Warning}"
-                        Margin="0,4,0,12"
-                        Visibility="{Binding CheckTicketVisibility}"
-                        AutomationProperties.Name="Check the ticket first">
+                </StackPanel>
+            </Border>
+
+            <!-- Next to check, then the day so far. Open next is the receipt's one filled button. -->
+            <StackPanel Grid.Column="2" Width="{DynamicResource Layout.side-column}" VerticalAlignment="Top">
+                <Border Style="{StaticResource Card}" Padding="{DynamicResource Padding.card}" AutomationProperties.Name="Next to check">
                     <StackPanel>
-                        <TextBlock Style="{StaticResource Text.Body}"
-                                   TextWrapping="Wrap"
-                                   Text="{Binding CheckTicketPrompt}"
-                                   controls:LiveRegion.Setting="Polite" />
-                        <CheckBox Margin="0,10,0,0"
-                                  IsChecked="{Binding TicketChecked}"
-                                  IsEnabled="{Binding CanCheckTicket}"
-                                  AutomationProperties.Name="{Binding CheckTicketLabel}">
-                            <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding CheckTicketLabel}" />
-                        </CheckBox>
+                        <TextBlock Margin="0,0,0,8" Style="{StaticResource Text.Muted}" Text="Next to check" />
+                        <StackPanel Visibility="{Binding NextVisibility}">
+                            <TextBlock Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding NextTitle}" />
+                            <TextBlock Margin="0,4,0,12" Style="{StaticResource Text.Muted}" Text="{Binding NextMeta}" />
+                            <Button x:Name="OpenNextButton"
+                                    Style="{StaticResource Button.Primary}"
+                                    HorizontalAlignment="Stretch"
+                                    Command="{Binding OpenNextCommand}"
+                                    AutomationProperties.Name="Open next"
+                                    AutomationProperties.AcceleratorKey="Enter">
+                                <StackPanel Orientation="Horizontal">
+                                    <controls:Glyph FontFamily="{DynamicResource Font.icon}" FontSize="{DynamicResource Icon.control}" VerticalAlignment="Center" Text="&#xE72A;" />
+                                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Open next" />
+                                    <TextBlock Margin="12,0,0,0" Style="{StaticResource Text.KeyHint}" Text="Enter" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Text.Secondary}" Text="Nothing else to check right now." Visibility="{Binding NoNextVisibility}" />
                     </StackPanel>
                 </Border>
-                <Button Style="{StaticResource Button.Primary}"
-                        HorizontalAlignment="Left"
-                        Content="{Binding RetryLabel}"
-                        AutomationProperties.Name="{Binding RetryName}"
-                        Command="{Binding RetryCommand}"
-                        IsEnabled="{Binding CanRetry}"
-                        Visibility="{Binding RetryVisibility}"
-                        AutomationProperties.HelpText="{Binding CheckTicketPrompt}" />
+
+                <Border Margin="0,16,0,0"
+                        Style="{StaticResource Card}"
+                        Background="Transparent"
+                        BorderBrush="{DynamicResource Brush.border.strong}"
+                        Visibility="{Binding TodayVisibility}"
+                        AutomationProperties.Name="Today">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.ColumnSpan="2" Margin="0,0,0,8" Style="{StaticResource Text.Muted}" Text="Today" />
+                        <TextBlock Grid.Row="1" Style="{StaticResource Text.Body}" Text="Published" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding TodayPublished}" />
+                        <TextBlock Grid.Row="2" Margin="0,4,0,0" Style="{StaticResource Text.Body}" Text="Left to check" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,4,0,0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding TodayLeft}" />
+                    </Grid>
+                </Border>
             </StackPanel>
-        </ScrollViewer>
-    </Grid>
+        </Grid>
+    </ScrollViewer>
 </UserControl>

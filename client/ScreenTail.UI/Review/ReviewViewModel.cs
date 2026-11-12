@@ -8,8 +8,8 @@ using ScreenTail.UI.Review.Timeline;
 namespace ScreenTail.UI.Review;
 
 /// <summary>
-/// The Review screen: the note on the left, the screenshots in the middle, publishing on the right
-/// (Spec §5 S3; ST-074, ST-075, ST-078).
+/// The Review screen: the envelope header over the note and the screenshots, and the receipt in their
+/// place after publishing (Spec v0.6.0 §5 S3, Outbox; ST-074, ST-075, ST-078).
 ///
 /// Four view models over one session. The first two existed and were never hosted together: until
 /// 2026-09-25 the shell's Review area showed the word "Review" and each pane was rendered only by the
@@ -32,6 +32,8 @@ public sealed class ReviewViewModel : IAsyncDisposable
     /// disables the button.
     /// </param>
     /// <param name="discardBlocked">Why Discard may not be asked about now (the session is still being captured), or null.</param>
+    /// <param name="next">History's rows and the way to open one, for the receipt's Next to check (Spec v0.6.0 §5 S3).</param>
+    /// <param name="openSettings">Opens Settings, for "Connect a PSA to publish".</param>
     public ReviewViewModel(
         Session session,
         IReviewFrames? frames,
@@ -42,11 +44,14 @@ public sealed class ReviewViewModel : IAsyncDisposable
         Action<bool>? timelineToggled = null,
         bool draftPending = false,
         Func<CancellationToken, Task>? discard = null,
-        Func<string?>? discardBlocked = null)
+        Func<string?>? discardBlocked = null,
+        NextSessions? next = null,
+        Action? openSettings = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         SessionId = session.SessionId;
-        Title = string.IsNullOrWhiteSpace(session.Draft?.SuggestedTitle) ? "Review" : $"Review: {session.Draft.SuggestedTitle}";
+        // The envelope's subject line (Spec v0.6.0 §5 S3): the note's own title once there is one.
+        Title = string.IsNullOrWhiteSpace(session.Draft?.SuggestedTitle) ? "Review" : session.Draft.SuggestedTitle;
         Strip = new FilmstripViewModel(session, frames);
         Note = new NoteEditorViewModel(session, write, confirm, discard, showFrame: id => Strip.Select(id), draftPending: draftPending, discardBlocked: discardBlocked);
 
@@ -56,12 +61,18 @@ public sealed class ReviewViewModel : IAsyncDisposable
             publish ?? PublishPanel.Unconnected(session),
             () => Note.CurrentNote,
             () => Strip.IncludedFrameIds,
-            () => Strip.PublishHeldBecause);
+            () => Strip.PublishHeldBecause,
+            next,
+            openSettings,
+            session.SessionId);
         Timeline = new TimelineViewModel(session, id => Strip.Select(id), timelineExpanded, timelineToggled);
 
         // The header changes whenever what goes out does, and the publish pane's frame ceiling (E-18)
         // depends on exactly that.
         Strip.PropertyChanged += OnStripChanged;
+
+        // What is still open beside Publish follows the note's inferred steps as they are checked.
+        Note.PropertyChanged += OnNoteChanged;
     }
 
     public string SessionId { get; }
@@ -92,8 +103,17 @@ public sealed class ReviewViewModel : IAsyncDisposable
 
         _disposed = true;
         Strip.PropertyChanged -= OnStripChanged;
+        Note.PropertyChanged -= OnNoteChanged;
         await Note.DisposeAsync().ConfigureAwait(true);
         await Strip.DisposeAsync().ConfigureAwait(true);
+    }
+
+    private void OnNoteChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(NoteEditorViewModel.UnverifiedLabel))
+        {
+            Publish.NoteChanged();
+        }
     }
 
     private void OnStripChanged(object? sender, PropertyChangedEventArgs e)

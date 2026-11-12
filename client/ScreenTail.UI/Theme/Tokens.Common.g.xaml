@@ -33,6 +33,9 @@
     <sys:Double x:Key="Layout.hit-target-min">28</sys:Double>
     <sys:Double x:Key="Layout.hud-control">32</sys:Double>
     <sys:Double x:Key="Layout.content-max-width">760</sys:Double>
+    <sys:Double x:Key="Layout.envelope-label">52</sys:Double>
+    <sys:Double x:Key="Layout.field-narrow">72</sys:Double>
+    <sys:Double x:Key="Layout.side-column">300</sys:Double>
     <Thickness x:Key="Padding.pane">24</Thickness>
     <Thickness x:Key="Padding.card">20</Thickness>
     <Thickness x:Key="Padding.control">14,5</Thickness>
