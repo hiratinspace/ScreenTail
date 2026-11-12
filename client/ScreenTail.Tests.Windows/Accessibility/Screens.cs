@@ -246,6 +246,13 @@ internal static class Screens
         await DrawnAsync(shell);
         Assert.True(box.IsVisible, "B on the enlarged screenshot did not bring out the blur box.");
         Assert.True(box.IsKeyboardFocused, $"B brought out the blur box with focus on {Keyboard.FocusedElement?.GetType().Name ?? "nothing"}, not on the box.");
+        // TEMPORARY layout probe (PR #292), removed in the next commit.
+        static string Size(FrameworkElement e) => FormattableString.Invariant($"{e.GetType().Name}/{e.Name} {e.ActualWidth:0}x{e.ActualHeight:0} at {e.TranslatePoint(default, Window.GetWindow(e)):0}");
+        var image = Audit.Descendants(shell).OfType<Image>().Single(i => i.Name == "EnlargedImage");
+        var strip = Audit.Descendants(shell).OfType<FilmstripView>().Single();
+        var scroll = Audit.Descendants(shell).OfType<ScrollViewer>().Single(s => s.Name == "FormScroll");
+        var parts = Audit.Descendants(shell).OfType<FrameworkElement>().Where(e => e.Name is "EnvelopeCard" or "TimelineRow" or "Form" or "EnlargedView" or "BlurBoxStatus" or "BlurMode" or "CloseEnlarged").Select(Size);
+        Measurements.Record(FormattableString.Invariant($"Blur box probe: box {Size(box)}; image {Size(image)}; strip {Size(strip)}; scroll viewport {scroll.ViewportHeight:0} extent {scroll.ExtentHeight:0}; {string.Join("; ", parts)}"));
         return box;
     }
 
