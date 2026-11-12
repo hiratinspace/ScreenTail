@@ -268,7 +268,7 @@ public sealed class IntegrationCard
         // hold a private key in memory for the afternoon.
         SiteUrl = site;
         _savedSite = site;
-        SecretHint ="••••" + secret[Math.Max(0, secret.Length - 4)..];
+        SecretHint = "••••" + secret[Math.Max(0, secret.Length - 4)..];
         CompanyId = string.Empty;
         PublicKey = string.Empty;
         PrivateKey = string.Empty;

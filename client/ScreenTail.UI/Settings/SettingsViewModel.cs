@@ -62,7 +62,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Integrations = integrations ?? throw new ArgumentNullException(nameof(integrations));
         Updates = updates ?? throw new ArgumentNullException(nameof(updates));
         integrations.UsePageSave();
-        Page =new SettingsPage([capture.Section, privacy.Section, integrations.Section, updates.Section]);
+        Page = new SettingsPage([capture.Section, privacy.Section, integrations.Section, updates.Section]);
         Sections =
         [
             new SettingsNavItem("Activation", "Activation"),
