@@ -303,14 +303,14 @@ public sealed class ReviewDiscardTests
     [Fact]
     public void TheHeaderNamesTheSession()
     {
-        // Spec §5 S3's title bar: "Review: <the note's title>", or plain Review before there is a note.
+        // Spec v0.6.0 §5 S3: the envelope.s subject line is the note.s title, or plain Review before there is a note.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         UiThread.Run(async () =>
         {
             await using var drafted = new ReviewViewModel(Session(Frames(1)), frames: null);
             await using var failed = new ReviewViewModel(Session(draft: null, Frames(1)), frames: null);
 
-            Assert.Equal("Review: Printer offline", drafted.Title);
+            Assert.Equal("Printer offline", drafted.Title);
             Assert.Equal("Review", failed.Title);
         });
     }

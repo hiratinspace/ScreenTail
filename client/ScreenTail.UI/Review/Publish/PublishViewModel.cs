@@ -13,9 +13,12 @@ namespace ScreenTail.UI.Review.Publish;
 /// One line of the result list: what landed, where, or why not, worded by <see cref="PublishResultRow"/>.
 /// <see cref="State"/> picks the glyph's colour and the badge's look in the view.
 /// </summary>
-public sealed record ResultRow(PublishResultRow Row)
+public sealed record ResultRow(PublishResultRow Row, string? Detail = null)
 {
     public string Label => Row.Label;
+
+    /// <summary>What went there, beside the name on the receipt: "Internal note", "0:15", the article's title.</summary>
+    public Visibility DetailVisibility => string.IsNullOrEmpty(Detail) ? Visibility.Collapsed : Visibility.Visible;
 
     public ResultState State => Row.State;
 
@@ -42,9 +45,21 @@ public sealed record ResultRow(PublishResultRow Row)
 }
 
 /// <summary>
-/// The right pane (ST-078, Spec §5 S3). Binding over <see cref="PublishPanel"/>, which holds every rule
-/// and is tested without WPF; this only turns its properties into things a control can bind to and its
-/// two actions into commands.
+/// Where the receipt's Next to check comes from and goes to: History's rows, read when the receipt
+/// appears, and the shell's way of opening a session (the same one a History row uses).
+/// </summary>
+public sealed class NextSessions(Func<CancellationToken, Task<IReadOnlyList<Shared.Ipc.SessionRow>?>> list, Action<string> open)
+{
+    public Func<CancellationToken, Task<IReadOnlyList<Shared.Ipc.SessionRow>?>> List { get; } = list ?? throw new ArgumentNullException(nameof(list));
+
+    public Action<string> Open { get; } = open ?? throw new ArgumentNullException(nameof(open));
+}
+
+/// <summary>
+/// The envelope and the receipt (ST-078, Spec v0.6.0 §5 S3, Outbox). Binding over <see cref="PublishPanel"/>,
+/// which holds every rule and is tested without WPF; this only turns its properties into things a control
+/// can bind to and its actions into commands. Before publishing, the envelope header over the note binds
+/// here; after, the receipt that takes the session pane's place.
 ///
 /// Everything the view binds to is a string, a bool or a visibility computed here, so the wording is
 /// the spec's and lives where it can be read without opening XAML.
@@ -73,16 +88,178 @@ public sealed partial class PublishViewModel : ObservableObject
     /// frame would otherwise go out as it was before (review of #257). Asked whenever the block is worked
     /// out; <see cref="FramesChanged"/> is called when it changes.
     /// </param>
-    public PublishViewModel(PublishPanel panel, Func<DraftNote> note, Func<IReadOnlyList<string>> frames, Func<string?>? heldBack = null)
+    /// <param name="next">History's rows and the way to open one, for the receipt's Next to check. Null shows no next session.</param>
+    /// <param name="openSettings">Opens Settings, for "Connect a PSA to publish". Null leaves the words without the way there.</param>
+    /// <param name="sessionId">The session this pane publishes, which is never its own next.</param>
+    public PublishViewModel(
+        PublishPanel panel,
+        Func<DraftNote> note,
+        Func<IReadOnlyList<string>> frames,
+        Func<string?>? heldBack = null,
+        NextSessions? next = null,
+        Action? openSettings = null,
+        string? sessionId = null)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
         _note = note ?? throw new ArgumentNullException(nameof(note));
         _frames = frames ?? throw new ArgumentNullException(nameof(frames));
         _heldBack = heldBack ?? (() => null);
+        _next = next;
+        _openSettings = openSettings;
+        _sessionId = sessionId ?? string.Empty;
+        NoteChanged();
         Refresh();
     }
 
     private readonly Func<string?> _heldBack;
+    private readonly NextSessions? _next;
+    private readonly Action? _openSettings;
+    private readonly string _sessionId;
+    private string? _nextId;
+    private bool _nextAsked;
+
+    // ---- The envelope ----
+
+    /// <summary>To: the bound ticket as a value, or "No ticket yet".</summary>
+    [ObservableProperty]
+    public partial string ToValue { get; set; } = PublishPanel.NoTicketYet;
+
+    /// <summary>The ticket as a chip when one is bound; the plain "No ticket yet" when not.</summary>
+    [ObservableProperty]
+    public partial Visibility TicketChipVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial Visibility NoTicketVisibility { get; set; } = Visibility.Visible;
+
+    [ObservableProperty]
+    public partial string TicketId { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string TicketRest { get; set; } = string.Empty;
+
+    /// <summary>"Matched from the ScreenConnect window title", or empty for a ticket the technician chose.</summary>
+    [ObservableProperty]
+    public partial string MatchedFrom { get; set; } = string.Empty;
+
+    /// <summary>Change, or Choose a ticket with none bound.</summary>
+    [ObservableProperty]
+    public partial string ChangeLabel { get; set; } = "Choose a ticket";
+
+    /// <summary>Change is there only when a PSA is connected: with none, there is nothing to search.</summary>
+    [ObservableProperty]
+    public partial Visibility ChangeVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>The ticket picker, open in place under To (Ctrl+T or Change), closed otherwise.</summary>
+    [ObservableProperty]
+    public partial Visibility PickerVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>Time: "12 min, rounded up to 15".</summary>
+    [ObservableProperty]
+    public partial string TimeNote { get; set; } = string.Empty;
+
+    /// <summary>Why the article is ticked or not, under the Also line (the draft's <c>kb_reason</c>).</summary>
+    [ObservableProperty]
+    public partial string KbReason { get; set; } = string.Empty;
+
+    /// <summary>A publish that threw before any destination answered, said in the envelope. Empty otherwise.</summary>
+    [ObservableProperty]
+    public partial string PublishError { get; set; } = string.Empty;
+
+    /// <summary>Beside Publish: "1 inferred step not checked", or empty.</summary>
+    [ObservableProperty]
+    public partial string OpenItems { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Visibility OpenItemsVisibility { get; set; } = Visibility.Collapsed;
+
+    // ---- The receipt ----
+
+    /// <summary>"Published to ticket #48213", or the state in words when it is not that.</summary>
+    [ObservableProperty]
+    public partial string ReceiptHeading { get; set; } = string.Empty;
+
+    /// <summary>"Acme Dental · Printer offline · 14:31".</summary>
+    [ObservableProperty]
+    public partial string ReceiptSubline { get; set; } = string.Empty;
+
+    /// <summary>The heading's state, for its glyph's colour: Sent, Partial, NotConfirmed, Failed.</summary>
+    [ObservableProperty]
+    public partial ReceiptState ReceiptTone { get; set; } = ReceiptState.Sent;
+
+    /// <summary>The heading's glyph (Segoe Fluent Icons): a check, a warning, a question, a cross. Beside its words.</summary>
+    [ObservableProperty]
+    public partial string ReceiptGlyph { get; set; } = "";
+
+    public ObservableCollection<ReceiptFact> ReceiptFacts { get; } = [];
+
+    /// <summary>"Need to change something? Edit the note in ConnectWise. ..." once the note is on the ticket.</summary>
+    [ObservableProperty]
+    public partial string ChangeNote { get; set; } = string.Empty;
+
+    /// <summary>The summary line on the receipt, when it says more than the heading does.</summary>
+    [ObservableProperty]
+    public partial Visibility SummaryVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>Next to check: the next session's first line, "Remote Desktop session".</summary>
+    [ObservableProperty]
+    public partial string NextTitle { get; set; } = string.Empty;
+
+    /// <summary>"9 min · started 13:00".</summary>
+    [ObservableProperty]
+    public partial string NextMeta { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Visibility NextVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>With nothing left, the card says so in place of Open next.</summary>
+    [ObservableProperty]
+    public partial Visibility NoNextVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial string TodayPublished { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial string TodayLeft { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Visibility TodayVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>Settings is reachable from "Connect a PSA to publish".</summary>
+    public Visibility OpenSettingsVisibility => _openSettings is null ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>`Ctrl+T` and Change: the ticket picker opens in place under To. With no PSA there is nothing to pick from.</summary>
+    [RelayCommand]
+    private void ChangeTicket()
+    {
+        if (_panel.HasIntegrations && _panel.Results.Count == 0)
+        {
+            PickerVisibility = Visibility.Visible;
+        }
+    }
+
+    /// <summary>`Esc` in the picker, Enter on a match, or Done: back to the value.</summary>
+    [RelayCommand]
+    private void CloseTicketPicker() => PickerVisibility = Visibility.Collapsed;
+
+    /// <summary>`Enter` on the receipt and Open next: the next session in the inbox.</summary>
+    [RelayCommand]
+    private void OpenNext()
+    {
+        if (_next is not null && _nextId is { } id && _panel.Results.Count > 0)
+        {
+            _next.Open(id);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenSettings() => _openSettings?.Invoke();
+
+    /// <summary>The note changed in a way that may change what is still open beside Publish.</summary>
+    public void NoteChanged()
+    {
+        OpenItems = PublishPanel.OpenItems(_note()) ?? string.Empty;
+        OpenItemsVisibility = OpenItems.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
 
     /// <summary>The backend's PSA is its Development demo (ST-090): said above the form, never a real product's name.</summary>
     public string DemoNotice => _panel.DemoNotice ?? string.Empty;
@@ -262,6 +439,7 @@ public sealed partial class PublishViewModel : ObservableObject
         }
 
         CanCheckTicket = false;
+        PublishError = string.Empty;
         try
         {
             await _panel.PublishAsync(_note(), _frames()).ConfigureAwait(true);
@@ -269,8 +447,10 @@ public sealed partial class PublishViewModel : ObservableObject
         catch (Exception error) when (error is not OperationCanceledException)
         {
             // The provider's words reach the technician through the result list; a throw that the
-            // delegate did not turn into a result is one the list cannot show, so it is said here.
+            // delegate did not turn into a result is one the list cannot show, so it is said here, and
+            // in the envelope, which is what is on screen while there is no receipt.
             Summary = $"Publishing failed: {error.Message}";
+            PublishError = Summary;
         }
 
         Refresh();
@@ -383,6 +563,7 @@ public sealed partial class PublishViewModel : ObservableObject
 
     partial void OnSelectedMatchChanged(TicketMatch? value)
     {
+        // The picker stays open while the arrows move through the list; Enter, a click or Esc closes it.
         if (value is not null)
         {
             _panel.Choose(value);
@@ -481,6 +662,18 @@ public sealed partial class PublishViewModel : ObservableObject
         TicketLabel = _panel.Ticket?.Label ?? string.Empty;
         TicketVisibility = _panel.Ticket is null ? Visibility.Collapsed : Visibility.Visible;
         SuggestedVisibility = _panel.Ticket?.Suggested == true ? Visibility.Visible : Visibility.Collapsed;
+
+        // The envelope's To line: the ticket as a chip, why it was matched, and Change (Ctrl+T).
+        ToValue = _panel.ToValue;
+        TicketChipVisibility = TicketVisibility;
+        NoTicketVisibility = _panel.Ticket is null ? Visibility.Visible : Visibility.Collapsed;
+        TicketId = _panel.Ticket is { } bound ? $"#{bound.Id}" : string.Empty;
+        TicketRest = _panel.Ticket is { } rest ? $"{rest.Summary} · {rest.Company}" : string.Empty;
+        MatchedFrom = _panel.MatchedFrom ?? string.Empty;
+        ChangeLabel = _panel.ChangeLabel;
+        ChangeVisibility = _panel.HasIntegrations ? Visibility.Visible : Visibility.Collapsed;
+        TimeNote = _panel.TimeNote;
+        KbReason = _panel.KbReason ?? string.Empty;
         // A field holding something that is not a number keeps showing it: putting the panel's last good
         // value back would show a number the technician did not type, which is the T-386 problem again.
         if (_minutesValid)
@@ -494,10 +687,10 @@ public sealed partial class PublishViewModel : ObservableObject
         TicketNote = _panel.TicketNote;
         TimeEntry = _panel.TimeEntry;
         KbArticle = _panel.KbArticle;
-        var kb = _panel.KbReason is { } reason ? $"KB article  ({reason})" : "KB article";
+        // The Also chips. The article's reason is its own line under them, so the chip stays one line.
         (TicketNoteLabel, TicketNoteName) = Earlier(Destination.TicketNote, PublishPanel.LabelOf(Destination.TicketNote));
         (TimeEntryLabel, TimeEntryName) = Earlier(Destination.TimeEntry, PublishPanel.LabelOf(Destination.TimeEntry));
-        (KbLabel, KbName) = Earlier(Destination.KbArticle, kb);
+        (KbLabel, KbName) = Earlier(Destination.KbArticle, _panel.KbChipLabel);
 
         // O3: the check in the form, for a destination an earlier publish landed or may have landed. The
         // sentence stays while it shows; what is ticked only decides whether Publish waits for the box.
@@ -554,7 +747,78 @@ public sealed partial class PublishViewModel : ObservableObject
         Results.Clear();
         foreach (var row in _panel.Rows)
         {
-            Results.Add(new ResultRow(row));
+            Results.Add(new ResultRow(row, _panel.DetailOf(row.Destination)));
+        }
+
+        RefreshReceipt(showResults);
+    }
+
+    /// <summary>The receipt's heading, facts and change line, and Next to check the first time it shows.</summary>
+    private void RefreshReceipt(bool showResults)
+    {
+        if (showResults)
+        {
+            PickerVisibility = Visibility.Collapsed;
+        }
+
+        ReceiptHeading = _panel.ReceiptHeading ?? string.Empty;
+        ReceiptSubline = _panel.ReceiptSubline ?? string.Empty;
+        ReceiptTone = _panel.ReceiptState ?? ReceiptState.Sent;
+        ReceiptGlyph = ReceiptTone switch
+        {
+            ReceiptState.Sent => "",
+            ReceiptState.Partial => "",
+            ReceiptState.NotConfirmed => "",
+            _ => "",
+        };
+        ChangeNote = _panel.ChangeNote ?? string.Empty;
+
+        // Sent says it in the heading; anything else, or a screenshot that did not attach, needs the line.
+        SummaryVisibility = showResults && (!_panel.Published || _panel.Results.Any(r => r is { Ok: true, Kind: DestinationResult.Partial, Error.Length: > 0 }))
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        ReceiptFacts.Clear();
+        foreach (var fact in _panel.ReceiptFacts)
+        {
+            ReceiptFacts.Add(fact);
+        }
+
+        if (showResults && !_nextAsked)
+        {
+            _nextAsked = true;
+            _ = LoadNextAsync();
+        }
+    }
+
+    /// <summary>History's rows, read once the receipt shows: the next session to check and the day so far.</summary>
+    private async Task LoadNextAsync()
+    {
+        IReadOnlyList<Shared.Ipc.SessionRow>? rows = null;
+        if (_next is not null)
+        {
+            try
+            {
+                rows = await _next.List(CancellationToken.None).ConfigureAwait(true);
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                // The receipt stands without its next session: the list is a convenience, never the result.
+                rows = null;
+            }
+        }
+
+        var next = NextToCheck.Pick(rows, _sessionId);
+        _nextId = next?.Id;
+        NextTitle = next is null ? string.Empty : NextToCheck.Title(next);
+        NextMeta = next is null ? string.Empty : NextToCheck.Meta(next, TimeZoneInfo.Local);
+        NextVisibility = next is null ? Visibility.Collapsed : Visibility.Visible;
+        NoNextVisibility = next is null ? Visibility.Visible : Visibility.Collapsed;
+        if (rows is not null)
+        {
+            var today = NextToCheck.Today(rows, _sessionId, DateTimeOffset.Now, TimeZoneInfo.Local);
+            TodayPublished = today.Published.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            TodayLeft = today.LeftToCheck.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            TodayVisibility = Visibility.Visible;
         }
     }
 
