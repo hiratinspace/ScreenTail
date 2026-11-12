@@ -17,6 +17,13 @@ public partial class SettingsPane : UserControl
     /// <summary>Set while the view moves the selection itself, so scrolling to a section does not scroll again.</summary>
     private bool _following;
 
+    /// <summary>
+    /// Set while the page scrolls because the nav or the bar asked for a section, so that scroll does not
+    /// select a different one (a short last section never reaches the top). Any other scroll, the wheel
+    /// included while focus stays on the nav, selects the section it shows.
+    /// </summary>
+    private bool _jumping;
+
     public SettingsPane()
     {
         InitializeComponent();
@@ -69,8 +76,14 @@ public partial class SettingsPane : UserControl
             return null;
         }
 
-        var top = group.TranslatePoint(new Point(0, 0), Page).Y;
-        Scroller.ScrollToVerticalOffset(Math.Max(0, top));
+        var target = Math.Min(Math.Max(0, group.TranslatePoint(new Point(0, 0), Page).Y), Scroller.ScrollableHeight);
+        if (Math.Abs(target - Scroller.VerticalOffset) >= 0.5)
+        {
+            // Only a scroll that will happen sets the flag: one that would not raise no change to clear it.
+            _jumping = true;
+            Scroller.ScrollToVerticalOffset(target);
+        }
+
         return group;
     }
 
@@ -78,7 +91,18 @@ public partial class SettingsPane : UserControl
     private void OnScrollChanged(object sender, ScrollChangedEventArgs e)
     {
         // A text box or list inside the page has a scroller of its own, whose changes arrive here too.
-        if (!ReferenceEquals(e.OriginalSource, Scroller) || DataContext is not SettingsViewModel model || e.VerticalChange == 0 || Nav.IsKeyboardFocusWithin)
+        if (!ReferenceEquals(e.OriginalSource, Scroller) || e.VerticalChange == 0)
+        {
+            return;
+        }
+
+        if (_jumping)
+        {
+            _jumping = false;
+            return;
+        }
+
+        if (DataContext is not SettingsViewModel model)
         {
             return;
         }
