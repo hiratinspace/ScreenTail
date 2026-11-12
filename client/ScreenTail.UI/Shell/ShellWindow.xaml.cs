@@ -136,7 +136,16 @@ public partial class ShellWindow : Window
         Sample = state;
         if (_screenshotDirectory is not null)
         {
-            ContentRendered += async (_, _) => await CaptureAsync(state);
+            // Once only. ContentRendered fires again whenever Content changes, and a render that is bigger
+            // than the screen takes the content out of the window and puts it back, so a plain subscription
+            // restarted the whole capture after every tall render and looped until the CI job timed out.
+            EventHandler? capture = null;
+            capture = async (_, _) =>
+            {
+                ContentRendered -= capture;
+                await CaptureAsync(state);
+            };
+            ContentRendered += capture;
         }
     }
 

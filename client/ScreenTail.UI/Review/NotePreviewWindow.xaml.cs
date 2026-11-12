@@ -40,7 +40,14 @@ public partial class NotePreviewWindow : Window
         Pane.DataContext = new NoteEditorViewModel(LoadFixture());
         if (_screenshotDirectory is not null)
         {
-            ContentRendered += async (_, _) => await CaptureAsync();
+            // Once only: ContentRendered fires again when a tall render takes Content out and puts it back.
+            EventHandler? capture = null;
+            capture = async (_, _) =>
+            {
+                ContentRendered -= capture;
+                await CaptureAsync();
+            };
+            ContentRendered += capture;
         }
     }
 
