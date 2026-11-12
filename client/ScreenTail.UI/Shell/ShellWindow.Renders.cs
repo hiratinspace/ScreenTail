@@ -394,12 +394,19 @@ public partial class ShellWindow
     /// </summary>
     private async Task NoteAsync(ShellState state)
     {
-        foreach (var (name, session) in new[]
+        // What the prepares search: a window smaller than the render lends its content to a host for the
+        // picture (WindowRenderer.RenderDetached), and a search from the window then finds nothing.
+        var content = (DependencyObject)Content;
+
+        // Each is scrolled to what it is for: the window shows two steps at most, and a render of the
+        // inferred note that shows only step 1 shows nothing inferred. Null is the end of the note, where
+        // the empty Follow-ups is.
+        foreach (var (name, session, step) in new (string, string, int?)[]
         {
-            ("checked", "preview-note-checked"),
-            ("inferred", "preview-note-inferred"),
-            ("masked", "preview-note-masked"),
-            ("no-followups", "preview-note-no-followups"),
+            ("checked", "preview-note-checked", 2),
+            ("inferred", "preview-note-inferred", 2),
+            ("masked", "preview-note-masked", 1),
+            ("no-followups", "preview-note-no-followups", null),
         })
         {
             state.OpenSession(session);
@@ -408,7 +415,7 @@ public partial class ShellWindow
             {
                 RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 await SettleAsync();
-                Save(Shot($"shell-review-{name}", theme));
+                WindowRenderer.Save(this, Shot($"shell-review-{name}", theme), prepare: () => ScrollNoteTo(content, step));
             }
         }
 
@@ -421,7 +428,7 @@ public partial class ShellWindow
             await SettleAsync();
             WindowRenderer.Save(this, Shot("shell-review-long-scrolled", theme), prepare: () =>
             {
-                if (Find(this, e => e is ScrollViewer { Name: "NoteScroll" }) is ScrollViewer note)
+                if (Find(content, e => e is ScrollViewer { Name: "NoteScroll" }) is ScrollViewer note)
                 {
                     note.ScrollToVerticalOffset(note.ScrollableHeight * 0.55);
                     note.UpdateLayout();
@@ -438,7 +445,7 @@ public partial class ShellWindow
         {
             RenderThemeApplier.Apply(theme, Application.Current.Resources);
             await SettleAsync();
-            WindowRenderer.Save(this, Shot("shell-review-inferred-150pct", theme), scale: 1.5);
+            WindowRenderer.Save(this, Shot("shell-review-inferred-150pct", theme), scale: 1.5, prepare: () => ScrollNoteTo(content, 2));
         }
 
         // Keyboard focus on Looks right, where Tab takes a technician after the inferred step's text.
@@ -452,6 +459,33 @@ public partial class ShellWindow
         }
 
         Keyboard.ClearFocus();
+    }
+
+    /// <summary>
+    /// The note scrolled so step <paramref name="step"/> (from 0) is at the top of its view, or to its end
+    /// when null. For a render's prepare, once the note is laid out at the render's size.
+    /// </summary>
+    private static IDisposable? ScrollNoteTo(DependencyObject content, int? step)
+    {
+        if (Find(content, e => e is ScrollViewer { Name: "NoteScroll" }) is not ScrollViewer note)
+        {
+            return null;
+        }
+
+        if (step is not { } index)
+        {
+            note.ScrollToBottom();
+        }
+        else if (Find(note, e => e is ItemsControl { Name: "StepList" }) is ItemsControl steps
+            && index < steps.Items.Count
+            && steps.ItemContainerGenerator.ContainerFromIndex(index) is FrameworkElement row)
+        {
+            var top = row.TransformToAncestor(note).Transform(default).Y;
+            note.ScrollToVerticalOffset(Math.Max(0, note.VerticalOffset + top - 8));
+        }
+
+        note.UpdateLayout();
+        return null;
     }
 
     /// <summary>Both typed confirmations: the shell's (Delete everything) and Review's (Discard).</summary>
