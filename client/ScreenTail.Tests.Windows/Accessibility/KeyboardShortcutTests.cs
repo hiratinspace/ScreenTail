@@ -48,11 +48,11 @@ public sealed class KeyboardShortcutTests(TheApplication app)
                 await Audit.Settle();
                 Assert.Equal(expanded, review.Timeline.Expanded);
 
-                // Alt+1, Alt+2, Alt+3: focus goes into the note, the screenshots and the publish pane.
+                // Alt+1, Alt+2, Alt+3: focus goes into the note, the screenshots and the envelope (Spec v0.6.0 §5 S3).
                 foreach (var (key, view) in new (Key, FrameworkElement)[]
                 {
                     (Key.D2, Audit.Descendants(shell).OfType<FilmstripView>().Single()),
-                    (Key.D3, Audit.Descendants(shell).OfType<PublishPane>().Single()),
+                    (Key.D3, Audit.Descendants(shell).OfType<EnvelopeView>().Single()),
                     (Key.D1, Audit.Descendants(shell).OfType<NoteEditorView>().Single()),
                 })
                 {

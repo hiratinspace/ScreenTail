@@ -231,8 +231,10 @@
                              it away. Not hit-testable, so a drag that starts over it still draws. Outlined
                              in the window's own background colour under the dashes, so it shows on a light
                              screenshot and a dark one; focused, two more rings just inside it, one light and
-                             one dark, for the same reason. Inside, so nothing drawn reaches past what is
-                             blurred: the outer edge of the box is the edge of the blur. -->
+                             one dark, for the same reason, each 3 px: over a dimmed light screenshot only the
+                             dark one stands out at 3:1, so it alone has to carry the change, on a small box
+                             too. Inside, so nothing drawn reaches past what is blurred: the outer edge of the
+                             box is the edge of the blur. -->
                         <review:BlurBoxControl x:Name="KeyboardBox"
                                                Visibility="Collapsed"
                                                IsHitTestVisible="False"
@@ -251,12 +253,12 @@
                                         <Rectangle x:Name="FocusOuter"
                                                    Margin="3"
                                                    Stroke="{DynamicResource Brush.text.primary}"
-                                                   StrokeThickness="2"
+                                                   StrokeThickness="3"
                                                    Visibility="Hidden" />
                                         <Rectangle x:Name="FocusInner"
-                                                   Margin="5"
+                                                   Margin="6"
                                                    Stroke="{DynamicResource Brush.bg.base}"
-                                                   StrokeThickness="2"
+                                                   StrokeThickness="3"
                                                    Visibility="Hidden" />
                                     </Grid>
                                     <ControlTemplate.Triggers>

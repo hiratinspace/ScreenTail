@@ -18,6 +18,16 @@
 
     It never skips anything: a busy laptop is a failed job, not a quiet one.
 
+    When the demo is not running, it then prints a short readiness block (laptop-readiness.ps1): power
+    source and battery, power plan, power mode and energy saver, the CPU clock against its maximum, CPU
+    busy over a 3 s sample, the five busiest processes, and whether Windows Update or a Defender scan is
+    busy. If the laptop is on battery, a saver is on, the clock is held below 70% of maximum or more
+    than 25% of the CPU is busy before the tests start, it adds one ::warning:: naming the likely fix
+    (plug in, set power mode to Best performance, wait for Windows Update to finish) and copies the
+    block to the job summary. That is a warning only: a slow laptop still runs the job, and the exit
+    code is the demo check's alone. A probe that fails prints "unknown". The block takes about 5 s.
+    docs/dev/windows-test-loop.md ("Before a laptop run") says what to do about each warning.
+
     ASCII only: Windows PowerShell 5.1 reads a BOM-less script as ANSI.
 
 .PARAMETER StateFile
@@ -30,12 +40,16 @@
     The desktop session whose processes count. Defaults to this script's own session, which is the
     job's. Only the tests pass it, to show that a process in another session is not counted; the
     workflow never does.
+
+.PARAMETER NoReadiness
+    Skips the readiness block. The tests pass it, so their cases stay quick; the workflow never does.
 #>
 [CmdletBinding()]
 param(
     [string]$StateFile,
     [string[]]$Names = @('ScreenTail.Service', 'ScreenTail.UI'),
-    [int]$SessionId = -1
+    [int]$SessionId = -1,
+    [switch]$NoReadiness
 )
 
 # The demo's own reading of its state file, so "still running" means here what it means to stop.cmd.
@@ -63,4 +77,16 @@ if ($running.Count -gt 0) {
 }
 
 Write-Host 'The ScreenTail demo is not running.'
+
+# How fast this laptop is likely to be, so a slow run explains itself here rather than in a timeout.
+# Warn only: nothing below changes the exit code.
+if (-not $NoReadiness) {
+    try {
+        . (Join-Path $PSScriptRoot 'laptop-readiness.ps1')
+        Invoke-LaptopReadiness
+    }
+    catch {
+        Write-Host "Laptop readiness: unknown ($($_.Exception.Message))"
+    }
+}
 exit 0

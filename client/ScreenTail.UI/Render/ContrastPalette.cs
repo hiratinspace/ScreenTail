@@ -93,6 +93,9 @@ internal sealed class ContrastPalette
         ["state.danger"] = "WindowText",
         ["confidence.low"] = "WindowText",
         ["text.on-accent"] = "HighlightText",
+
+        // v0.6.0's brand and frame tokens (#284), as Tokens.HighContrast.xaml maps them: the band and fold
+        // in the window colour, so they are not seen, and the frame the window with its text on it.
         ["brand.signature"] = "WindowText",
         ["brand.ribbon.band"] = "Window",
         ["brand.ribbon.fold"] = "Window",

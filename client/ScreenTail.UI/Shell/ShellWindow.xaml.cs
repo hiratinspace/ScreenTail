@@ -132,7 +132,11 @@ public partial class ShellWindow : Window
 
                 // The sample state is recording session "preview", so its Review shows Discard held with
                 // the reason beside it, as the running application does.
-                discardBlocked: () => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording, SessionId: var live } && live == id ? SessionDiscard.StillCapturing : null)),
+                discardBlocked: () => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording, SessionId: var live } && live == id ? SessionDiscard.StillCapturing : null,
+
+                // The receipt's Next to check over the sample rows; opening one is the store's, as in the app.
+                next: new Review.Publish.NextSessions(_ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()), state.OpenSession),
+                openSettings: () => state.Navigate(ShellView.Settings))),
             history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
@@ -158,9 +162,10 @@ public partial class ShellWindow : Window
     }
 
     /// <summary>
-    /// The publish pane in each state Spec §5 S3 draws, keyed by the session id the harness opens:
-    /// a chosen ticket with a PSA connected, no PSA at all, everything published, a time entry that
-    /// failed with Retry offered, and an article waiting on the company mapping (ST-097). Fakes complete
+    /// The envelope and the receipt in each state Spec v0.6.0 §5 S3 draws, keyed by the session id the
+    /// harness opens: a suggested ticket with a PSA connected, no ticket yet, no PSA at all, everything
+    /// published, a time entry that failed with Retry offered, and an article waiting on the company
+    /// mapping (ST-097). Fakes complete
     /// synchronously, so the state is there by the render.
     /// </summary>
     private static PublishPanel SamplePublish(Shared.Schema.Session fixture, string variant)
@@ -175,24 +180,32 @@ public partial class ShellWindow : Window
                 ? new DestinationResult(d, false, null, "ConnectWise refused the member")
                 : new DestinationResult(d, true, d == Destination.KbArticle ? article : new Uri("https://na.myconnectwise.net/v4_6_release/services/system_io/Service/fv_sr100_request.rails?service_recid=48213")))];
 
+        // What the strip would send, as the running Review passes it: the frames the technician kept in.
+        // An empty list made the receipt say 0 screenshots and 0 items masked for a session with three.
+        IReadOnlyList<string> included = [.. new Core.Review.Filmstrip(fixture).ToPublish().Select(frame => frame.Id)];
+
         switch (variant)
         {
             case "preview-no-psa":
                 return PublishPanel.Unconnected(fixture);
+
+            // A PSA connected and no ticket bound: To reads "No ticket yet" and Publish waits with its reason.
+            case "preview-no-ticket":
+                return new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
             case "preview-published":
                 {
-                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)));
+                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: false)), time: new SampleClock());
                     panel.Suggest(ticket);
                     panel.KbArticle = true;
-                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    panel.PublishAsync(fixture.Draft!, included).GetAwaiter().GetResult();
                     return panel;
                 }
 
             case "preview-partial":
                 {
-                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: true)));
+                    var panel = new PublishPanel(fixture, connected, (q, _) => Task.FromResult(Search(q)), (r, _) => Task.FromResult(Publish(r, failTime: true)), time: new SampleClock());
                     panel.Suggest(ticket);
-                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    panel.PublishAsync(fixture.Draft!, included).GetAwaiter().GetResult();
                     return panel;
                 }
 
@@ -208,10 +221,11 @@ public partial class ShellWindow : Window
                         connected,
                         (q, _) => Task.FromResult(Search(q)),
                         (r, _) => Task.FromResult(Unmapped(r)),
-                        mapping: new CompanyMapping(_ => Task.FromResult(Companies()), (_, _, _) => Task.FromResult(true)));
+                        mapping: new CompanyMapping(_ => Task.FromResult(Companies()), (_, _, _) => Task.FromResult(true)),
+                        time: new SampleClock());
                     panel.Suggest(ticket);
                     panel.KbArticle = true;
-                    panel.PublishAsync(fixture.Draft!, []).GetAwaiter().GetResult();
+                    panel.PublishAsync(fixture.Draft!, included).GetAwaiter().GetResult();
                     return panel;
                 }
 
@@ -221,6 +235,24 @@ public partial class ShellWindow : Window
                     panel.Suggest(ticket);
                     return panel;
                 }
+        }
+    }
+
+    /// <summary>
+    /// The sample receipts' clock: Review opened at 14:20 and published 4 min 12 s later, the first
+    /// reading being the panel's "opened" and every later one the publish. The system clock would read
+    /// the same instant twice, since the sample publishes as the panel is made.
+    /// </summary>
+    private sealed class SampleClock : TimeProvider
+    {
+        private static readonly DateTimeOffset Opened = new(2026, 9, 15, 14, 20, 0, TimeSpan.Zero);
+        private bool _read;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            var now = _read ? Opened + new TimeSpan(0, 4, 12) : Opened;
+            _read = true;
+            return now;
         }
     }
 
@@ -360,6 +392,7 @@ public partial class ShellWindow : Window
             ("recording", () => { }),
             ("review", () => state.OpenSession("preview")),
             ("review-no-psa", () => state.OpenSession("preview-no-psa")),
+            ("review-no-ticket", () => state.OpenSession("preview-no-ticket")),
             ("review-published", () => state.OpenSession("preview-published")),
             ("review-partial", () => state.OpenSession("preview-partial")),
             ("review-needs-mapping", () => state.OpenSession("preview-needs-mapping")),

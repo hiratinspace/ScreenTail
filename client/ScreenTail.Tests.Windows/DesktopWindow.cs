@@ -77,7 +77,17 @@ internal sealed class DesktopWindow : IDisposable
             done.Set();
         });
         done.Wait(TimeSpan.FromSeconds(5));
+        OnScreen();
     }
+
+    /// <summary>
+    /// Waits for the desktop to show what was just painted. UpdateWindow paints into the window's surface,
+    /// and a grab of the screen sees it only once the compositor has presented a frame with it: on a
+    /// laptop running slowly a fixed sleep was not always long enough, and two grabs of a window that had
+    /// stopped changing came out 10 bits apart. Composition is always on from Windows 8, so there is
+    /// always a next frame to wait for.
+    /// </summary>
+    private static void OnScreen() => _ = DwmFlush();
 
     private IntPtr _text;
     private IntPtr _font;
@@ -357,6 +367,7 @@ internal sealed class DesktopWindow : IDisposable
             done.Set();
         });
         done.Wait(TimeSpan.FromSeconds(5));
+        OnScreen();
     }
 
     private IntPtr _light;
@@ -409,6 +420,12 @@ internal sealed class DesktopWindow : IDisposable
             return;
         }
 
+        // No open, close or move animation: the shell fades and scales a window in as it is shown, and a
+        // grab of the screen taken while that runs is of a window part way there, not of the window. On a
+        // slow machine the animation outlasts the tests' short settles. Best effort: a failure leaves the
+        // window as Windows would show any other.
+        var off = 1;
+        _ = DwmSetWindowAttribute(window, DWMWA_TRANSITIONS_FORCEDISABLED, ref off, sizeof(int));
         _created.TrySetResult(window);
 
         while (!_closing && GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
@@ -636,6 +653,14 @@ internal sealed class DesktopWindow : IDisposable
 
     [DllImport("user32.dll")]
     private static extern IntPtr DispatchMessage(ref Msg lpMsg);
+
+    private const int DWMWA_TRANSITIONS_FORCEDISABLED = 3;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmFlush();
 }
 
 /// <summary>How <see cref="DesktopWindow.ShowContrast"/> splits the client area: light first, dark second.</summary>
