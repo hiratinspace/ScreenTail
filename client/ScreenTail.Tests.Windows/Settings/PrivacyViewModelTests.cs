@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Threading;
 using ScreenTail.Core.Settings;
+using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Settings;
 using ScreenTail.UI.Settings.Privacy;
 using AutomationProperties = System.Windows.Automation.AutomationProperties;
@@ -29,7 +30,7 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
         {
             var own = new ClientSettings { LocalOnly = true, RetentionDays = 7 };
             var gateway = new FakePrivacy();
-            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.CompletedTask);
+            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
             var slider = new Slider { Minimum = 1, TickFrequency = 1, IsSnapToTickEnabled = true };
             _ = slider.SetBinding(RangeBase.MaximumProperty, new Binding(nameof(PrivacyViewModel.RetentionMaximum)) { Source = screen });
             _ = slider.SetBinding(RangeBase.ValueProperty, new Binding(nameof(PrivacyViewModel.RetentionDays)) { Source = screen });
@@ -78,7 +79,7 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
         {
             Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 12),
         };
-        var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.CompletedTask);
+        var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
         await screen.LoadAsync();
         var slider = await ShownAsync(screen);
         Assert.Equal(ClientSettings.MaxRetentionDays, (int)slider.Maximum);
@@ -90,7 +91,7 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
 
         // The admin's 90 days, locked: shown whole, and the technician's own 12 is what a save keeps.
         gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: true, EffectiveRetentionDays: 90);
-        var locked = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.CompletedTask);
+        var locked = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
         await locked.LoadAsync();
         slider = await ShownAsync(locked);
         Assert.Equal(90, (int)slider.Maximum);
@@ -137,7 +138,7 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         await app.RunAsync(async () =>
         {
-            var held = new TaskCompletionSource();
+            var held = new TaskCompletionSource<ConfirmedResult>();
             var asked = 0;
             var screen = new PrivacyViewModel(new PrivacyPanel(new FakePrivacy()), () => null, () =>
             {
@@ -153,11 +154,40 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
             Assert.False(screen.EraseEverythingCommand.CanExecute(null));
             Assert.Equal(1, asked);
 
-            held.SetResult();
+            held.SetResult(new ConfirmedResult(ConfirmedOutcome.Declined));
             await first;
 
             Assert.Equal(1, asked);
             Assert.True(screen.EraseEverythingCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public async Task ADeleteEverythingThatCannotAskSaysWhyBesideTheButton()
+    {
+        // Spec §4: no modal while a session is being captured, and the refusal is not a message box
+        // either. It is said beside the button, and cleared by the next try that is not refused.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var next = new ConfirmedResult(ConfirmedOutcome.Refused, DeleteEverything.WhileCapturing);
+            var screen = new PrivacyViewModel(new PrivacyPanel(new FakePrivacy()), () => null, () => Task.FromResult(next));
+            Assert.Equal(Visibility.Collapsed, screen.EraseProblemVisibility);
+
+            await screen.EraseEverythingCommand.ExecuteAsync(null);
+
+            Assert.Equal(DeleteEverything.WhileCapturing, screen.EraseProblem);
+            Assert.Equal(Visibility.Visible, screen.EraseProblemVisibility);
+
+            next = new ConfirmedResult(ConfirmedOutcome.NotAvailable, ConfirmedAction.NotConnected);
+            await screen.EraseEverythingCommand.ExecuteAsync(null);
+            Assert.Equal(ConfirmedAction.NotConnected, screen.EraseProblem);
+
+            next = new ConfirmedResult(ConfirmedOutcome.Declined);
+            await screen.EraseEverythingCommand.ExecuteAsync(null);
+
+            Assert.Equal(string.Empty, screen.EraseProblem);
+            Assert.Equal(Visibility.Collapsed, screen.EraseProblemVisibility);
         });
     }
 
@@ -182,7 +212,7 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
             {
                 chosen++;
                 return @"C:\audit.json";
-            }, () => Task.CompletedTask);
+            }, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
 
             var first = screen.ExportAuditCommand.ExecuteAsync(null);
 

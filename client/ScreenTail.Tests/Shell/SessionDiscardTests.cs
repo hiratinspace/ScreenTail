@@ -183,6 +183,73 @@ public sealed class SessionDiscardTests : IAsyncDisposable
     }
 
     [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    [InlineData(CaptureStates.Finalizing)]
+    public async Task ReviewsDiscardAsksNothingWhileAnotherSessionIsBeingCaptured(string capturing)
+    {
+        // Review's typed dialog is a modal too, and Spec §4 allows none during a recording, whichever
+        // session Review shows. The live session itself is still named when it is the one shown.
+        var asked = 0;
+        var sent = 0;
+        var state = new ShellState();
+        state.Connected(new CaptureStateSnapshot { State = capturing, SessionId = "live" });
+        var discard = Reviewing(state, () => asked++, () => sent++);
+
+        var review = await discard.FromReviewAsync("old", Ct);
+
+        Assert.Equal((ConfirmedOutcome.Refused, SessionDiscard.ReviewWhileCapturing), (review.Outcome, review.Error));
+        Assert.Equal(SessionDiscard.ReviewWhileCapturing, discard.ReviewBlockedBecause("old"));
+        Assert.Equal(SessionDiscard.StillCapturing, discard.ReviewBlockedBecause("live"));
+        Assert.True(SessionDiscard.SaysCapturing(review.Error));
+        Assert.Equal((0, 0), (asked, sent));
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Idle)]
+    [InlineData(CaptureStates.DraftReady)]
+    [InlineData(CaptureStates.DraftPending)]
+    public async Task ReviewsDiscardAsksWhenNothingIsBeingCaptured(string idle)
+    {
+        var state = new ShellState();
+        state.Connected(new CaptureStateSnapshot { State = idle, SessionId = "old" });
+        var sent = 0;
+        var discard = Reviewing(state, () => { }, () => sent++);
+
+        var review = await discard.FromReviewAsync("old", Ct);
+
+        Assert.True(review.Done, review.Error);
+        Assert.Null(discard.ReviewBlockedBecause("old"));
+        Assert.Equal(1, sent);
+    }
+
+    [Fact]
+    public void ReviewsDiscardWithNoServiceSaysSo()
+    {
+        var state = new ShellState();
+        state.Connected(CaptureStateSnapshot.Idle);
+        state.Lost();
+        var discard = Reviewing(state, () => { }, () => { });
+
+        Assert.Equal(ConfirmedAction.NotConnected, discard.ReviewBlockedBecause("old"));
+    }
+
+    /// <summary>Review's discard over delegates: the token is issued for DISCARD, and every command is taken.</summary>
+    private static SessionDiscard Reviewing(ShellState state, Action asked, Action sent) => new(
+        state,
+        (_, _) =>
+        {
+            asked();
+            return Task.FromResult<ConfirmationIssued?>(new ConfirmationIssued { Token = "t", Phrase = "DISCARD" });
+        },
+        (_, _) =>
+        {
+            sent();
+            return Task.FromResult(new CommandResult { RequestId = 1, Ok = true });
+        });
+
+    [Theory]
     [InlineData(CaptureStates.Idle)]
     [InlineData(CaptureStates.DraftReady)]
     [InlineData(CaptureStates.DraftPending)]

@@ -139,6 +139,51 @@ public sealed class ReviewDiscardTests
     }
 
     [Fact]
+    public void ASessionThatBeginsWhileTheDialogIsUpStopsTheDiscardAndTheNoteGoesOnSaving()
+    {
+        // As the mark and History's bulk discard: the service starts sessions by itself, so whether one is
+        // being captured is asked again once DISCARD is typed. Nothing is sent, the reason goes beside the
+        // button, and the note's autosave was never stopped.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            const string Reason = "A session is being captured. Stop it first, then discard this one.";
+            var recording = false;
+            var discards = 0;
+            var written = new List<DraftNote>();
+            await using var review = new ReviewViewModel(
+                Session(Frames(1)),
+                new RecordingFrames(),
+                write: (draft, _) =>
+                {
+                    written.Add(draft);
+                    return Task.CompletedTask;
+                },
+                confirm: _ =>
+                {
+                    recording = true;
+                    return true;
+                },
+                discard: _ =>
+                {
+                    discards++;
+                    return Task.CompletedTask;
+                },
+                discardBlocked: () => recording ? Reason : null);
+
+            await review.Note.DiscardCommand.ExecuteAsync(null);
+
+            Assert.Equal(0, discards);
+            Assert.True(review.Note.DiscardFailed);
+            Assert.Equal(Reason, review.Note.DiscardError);
+
+            review.Note.Problem = "Typed while the session records";
+            await review.Note.SaveNowCommand.ExecuteAsync(null);
+            Assert.Equal("Typed while the session records", Assert.Single(written).Problem);
+        });
+    }
+
+    [Fact]
     public void ARefusedDiscardSaysWhyAndTheNoteGoesOnSaving()
     {
         // The note's autosave stops before the discard is sent, so a write landing afterwards cannot put

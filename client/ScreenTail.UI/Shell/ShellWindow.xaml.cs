@@ -135,7 +135,7 @@ public partial class ShellWindow : Window
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
-                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.CompletedTask),
+                new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
                 new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
         DataContext = _model;
@@ -388,10 +388,22 @@ public partial class ShellWindow : Window
         // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
         // rather than appearing inside the shell's. Answered, and with the service not answering, which
         // is the panel that says unknown on every row rather than zeros (T-152).
-        foreach (var (name, build) in new (string, Func<Diagnostics.DiagnosticsWindow>)[]
+        // The two typed confirmations render here too (ST-016): the tray's discard dialog carried a
+        // TextBlock style on its TextBox from #86 to #228, which WPF refuses as the window is built, and
+        // nothing ever built it to find out. They are two windows that do the same job (Spec §3); merging
+        // them is its own change.
+        foreach (var (name, build) in new (string, Func<Window>)[]
         {
             ("panel", () => new Diagnostics.DiagnosticsWindow()),
             ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)),
+            ("confirm-tray-discard", () => new ConfirmWindow(
+                "Discard this session?",
+                "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
+                "DISCARD")),
+            ("confirm-review-discard", () => new ConfirmTypedDialog(
+                Core.Review.TypedConfirmation.ForDiscard(),
+                "Discard this session?",
+                "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone.")),
         })
         {
             foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })

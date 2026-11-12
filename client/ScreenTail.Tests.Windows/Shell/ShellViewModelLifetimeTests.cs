@@ -327,7 +327,7 @@ public sealed class ShellViewModelLifetimeTests
         public SettingsViewModel Settings() => new(
             new ActivationViewModel(new ActivationPanel(this, "TECH-LAPTOP")),
             new CaptureViewModel(new CapturePanel(this), _ => Task.CompletedTask),
-            new PrivacyViewModel(new PrivacyPanel(this), () => null, () => Task.CompletedTask),
+            new PrivacyViewModel(new PrivacyPanel(this), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
             new IntegrationsViewModel(new IntegrationsPanel(this)),
             new UI.Update.UpdatesViewModel(new UpdatesPanel(new NoUpdates())));
 
