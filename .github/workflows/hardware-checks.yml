@@ -92,8 +92,10 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: [self-hosted, Windows, screentail-win]
     # 20, raised from 15 by the owner on 2026-11-05: the job had grown to 13 to 15 minutes (the
-    # accessibility scans alone are about 4), and at 15 a slow day cut it off mid-scan.
-    timeout-minutes: 20
+    # accessibility scans alone are about 4), and at 15 a slow day cut it off mid-scan. 30, raised by
+    # the owner on 2026-11-12: the job is now 16 to 17 minutes on AC, and on battery the tests alone
+    # took 17 to 19, so two runs that day were cancelled at 20 with no test failing.
+    timeout-minutes: 30
     defaults:
       run:
         # Windows PowerShell 5.1 (the laptop has no pwsh), with the execution policy set per-invocation.

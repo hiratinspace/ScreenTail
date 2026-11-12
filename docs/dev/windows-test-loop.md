@@ -114,7 +114,9 @@ gate already ran, so re-checking the merge buys nothing.
 
 When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs-hardware-evidence`** and writes into the run summary that nothing needing a real desktop, screen or input has been checked. An unverified branch should say so rather than leave it to be inferred from a workflow that quietly did not run.
 
-**When several pull requests wait for the laptop,** it runs their jobs one at a time and `Hardware evidence` gives up after thirty-five minutes. Cancel the queued laptop runs of pull requests that will be updated anyway, so the one about to merge is not starved. After the laptop is fixed, re-run the failed jobs of both the `hardware-checks` run and the `ci` run.
+**When several pull requests wait for the laptop,** it runs their jobs one at a time, and `Hardware evidence` shows as waiting, not failed, for as long as its jobs are queued or running (2026-11-12; it gave up after thirty-five minutes before, then an hour, and nine pull requests went red at once with nothing wrong in them). The laptop's jobs stop themselves at 30 and 15 minutes, so the gate sets no limit on a running job. It gives up after five hours, which means the laptop is off or its queue is stuck. Cancel the queued laptop runs of pull requests that will be updated anyway, so the one about to merge is not starved.
+
+**Nobody has to re-run the gate.** When the laptop's jobs pass on a commit whose `Hardware evidence` job had already failed (it gave up, or the laptop's first try failed and was run again), `hardware-evidence-rerun.yml` re-runs that job. It runs from `main`'s copy, checks out nothing, and its token may only re-run jobs. After the laptop is fixed, re-run the failed `hardware-checks` jobs; the `ci` run follows by itself.
 
 **One re-run per suspected flake.** A test that fails once on a runner and passes on one re-run is noted and watched, as `AuditExportOverThePipeTests` was when it timed out once on the hosted runner. A second failure is a bug to fix, not a reason to re-run again.
 

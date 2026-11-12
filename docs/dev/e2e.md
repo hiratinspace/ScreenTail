@@ -69,7 +69,7 @@ input tests: the hotkeys start and stop the session through the coordinator, as 
 real clicks take the frames through the click loop. It is report-only too (`continue-on-error`), adds no
 test to the skip gate, and uploads nothing; its PASS and FAIL lines are in the job's log. It is capped at
 eight minutes with the draft waited for two (`-DraftTimeout 120`), so the input job keeps its fifteen and
-the two laptop jobs stay well inside the hardware gate's thirty-five, and it does not run on a cancelled
+the two laptop jobs keep their own limits (the hardware gate waits for them and sets none), and it does not run on a cancelled
 run, so a superseded run does not go on driving the keyboard and mouse. It needs
 `scripts\windows\demo\setup.cmd` to have been run once on the laptop, for the database server and the
 certificate.
