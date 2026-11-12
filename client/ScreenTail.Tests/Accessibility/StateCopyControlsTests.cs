@@ -57,7 +57,8 @@ public sealed class StateCopyControlsTests
     {
         var shell = Load("Shell", "ShellWindow.xaml");
 
-        var dot = Assert.Single(shell.Descendants(Wpf + "Ellipse"), e => (string?)e.Attribute("Style") == "{StaticResource StateDot}");
+        // The shared dot, coloured per tone by a style built on it.
+        var dot = Assert.Single(shell.Descendants(Wpf + "Ellipse"), e => e.Descendants(Wpf + "Style").Any(s => (string?)s.Attribute("BasedOn") == "{StaticResource StateDot}"));
         var colours = dot.Descendants(Wpf + "Setter").Select(s => (string?)s.Attribute("Value")).ToHashSet();
         Assert.Contains("{DynamicResource Brush.state.recording}", colours);
         Assert.Contains("{DynamicResource Brush.state.paused}", colours);

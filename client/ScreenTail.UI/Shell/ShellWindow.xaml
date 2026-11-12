@@ -130,15 +130,54 @@
                 <!-- The words are a TextBlock inside the badge, named and announced there: a ContentControl
                      has no automation peer, so a name or a live region on the badge itself reached no screen
                      reader (ST-084). -->
+                <!-- The state dot and a border in the state's colour, as the pill shows it (Spec §5 S2); the
+                     words stay text.primary, since state colours are indicators, not text (Spec §2.1). -->
                 <ContentControl Grid.Column="3"
                                 Margin="0,0,0,8"
-                                VerticalAlignment="Center"
-                                Style="{StaticResource Badge.Status}">
-                    <!-- Announced on the state without the clock, so a recording is not read out every second. -->
-                    <TextBlock Text="{Binding Status}"
-                               AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
-                               controls:LiveRegion.Setting="Polite"
-                               controls:LiveRegion.Key="{Binding StatusAnnouncement}" />
+                                VerticalAlignment="Center">
+                    <ContentControl.Style>
+                        <Style BasedOn="{StaticResource Badge.Status}" TargetType="ContentControl">
+                            <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.offline}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding StatusTone}" Value="Recording">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.recording}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding StatusTone}" Value="Scope">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.scope}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ContentControl.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- The shared StateDot, with each tone's colour; its own fill is recording's red. -->
+                        <Ellipse Margin="0,0,8,0">
+                            <Ellipse.Style>
+                                <Style BasedOn="{StaticResource StateDot}" TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="{DynamicResource Brush.state.offline}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding StatusTone}" Value="Recording">
+                                            <Setter Property="Fill" Value="{DynamicResource Brush.state.recording}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
+                                            <Setter Property="Fill" Value="{DynamicResource Brush.state.paused}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding StatusTone}" Value="Scope">
+                                            <Setter Property="Fill" Value="{DynamicResource Brush.state.scope}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <!-- Announced on the state without the clock, so a recording is not read out every second. -->
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="{Binding Status}"
+                                   AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
+                                   controls:LiveRegion.Setting="Polite"
+                                   controls:LiveRegion.Key="{Binding StatusAnnouncement}" />
+                    </StackPanel>
                 </ContentControl>
             </Grid>
         </Border>
