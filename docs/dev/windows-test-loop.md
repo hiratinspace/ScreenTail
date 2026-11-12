@@ -101,7 +101,7 @@ gate already ran, so re-checking the merge buys nothing.
 
 When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs-hardware-evidence`** and writes into the run summary that nothing needing a real desktop, screen or input has been checked. An unverified branch should say so rather than leave it to be inferred from a workflow that quietly did not run.
 
-**When several pull requests wait for the laptop,** it runs their jobs one at a time and `Hardware evidence` gives up after thirty-five minutes. Cancel the queued laptop runs of pull requests that will be updated anyway, so the one about to merge is not starved. After the laptop is fixed, re-run the failed jobs of both the `hardware-checks` run and the `ci` run.
+**When several pull requests wait for the laptop,** it runs their jobs one at a time and `Hardware evidence` gives up after an hour (thirty-five minutes until 2026-11-12). Cancel the queued laptop runs of pull requests that will be updated anyway, so the one about to merge is not starved. After the laptop is fixed, re-run the failed jobs of both the `hardware-checks` run and the `ci` run.
 
 **One re-run per suspected flake.** A test that fails once on a runner and passes on one re-run is noted and watched, as `AuditExportOverThePipeTests` was when it timed out once on the hosted runner. A second failure is a bug to fix, not a reason to re-run again.
 

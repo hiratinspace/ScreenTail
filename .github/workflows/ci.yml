@@ -922,7 +922,7 @@ jobs:
       # bad merge resolution produces exactly that. This says which key and which line, before the push.
       # The gate in this file and the triggers in hardware-checks.yml have to describe the same set of
       # paths, and a comment saying so is not a mechanism. When this file says a change needs hardware
-      # evidence and that workflow does not run, the gate waits thirty-five minutes for a run that was
+      # evidence and that workflow does not run, the gate waits an hour for a run that was
       # never going to start and then fails -- on a pull request with nothing wrong with it.
       #
       # Checked by example rather than by comparing a regex with a glob list, because the two notations
@@ -1009,7 +1009,7 @@ jobs:
                   bad.append(f"{glob}: hardware-checks.yml runs for {sample} but ci.yml would not ask for its evidence.")
 
           # Every tracked file, both ways. A file the gate flags and the workflow ignores makes the gate
-          # wait thirty-five minutes for a run that never starts; a file the workflow runs for and the
+          # wait an hour for a run that never starts; a file the workflow runs for and the
           # gate ignores takes the laptop's keyboard with nothing waiting for the answer.
           checked = 0
           for path in sorted(tracked):
@@ -1159,7 +1159,7 @@ jobs:
     needs: changes
     if: always() && github.event_name == 'pull_request' && needs.changes.outputs.hardware == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 65
     permissions:
       checks: read
       pull-requests: write
@@ -1202,11 +1202,14 @@ jobs:
             gh pr edit "$PR" --repo "$REPO" --remove-label needs-hardware-evidence 2>/dev/null || true
           fi
 
-          deadline=$(( $(date +%s) + 2100 ))
+          # An hour, raised from 35 minutes by the owner on 2026-11-12. The laptop runs one job at a time,
+          # about 17 minutes each, so with three pull requests queued the last one's jobs had not started
+          # when 35 minutes ran out, and the gate failed with nothing wrong.
+          deadline=$(( $(date +%s) + 3600 ))
 
           # A job that has not even been created after five minutes is not a slow job, it is one that is
           # never coming: a path filter that disagrees with this one, or a workflow that did not trigger.
-          # Waiting the full thirty-five minutes to say so held a runner for half an hour and buried the
+          # Waiting the full hour to say so held a runner for half an hour and buried the
           # reason under a timeout message.
           appeared=$(( $(date +%s) + 300 ))
           while :; do
@@ -1246,7 +1249,7 @@ jobs:
             fi
 
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::Waited 35 minutes and the spare laptop's jobs are still $pending pending, $missing missing. A run that never reports is the same as one that failed: there is no evidence."
+              echo "::error::Waited 60 minutes and the spare laptop's jobs are still $pending pending, $missing missing. A run that never reports is the same as one that failed: there is no evidence."
               exit 1
             fi
             echo "waiting: $pending running, $missing not started yet"
