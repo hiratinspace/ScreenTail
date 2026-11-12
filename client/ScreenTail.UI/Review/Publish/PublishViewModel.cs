@@ -36,6 +36,13 @@ public sealed partial class PublishViewModel : ObservableObject
     private readonly PublishPanel _panel;
     private readonly Func<DraftNote> _note;
     private readonly Func<IReadOnlyList<string>> _frames;
+
+    /// <summary>
+    /// Publish, Retry or Map and publish is on its way: one send at a time (<see cref="OneAtATime"/>). A
+    /// second Retry or Map and publish under the first reached the panel's "already in flight" throw,
+    /// which nothing caught.
+    /// </summary>
+    private readonly OneAtATime _sending = new();
     private bool _choicesAsked;
 
     /// <summary>False while the Minutes field holds something that is not a whole number of minutes (T-386).</summary>
@@ -218,8 +225,10 @@ public sealed partial class PublishViewModel : ObservableObject
     public partial bool CanCheckTicket { get; set; } = true;
 
     /// <summary>`Ctrl+Enter`, and the button. Refused by the panel when blocked, whatever pressed it.</summary>
-    [RelayCommand]
-    private async Task PublishAsync()
+    [RelayCommand(CanExecute = nameof(CanSend))]
+    private Task PublishAsync() => _sending.RunAsync(PublishOnceAsync, SendingChanged);
+
+    private async Task PublishOnceAsync()
     {
         if (!_panel.CanPublish || BlockedHere() is not null)
         {
@@ -241,8 +250,10 @@ public sealed partial class PublishViewModel : ObservableObject
         Refresh();
     }
 
-    [RelayCommand]
-    private async Task RetryAsync()
+    [RelayCommand(CanExecute = nameof(CanSend))]
+    private Task RetryAsync() => _sending.RunAsync(RetryOnceAsync, SendingChanged);
+
+    private async Task RetryOnceAsync()
     {
         // Something may already be on the ticket and the box is not ticked: the warning above says so.
         if (_panel.RetryBlockedBecause is { } check)
@@ -274,8 +285,19 @@ public sealed partial class PublishViewModel : ObservableObject
     /// is sent again, on its own. A refusal leaves the prompt up with a line saying so, because the
     /// article is still not published and the technician should not have to guess whether it is.
     /// </summary>
-    [RelayCommand]
-    private async Task MapAndPublishAsync()
+    [RelayCommand(CanExecute = nameof(CanSend))]
+    private Task MapAndPublishAsync() => _sending.RunAsync(MapAndPublishOnceAsync, SendingChanged);
+
+    private bool CanSend() => !_sending.Busy;
+
+    private void SendingChanged()
+    {
+        PublishCommand.NotifyCanExecuteChanged();
+        RetryCommand.NotifyCanExecuteChanged();
+        MapAndPublishCommand.NotifyCanExecuteChanged();
+    }
+
+    private async Task MapAndPublishOnceAsync()
     {
         if (SelectedCompany is not { } choice || !_panel.NeedsMapping)
         {

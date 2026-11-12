@@ -142,6 +142,77 @@ public sealed class ReviewDiscardTests
     }
 
     [Fact]
+    public void WhileTheDialogIsUpASecondInvokeOpensNoSecondDialog()
+    {
+        // Review of #274. The dialog runs a nested message loop before the command's first await, where
+        // the command does not yet count as running, so a queued invoke arriving there opened another.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var asked = 0;
+            var discards = 0;
+            var offDuringDialog = false;
+            ReviewViewModel? review = null;
+            await using var model = new ReviewViewModel(
+                Session(Frames(1)),
+                new RecordingFrames(),
+                confirm: _ =>
+                {
+                    asked++;
+                    offDuringDialog = !review!.Note.DiscardCommand.CanExecute(null);
+                    review.Note.DiscardCommand.Execute(null);
+                    return true;
+                },
+                discard: _ =>
+                {
+                    discards++;
+                    return Task.CompletedTask;
+                });
+            review = model;
+
+            await model.Note.DiscardCommand.ExecuteAsync(null);
+
+            Assert.Equal(1, asked);
+            Assert.Equal(1, discards);
+            Assert.True(offDuringDialog);
+        });
+    }
+
+    [Fact]
+    public void WhileTheDiscardIsOnItsWayTheButtonIsOffAndASecondPressAsksNothing()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var held = new TaskCompletionSource();
+            var asked = 0;
+            await using var review = new ReviewViewModel(
+                Session(Frames(1)),
+                new RecordingFrames(),
+                confirm: _ =>
+                {
+                    asked++;
+                    return true;
+                },
+                discard: _ => held.Task);
+
+            var first = review.Note.DiscardCommand.ExecuteAsync(null);
+
+            Assert.True(review.Note.DiscardCommand.IsRunning);
+            Assert.False(review.Note.DiscardCommand.CanExecute(null));
+            review.Note.DiscardCommand.Execute(null);
+            Assert.False(review.Note.DiscardCommand.CanExecute(null));
+            Assert.Equal(1, asked);
+
+            held.SetResult();
+            await first;
+
+            Assert.Equal(1, asked);
+            Assert.True(review.Note.DiscardCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
     public void WithNothingWiredTheButtonIsDisabled()
     {
         // The render harness has no service. A Discard that looks pressable and does nothing is a lie

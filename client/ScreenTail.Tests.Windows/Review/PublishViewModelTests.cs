@@ -228,6 +228,105 @@ public sealed class PublishViewModelTests
         Assert.StartsWith("Publishing to Demo PSA (not ConnectWise)", demo.DemoNotice, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void WhileARetryIsOnItsWayEverySendIsOffAndASecondRetrySendsNothing()
+    {
+        // Review of #274: the command's Execute does not look at whether it is running. A second Retry
+        // under the first reached the panel's "already in flight" throw, which nothing caught.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var sent = new List<PublishRequest>();
+            var held = new TaskCompletionSource();
+            var session = Session(Frames(1));
+            var panel = new PublishPanel(
+                session,
+                ConnectWise,
+                (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+                async (request, _) =>
+                {
+                    sent.Add(request);
+                    if (sent.Count > 1)
+                    {
+                        await held.Task.ConfigureAwait(true);
+                    }
+
+                    return [.. request.Destinations.Select(d => new DestinationResult(d, sent.Count > 1 || d != Destination.TimeEntry))];
+                });
+            var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+            pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+            await pane.PublishCommand.ExecuteAsync(null);
+            Assert.True(pane.CanRetry);
+
+            var first = pane.RetryCommand.ExecuteAsync(null);
+
+            Assert.False(pane.RetryCommand.CanExecute(null));
+            Assert.False(pane.PublishCommand.CanExecute(null));
+            Assert.False(pane.MapAndPublishCommand.CanExecute(null));
+            pane.RetryCommand.Execute(null);
+            Assert.False(pane.RetryCommand.CanExecute(null));
+            Assert.Equal(2, sent.Count);
+
+            held.SetResult();
+            await first;
+
+            Assert.Equal(2, sent.Count);
+            Assert.True(pane.RetryCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void WhileAMappingIsOnItsWayASecondPressMapsAndSendsNothing()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var sent = new List<PublishRequest>();
+            var maps = 0;
+            var held = new TaskCompletionSource<bool>();
+            var session = Session(Frames(1));
+            var panel = new PublishPanel(
+                session,
+                ConnectWise,
+                (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+                (request, _) =>
+                {
+                    sent.Add(request);
+                    var mapped = maps > 0;
+                    return Task.FromResult<IReadOnlyList<DestinationResult>>([.. request.Destinations.Select(d => d == Destination.KbArticle && !mapped
+                        ? new DestinationResult(d, false, null, "not mapped", "needs_mapping")
+                        : new DestinationResult(d, true))]);
+                },
+                mapping: new CompanyMapping(
+                    _ => Task.FromResult<IReadOnlyList<CompanyChoice>>([new CompanyChoice("7", "Acme Dental")]),
+                    (_, _, _) =>
+                    {
+                        maps++;
+                        return held.Task;
+                    }));
+            var pane = new PublishViewModel(panel, () => session.Draft!, () => ["f1"]);
+            pane.SelectedMatch = new TicketMatch("48213", "Printer offline", "Acme Dental");
+            pane.KbArticle = true;
+            await pane.PublishCommand.ExecuteAsync(null);
+            Assert.True(panel.NeedsMapping);
+            pane.SelectedCompany = new CompanyChoice("7", "Acme Dental");
+
+            var first = pane.MapAndPublishCommand.ExecuteAsync(null);
+
+            Assert.False(pane.MapAndPublishCommand.CanExecute(null));
+            Assert.False(pane.RetryCommand.CanExecute(null));
+            pane.MapAndPublishCommand.Execute(null);
+            Assert.Equal(1, maps);
+
+            held.SetResult(true);
+            await first;
+
+            Assert.Equal(1, maps);
+            Assert.Equal(2, sent.Count);
+            Assert.Equal([Destination.KbArticle], sent[1].Destinations);
+        });
+    }
+
     private static async Task<NoteType> PublishedAsAsync(Action<PublishViewModel> choose)
     {
         var sent = new List<PublishRequest>();

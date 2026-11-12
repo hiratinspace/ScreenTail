@@ -129,6 +129,76 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
         return null;
     }
 
+    [Fact]
+    public async Task WhileDeleteEverythingIsAskingTheButtonIsOffAndASecondPressAsksNothing()
+    {
+        // Review of #274: the command's Execute does not look at whether it is running, so a second
+        // invoke opened a second typed "Delete everything" dialog over the first.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var held = new TaskCompletionSource();
+            var asked = 0;
+            var screen = new PrivacyViewModel(new PrivacyPanel(new FakePrivacy()), () => null, () =>
+            {
+                asked++;
+                return held.Task;
+            });
+
+            var first = screen.EraseEverythingCommand.ExecuteAsync(null);
+
+            Assert.True(screen.EraseEverythingCommand.IsRunning);
+            Assert.False(screen.EraseEverythingCommand.CanExecute(null));
+            screen.EraseEverythingCommand.Execute(null);
+            Assert.False(screen.EraseEverythingCommand.CanExecute(null));
+            Assert.Equal(1, asked);
+
+            held.SetResult();
+            await first;
+
+            Assert.Equal(1, asked);
+            Assert.True(screen.EraseEverythingCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public async Task WhileTheAuditIsBeingExportedTheButtonIsOffAndASecondPressOpensNoDialog()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var held = new TaskCompletionSource<AuditSaved>();
+            var chosen = 0;
+            var exported = 0;
+            var gateway = new FakePrivacy
+            {
+                Export = _ =>
+                {
+                    exported++;
+                    return held.Task;
+                },
+            };
+            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () =>
+            {
+                chosen++;
+                return @"C:\audit.json";
+            }, () => Task.CompletedTask);
+
+            var first = screen.ExportAuditCommand.ExecuteAsync(null);
+
+            Assert.False(screen.ExportAuditCommand.CanExecute(null));
+            screen.ExportAuditCommand.Execute(null);
+            Assert.False(screen.ExportAuditCommand.CanExecute(null));
+            Assert.Equal((1, 1), (chosen, exported));
+
+            held.SetResult(new AuditSaved(true, true, "Saved."));
+            await first;
+
+            Assert.Equal((1, 1), (chosen, exported));
+            Assert.True(screen.ExportAuditCommand.CanExecute(null));
+        });
+    }
+
     private sealed class FakePrivacy : IPrivacyGateway
     {
         public SettingsSnapshot? Snapshot { get; set; }
@@ -143,7 +213,10 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
             return Task.FromResult<string?>(null);
         }
 
+        /// <summary>The export, when a test is about it.</summary>
+        public Func<string, Task<AuditSaved>>? Export { get; init; }
+
         public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
-            throw new InvalidOperationException("not under test");
+            Export is { } export ? export(destination) : throw new InvalidOperationException("not under test");
     }
 }
