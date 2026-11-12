@@ -1,9 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -112,24 +110,26 @@ internal static class WindowRenderer
 
     private static double Straight(byte channel, byte alpha) => Math.Min(255.0, channel * 255.0 / alpha);
 
-    public static void Save(Window window, string path, double? height = null, double scale = 1)
+    /// <param name="prepare">Runs once the content is laid out at the size it is drawn at, just before
+    /// the picture is taken: a scroll to a section, or a focus ring. Whatever it returns is disposed after.</param>
+    public static void Save(Window window, string path, double? height = null, double scale = 1, Func<IDisposable?>? prepare = null)
     {
-        Write(Render(window, height, scale), path);
+        Write(Render(window, height, scale, prepare), path);
     }
 
     /// <summary>
-    /// Sizes the window as asked and returns the size of its client area, which is what is drawn.
+    /// The size the window's client area is drawn at: the size its XAML asks for less its frame, or as
+    /// tall as <paramref name="height"/> for a render of a page that scrolls. A window that sizes itself to
+    /// its content, or that <see cref="Intend"/> was not told about, is drawn as it is.
     ///
-    /// The hosted runner's screen is small, and Windows will not let a window be bigger than the screen:
-    /// the 1280x800 shell came out 1040 px wide. The first version of this drew the window's frame-sized
-    /// canvas over that shrunk layout, which is the transparent strip down the right and along the bottom
-    /// of every old shell render. Laying the content out at a bigger size by hand did not hold either: the
-    /// window's next layout pass put it straight back (a tall Settings render came out as a 1028x749
-    /// picture on a 1268x1600 canvas). So the window is let be the size it asks for (see
-    /// <see cref="Intend"/>), and WPF lays it out the ordinary way.
-    ///
-    /// <paramref name="height"/> is a client height, for a render of a page that scrolls. A window that
-    /// sizes itself to its content, or that <see cref="Intend"/> was not told about, is drawn as it is.
+    /// The hosted runner's screen is about 1024x768, and the window does not get that size there. What was
+    /// tried, so nobody tries it again: setting Width and Height (Windows caps the window at the screen:
+    /// the 1280x800 shell came out 1044x788 outside, 1028x749 inside); answering WM_GETMINMAXINFO with no
+    /// cap (no change: WPF answers it first); SetWindowPos with SWP_NOSENDCHANGING, which skips the message
+    /// the cap is applied in (no change either). Laying the client area out bigger by hand while it was
+    /// still in the window did not hold, because the window's next layout pass put it back. So when the
+    /// window is smaller than asked, <see cref="Render"/> lifts its content out into a host that belongs to
+    /// no window and draws that instead.
     /// </summary>
     public static Size Lay(Window window, double? height = null)
     {
@@ -140,47 +140,32 @@ internal static class WindowRenderer
             return new Size(window.ActualWidth, window.ActualHeight);
         }
 
-        if (window.SizeToContent == SizeToContent.Manual && Intended.TryGetValue(window, out var box))
+        var got = new Size(root.ActualWidth, root.ActualHeight);
+        if (window.SizeToContent != SizeToContent.Manual || !Intended.TryGetValue(window, out var box))
         {
-            var asked = box.Value;
-            var frameHeight = Math.Max(0, window.ActualHeight - root.ActualHeight);
-            var outer = new Size(
-                double.IsNaN(asked.Width) ? window.ActualWidth : asked.Width,
-                height is { } tall ? tall + frameHeight : double.IsNaN(asked.Height) ? window.ActualHeight : asked.Height);
-            if ((Math.Abs(window.ActualWidth - outer.Width) >= 0.5 || Math.Abs(window.ActualHeight - outer.Height) >= 0.5)
-                && PresentationSource.FromVisual(window) is HwndSource source)
-            {
-                // Setting Width and Height goes through WM_WINDOWPOSCHANGING, where Windows caps a window
-                // at the screen's size, and answering WM_GETMINMAXINFO did not lift the cap (the second
-                // hosted run still made the shell 1044x788). SWP_NOSENDCHANGING skips that message, so the
-                // window takes the size; WPF hears of it through WM_SIZE and lays out as normal.
-                var scale = source.CompositionTarget?.TransformToDevice.M11 ?? 1;
-                _ = SetWindowPos(
-                    source.Handle,
-                    IntPtr.Zero,
-                    0,
-                    0,
-                    (int)Math.Round(outer.Width * scale),
-                    (int)Math.Round(outer.Height * scale),
-                    SwpNoMove | SwpNoZOrder | SwpNoActivate | SwpNoSendChanging);
-            }
-
-            window.UpdateLayout();
-            if (Math.Abs(window.ActualWidth - outer.Width) >= 1 || Math.Abs(window.ActualHeight - outer.Height) >= 1)
-            {
-                Console.WriteLine(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"  asked for a {outer.Width}x{outer.Height} window and Windows made it {window.ActualWidth}x{window.ActualHeight}"));
-            }
+            return got;
         }
 
-        return new Size(root.ActualWidth, root.ActualHeight);
+        var frame = new Size(Math.Max(0, window.ActualWidth - root.ActualWidth), Math.Max(0, window.ActualHeight - root.ActualHeight));
+        var asked = box.Value;
+        return new Size(
+            double.IsNaN(asked.Width) ? got.Width : Math.Max(1, asked.Width - frame.Width),
+            height ?? (double.IsNaN(asked.Height) ? got.Height : Math.Max(1, asked.Height - frame.Height)));
     }
 
-    private static RenderTargetBitmap Render(Window window, double? height, double scale)
+    private static RenderTargetBitmap Render(Window window, double? height, double scale, Func<IDisposable?>? prepare = null)
     {
         var size = Lay(window, height);
-        Visual target = Client(window) is { } root ? root : window;
+        var root = Client(window);
+        var fits = root is null || (Math.Abs(root.ActualWidth - size.Width) < 0.5 && Math.Abs(root.ActualHeight - size.Height) < 0.5);
+        return fits || window.Content is not UIElement content
+            ? RenderInWindow(window, root, size, height, scale, prepare)
+            : RenderDetached(window, content, size, scale, prepare);
+    }
+
+    private static RenderTargetBitmap RenderInWindow(Window window, FrameworkElement? root, Size size, double? height, double scale, Func<IDisposable?>? prepare)
+    {
+        Visual target = root is not null ? root : window;
 
         // 150% is drawn as 150% rather than as a 100% picture made bigger: the window is told its DPI is
         // 144, so layout rounding and text are worked out for that many pixels, as they are on a real
@@ -204,13 +189,11 @@ internal static class WindowRenderer
             }
         }
 
+        using var prepared = prepare?.Invoke();
+        window.UpdateLayout();
         try
         {
-            var width = (int)Math.Ceiling(size.Width * dpi.DpiScaleX);
-            var pixelHeight = (int)Math.Ceiling(size.Height * dpi.DpiScaleY);
-            var bitmap = new RenderTargetBitmap(width, pixelHeight, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
-            bitmap.Render(target);
-            return bitmap;
+            return Draw(target, size, dpi);
         }
         finally
         {
@@ -219,6 +202,91 @@ internal static class WindowRenderer
                 VisualTreeHelper.SetRootDpi(window, original);
             }
         }
+    }
+
+    /// <summary>
+    /// Draws the window's content at <paramref name="size"/> in a host that belongs to no window, and puts
+    /// it back. The host is what the window's default template is (a Border with the window's background
+    /// and border, round an AdornerDecorator) and inherits what the window would have handed down: its
+    /// resources, data context, text and layout settings. So the picture is the window's, bigger.
+    ///
+    /// Taken out and put back with nothing in between that runs the dispatcher, so the Unloaded and Loaded
+    /// the move schedules cancel out and no view sees it leave.
+    /// </summary>
+    private static RenderTargetBitmap RenderDetached(Window window, UIElement content, Size size, double scale, Func<IDisposable?>? prepare)
+    {
+        var decorator = new System.Windows.Documents.AdornerDecorator();
+        var host = new System.Windows.Controls.Border
+        {
+            Background = window.Background,
+            BorderBrush = window.BorderBrush,
+            BorderThickness = window.BorderThickness,
+            Padding = window.Padding,
+            Child = decorator,
+            Resources = window.Resources,
+            DataContext = window.DataContext,
+            FlowDirection = window.FlowDirection,
+            Language = window.Language,
+            UseLayoutRounding = window.UseLayoutRounding,
+            SnapsToDevicePixels = window.SnapsToDevicePixels,
+        };
+        foreach (var property in Inherited)
+        {
+            host.SetValue(property, window.GetValue(property));
+        }
+
+        var dpi = scale == 1 ? VisualTreeHelper.GetDpi(window) : new DpiScale(scale, scale);
+
+        // Pinned for the move. Inherited, it would be null for the moment between window and host, and
+        // a ContentControl bound to it (the shell's content area) would throw its pane away and build a
+        // new one: a different scroller from the one the caller scrolls, and a strip whose model the old
+        // view disposes on its way out.
+        var pinned = content is FrameworkElement element && element.ReadLocalValue(FrameworkElement.DataContextProperty) == DependencyProperty.UnsetValue
+            ? element
+            : null;
+        pinned?.SetValue(FrameworkElement.DataContextProperty, window.DataContext);
+        window.Content = null;
+        try
+        {
+            decorator.Child = content;
+            VisualTreeHelper.SetRootDpi(host, dpi);
+            host.Measure(size);
+            host.Arrange(new Rect(size));
+            host.UpdateLayout();
+            using var prepared = prepare?.Invoke();
+            host.UpdateLayout();
+            return Draw(host, size, dpi);
+        }
+        finally
+        {
+            decorator.Child = null;
+            window.Content = content;
+            pinned?.ClearValue(FrameworkElement.DataContextProperty);
+            window.UpdateLayout();
+        }
+    }
+
+    /// <summary>What the window's style sets and its content inherits: the text settings.</summary>
+    private static readonly DependencyProperty[] Inherited =
+    [
+        System.Windows.Documents.TextElement.ForegroundProperty,
+        System.Windows.Documents.TextElement.FontFamilyProperty,
+        System.Windows.Documents.TextElement.FontSizeProperty,
+        System.Windows.Documents.TextElement.FontWeightProperty,
+        System.Windows.Documents.TextElement.FontStyleProperty,
+        System.Windows.Documents.TextElement.FontStretchProperty,
+        TextOptions.TextFormattingModeProperty,
+        TextOptions.TextRenderingModeProperty,
+        TextOptions.TextHintingModeProperty,
+    ];
+
+    private static RenderTargetBitmap Draw(Visual target, Size size, DpiScale dpi)
+    {
+        var width = (int)Math.Ceiling(size.Width * dpi.DpiScaleX);
+        var pixelHeight = (int)Math.Ceiling(size.Height * dpi.DpiScaleY);
+        var bitmap = new RenderTargetBitmap(width, pixelHeight, dpi.PixelsPerInchX, dpi.PixelsPerInchY, PixelFormats.Pbgra32);
+        bitmap.Render(target);
+        return bitmap;
     }
 
     /// <summary>The window's client area: the root of its template, which is what a technician sees.</summary>
@@ -239,15 +307,6 @@ internal static class WindowRenderer
     }
 
     private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Intended = [];
-
-    private const uint SwpNoMove = 0x0002;
-    private const uint SwpNoZOrder = 0x0004;
-    private const uint SwpNoActivate = 0x0010;
-    private const uint SwpNoSendChanging = 0x0400;
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 
     private static void Write(RenderTargetBitmap bitmap, string path)
     {

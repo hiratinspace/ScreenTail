@@ -102,10 +102,15 @@ public partial class ShellWindow
 
                 var (top, bottom) = Section(pane, page);
                 var height = natural.Height + Math.Max(0, bottom - top - scroller.ViewportHeight);
-                _ = WindowRenderer.Lay(this, height);
-                scroller.ScrollToVerticalOffset(top);
-                scroller.UpdateLayout();
-                WindowRenderer.Save(this, Shot($"settings-{name}", theme), height);
+
+                // The scroll happens once the page is laid out at the render's height, which may be in a
+                // host outside the window: scrolled before, it would be clamped to the window's shorter view.
+                WindowRenderer.Save(this, Shot($"settings-{name}", theme), height, prepare: () =>
+                {
+                    scroller.ScrollToVerticalOffset(top);
+                    scroller.UpdateLayout();
+                    return null;
+                });
             }
         }
 
@@ -206,24 +211,33 @@ public partial class ShellWindow
         // The first hosted run focused all three controls and WPF drew no ring for any of them: it decides
         // "focus arrived by keyboard" from input this harness cannot really send. So the ring is drawn the
         // way WPF draws it, the element's own FocusVisualStyle on a Control in an adorner over it, and taken
-        // away after the render. What is reviewed is the style the product ships, not a stand-in.
-        Adorner? drawn = null;
-        if (!HasAdorner(element) && element.FocusVisualStyle is { } style && AdornerLayer.GetAdornerLayer(element) is { } layer)
-        {
-            drawn = new FocusRingAdorner(element, style);
-            layer.Add(drawn);
-            await SettleAsync();
-        }
-
-        var ring = drawn is not null ? "its FocusVisualStyle drawn by the harness"
-            : HasAdorner(element) ? "focus ring drawn by WPF"
+        // away after the render. What is reviewed is the style the product ships, not a stand-in. It is
+        // added at the moment of the render, to whichever adorner layer the element is under then: the
+        // window's, or the host's when the render draws the content outside the window.
+        var byWpf = HasAdorner(element);
+        var style = byWpf ? null : element.FocusVisualStyle;
+        var ring = style is not null ? "its FocusVisualStyle drawn by the harness"
+            : byWpf ? "focus ring drawn by WPF"
             : "no FocusVisualStyle; the control's own focused trigger is what shows";
         Console.WriteLine($"  {screen}/{theme.Suffix()}: {element.GetType().Name} focused={element.IsKeyboardFocused}, {ring}");
-        WindowRenderer.Save(this, Shot(screen, theme));
-        if (drawn is not null)
+        WindowRenderer.Save(this, Shot(screen, theme), prepare: () =>
         {
-            AdornerLayer.GetAdornerLayer(element)?.Remove(drawn);
-        }
+            if (style is null || AdornerLayer.GetAdornerLayer(element) is not { } layer)
+            {
+                return null;
+            }
+
+            var drawn = new FocusRingAdorner(element, style);
+            layer.Add(drawn);
+            layer.UpdateLayout();
+            return new Removal(() => layer.Remove(drawn));
+        });
+    }
+
+    /// <summary>Undoes what a render's prepare step added.</summary>
+    private sealed class Removal(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
     }
 
     /// <summary>What WPF's own focus visual is: a Control styled with the element's FocusVisualStyle, sized to the element.</summary>
