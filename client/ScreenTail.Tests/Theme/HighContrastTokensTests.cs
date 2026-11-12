@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Xml.Linq;
 
 namespace ScreenTail.Tests.Theme;
@@ -36,6 +37,25 @@ public sealed class HighContrastTokensTests
         foreach (var theme in new[] { "Tokens.Light.g.xaml", "Tokens.Dark.g.xaml", "Tokens.HighContrast.xaml" })
         {
             Assert.Empty(common.Intersect(Keys(theme)));
+        }
+    }
+
+    [Fact]
+    public void EachTokenMapsToTheSystemColourTokensJsonNames()
+    {
+        // Spec v0.6.0: tokens.json names each colour's system colour (`hc`), so the hand-written dictionary
+        // and the token file say the same thing. A token mapped here to a different system colour from the
+        // one the file names is a decision made in one place and not the other.
+        using var tokens = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Design", "tokens.json")));
+        var path = Path.Combine(AppContext.BaseDirectory, "Theme", "Tokens.HighContrast.xaml");
+        var colours = XDocument.Load(path).Root!.Elements()
+            .Where(e => e.Name.LocalName == "Color")
+            .ToDictionary(e => e.Attribute(X + "Key")!.Value, e => e.Value.Trim(), StringComparer.Ordinal);
+
+        foreach (var colour in tokens.RootElement.GetProperty("color").EnumerateObject())
+        {
+            var systemColour = colour.Value.GetProperty("hc").GetString();
+            Assert.Equal($"{{x:Static SystemColors.{systemColour}Color}}", colours[$"Token.{colour.Name}"]);
         }
     }
 
