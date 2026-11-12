@@ -181,7 +181,7 @@ public sealed class HudTimelineTests
             Assert.DoesNotContain("Printer", spoken, StringComparison.Ordinal);
             Assert.DoesNotContain("Acme", spoken, StringComparison.Ordinal);
             Assert.DoesNotContain("OUTLOOK", spoken, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain('—', spoken);
+            Assert.DoesNotContain('\u2014', spoken);
         }
     }
 

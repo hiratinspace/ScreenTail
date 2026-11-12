@@ -85,7 +85,7 @@ public sealed class HudControlsTests
     {
         var all = HudControls.For(Capture(CaptureStates.Recording))
             .Concat(HudControls.For(Capture(CaptureStates.Paused, CaptureReasons.User)));
-        Assert.DoesNotContain(all, c => c.Tooltip.Contains('—', StringComparison.Ordinal) || c.Spoken.Contains('—', StringComparison.Ordinal));
+        Assert.DoesNotContain(all, c => c.Tooltip.Contains('\u2014', StringComparison.Ordinal) || c.Spoken.Contains('\u2014', StringComparison.Ordinal));
     }
 
     private static CaptureStateSnapshot Capture(string state, string? reason = null) =>
