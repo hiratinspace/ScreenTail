@@ -32,9 +32,38 @@ on:
       - 'client/ScreenTail.Service/Speech/**'
       - 'client/ScreenTail.Core/Speech/**'
       - 'client/ScreenTail.Platform/**'
-      - 'client/ScreenTail.Tests.Windows/**'
+      # The Windows tests for the areas above, and the files every one of them shares. Not the whole
+      # project: its Review, Settings, Shell, History, Accessibility, Onboarding, Install and Update
+      # folders test the UI, none of their tests needs a real machine, and the hosted Windows job runs
+      # them on every pull request. Taking them in made every screen change wait about forty minutes
+      # for the laptop (owner, 2026-11-12). The nightly run below still puts all of them on the laptop.
+      - 'client/ScreenTail.Tests.Windows/Capabilities/**'
+      - 'client/ScreenTail.Tests.Windows/Capture/**'
+      - 'client/ScreenTail.Tests.Windows/Detection/**'
+      - 'client/ScreenTail.Tests.Windows/Host/**'
+      - 'client/ScreenTail.Tests.Windows/Input/**'
+      - 'client/ScreenTail.Tests.Windows/Ipc/**'
+      - 'client/ScreenTail.Tests.Windows/Performance/**'
+      - 'client/ScreenTail.Tests.Windows/Privacy/**'
+      - 'client/ScreenTail.Tests.Windows/Speech/**'
+      - 'client/ScreenTail.Tests.Windows/Store/**'
+      - 'client/ScreenTail.Tests.Windows/AssemblyInfo.cs'
+      - 'client/ScreenTail.Tests.Windows/DesktopWindow.cs'
+      - 'client/ScreenTail.Tests.Windows/Hardware.cs'
+      - 'client/ScreenTail.Tests.Windows/Measurements.cs'
+      - 'client/ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
+      - 'client/ScreenTail.Tests.Windows/WpfApplicationOwner.cs'
+      - 'client/ScreenTail.Tests.Windows/skip-baseline.json'
       - 'scripts/windows/**'
       - '.github/workflows/hardware-checks.yml'
+  # Every night on main, whatever changed, so what the filter above leaves out (the UI changes, and
+  # anything that reaches the hardware paths sideways, such as a shared project or package) is still run
+  # on the real machine within a day. 07:17 UTC is the middle of the night where the laptop lives, so the
+  # input job taking over its keyboard bothers nobody; off the hour because scheduled runs on the hour
+  # queue longest. Nothing waits for this run: a failure shows in the Actions tab and mails whoever last
+  # changed this line.
+  schedule:
+    - cron: '17 7 * * *'
   workflow_dispatch:
 
 # Read-only, said here rather than inherited from a repository default somebody can change.
