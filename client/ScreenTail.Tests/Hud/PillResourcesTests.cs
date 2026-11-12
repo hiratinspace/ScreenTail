@@ -33,10 +33,64 @@ public sealed partial class PillResourcesTests
         }
 
         // The control: the pill asks for its styles and its surface, so an empty set cannot pass.
-        Assert.Contains("Text.Body", asked);
-        Assert.Contains("Brush.bg.surface", asked);
+        Assert.Contains("Hud.IconButton", asked);
+        Assert.Contains("Brush.shell.bg", asked);
         Assert.Empty(asked.Except(defined));
     }
+
+    /// <summary>
+    /// Spec §5 S2 (v0.6.0): the pill is part of the frame. It draws on <c>shell.bg</c> with a
+    /// <c>shell.muted</c> outline, carries the ribbon cap, and colours its states with the <c>shell.*</c>
+    /// state tokens, which high contrast maps to system colours. The pane tokens it used before would put
+    /// pane colours on the frame, where the contrast test does not hold them.
+    /// </summary>
+    [Fact]
+    public void ThePillIsPartOfTheFrame()
+    {
+        var pill = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Hud", "HudWindow.xaml"));
+        var asked = Lookup().Matches(pill).Select(m => m.Groups["key"].Value).ToHashSet(StringComparer.Ordinal);
+
+        foreach (var key in new[]
+        {
+            "Brush.shell.bg", "Brush.shell.text", "Brush.shell.muted", "Brush.shell.line", "Brush.brand.ribbon.band",
+            "Brush.shell.recording", "Brush.shell.paused", "Brush.shell.scope", "Brush.shell.offline",
+        })
+        {
+            Assert.Contains(key, asked);
+        }
+
+        Assert.DoesNotContain(asked, key => key.StartsWith("Brush.state.", StringComparison.Ordinal) || key.StartsWith("Brush.bg.", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// One button per action. The expanded card used to repeat Mark under the pill's own Mark, and two
+    /// focusable buttons with one name read to a screen reader as the same control twice (Accessibility
+    /// Insights, SiblingUniqueAndFocusable, CI on #289).
+    /// </summary>
+    [Fact]
+    public void EachActionHasOneButton()
+    {
+        var pill = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Hud", "HudWindow.xaml"));
+        var commands = CommandBinding().Matches(pill).Select(m => m.Groups["command"].Value).ToList();
+
+        Assert.Contains("MarkCommand", commands);
+        Assert.Equal(commands.Distinct(StringComparer.Ordinal), commands);
+    }
+
+    [GeneratedRegex(@"Command=""\{Binding\s+(?<command>\w+)\}""")]
+    private static partial Regex CommandBinding();
+
+    /// <summary>Tokens only: no colour is typed into the pill (Spec §2).</summary>
+    [Fact]
+    public void ThePillTypesNoColour()
+    {
+        var pill = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Hud", "HudWindow.xaml"));
+
+        Assert.DoesNotMatch(TypedColour(), pill);
+    }
+
+    [GeneratedRegex(@"""#[0-9A-Fa-f]{3,8}""|Colors\.|=""(?:Red|White|Black|Gray)""")]
+    private static partial Regex TypedColour();
 
     private static IEnumerable<string> Keys(XDocument document) =>
         document.Descendants().Select(e => e.Attribute(X + "Key")?.Value).OfType<string>();

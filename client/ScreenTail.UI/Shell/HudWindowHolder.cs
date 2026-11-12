@@ -45,7 +45,13 @@ internal sealed class HudWindowHolder
         _connection = connection;
         _window = new HudWindow(preferences);
         _model = new HudViewModel(state, clock);
-        _model.MarkRequested += () => _ = connection.SendAsync(id => new MarkMomentCommand { RequestId = id });
+        // The pill's buttons send the commands the tray and the hotkeys already reach (Spec §5 S2, v0.6.0).
+        // The service decides whether each is accepted; the pill only asks. A mark joins the expanded
+        // pill's events only once the service says it took it.
+        _model.MarkRequested += () => _ = MarkAsync();
+        _model.PauseRequested += () => _ = connection.SendAsync(id => new PauseCommand { RequestId = id });
+        _model.ResumeRequested += () => _ = connection.SendAsync(id => new ResumeCommand { RequestId = id });
+        _model.StopRequested += () => _ = connection.SendAsync(id => new StopCommand { RequestId = id });
         var gestures = new HudGestures(_model, () => _hud.Visible);
         gestures.ReviewRequested += () => ReviewRequested?.Invoke();
         gestures.HideRequested += () => HideRequested?.Invoke();
@@ -129,6 +135,15 @@ internal sealed class HudWindowHolder
     {
         _reporting.Stop();
         _window.Close();
+    }
+
+    private async Task MarkAsync()
+    {
+        var result = await _connection.SendAsync(id => new MarkMomentCommand { RequestId = id }).ConfigureAwait(false);
+        if (result.Ok)
+        {
+            _model.MomentMarked();
+        }
     }
 
     private void Report()
