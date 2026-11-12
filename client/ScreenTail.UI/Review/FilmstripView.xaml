@@ -186,9 +186,28 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0"
-                           Style="{StaticResource Text.SectionHeading}"
-                           Text="{Binding Enlarged.Label}" />
+                <!-- Close on the heading's row, as a dialog's is, so the actions under the picture fit one
+                     row in the narrow screenshots pane beside the inbox rail (v0.6.4). Two rows took the
+                     picture's height, and at the 1024x680 minimum the blur box came out too small to show
+                     its own focus rings. First in the tree, so it is still the first Tab stop. -->
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.SectionHeading}"
+                               TextWrapping="NoWrap"
+                               TextTrimming="CharacterEllipsis"
+                               Text="{Binding Enlarged.Label}" />
+                    <Button x:Name="CloseEnlarged"
+                            Grid.Column="1"
+                            Margin="12,0,0,0"
+                            Style="{StaticResource Button.Secondary}"
+                            Content="Close  Esc"
+                            Command="{Binding CloseEnlargedCommand}" />
+                </Grid>
 
                 <Grid Grid.Row="1" Margin="0,10,0,0">
                     <!-- TargetNullValue: the picture is bytes, dropped to null when the view lets go of it,
@@ -287,11 +306,7 @@
                 </Grid>
 
                 <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,12">
-                    <Button x:Name="CloseEnlarged"
-                            Style="{StaticResource Button.Secondary}"
-                            Content="Close  Esc"
-                            Command="{Binding CloseEnlargedCommand}" />
-                    <Button Margin="8,0,0,8"
+                    <Button Margin="0,0,0,8"
                             Style="{StaticResource Button.Secondary}"
                             Content="OCR text  T"
                             Command="{Binding ToggleOcrTextCommand}"

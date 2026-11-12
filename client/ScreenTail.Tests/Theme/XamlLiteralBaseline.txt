@@ -10,6 +10,7 @@ Gallery/GalleryWindow.xaml	Margin	24,0,6,0	1
 Gallery/GalleryWindow.xaml	Margin	6	3
 Gallery/GalleryWindow.xaml	Margin	6,0,0,0	6
 Gallery/GalleryWindow.xaml	Padding	16,10	1
+Gallery/GalleryWindow.xaml	Width	280	2
 History/HistoryPane.xaml	CornerRadius	28	1
 History/HistoryPane.xaml	Margin	0,0,0,48	1
 History/HistoryPane.xaml	Margin	0,0,10,0	1
@@ -77,6 +78,7 @@ Settings/Capture/CapturePane.xaml	Margin	0,2,0,0	1
 Settings/Capture/CapturePane.xaml	Margin	0,6,0,0	1
 Settings/Capture/CapturePane.xaml	Margin	0,8,0,6	1
 Settings/Capture/CapturePane.xaml	MaxWidth	760	1
+Settings/Capture/CapturePane.xaml	Width	280	1
 Settings/Integrations/IntegrationsPane.xaml	Margin	0,0,0,6	1
 Settings/Integrations/IntegrationsPane.xaml	Margin	0,10,0,0	9
 Settings/Integrations/IntegrationsPane.xaml	Margin	0,10,0,10	1
@@ -88,6 +90,7 @@ Settings/Privacy/PrivacyPane.xaml	Margin	0,16,0,6	2
 Settings/Privacy/PrivacyPane.xaml	Margin	0,2,0,0	1
 Settings/Privacy/PrivacyPane.xaml	Margin	0,6,0,0	5
 Settings/Privacy/PrivacyPane.xaml	MaxWidth	760	1
+Settings/Privacy/PrivacyPane.xaml	Width	280	1
 Settings/SettingsPane.xaml	Margin	0,28,0,12	1
 Settings/SettingsPane.xaml	Margin	6,0,0,0	2
 Shell/ConfirmWindow.xaml	Margin	0,10,0,0	1
@@ -96,13 +99,11 @@ Shell/ConfirmWindow.xaml	Margin	10,0,0,0	1
 Shell/ShellWindow.xaml	CornerRadius	28	1
 Shell/ShellWindow.xaml	Margin	0,0,0,48	1
 Shell/ShellWindow.xaml	Margin	0,0,10,0	1
-Shell/ShellWindow.xaml	Margin	0,0,28,8	1
-Shell/ShellWindow.xaml	Padding	20,8,16,0	1
 Shell/ShellWindow.xaml	Padding	32,28	1
 Shell/ShortcutSheet.xaml	Margin	0,16,0,6	1
 Shell/ShortcutSheet.xaml	Margin	0,2	1
-Theme/Components.xaml	BorderThickness	2	4
-Theme/Components.xaml	BorderThickness	3	1
+Theme/Components.xaml	BorderThickness	2	5
+Theme/Components.xaml	BorderThickness	3	2
 Theme/Components.xaml	CornerRadius	1	1
 Theme/Components.xaml	CornerRadius	10	1
 Theme/Components.xaml	CornerRadius	11	2
@@ -111,8 +112,11 @@ Theme/Components.xaml	CornerRadius	16	1
 Theme/Components.xaml	CornerRadius	2	3
 Theme/Components.xaml	CornerRadius	3	1
 Theme/Components.xaml	CornerRadius	4	3
+Theme/Components.xaml	CornerRadius	6,0,0,0	1
+Theme/Components.xaml	CornerRadius	6,0,0,6	1
+Theme/Components.xaml	CornerRadius	8	1
 Theme/Components.xaml	FontSize	28	1
-Theme/Components.xaml	Height	16	2
+Theme/Components.xaml	Height	16	3
 Theme/Components.xaml	Height	20	2
 Theme/Components.xaml	Margin	-3	1
 Theme/Components.xaml	Margin	0,0,0,1	1

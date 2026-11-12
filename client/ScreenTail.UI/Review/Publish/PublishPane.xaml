@@ -206,11 +206,14 @@
                                 <TextBlock Style="{StaticResource Text.Body}"
                                            Text="{Binding MappingPrompt}"
                                            controls:LiveRegion.Setting="Polite" />
-                                <ComboBox Margin="0,8,0,0"
-                                          MaxWidth="{DynamicResource Layout.content-max-width}"
-                                          HorizontalAlignment="Left"
-                                          MinWidth="{DynamicResource Layout.side-column}"
-                                          ItemsSource="{Binding Companies}"
+                                <!-- As wide as the side column, or the card's width where that is less:
+                                     beside the inbox rail (v0.6.4) the receipt's main column can be under
+                                     300, and a fixed least width cut the box and its focus ring off. -->
+                                <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" MaxWidth="{DynamicResource Layout.side-column}" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox ItemsSource="{Binding Companies}"
                                           SelectedItem="{Binding SelectedCompany}"
                                           DisplayMemberPath="Name"
                                           AutomationProperties.Name="Company in the documentation platform">
@@ -220,6 +223,7 @@
                                         </Style>
                                     </ComboBox.ItemContainerStyle>
                                 </ComboBox>
+                                </Grid>
                                 <TextBlock Margin="0,4,0,0"
                                            Style="{StaticResource Text.Error}"
                                            Text="{Binding MappingError}"

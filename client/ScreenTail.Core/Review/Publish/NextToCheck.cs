@@ -13,7 +13,8 @@ public sealed record TodaySummary(int Published, int LeftToCheck);
 /// landed), newest first in each, and the session just published is never next.
 ///
 /// It reads History's rows, which carry a tool, a duration and a start, never a title or a company
-/// (INV-10 keeps the list content-free), so the card says what a row can and nothing more.
+/// (ST-079 keeps the list free of note text; the company is not stored on the device), so the card says
+/// what a row can and nothing more.
 /// </summary>
 public static class NextToCheck
 {

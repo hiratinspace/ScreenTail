@@ -81,7 +81,13 @@
                       Padding="0,0,12,0"
                       ScrollChanged="OnScrollChanged">
             <!-- Each section is a group tagged with its nav key: the nav scrolls to it, and scrolling selects it. -->
-            <StackPanel x:Name="Page" Width="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
+            <!-- The readable width, on the left, and narrower when the pane is: beside the inbox rail at the
+                 1024 minimum (v0.6.4) the page has under 760, and a fixed width cut the cards' buttons off. -->
+            <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="{DynamicResource Layout.content-max-width}" />
+            </Grid.ColumnDefinitions>
+            <StackPanel x:Name="Page" Grid.Column="0">
                 <StackPanel Tag="Activation">
                     <TextBlock Style="{StaticResource Settings.Group}" Margin="0,16,0,12" Text="Activation" />
                     <activation:ActivationPane DataContext="{Binding Activation}" />
@@ -108,6 +114,7 @@
                     <update:UpdatesPane DataContext="{Binding Updates}" />
                 </StackPanel>
             </StackPanel>
+            </Grid>
         </ScrollViewer>
 
         <!-- The one Save bar (Spec §3, Save bar: hidden, pending, saving, failed). Shown only with a change
