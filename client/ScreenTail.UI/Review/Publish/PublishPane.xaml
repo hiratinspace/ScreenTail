@@ -199,6 +199,10 @@
                                 Visibility="{Binding MappingVisibility}"
                                 AutomationProperties.Name="Company mapping">
                             <StackPanel>
+                                <StackPanel Margin="0,0,0,4" Orientation="Horizontal">
+                                    <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.paused}" Text="&#xE7BA;" />
+                                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="KB article not sent yet" />
+                                </StackPanel>
                                 <TextBlock Style="{StaticResource Text.Body}"
                                            Text="{Binding MappingPrompt}"
                                            controls:LiveRegion.Setting="Polite" />
@@ -237,6 +241,10 @@
                                 Visibility="{Binding CheckTicketVisibility}"
                                 AutomationProperties.Name="Check the ticket first">
                             <StackPanel>
+                                <StackPanel Margin="0,0,0,4" Orientation="Horizontal">
+                                    <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.paused}" Text="&#xE9CE;" />
+                                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="Not confirmed" />
+                                </StackPanel>
                                 <TextBlock Style="{StaticResource Text.Body}"
                                            Text="{Binding CheckTicketPrompt}"
                                            controls:LiveRegion.Setting="Polite" />

@@ -121,7 +121,7 @@
                                    controls:LiveRegion.Setting="Polite" />
                     </StackPanel>
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Visibility="{Binding Publish.ConnectVisibility}">
-                        <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.offline}" FontSize="{DynamicResource Size.sm}" Text="&#xE8CD;" />
+                        <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.offline}" FontSize="{DynamicResource Size.sm}" Text="&#xE71B;" />
                         <TextBlock Margin="8,0,0,0"
                                    Style="{StaticResource Text.Secondary}"
                                    FontSize="{DynamicResource Size.sm}"
