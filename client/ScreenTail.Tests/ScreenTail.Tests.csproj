@@ -31,6 +31,11 @@
     <!-- The component styles and the pill, so a test can hold every resource the pill asks for to one that exists (INV-4). -->
     <None Include="..\ScreenTail.UI\Theme\Components.xaml" Link="Theme\Components.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\ScreenTail.UI\Hud\HudWindow.xaml" Link="Hud\HudWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The render harness's palettes, theme names and index have no WPF in them, so they are compiled
+         in here and tested on any OS (ST-016). -->
+    <Compile Include="..\ScreenTail.UI\Render\ContrastPalette.cs" Link="Render\Source\ContrastPalette.cs" />
+    <Compile Include="..\ScreenTail.UI\Render\RenderTheme.cs" Link="Render\Source\RenderTheme.cs" />
+    <Compile Include="..\ScreenTail.UI\Render\RenderIndex.cs" Link="Render\Source\RenderIndex.cs" />
   </ItemGroup>
 
   <ItemGroup>
