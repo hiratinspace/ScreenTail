@@ -21,7 +21,48 @@ public partial class ReviewPane : UserControl
     public ReviewPane()
     {
         InitializeComponent();
+
+        // Handled events too: whatever took focus may have marked it, and the form still has to show it.
+        FormScroll.AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(OnFormFocus), handledEventsToo: true);
     }
+
+    /// <summary>
+    /// Whatever takes keyboard focus in the form is scrolled fully into the form's view, focus ring and
+    /// all. WPF's own bring-into-view stops at the nearest scroller (the transcript's, the note's), so an
+    /// item those show could still sit below the form's fold: a transcript line Tab reached was drawn
+    /// off the bottom of a short window.
+    /// </summary>
+    private void OnFormFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (e.NewFocus is not FrameworkElement focused || !focused.IsDescendantOf(Form))
+        {
+            return;
+        }
+
+        focused.BringIntoView();
+        FormScroll.UpdateLayout();
+        if (!focused.IsDescendantOf(Form))
+        {
+            return;
+        }
+
+        var box = focused.TransformToAncestor(FormScroll).TransformBounds(new Rect(focused.RenderSize));
+        box.Inflate(0, RingAllowance);
+        var offset = FormScroll.VerticalOffset;
+        if (box.Top < 0)
+        {
+            FormScroll.ScrollToVerticalOffset(offset + box.Top);
+        }
+        else if (box.Bottom > FormScroll.ViewportHeight)
+        {
+            // Bottom edge into view, but never so far that the top goes out of it.
+            FormScroll.ScrollToVerticalOffset(offset + Math.Min(box.Top, box.Bottom - FormScroll.ViewportHeight));
+        }
+    }
+
+    // The focus ring is drawn 3 px outside a control (Components.xaml's FocusRing); a little more, so the
+    // ring is never cut by the fold.
+    private const double RingAllowance = 8;
 
     // Neither part's height depends on the form's (the envelope's on its width, the timeline's on its
     // own state), so setting the floor here settles in one more layout pass and never feeds back.
