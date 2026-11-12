@@ -1700,6 +1700,8 @@
 
     <!-- Window chrome defaults -->
     <Style x:Key="Window.Base" TargetType="Window">
+        <!-- The Iris app icon (Spec v0.6.0 §2.0) in the title bar, the taskbar and Alt+Tab. -->
+        <Setter Property="Icon" Value="pack://application:,,,/ScreenTail.UI;component/Assets/app.ico" />
         <Setter Property="Background" Value="{DynamicResource Brush.bg.base}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />

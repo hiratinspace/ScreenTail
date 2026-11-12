@@ -5,19 +5,19 @@ namespace ScreenTail.Core.Shell;
 /// <summary>The five icons Spec §5 S1 lists, and nothing else.</summary>
 public enum TrayIcon
 {
-    /// <summary>A tail glyph in text.secondary. Nothing is being captured.</summary>
+    /// <summary>The brand glyph, Iris on a light taskbar and Ribbon 400 on a dark one. Nothing is being captured.</summary>
     Idle,
 
-    /// <summary>state.recording with a dot. INV-3: this is on screen whenever capture is running.</summary>
+    /// <summary>The glyph with a red dot. INV-3: this is on screen whenever capture is running.</summary>
     Recording,
 
     /// <summary>Capture is on but paused or suppressed — still a session, still not capturing.</summary>
     Paused,
 
-    /// <summary>accent.primary with a badge carrying <see cref="TrayPresence.DraftsReady"/>.</summary>
+    /// <summary>The idle glyph with a square badge; the tooltip and menu carry <see cref="TrayPresence.DraftsReady"/>.</summary>
     DraftReady,
 
-    /// <summary>Grey. The service is not answering, so what is being captured is unknown.</summary>
+    /// <summary>A grey glyph with a cross. The service is not answering, so what is being captured is unknown.</summary>
     Offline,
 }
 

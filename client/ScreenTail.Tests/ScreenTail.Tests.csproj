@@ -31,6 +31,9 @@
     <!-- The component styles and the pill, so a test can hold every resource the pill asks for to one that exists (INV-4). -->
     <None Include="..\ScreenTail.UI\Theme\Components.xaml" Link="Theme\Components.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\ScreenTail.UI\Hud\HudWindow.xaml" Link="Hud\HudWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The shipped icons, so a test can hold each tray state and theme to its own icon with every frame (ST-016). -->
+    <None Include="..\ScreenTail.UI\Assets\app.ico" Link="Brand\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\ScreenTail.UI\Assets\Tray\*.ico" Link="Brand\Tray\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- The render harness's palettes, theme names and index have no WPF in them, so they are compiled
          in here and tested on any OS (ST-016). -->
     <Compile Include="..\ScreenTail.UI\Render\ContrastPalette.cs" Link="Render\Source\ContrastPalette.cs" />
