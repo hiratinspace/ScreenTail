@@ -75,16 +75,16 @@ public sealed class RecordingClockOnScreenTests
         using var clock = new RecordingClock(state, time);
         using var model = new ShellViewModel(state, clock: clock);
         state.Connected(new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", RemoteTool = "rdp", ElapsedMs = 5_000 });
-        Assert.Equal("Recording: rdp (0:05)", model.Status);
+        Assert.Equal("Recording: Remote Desktop (0:05)", model.Status);
 
         time.Advance(TimeSpan.FromSeconds(4.1));
-        Assert.Equal("Recording: rdp (0:09)", model.Status);
-        Assert.Equal("Recording: rdp", model.StatusAnnouncement);
+        Assert.Equal("Recording: Remote Desktop (0:09)", model.Status);
+        Assert.Equal("Recording: Remote Desktop", model.StatusAnnouncement);
 
         state.Observe(new CaptureStateSnapshot { State = CaptureStates.Paused, SessionId = "s1", RemoteTool = "rdp", Reason = "user", ElapsedMs = 9_000 });
         time.Advance(TimeSpan.FromMinutes(1));
-        Assert.Equal("Paused: rdp (0:09)", model.Status);
-        Assert.Equal("Paused: rdp", model.StatusAnnouncement);
+        Assert.Equal("Paused: Remote Desktop (0:09)", model.Status);
+        Assert.Equal("Paused: Remote Desktop", model.StatusAnnouncement);
     }
 
     /// <summary>The pill's state segment: the TextBlock a screen reader is told about.</summary>

@@ -110,7 +110,7 @@ public sealed class PublishResultRowsTests
             : new DestinationResult(d, true, Ticket));
 
         Assert.Equal("Retry Hudu", panel.RetryLabel);
-        Assert.Equal("Retry the KB article in Hudu", panel.RetryName);
+        Assert.Equal("Retry Hudu: the KB article", panel.RetryName);
     }
 
     [Fact]
@@ -121,7 +121,7 @@ public sealed class PublishResultRowsTests
             : new DestinationResult(d, false, null, "no answer"));
 
         Assert.Equal("Retry ConnectWise and Hudu", panel.RetryLabel);
-        Assert.Equal("Retry the time entry in ConnectWise and the KB article in Hudu", panel.RetryName);
+        Assert.Equal("Retry ConnectWise and Hudu: the time entry and the KB article", panel.RetryName);
     }
 
     [Fact]

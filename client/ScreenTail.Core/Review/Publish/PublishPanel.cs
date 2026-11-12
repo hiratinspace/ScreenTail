@@ -399,10 +399,10 @@ public sealed class PublishPanel
         ? "Retry"
         : $"Retry {string.Join(" and ", Failed.Select(ProviderName).Distinct(StringComparer.Ordinal))}";
 
-    /// <summary>Retry for a screen reader: each destination it sends again and where.</summary>
+    /// <summary>Retry for a screen reader: the label first (WCAG 2.5.3), then each destination it sends again.</summary>
     public string RetryName => Failed.Count == 0
         ? "Retry"
-        : $"Retry {string.Join(" and ", Failed.Select(d => $"the {Name(d)} in {ProviderName(d)}"))}";
+        : $"{RetryLabel}: {string.Join(" and ", Failed.Select(d => $"the {Name(d)}"))}";
 
     /// <summary>The destination as the form and the result list name it.</summary>
     public static string LabelOf(Destination destination) => destination switch
