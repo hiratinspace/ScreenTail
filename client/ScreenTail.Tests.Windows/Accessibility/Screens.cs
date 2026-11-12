@@ -229,6 +229,17 @@ internal static class Screens
         var strip = Audit.Descendants(shell).OfType<FilmstripView>().Single();
         if (!strip.IsVisible)
         {
+            // Alt+2 is the Review pane's own chord, so it is pressed from inside the pane, from the note,
+            // where a technician who has just opened the session is. A freshly opened shell has focus
+            // elsewhere (or nowhere), and the press would never reach the pane.
+            var pane = Audit.Descendants(shell).OfType<ReviewPane>().Single();
+            if (!pane.IsKeyboardFocusWithin)
+            {
+                _ = Audit.Descendants(shell).OfType<NoteEditorView>().Single().MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                await Audit.Settle();
+                Assert.True(pane.IsKeyboardFocusWithin, "Focus did not go into the note.");
+            }
+
             _ = Keys.Press(shell, Key.D2, ModifierKeys.Alt);
             await UntilAsync(() => strip.IsVisible);
             Assert.True(strip.IsVisible, "Alt+2 did not open the screenshots over the note.");
