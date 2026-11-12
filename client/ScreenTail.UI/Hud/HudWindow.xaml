@@ -174,7 +174,7 @@
                             <TextBlock Margin="4,0,0,0"
                                        Style="{StaticResource Hud.Meta}"
                                        Text="{Binding MicText}"
-                                       AutomationProperties.Name="{Binding MicTooltip}" />
+                                       AutomationProperties.Name="{Binding MicTooltip, TargetNullValue=''}" />
                         </StackPanel>
                     </Border>
 
@@ -186,7 +186,7 @@
                             <TextBlock Margin="4,0,0,0"
                                        Style="{StaticResource Hud.Meta}"
                                        Text="{Binding CloudText}"
-                                       AutomationProperties.Name="{Binding CloudTooltip}" />
+                                       AutomationProperties.Name="{Binding CloudTooltip, TargetNullValue=''}" />
                         </StackPanel>
                     </Border>
 
