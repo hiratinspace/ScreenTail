@@ -922,8 +922,8 @@ jobs:
       # bad merge resolution produces exactly that. This says which key and which line, before the push.
       # The gate in this file and the triggers in hardware-checks.yml have to describe the same set of
       # paths, and a comment saying so is not a mechanism. When this file says a change needs hardware
-      # evidence and that workflow does not run, the gate waits an hour for a run that was
-      # never going to start and then fails -- on a pull request with nothing wrong with it.
+      # evidence and that workflow does not run, the gate waits for a run that was never
+      # going to start and then fails -- on a pull request with nothing wrong with it.
       #
       # Checked by example rather than by comparing a regex with a glob list, because the two notations
       # do not compare. One example is made from every glob in hardware-checks.yml, so a glob the gate
@@ -1009,7 +1009,7 @@ jobs:
                   bad.append(f"{glob}: hardware-checks.yml runs for {sample} but ci.yml would not ask for its evidence.")
 
           # Every tracked file, both ways. A file the gate flags and the workflow ignores makes the gate
-          # wait an hour for a run that never starts; a file the workflow runs for and the
+          # wait for a run that never starts and then fail; a file the workflow runs for and the
           # gate ignores takes the laptop's keyboard with nothing waiting for the answer.
           checked = 0
           for path in sorted(tracked):
@@ -1159,7 +1159,9 @@ jobs:
     needs: changes
     if: always() && github.event_name == 'pull_request' && needs.changes.outputs.hardware == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 65
+    # Five hours and a little, for the queue below. The laptop's own jobs stop themselves at 30 and 15
+    # minutes, so this is never what ends a job that is running.
+    timeout-minutes: 310
     permissions:
       checks: read
       pull-requests: write
@@ -1202,20 +1204,28 @@ jobs:
             gh pr edit "$PR" --repo "$REPO" --remove-label needs-hardware-evidence 2>/dev/null || true
           fi
 
-          # An hour, raised from 35 minutes by the owner on 2026-11-12. The laptop runs one job at a time,
-          # about 17 minutes each, so with three pull requests queued the last one's jobs had not started
-          # when 35 minutes ran out, and the gate failed with nothing wrong.
-          deadline=$(( $(date +%s) + 3600 ))
+          # Five hours, and what it bounds is the queue. The laptop runs one job at a time, about 17
+          # minutes each, and on 2026-11-12 nine pull requests waited for it: with the 35 minutes this had,
+          # then the hour, every one of them went red with nothing wrong, the last of them before its job
+          # had started. A job that is waiting for the laptop is not a job that failed, so it shows as
+          # waiting. A job that is running needs no limit from here: hardware-checks.yml stops its own
+          # at 30 and 15 minutes, and a stopped job is a failed one below. Past five hours the laptop is
+          # off or its queue is stuck, and that is said; when its jobs do pass, hardware-evidence-rerun.yml
+          # asks this job again, so nobody has to.
+          deadline=$(( $(date +%s) + 18000 ))
 
           # A job that has not even been created after five minutes is not a slow job, it is one that is
           # never coming: a path filter that disagrees with this one, or a workflow that did not trigger.
-          # Waiting the full hour to say so held a runner for half an hour and buried the
-          # reason under a timeout message.
+          # Waiting the full time to say so held a runner for hours and buried the reason under a timeout
+          # message. Seen on two looks in a row before it counts, because the second laptop job is only
+          # created when the first one ends, and a look that lands between the two sees it missing.
           appeared=$(( $(date +%s) + 300 ))
+          absent=0
           while :; do
             runs=$(gh api "repos/$REPO/commits/$SHA/check-runs?per_page=100" --paginate \
               --jq '.check_runs[] | [.name, .status, (.conclusion // "")] | @tsv' || true)
             pending=0
+            queued=0
             missing=0
             failed=0
             while IFS= read -r name; do
@@ -1229,6 +1239,7 @@ jobs:
               conclusion=$(printf '%s' "$line" | cut -f3)
               if [ "$status" != "completed" ]; then
                 pending=$((pending + 1))
+                if [ "$status" != "in_progress" ]; then queued=$((queued + 1)); fi
               elif [ "$conclusion" != "success" ] && [ "$conclusion" != "skipped" ]; then
                 echo "::error::$name concluded '$conclusion'."
                 failed=$((failed + 1))
@@ -1244,15 +1255,20 @@ jobs:
               exit 0
             fi
             if [ "$missing" -gt 0 ] && [ "$pending" -eq 0 ] && [ "$(date +%s)" -ge "$appeared" ]; then
-              echo "::error::$missing of the spare laptop's jobs never started. hardware-checks.yml did not run for this commit: check that its paths: filter and the 'hardware' flag in this file still agree."
-              exit 1
+              absent=$((absent + 1))
+              if [ "$absent" -ge 2 ]; then
+                echo "::error::$missing of the spare laptop's jobs never started. hardware-checks.yml did not run for this commit: check that its paths: filter and the 'hardware' flag in this file still agree."
+                exit 1
+              fi
+            else
+              absent=0
             fi
 
             if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::Waited 60 minutes and the spare laptop's jobs are still $pending pending, $missing missing. A run that never reports is the same as one that failed: there is no evidence."
+              echo "::error::Waited five hours and the spare laptop's jobs are still $pending pending ($queued of them waiting for the laptop), $missing missing. The laptop is off or its queue is stuck. This job is asked again by itself when the laptop's jobs pass on this commit."
               exit 1
             fi
-            echo "waiting: $pending running, $missing not started yet"
+            echo "waiting: $((pending - queued)) running, $queued waiting for the laptop, $missing not started yet"
             sleep 20
           done
 

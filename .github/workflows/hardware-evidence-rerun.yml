@@ -1,0 +1,90 @@
+name: hardware-evidence-rerun
+
+# ST-018. When the spare laptop's jobs pass on a pull request's commit, ask ci.yml's Hardware evidence
+# job again if it had already given up on that commit.
+#
+# That job waits for the laptop, and it stops waiting eventually: the laptop was off, or the first try
+# on it failed and was run again. The laptop's later pass changed nothing, because nothing told the
+# gate to look again, so the pull request stayed red until somebody re-ran it by hand. On 2026-11-12
+# nine pull requests sat that way at once.
+#
+# This runs from main's copy of this file whatever the pull request holds, checks out nothing, runs
+# nothing from the branch, and takes one value from the event, the commit id, which it checks is one.
+# All its token may do is re-run a job, and a re-run job runs as the pull request's own run did.
+
+on:
+  workflow_run:
+    workflows: [hardware-checks]
+    types: [completed]
+
+# Nothing by default; the one job says what it needs.
+permissions: {}
+
+jobs:
+  rerun:
+    name: Ask the hardware gate again
+    # Only a pass, only for a pull request, and only one from this repository: a fork's never reaches
+    # the laptop (hardware-checks.yml), so it has no pass to report.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write
+    steps:
+      - name: Re-run a Hardware evidence job that gave up on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::The event's commit id is not a commit id."
+            exit 1
+          fi
+
+          # A job can be re-run only once its whole run has ended. A run still going either has its gate
+          # still waiting, which will see the pass itself, or is finishing its other jobs; ten minutes
+          # covers the second, and the first needs nothing from here.
+          tries=0
+          while :; do
+            run=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&event=pull_request&per_page=1" \
+              --jq '.workflow_runs[0] | select(. != null) | "\(.id) \(.status)"')
+            if [ -z "$run" ]; then
+              echo "ci.yml has no pull request run for $SHA; nothing to ask again."
+              exit 0
+            fi
+            id=${run%% *}
+            status=${run##* }
+            gate=$(gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
+              --jq '.jobs[] | select(.name == "Hardware evidence") | "\(.id) \(.status) \(.conclusion // "")"' | head -n 1)
+            if [ -z "$gate" ]; then
+              echo "Run $id has no Hardware evidence job; nothing to ask again."
+              exit 0
+            fi
+            set -- $gate
+            job=$1
+            if [ "$2" != "completed" ]; then
+              echo "Run $id's Hardware evidence job is still waiting and will see the pass itself."
+              exit 0
+            fi
+            if [ "${3:-}" != "failure" ] && [ "${3:-}" != "cancelled" ] && [ "${3:-}" != "timed_out" ]; then
+              echo "Run $id's Hardware evidence job concluded '${3:-}'; nothing to ask again."
+              exit 0
+            fi
+            if [ "$status" = "completed" ]; then
+              break
+            fi
+            tries=$((tries + 1))
+            if [ "$tries" -ge 30 ]; then
+              echo "::warning::Run $id had not ended after ten minutes, so its Hardware evidence job was not re-run. Re-run it by hand."
+              exit 0
+            fi
+            sleep 20
+          done
+
+          gh api -X POST "repos/$REPO/actions/jobs/$job/rerun"
+          echo "Asked Hardware evidence again on run $id (job $job) for $SHA." | tee -a "$GITHUB_STEP_SUMMARY"
