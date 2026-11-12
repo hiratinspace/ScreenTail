@@ -157,7 +157,7 @@ The brand wordmark's Exo 2 is not an app font (§2.0).
 
 ### 2.3 Spacing, radius, elevation, motion
 
-- Spacing scale: `4, 8, 12, 16, 24, 32, 40` px. Pane padding 24; card padding 20; control padding 5×14 inside a 32 px control; list and table row height 36; readable content width 760. *(v0.6.1)* The envelope's label column 52 (`layout.envelope-label`), a narrow field such as Time's minutes 72 (`layout.field-narrow`), and the receipt's side column 300 (`layout.side-column`).
+- Spacing scale: `4, 8, 12, 16, 24, 32, 40` px. Pane padding 24; card padding 20; control padding 5×14 inside a 32 px control; list and table row height 36; readable content width 760. *(v0.6.1)* The envelope's label column 52 (`layout.envelope-label`), a narrow field such as Time's minutes 72 (`layout.field-narrow`), the receipt's side column 300 (`layout.side-column`), and the least height Review's note and screenshots panes get, 300 (`layout.pane-min-height`): below it the Review form scrolls as a whole rather than squeezing the panes under the envelope or an open timeline.
 - Radius: `6` controls, `8` cards, `999` pills.
 - Elevation: layers, not shadows. The window is `bg.base`, panes and cards are `bg.surface` with a `border.subtle` outline, controls are `bg.raised`. The frame (rail, title bar, pill) is `shell.bg`, a flat fill with no shadow of its own. Only the HUD and toasts float, with `0 8px 24px` at 40% black in dark and 14% in light.
 - Motion: `120 ms` state changes, `180 ms` pane open/close, `ease-out`. No bounce, no parallax. Respect the "reduce motion" OS setting.

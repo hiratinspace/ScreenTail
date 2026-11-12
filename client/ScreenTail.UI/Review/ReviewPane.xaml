@@ -24,163 +24,175 @@
         <BooleanToVisibilityConverter x:Key="Visible" />
     </UserControl.Resources>
     <Grid>
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+        <!-- The session: envelope, panes, timeline. The panes never get less than layout.pane-min-height,
+             so the note and the screenshots stay usable and an open timeline sits below them, never over
+             them. The form fills the pane when that fits; when it does not (a short window, the timeline
+             open, the picker out) the whole form scrolls instead, and Tab brings each control into view.
+             The code-behind sets the form's floor from what the envelope and the timeline take. -->
+        <ScrollViewer x:Name="FormScroll"
+                      Focusable="False"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding Publish.FormVisibility}">
+            <Grid x:Name="Form" Height="{Binding ViewportHeight, ElementName=FormScroll}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition x:Name="PanesRow" Height="*" MinHeight="{DynamicResource Layout.pane-min-height}" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
 
-        <!-- The envelope. Tab goes Discard, Publish, then the four lines, then the note: the order they are read in. -->
-        <Border Grid.Row="0"
-                Margin="0,0,0,16"
-                Style="{StaticResource Card}"
-                Visibility="{Binding Publish.FormVisibility}"
-                AutomationProperties.Name="Envelope">
-            <StackPanel>
-                <!-- The subject line, then Discard, a ghost button that turns danger on hover and on keyboard
-                     focus and opens the typed DISCARD confirmation, then Publish, the screen's one filled
-                     button. Why a discard did not happen is said beside it, never in a dialog. -->
-                <Grid Margin="0,0,0,12">
+                <!-- The envelope. Tab goes Discard, Publish, then the four lines, then the note: the order they are read in. -->
+                <Border x:Name="EnvelopeCard"
+                        Grid.Row="0"
+                        Margin="0,0,0,16"
+                        Style="{StaticResource Card}"
+                        SizeChanged="OnFormPartSizeChanged"
+                        AutomationProperties.Name="Envelope">
+                    <StackPanel>
+                        <!-- The subject line, then Discard, a ghost button that turns danger on hover and on keyboard
+                             focus and opens the typed DISCARD confirmation, then Publish, the screen's one filled
+                             button. Why a discard did not happen is said beside it, never in a dialog. -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock Grid.Column="0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource Text.ScreenTitle}"
+                                       TextTrimming="CharacterEllipsis"
+                                       TextWrapping="NoWrap"
+                                       Text="{Binding Title}" />
+
+                            <TextBlock Grid.Column="1"
+                                       Margin="16,0,12,0"
+                                       MaxWidth="{DynamicResource Layout.content-max-width}"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource Text.Error}"
+                                       Visibility="{Binding Note.DiscardFailed, Converter={StaticResource Visible}}"
+                                       Text="{Binding Note.DiscardError}"
+                                       controls:LiveRegion.Setting="Assertive" />
+
+                            <!-- Why Discard is off while the session is being captured: beside it, as Publish's reason is
+                                 (Spec v0.4.3), since a disabled button's tooltip is out of a keyboard user's reach. -->
+                            <TextBlock Grid.Column="1"
+                                       Margin="16,0,12,0"
+                                       VerticalAlignment="Center"
+                                       Style="{StaticResource Text.Muted}"
+                                       Visibility="{Binding Note.DiscardHintVisible, Converter={StaticResource Visible}}"
+                                       Text="{Binding Note.DiscardHint}"
+                                       controls:LiveRegion.Setting="Polite" />
+
+                            <Button Grid.Column="2"
+                                    Margin="0,0,8,0"
+                                    Style="{StaticResource Button.GhostDanger}"
+                                    Content="Discard"
+                                    Command="{Binding Note.DiscardCommand}"
+                                    ToolTip="Discard this session. You will be asked to type DISCARD."
+                                    AutomationProperties.Name="Discard this session"
+                                    AutomationProperties.HelpText="{Binding Note.DiscardHelp}" />
+
+                            <!-- Publish, Ctrl+Enter. Disabled with its reason on the line below (v0.4.3). -->
+                            <Button Grid.Column="3"
+                                    Style="{StaticResource Button.Primary}"
+                                    Command="{Binding Publish.PublishCommand}"
+                                    IsEnabled="{Binding Publish.CanPublish}"
+                                    Visibility="{Binding Publish.PublishVisibility}"
+                                    AutomationProperties.Name="Publish"
+                                    AutomationProperties.AcceleratorKey="Ctrl+Enter"
+                                    AutomationProperties.HelpText="{Binding Publish.BlockedBecause}">
+                                <StackPanel Orientation="Horizontal">
+                                    <controls:Glyph FontFamily="{DynamicResource Font.icon}" FontSize="{DynamicResource Icon.control}" VerticalAlignment="Center" Text="&#xE724;" />
+                                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Publish" />
+                                    <TextBlock Margin="12,0,0,0" Style="{StaticResource Text.KeyHint}" Text="Ctrl+Enter" />
+                                </StackPanel>
+                            </Button>
+
+                            <!-- No PSA connected: Publish is replaced, not disabled, by the way to connect one (Spec §5 S3). -->
+                            <Button Grid.Column="3"
+                                    Style="{StaticResource Button.Secondary}"
+                                    Content="Connect a PSA to publish"
+                                    Command="{Binding Publish.OpenSettingsCommand}"
+                                    Visibility="{Binding Publish.ConnectVisibility}"
+                                    AutomationProperties.Name="Connect a PSA to publish"
+                                    AutomationProperties.HelpText="Opens Settings. Connect one under Integrations." />
+                        </Grid>
+
+                        <!-- Beside Publish: why it waits, read out as it changes (v0.4.3), and what is still open. -->
+                        <StackPanel HorizontalAlignment="Right" MaxWidth="{DynamicResource Layout.content-max-width}">
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Visibility="{Binding Publish.BlockedVisibility}">
+                                <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.paused}" FontSize="{DynamicResource Size.sm}" Text="&#xE7BA;" />
+                                <TextBlock Margin="8,0,0,0"
+                                           Style="{StaticResource Text.Secondary}"
+                                           FontSize="{DynamicResource Size.sm}"
+                                           TextAlignment="Right"
+                                           Text="{Binding Publish.BlockedBecause}"
+                                           controls:LiveRegion.Setting="Polite" />
+                            </StackPanel>
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Visibility="{Binding Publish.ConnectVisibility}">
+                                <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.offline}" FontSize="{DynamicResource Size.sm}" Text="&#xE71B;" />
+                                <TextBlock Margin="8,0,0,0"
+                                           Style="{StaticResource Text.Secondary}"
+                                           FontSize="{DynamicResource Size.sm}"
+                                           TextAlignment="Right"
+                                           Text="No PSA connected. Nothing can be published until one is connected in Settings, under Integrations." />
+                            </StackPanel>
+                            <StackPanel Margin="0,4,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
+                                <controls:Glyph Style="{StaticResource Icon}"
+                                                Foreground="{DynamicResource Brush.confidence.low}"
+                                                FontSize="{DynamicResource Size.sm}"
+                                                Text="&#xE7BA;"
+                                                Visibility="{Binding Publish.OpenItemsVisibility}" />
+                                <TextBlock Margin="8,0,0,0"
+                                           Style="{StaticResource Text.Muted}"
+                                           Text="{Binding Publish.OpenItems}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <publish:EnvelopeView x:Name="Publish" Margin="0,8,0,0" DataContext="{Binding Publish}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- The gaps between the panes are the splitters, 28 px wide: Spec §7's smallest target, in a column
+                     of their own, so they cover nothing. Reaching over the panes' edges instead put them on top of
+                     the note's and the screenshots' scroll bars, and a drag there resized a pane instead of
+                     scrolling it (ST-084 review). In tree order, so Tab goes note, splitter, screenshots. -->
+                <Grid Grid.Row="1">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="5*" MinWidth="340" />
+                        <ColumnDefinition Width="28" />
+                        <ColumnDefinition Width="4*" MinWidth="230" />
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Grid.Column="0"
-                               VerticalAlignment="Center"
-                               Style="{StaticResource Text.ScreenTitle}"
-                               TextTrimming="CharacterEllipsis"
-                               TextWrapping="NoWrap"
-                               Text="{Binding Title}" />
+                    <Border Grid.Column="0" Style="{StaticResource Pane}">
+                        <review:NoteEditorView x:Name="Note" DataContext="{Binding Note}" />
+                    </Border>
 
-                    <TextBlock Grid.Column="1"
-                               Margin="16,0,12,0"
-                               MaxWidth="{DynamicResource Layout.content-max-width}"
-                               VerticalAlignment="Center"
-                               Style="{StaticResource Text.Error}"
-                               Visibility="{Binding Note.DiscardFailed, Converter={StaticResource Visible}}"
-                               Text="{Binding Note.DiscardError}"
-                               controls:LiveRegion.Setting="Assertive" />
+                    <GridSplitter Grid.Column="1"
+                                  Width="28"
+                                  HorizontalAlignment="Stretch"
+                                  Style="{StaticResource SplitPane.Splitter}"
+                                  AutomationProperties.Name="Resize the note pane" />
 
-                    <!-- Why Discard is off while the session is being captured: beside it, as Publish's reason is
-                         (Spec v0.4.3), since a disabled button's tooltip is out of a keyboard user's reach. -->
-                    <TextBlock Grid.Column="1"
-                               Margin="16,0,12,0"
-                               VerticalAlignment="Center"
-                               Style="{StaticResource Text.Muted}"
-                               Visibility="{Binding Note.DiscardHintVisible, Converter={StaticResource Visible}}"
-                               Text="{Binding Note.DiscardHint}"
-                               controls:LiveRegion.Setting="Polite" />
-
-                    <Button Grid.Column="2"
-                            Margin="0,0,8,0"
-                            Style="{StaticResource Button.GhostDanger}"
-                            Content="Discard"
-                            Command="{Binding Note.DiscardCommand}"
-                            ToolTip="Discard this session. You will be asked to type DISCARD."
-                            AutomationProperties.Name="Discard this session"
-                            AutomationProperties.HelpText="{Binding Note.DiscardHelp}" />
-
-                    <!-- Publish, Ctrl+Enter. Disabled with its reason on the line below (v0.4.3). -->
-                    <Button Grid.Column="3"
-                            Style="{StaticResource Button.Primary}"
-                            Command="{Binding Publish.PublishCommand}"
-                            IsEnabled="{Binding Publish.CanPublish}"
-                            Visibility="{Binding Publish.PublishVisibility}"
-                            AutomationProperties.Name="Publish"
-                            AutomationProperties.AcceleratorKey="Ctrl+Enter"
-                            AutomationProperties.HelpText="{Binding Publish.BlockedBecause}">
-                        <StackPanel Orientation="Horizontal">
-                            <controls:Glyph FontFamily="{DynamicResource Font.icon}" FontSize="{DynamicResource Icon.control}" VerticalAlignment="Center" Text="&#xE724;" />
-                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Publish" />
-                            <TextBlock Margin="12,0,0,0" Style="{StaticResource Text.KeyHint}" Text="Ctrl+Enter" />
-                        </StackPanel>
-                    </Button>
-
-                    <!-- No PSA connected: Publish is replaced, not disabled, by the way to connect one (Spec §5 S3). -->
-                    <Button Grid.Column="3"
-                            Style="{StaticResource Button.Secondary}"
-                            Content="Connect a PSA to publish"
-                            Command="{Binding Publish.OpenSettingsCommand}"
-                            Visibility="{Binding Publish.ConnectVisibility}"
-                            AutomationProperties.Name="Connect a PSA to publish"
-                            AutomationProperties.HelpText="Opens Settings. Connect one under Integrations." />
+                    <Border Grid.Column="2" Style="{StaticResource Pane}">
+                        <review:FilmstripView x:Name="Strip" DataContext="{Binding Strip}" />
+                    </Border>
                 </Grid>
 
-                <!-- Beside Publish: why it waits, read out as it changes (v0.4.3), and what is still open. -->
-                <StackPanel HorizontalAlignment="Right" MaxWidth="{DynamicResource Layout.content-max-width}">
-                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Visibility="{Binding Publish.BlockedVisibility}">
-                        <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.paused}" FontSize="{DynamicResource Size.sm}" Text="&#xE7BA;" />
-                        <TextBlock Margin="8,0,0,0"
-                                   Style="{StaticResource Text.Secondary}"
-                                   FontSize="{DynamicResource Size.sm}"
-                                   TextAlignment="Right"
-                                   Text="{Binding Publish.BlockedBecause}"
-                                   controls:LiveRegion.Setting="Polite" />
-                    </StackPanel>
-                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Visibility="{Binding Publish.ConnectVisibility}">
-                        <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.offline}" FontSize="{DynamicResource Size.sm}" Text="&#xE71B;" />
-                        <TextBlock Margin="8,0,0,0"
-                                   Style="{StaticResource Text.Secondary}"
-                                   FontSize="{DynamicResource Size.sm}"
-                                   TextAlignment="Right"
-                                   Text="No PSA connected. Nothing can be published until one is connected in Settings, under Integrations." />
-                    </StackPanel>
-                    <StackPanel Margin="0,4,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
-                        <controls:Glyph Style="{StaticResource Icon}"
-                                        Foreground="{DynamicResource Brush.confidence.low}"
-                                        FontSize="{DynamicResource Size.sm}"
-                                        Text="&#xE7BA;"
-                                        Visibility="{Binding Publish.OpenItemsVisibility}" />
-                        <TextBlock Margin="8,0,0,0"
-                                   Style="{StaticResource Text.Muted}"
-                                   Text="{Binding Publish.OpenItems}" />
-                    </StackPanel>
-                </StackPanel>
-
-                <publish:EnvelopeView x:Name="Publish" Margin="0,8,0,0" DataContext="{Binding Publish}" />
-            </StackPanel>
-        </Border>
-
-        <!-- The gaps between the panes are the splitters, 28 px wide: Spec §7's smallest target, in a column
-             of their own, so they cover nothing. Reaching over the panes' edges instead put them on top of
-             the note's and the screenshots' scroll bars, and a drag there resized a pane instead of
-             scrolling it (ST-084 review). In tree order, so Tab goes note, splitter, screenshots. -->
-        <Grid Grid.Row="1" Visibility="{Binding Publish.FormVisibility}">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="5*" MinWidth="340" />
-                <ColumnDefinition Width="28" />
-                <ColumnDefinition Width="4*" MinWidth="230" />
-            </Grid.ColumnDefinitions>
-
-            <Border Grid.Column="0" Style="{StaticResource Pane}">
-                <review:NoteEditorView x:Name="Note" DataContext="{Binding Note}" />
-            </Border>
-
-            <GridSplitter Grid.Column="1"
-                          Width="28"
-                          HorizontalAlignment="Stretch"
-                          Style="{StaticResource SplitPane.Splitter}"
-                          AutomationProperties.Name="Resize the note pane" />
-
-            <Border Grid.Column="2" Style="{StaticResource Pane}">
-                <review:FilmstripView x:Name="Strip" DataContext="{Binding Strip}" />
-            </Border>
-        </Grid>
+                <!-- After the panes in the tree, not before them: Tab follows the tree, and the timeline is the
+                     bottom row, so it comes last (ST-084 found it first, between Discard and the note). -->
+                <Border x:Name="TimelineRow" Grid.Row="2" Margin="0,12,0,0" SizeChanged="OnFormPartSizeChanged">
+                    <timeline:TimelineView DataContext="{Binding Timeline}" />
+                </Border>
+            </Grid>
+        </ScrollViewer>
 
         <!-- After publishing: the receipt in the session pane's place. -->
         <publish:PublishPane x:Name="Receipt"
-                             Grid.Row="0"
-                             Grid.RowSpan="3"
                              DataContext="{Binding Publish}"
                              Visibility="{Binding ResultsVisibility}" />
-
-        <!-- After the panes in the tree, not before them: Tab follows the tree, and the timeline is the
-             bottom row, so it comes last (ST-084 found it first, between Discard and the note). -->
-        <Border Grid.Row="2" Margin="0,12,0,0" Visibility="{Binding Publish.FormVisibility}">
-            <timeline:TimelineView DataContext="{Binding Timeline}" />
-        </Border>
     </Grid>
 </UserControl>
