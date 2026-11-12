@@ -124,6 +124,10 @@ public sealed class StopTimeTests : IAsyncDisposable
         var narrationInFlight = false;
         var speechLeftRunning = false;
         string firstLog;
+
+        // What was over the test window while it recorded, for a failure below that finds frames without
+        // its words: in front is not the same as seen (an always-on-top window stays over it).
+        string covered;
         using (var window = DesktopWindow.CreateRemoteToolShaped("Stop time test session"))
         {
             window.Resize(900, 480);
@@ -176,6 +180,7 @@ public sealed class StopTimeTests : IAsyncDisposable
 
             // The pill goes on being reported through the burst, and stops only just before Windows asks: its
             // last report counts for six seconds (IndicatorReports.GoodFor), longer than the stop.
+            covered = window.Above();
             backlog = await MarkABurstAsync(window, service, ct);
             await service.StopReportingAsync();
             Assert.True(backlog > 0, $"OCR had read every frame before Windows asked, so nothing was in flight at the stop\n{service.Log}");
@@ -260,7 +265,7 @@ public sealed class StopTimeTests : IAsyncDisposable
         // was read, and shows the test's words. Counted, never quoted.
         Assert.True(session.Frames.Count > 0, $"no frame was kept ({marks} moments marked)\n{firstLog}");
         var foreign = session.Frames.Count(f => f.OcrText?.Contains(OwnWord, StringComparison.OrdinalIgnoreCase) != true);
-        Assert.True(foreign == 0, $"{foreign} of {session.Frames.Count} kept frame(s) do not show the test window's words");
+        Assert.True(foreign == 0, $"{foreign} of {session.Frames.Count} kept frame(s) do not show the test window's words. Over the test window during the recording: {covered}{(covered == "nothing" ? "." : ". Close or un-pin it on the laptop's desktop and run the job again.")}");
 
         var held = answered is { } a ? string.Create(CultureInfo.InvariantCulture, $", WM_ENDSESSION answered at {a.TotalMilliseconds:F0} ms") : string.Empty;
         Measurements.Record(string.Create(
