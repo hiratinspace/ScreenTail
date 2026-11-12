@@ -50,6 +50,31 @@ public sealed class SessionStoreTests : IAsyncDisposable
         Assert.Null(await store.TakeNextPendingFrameAsync());
     }
 
+    /// <summary>
+    /// Events are stamped where they happen and written from several callers at once (the input hooks, a
+    /// marked moment, the machine's own state changes), so one stamped earlier can reach the store after
+    /// one stamped later. The timeline is read in time order, as frames and transcript already are, with
+    /// the order they arrived in deciding a tie. Read in arrival order, a session that had done nothing
+    /// wrong failed its own consistency check and could not be opened ("events[2]: ts_ms 19486 is earlier
+    /// than the previous item's 19491", the laptop, 2026-11-12).
+    /// </summary>
+    [Fact]
+    public async Task EventsWrittenOutOfOrderAreReadInTimeOrder()
+    {
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.AppendEventAsync("s1", new EnterEvent { TsMs = 100 });
+        await store.AppendEventAsync("s1", new MarkerEvent { TsMs = 19491 });
+        await store.AppendEventAsync("s1", new ClickEvent { TsMs = 19486, X = 1, Y = 1, Button = MouseButton.Left });
+        await store.AppendEventAsync("s1", new EnterEvent { TsMs = 19491 });
+
+        var loaded = (await store.LoadSessionAsync("s1"))!;
+        Assert.Equal([100L, 19486L, 19491L, 19491L], loaded.Events.Select(e => e.TsMs));
+        Assert.IsType<ClickEvent>(loaded.Events[1]);
+        Assert.IsType<MarkerEvent>(loaded.Events[2]);
+        Assert.IsType<EnterEvent>(loaded.Events[3]);
+    }
+
     [Fact]
     public async Task ASuggestedTicketIsKeptWithTheSessionAndNothingElseIs()
     {
