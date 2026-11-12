@@ -17,9 +17,13 @@
             <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
 
-        <!-- Under an empty section: the formatter leaves it off the ticket, so the note says so. -->
+        <!-- In an empty section: the formatter leaves it off the ticket, so the note says so where the text
+             would be, over the empty box (where the words start: its edge, padding and inset). Clicks go
+             through to the box. -->
         <Style x:Key="Note.Empty" BasedOn="{StaticResource Text.Muted}" TargetType="TextBlock">
-            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="Margin" Value="12,4,0,0" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="IsHitTestVisible" Value="False" />
             <Setter Property="Text" Value="{Binding DataContext.EmptySection, RelativeSource={RelativeSource AncestorType=UserControl}}" />
         </Style>
     </UserControl.Resources>
@@ -147,22 +151,23 @@
             <!-- The text boxes reach 8 px past the headings (their padding), so the words line up under them. -->
             <StackPanel>
                 <TextBlock Style="{StaticResource Note.Section}" Text="Problem" />
-                <TextBox Style="{StaticResource Input.InPlace}"
-                         Margin="-8,0,0,0"
-                         Text="{Binding Problem, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="Problem" />
-                <TextBlock>
-                    <TextBlock.Style>
-                        <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Problem}" Value="">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
+                <Grid Margin="-8,0,0,0">
+                    <TextBox Style="{StaticResource Input.InPlace}"
+                             Text="{Binding Problem, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Problem" />
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Problem}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
 
                 <TextBlock Margin="0,24,0,4" Style="{StaticResource Note.Section}" Text="Steps" />
                 <controls:Repeater x:Name="StepList" ItemsSource="{Binding Steps}">
@@ -371,40 +376,42 @@
                 </controls:Repeater>
 
                 <TextBlock Margin="0,16,0,4" Style="{StaticResource Note.Section}" Text="Result" />
-                <TextBox Style="{StaticResource Input.InPlace}"
-                         Margin="-8,0,0,0"
-                         Text="{Binding Result, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="Result" />
-                <TextBlock>
-                    <TextBlock.Style>
-                        <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding Result}" Value="">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
+                <Grid Margin="-8,0,0,0">
+                    <TextBox Style="{StaticResource Input.InPlace}"
+                             Text="{Binding Result, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Result" />
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Result}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
 
                 <TextBlock Margin="0,24,0,4" Style="{StaticResource Note.Section}" Text="Follow-ups" />
-                <TextBox Style="{StaticResource Input.InPlace}"
-                         Margin="-8,0,0,0"
-                         Text="{Binding FollowUps, UpdateSourceTrigger=PropertyChanged}"
-                         AutomationProperties.Name="Follow-ups, one per line" />
-                <TextBlock>
-                    <TextBlock.Style>
-                        <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding FollowUps}" Value="">
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
+                <Grid Margin="-8,0,0,0">
+                    <TextBox Style="{StaticResource Input.InPlace}"
+                             Text="{Binding FollowUps, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Follow-ups, one per line" />
+                    <TextBlock>
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Note.Empty}" TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding FollowUps}" Value="">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
             </StackPanel>
         </ScrollViewer>
 
