@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -116,16 +118,18 @@ internal static class WindowRenderer
     }
 
     /// <summary>
-    /// Lays the window's content out at the size it is drawn at, and returns that size.
+    /// Sizes the window as asked and returns the size of its client area, which is what is drawn.
     ///
-    /// The window itself is not what is drawn. The hosted runner's screen is 1024x768, so Windows shrinks
-    /// a 1280x800 shell to fit it, and the first version of this drew the window: a shrunk layout on a
-    /// canvas the size of the window's frame, which left a transparent strip down the right and along the
-    /// bottom of every shell render. What is drawn now is the window's client area, the first visual in
-    /// it, laid out at the client size the window asks for (its Width and Height less its frame), so a
-    /// render shows the layout a technician's larger screen gets. A window sized to its content is drawn
-    /// as it is. <paramref name="height"/> asks for a taller layout than the window's own, for a render of
-    /// a page that scrolls.
+    /// The hosted runner's screen is small, and Windows will not let a window be bigger than the screen:
+    /// the 1280x800 shell came out 1040 px wide. The first version of this drew the window's frame-sized
+    /// canvas over that shrunk layout, which is the transparent strip down the right and along the bottom
+    /// of every old shell render. Laying the content out at a bigger size by hand did not hold either: the
+    /// window's next layout pass put it straight back (a tall Settings render came out as a 1028x749
+    /// picture on a 1268x1600 canvas). So the window is let be the size it asks for (see
+    /// <see cref="Intend"/>), and WPF lays it out the ordinary way.
+    ///
+    /// <paramref name="height"/> is a client height, for a render of a page that scrolls. A window that
+    /// sizes itself to its content, or that <see cref="Intend"/> was not told about, is drawn as it is.
     /// </summary>
     public static Size Lay(Window window, double? height = null)
     {
@@ -136,20 +140,31 @@ internal static class WindowRenderer
             return new Size(window.ActualWidth, window.ActualHeight);
         }
 
-        var size = Natural(window, root);
-        if (height is { } tall)
+        if (window.SizeToContent == SizeToContent.Manual && Intended.TryGetValue(window, out var box))
         {
-            size.Height = tall;
+            var asked = box.Value;
+            var frameHeight = Math.Max(0, window.ActualHeight - root.ActualHeight);
+            var outer = new Size(asked.Width, height is { } tall ? tall + frameHeight : asked.Height);
+            if (!double.IsNaN(outer.Width) && Math.Abs(window.Width - outer.Width) >= 0.5)
+            {
+                window.Width = outer.Width;
+            }
+
+            if (!double.IsNaN(outer.Height) && Math.Abs(window.Height - outer.Height) >= 0.5)
+            {
+                window.Height = outer.Height;
+            }
+
+            window.UpdateLayout();
+            if (Math.Abs(window.ActualWidth - outer.Width) >= 1 || Math.Abs(window.ActualHeight - outer.Height) >= 1)
+            {
+                Console.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  asked for a {outer.Width}x{outer.Height} window and Windows made it {window.ActualWidth}x{window.ActualHeight}"));
+            }
         }
 
-        if (!Near(root.RenderSize, size))
-        {
-            root.Measure(size);
-            root.Arrange(new Rect(size));
-            root.UpdateLayout();
-        }
-
-        return size;
+        return new Size(root.ActualWidth, root.ActualHeight);
     }
 
     private static RenderTargetBitmap Render(Window window, double? height, double scale)
@@ -201,42 +216,52 @@ internal static class WindowRenderer
         VisualTreeHelper.GetChildrenCount(window) > 0 ? VisualTreeHelper.GetChild(window, 0) as FrameworkElement : null;
 
     /// <summary>
-    /// The client size the window asks for. Its frame is measured the first time, before anything here has
-    /// laid the content out at another size, and remembered, because afterwards the content's size says
-    /// what was last drawn rather than what the frame takes.
-    /// </summary>
-    private static Size Natural(Window window, FrameworkElement root)
-    {
-        var frame = Frames.GetValue(
-            window,
-            w => new StrongBox<Size>(new Size(Math.Max(0, w.ActualWidth - root.ActualWidth), Math.Max(0, w.ActualHeight - root.ActualHeight)))).Value;
-
-        var asked = Intended.TryGetValue(window, out var box) ? box.Value : new Size(window.Width, window.Height);
-        var sizesWidth = window.SizeToContent is SizeToContent.Width or SizeToContent.WidthAndHeight;
-        var sizesHeight = window.SizeToContent is SizeToContent.Height or SizeToContent.WidthAndHeight;
-        var width = sizesWidth || double.IsNaN(asked.Width) ? root.ActualWidth : asked.Width - frame.Width;
-        var height = sizesHeight || double.IsNaN(asked.Height) ? root.ActualHeight : asked.Height - frame.Height;
-        return new Size(Math.Max(1, width), Math.Max(1, height));
-    }
-
-    /// <summary>
-    /// Remembers the size the window's XAML asks for. Called before the window is shown, because showing
-    /// it on the runner's 1024x768 screen rewrites <see cref="FrameworkElement.Width"/> to what fitted: the
-    /// first run of the client-area renderer read the 1280 px shell back as 1040 and drew it at that.
+    /// Remembers the size the window's XAML asks for, and lets the window be bigger than the screen.
+    /// Called before the window is shown: showing it on the runner rewrites
+    /// <see cref="FrameworkElement.Width"/> to what fitted.
+    ///
+    /// Windows caps a window at the screen's size through <c>WM_GETMINMAXINFO</c>. The harness's windows
+    /// answer that message with no cap, so a render is the layout a technician's bigger screen gets and a
+    /// tall render of a scrolling page is the page. Only harness windows are ever passed here.
     /// </summary>
     public static T Intend<T>(T window)
         where T : Window
     {
         ArgumentNullException.ThrowIfNull(window);
         Intended.AddOrUpdate(window, new StrongBox<Size>(new Size(window.Width, window.Height)));
+        if (PresentationSource.FromVisual(window) is HwndSource shown)
+        {
+            shown.AddHook(Uncapped);
+        }
+        else
+        {
+            window.SourceInitialized += (_, _) => (PresentationSource.FromVisual(window) as HwndSource)?.AddHook(Uncapped);
+        }
+
         return window;
     }
 
-    private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Frames = [];
+    private const int WmGetMinMaxInfo = 0x0024;
+
+    /// <summary>Lifts the screen-size cap from <c>MINMAXINFO</c>: <c>ptMaxSize</c> at 8 and <c>ptMaxTrackSize</c> at 32.</summary>
+    private static IntPtr Uncapped(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == WmGetMinMaxInfo && lParam != IntPtr.Zero)
+        {
+            // Windows fills the defaults before it sends the message, so only the caps change here, and
+            // the message is answered so nothing after this puts them back.
+            foreach (var offset in new[] { 8, 12, 32, 36 })
+            {
+                Marshal.WriteInt32(lParam, offset, 16_000);
+            }
+
+            handled = true;
+        }
+
+        return IntPtr.Zero;
+    }
 
     private static readonly ConditionalWeakTable<Window, StrongBox<Size>> Intended = [];
-
-    private static bool Near(Size a, Size b) => Math.Abs(a.Width - b.Width) < 0.5 && Math.Abs(a.Height - b.Height) < 0.5;
 
     private static void Write(RenderTargetBitmap bitmap, string path)
     {
