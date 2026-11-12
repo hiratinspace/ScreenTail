@@ -82,10 +82,75 @@ public partial class ShellWindow
         await SettleAsync();
     }
 
-    /// <summary>Every Settings section, each in a render tall enough to hold all of it under the shell's header.</summary>
+    /// <summary>
+    /// Every Settings section, each in a render tall enough to hold all of it under the shell's header:
+    /// first with nothing changed, then with a change pending in each section that has a Save path, so the
+    /// "Changed" marks, the nav's counts and the one Save bar show (settings-pending-*), and then the bar
+    /// after a Save that one section could not make (settings-save-failed). Undone afterwards.
+    /// </summary>
     private async Task SettingsSectionsAsync(ShellState state)
     {
         state.Navigate(ShellView.Settings);
+        await SettleAsync();
+        await SettingsSectionsAsync("settings");
+        if (_model.Content is not Settings.SettingsViewModel settings)
+        {
+            throw new InvalidOperationException("Settings has no view model to change.");
+        }
+
+        Pend(settings);
+        await SettleAsync();
+        if (settings.BarVisibility != Visibility.Visible)
+        {
+            throw new InvalidOperationException("The Save bar did not appear with changes pending.");
+        }
+
+        Console.WriteLine($"  Save bar: {settings.Summary} {settings.LinkSection} ({settings.BarName})");
+        await SettingsSectionsAsync("settings-pending");
+
+        // A Save that Capture cannot make: "All windows" chosen and not confirmed (INV-5). Privacy's change
+        // commits, Capture's stays, and the bar says which and why.
+        await settings.UndoCommand.ExecuteAsync(null);
+        settings.Capture.AllWindows = true;
+        settings.Privacy.Telemetry = !settings.Privacy.Telemetry;
+        await settings.SaveCommand.ExecuteAsync(null);
+        await SettleAsync();
+        Console.WriteLine($"  Save bar after a failed save: {settings.FailureMessage}");
+        foreach (var theme in RenderThemes.All)
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            Save(Shot("settings-save-failed", theme));
+        }
+
+        await settings.UndoCommand.ExecuteAsync(null);
+        await SettleAsync();
+
+        // Back to the window's own height, and to the top, for whatever renders next.
+        var pane = Find(this, element => element is Settings.SettingsPane);
+        if (pane is not null && Find(pane, e => e is ScrollViewer) is ScrollViewer back)
+        {
+            back.ScrollToTop();
+        }
+    }
+
+    /// <summary>A change in every section the Save bar covers, as a technician would make them.</summary>
+    private static void Pend(Settings.SettingsViewModel settings)
+    {
+        settings.Capture.AutoStart = !settings.Capture.AutoStart;
+        settings.Capture.Sensitivity = settings.Capture.Sensitivity == "high" ? "low" : "high";
+        settings.Privacy.Telemetry = !settings.Privacy.Telemetry;
+        settings.Integrations.Hudu.ChangeCommand.Execute(null);
+        settings.Integrations.Hudu.SiteUrl = "https://docs.contosomsp.com/kb";
+        if (settings.Updates.ChannelEditable)
+        {
+            settings.Updates.Pilot = !settings.Updates.Pilot;
+            settings.Updates.Stable = !settings.Updates.Pilot;
+        }
+    }
+
+    private async Task SettingsSectionsAsync(string prefix)
+    {
         foreach (var theme in RenderThemes.All)
         {
             RenderThemeApplier.Apply(theme, Application.Current.Resources);
@@ -105,20 +170,13 @@ public partial class ShellWindow
 
                 // The scroll happens once the page is laid out at the render's height, which may be in a
                 // host outside the window: scrolled before, it would be clamped to the window's shorter view.
-                WindowRenderer.Save(this, Shot($"settings-{name}", theme), height, prepare: () =>
+                WindowRenderer.Save(this, Shot($"{prefix}-{name}", theme), height, prepare: () =>
                 {
                     scroller.ScrollToVerticalOffset(top);
                     scroller.UpdateLayout();
                     return null;
                 });
             }
-        }
-
-        // Back to the window's own height, and to the top, for whatever renders next.
-        var settings = Find(this, element => element is Settings.SettingsPane);
-        if (settings is not null && Find(settings, e => e is ScrollViewer) is ScrollViewer back)
-        {
-            back.ScrollToTop();
         }
     }
 

@@ -52,7 +52,8 @@ public sealed class CaptureMicrophoneViewModelTests
             Assert.Equal(MicrophoneLevelWatch.NotWatching, screen.MicrophoneLevelStatus);
             Assert.Equal(1, service.Stops);
 
-            await screen.SaveCommand.ExecuteAsync(null);
+            Assert.Null(await screen.Section.SaveAsync());
+            screen.Refresh();
             Assert.Equal(Headset, service.Saved!.MicrophoneId);
         });
     }

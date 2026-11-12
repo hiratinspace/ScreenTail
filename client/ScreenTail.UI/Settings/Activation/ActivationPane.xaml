@@ -9,7 +9,7 @@
         <StackPanel>
             <StackPanel Orientation="Horizontal">
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="This device" />
-                <ContentControl Margin="10,0,0,0"
+                <ContentControl Margin="8,0,0,0"
                                 VerticalAlignment="Center"
                                 Style="{StaticResource Badge.Published}"
                                 Content="Activated"

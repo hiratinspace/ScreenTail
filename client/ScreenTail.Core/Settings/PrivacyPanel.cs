@@ -58,6 +58,9 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     /// <summary>What <see cref="Current"/> was when last loaded or saved; a fresh panel's own before either.</summary>
     private ClientSettings _baseline = new();
+
+    /// <summary>The last snapshot read, its settings kept at what was last saved, for <see cref="Undo"/>.</summary>
+    private SettingsSnapshot? _snapshot;
     private string? _refusal;
     private bool _localOnly;
     private int _retentionDays = 7;
@@ -147,15 +150,13 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
     public bool CanAddProcess => NewProcessProblem is null && !_processes.Contains(NewProcess.Trim(), StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Why the settings cannot be saved as they are — the first problem, or the service's refusal — or null.</summary>
-    public string? Problem
+    public string? Problem => _refusal ?? Unsavable;
+
+    /// <summary>Why the fields cannot be saved as they are, leaving out the service's last refusal, which a new save may not repeat.</summary>
+    internal string? Unsavable
     {
         get
         {
-            if (_refusal is not null)
-            {
-                return _refusal;
-            }
-
             var problems = Current().Problems();
             return problems.Count > 0 ? problems[0] : null;
         }
@@ -173,6 +174,9 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
         !string.IsNullOrWhiteSpace(NewPattern)
         || !string.IsNullOrWhiteSpace(NewProcess)
         || !Same(Current(), _baseline);
+
+    /// <summary>What was last loaded or saved, for Settings' Save bar to compare against.</summary>
+    internal ClientSettings Baseline => _baseline;
 
     /// <summary>What the technician is about to save: the fields, with the locked ones left as the technician's own on disk.</summary>
     public ClientSettings Current() => new()
@@ -200,6 +204,26 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
             return;
         }
 
+        Apply(snapshot);
+    }
+
+    /// <summary>
+    /// Puts every field back to what was last loaded or saved, asking the service nothing (Settings' Undo
+    /// changes). A pattern or app name typed and not yet added stays in its box. Locked fields stay as the
+    /// policy has them.
+    /// </summary>
+    public void Undo()
+    {
+        if (_snapshot is not null)
+        {
+            _refusal = null;
+            Apply(_snapshot);
+        }
+    }
+
+    private void Apply(SettingsSnapshot snapshot)
+    {
+        _snapshot = snapshot;
         _loaded = snapshot.Settings;
         LocalOnlyLocked = snapshot.LocalOnlyLocked;
         _localOnly = LocalOnlyLocked ? snapshot.EffectiveLocalOnly : _loaded.LocalOnly;
@@ -266,6 +290,7 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
         _loaded = settings;
         _baseline = settings;
+        _snapshot = _snapshot is null ? null : _snapshot with { Settings = settings };
         return true;
     }
 

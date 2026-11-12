@@ -1330,6 +1330,97 @@
         <Setter Property="Padding" Value="0" />
     </Style>
 
+    <!-- Settings (Spec v0.6.0, Settings layout): the section nav, the "Changed" mark, the bar's link and
+         the one Save bar. Tokens only; in high contrast each takes the system colours through them, and
+         every state keeps its words and its mark. -->
+    <Style x:Key="Settings.Nav" BasedOn="{StaticResource {x:Type ListBox}}" TargetType="ListBox">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="KeyboardNavigation.TabNavigation" Value="Once" />
+    </Style>
+    <!-- A nav row: 36 px, the selected one tinted with the accent bar at its left edge (the keyless row's),
+         and its name read with the count of its changes. -->
+    <Style x:Key="Settings.NavItem" BasedOn="{StaticResource {x:Type ListBoxItem}}" TargetType="ListBoxItem">
+        <Setter Property="MinHeight" Value="{DynamicResource Layout.row-height}" />
+        <Setter Property="Padding" Value="14,6,10,6" />
+        <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+    </Style>
+
+    <!-- A change not yet saved: the iris dot and the words in text.primary on the iris tint, an accent
+         edge. Beside a card's heading it says "Changed"; in the nav it is the count. -->
+    <Style x:Key="Badge.Changed" BasedOn="{StaticResource Badge}" TargetType="ContentControl">
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ContentControl">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="11"
+                            Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="6"
+                                     Height="6"
+                                     Margin="0,0,5,0"
+                                     VerticalAlignment="Center"
+                                     Fill="{DynamicResource Brush.accent.primary}" />
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- A link that acts inside the screen (the Save bar's section name): accent words, underlined, with
+         the hit-target floor and the focus ring. -->
+    <Style x:Key="Button.Link" TargetType="Button">
+        <Setter Property="MinHeight" Value="{DynamicResource Layout.hit-target-min}" />
+        <Setter Property="MinWidth" Value="{DynamicResource Layout.hit-target-min}" />
+        <Setter Property="Padding" Value="4,0" />
+        <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
+        <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.accent.primary}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Padding="{TemplateBinding Padding}" Background="{TemplateBinding Background}" CornerRadius="{DynamicResource Radius.control}" SnapsToDevicePixels="True">
+                        <TextBlock VerticalAlignment="Center"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}}"
+                                   TextDecorations="Underline" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.accent.primary.hover}" />
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.hover}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- The Save bar: a raised strip pinned under the page, outlined above, so it reads as the page's own
+         and not as a toast. No shadow: the frame and the pill are the only things that float. -->
+    <Style x:Key="SaveBar" TargetType="Border">
+        <Setter Property="Margin" Value="0,12,0,0" />
+        <Setter Property="Padding" Value="16,10" />
+        <Setter Property="MinHeight" Value="52" />
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource Radius.card}" />
+    </Style>
+
     <!-- Status pill (HUD): 44 px, fully rounded, elevated -->
     <Style x:Key="StatusPill" BasedOn="{StaticResource Toast}" TargetType="Border">
         <Setter Property="Height" Value="{DynamicResource Layout.hud-height}" />
@@ -2038,6 +2129,8 @@
 
     <!-- Window chrome defaults -->
     <Style x:Key="Window.Base" TargetType="Window">
+        <!-- The Iris app icon (Spec v0.6.0 §2.0) in the title bar, the taskbar and Alt+Tab. -->
+        <Setter Property="Icon" Value="pack://application:,,,/ScreenTail.UI;component/Assets/app.ico" />
         <Setter Property="Background" Value="{DynamicResource Brush.bg.base}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
