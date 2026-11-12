@@ -25,7 +25,7 @@ internal static class Screens
     public static readonly string[] All =
     [
         "review", "review-no-psa", "review-published", "review-partial", "review-needs-mapping", "review-timeline", "review-enlarged",
-        "review-blur-box", "history", "settings", "service-down",
+        "review-blur-box", "rail-not-confirmed", "history", "settings", "service-down",
         "onboarding-welcome", "onboarding-activate", "onboarding-permissions", "onboarding-tools", "onboarding-connect", "onboarding-tryit", "onboarding-done",
         "diagnostics", "diagnostics-unanswered",
         "confirm-discard", "confirm-bulk-discard", "confirm-erase", "shortcut-sheet",
@@ -51,6 +51,11 @@ internal static class Screens
                     _ = await OpenBlurBoxAsync(window);
                 }
 
+                break;
+            case "rail-not-confirmed":
+                // The inbox rail with a Not confirmed session open, so its row is the pane's tab (Spec §5 S4).
+                window = await ShellAsync(state => state.OpenSession("s-4"));
+                await PaneAsync<ReviewPane>(window);
                 break;
             case "history":
                 window = await ShellAsync(state => state.Navigate(ShellView.History));

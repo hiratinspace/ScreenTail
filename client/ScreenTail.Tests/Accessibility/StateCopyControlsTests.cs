@@ -57,11 +57,12 @@ public sealed class StateCopyControlsTests
     {
         var shell = Load("Shell", "ShellWindow.xaml");
 
-        // The shared dot, coloured per tone by a style built on it.
+        // The shared dot, coloured per tone by a style built on it. Since v0.6.4 the chip sits on the
+        // frame's title band, so it takes the frame's state colours (Spec §3, status chip).
         var dot = Assert.Single(shell.Descendants(Wpf + "Ellipse"), e => e.Descendants(Wpf + "Style").Any(s => (string?)s.Attribute("BasedOn") == "{StaticResource StateDot}"));
         var colours = dot.Descendants(Wpf + "Setter").Select(s => (string?)s.Attribute("Value")).ToHashSet();
-        Assert.Contains("{DynamicResource Brush.state.recording}", colours);
-        Assert.Contains("{DynamicResource Brush.state.paused}", colours);
+        Assert.Contains("{DynamicResource Brush.shell.recording}", colours);
+        Assert.Contains("{DynamicResource Brush.shell.paused}", colours);
         Assert.Contains(dot.Descendants(Wpf + "DataTrigger"), t => (string?)t.Attribute("Binding") == "{Binding StatusTone}");
     }
 

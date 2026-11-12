@@ -266,7 +266,7 @@ public sealed class KeyboardShortcutTests(TheApplication app)
             var shell = await Screens.OpenAsync("history");
             try
             {
-                _ = Screens.Named<Button>(shell, "History").Focus();
+                _ = Screens.Named<Button>(shell, "All sessions").Focus();
                 await Audit.Settle();
                 Keys.Type("?");
                 await Audit.Settle();
