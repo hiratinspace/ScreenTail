@@ -89,6 +89,19 @@ filter, so the pull request fixing the first problem failed its own gate. They w
 narrowing the flag rather than widening the filter, because widening meant a one-line workflow edit took
 over the laptop's keyboard, and the hosted Windows job builds and tests everything either way.
 
+**Only the hardware areas' Windows tests count (2026-11-12).** The filter used to take all of
+`client/ScreenTail.Tests.Windows/`, so every screen change, which always touches its own tests there,
+waited about forty minutes for the laptop. Now it takes the folders for the areas above (Capabilities,
+Capture, Detection, Host, Input, Ipc, Performance, Privacy, Speech, Store) and the files at the
+project's root that they all share. Review, Settings, Shell, History, Accessibility, Onboarding,
+Install and Update test the UI; none of their tests needs a real machine, and the hosted Windows job
+runs them on every pull request. A new file at the project's root fails the agreement check in `ci.yml`
+until `hardware-checks.yml` names it.
+
+**The laptop also runs everything every night** on `main` (`schedule:` in `hardware-checks.yml`,
+07:17 UTC), so what the filter leaves out still reaches the real machine within a day. Nothing waits
+for that run: look at the Actions tab, and GitHub mails whoever last changed the cron line when it fails.
+
 ### Hardware evidence is required now
 
 `hardware-checks` is a separate workflow, so it cannot be a `needs:` of `ci-ok`. The `Hardware evidence` job in `ci.yml` bridges them: when a PR touches the paths that need a real machine, it waits for the laptop's two jobs on the same commit and fails if they did not pass. It is part of `ci-ok`, so the one required check on `main` now covers hardware.
