@@ -82,7 +82,7 @@
                 <!-- "Not confirmed" sits beside the status, never in place of it: a publish of the session may
                      have reached the ticket, and the session is still a draft or published in part. Not
                      focusable, so it is no tab stop; the row's own name says it to a screen reader. -->
-                <DataGridTemplateColumn Header="Status" Width="200" SortMemberPath="Status">
+                <DataGridTemplateColumn Header="Status" Width="*" MinWidth="200" SortMemberPath="Status">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel HorizontalAlignment="Left" Orientation="Horizontal">
