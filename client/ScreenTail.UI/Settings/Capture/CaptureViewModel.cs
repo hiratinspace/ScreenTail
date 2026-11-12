@@ -67,7 +67,6 @@ public sealed partial class CaptureViewModel : ObservableObject
     ];
 
     private readonly CapturePanel _panel;
-    private readonly Func<bool, Task> _startAtLogin;
     private readonly MicrophoneLevelWatch? _level;
     private readonly SynchronizationContext? _ui = SynchronizationContext.Current;
     private bool _refreshing;
@@ -77,7 +76,8 @@ public sealed partial class CaptureViewModel : ObservableObject
     public CaptureViewModel(CapturePanel panel, Func<bool, Task> startAtLogin, MicrophoneLevelWatch? level = null)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
-        _startAtLogin = startAtLogin ?? throw new ArgumentNullException(nameof(startAtLogin));
+        ArgumentNullException.ThrowIfNull(startAtLogin);
+        Section = new CaptureSection(panel, startAtLogin);
         _level = level;
         if (_level is not null)
         {
@@ -160,11 +160,14 @@ public sealed partial class CaptureViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility ProblemVisibility { get; set; } = Visibility.Collapsed;
 
-    [ObservableProperty]
-    public partial bool CanSave { get; set; }
+    /// <summary>This section on the Settings page's one Save bar: its changes, its save path (the panel, then the Run key) and Undo.</summary>
+    public CaptureSection Section { get; }
 
-    [ObservableProperty]
-    public partial string Saved { get; set; } = string.Empty;
+    /// <summary>The "Changed" mark beside each card with a change not yet saved.</summary>
+    public ChangeMarks Changed { get; } = new();
+
+    /// <summary>A field changed, so the page's Save bar counts again.</summary>
+    public event EventHandler? Edited;
 
     /// <summary>The panel holds a change the technician has not saved, so the shell does not read it again on a reconnect.</summary>
     public bool HasUnsavedEdits => _panel.HasUnsavedEdits;
@@ -180,19 +183,6 @@ public sealed partial class CaptureViewModel : ObservableObject
     {
         _panel.ConfirmAllWindows();
         Field(() => { });
-    }
-
-    [RelayCommand]
-    private async Task SaveAsync()
-    {
-        var saved = await _panel.SaveAsync().ConfigureAwait(true);
-        if (saved)
-        {
-            await _startAtLogin(_panel.StartUiAtLogin).ConfigureAwait(true);
-        }
-
-        Refresh();
-        Saved = saved ? "Saved and applied." : string.Empty;
     }
 
     partial void OnAllWindowsChanged(bool value) => Field(() => _panel.CaptureAllWindows = value);
@@ -263,12 +253,12 @@ public sealed partial class CaptureViewModel : ObservableObject
     private void Field(Action set)
     {
         set();
-        Saved = string.Empty;
         ScopeWarning = _panel.ScopeWarning ?? string.Empty;
         ScopeWarningVisibility = ScopeWarning.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         Problem = _panel.Problem ?? string.Empty;
         ProblemVisibility = Problem.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        CanSave = _panel.CanSave;
+        Changed.Set(Section.Changes);
+        Edited?.Invoke(this, EventArgs.Empty);
     }
 
     private string? HotkeyChanged(HotkeyAction action, string text)
@@ -283,7 +273,8 @@ public sealed partial class CaptureViewModel : ObservableObject
         return _panel.HotkeyProblem(action);
     }
 
-    private void Refresh()
+    /// <summary>Shows the panel as it is now: after a load, and after the page saved or undid its changes.</summary>
+    public void Refresh()
     {
         Tools.Clear();
         foreach (var tool in _panel.Tools)

@@ -63,6 +63,11 @@ public partial class ShortcutSheet : Window
             new("Ctrl+arrows", "Bigger steps, with or without Shift"),
             new("Enter, Esc", "Blur what the box covers, or put it away"),
         ]),
+        new("Settings", [
+            new("Ctrl+S", "Save every change on the page"),
+            new("Up, Down", "Move through the sections"),
+            new("Esc on the Save bar", "Undo the changes"),
+        ]),
     ];
 
     /// <summary>The sheet's left column: where you are anywhere, during a session, and in Review.</summary>
