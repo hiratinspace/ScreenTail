@@ -5,8 +5,6 @@ using ScreenTail.Core.Hud;
 using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
 using ScreenTail.UI.Render;
-using ScreenTail.UI.Theme;
-using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
 namespace ScreenTail.UI.Hud;
 
@@ -46,14 +44,14 @@ internal static class HudPreview
         Directory.CreateDirectory(directory);
         BindingErrors.Listen();
 
-        foreach (var (name, model, tone) in Variants())
+        foreach (var (name, model, tone) in Variants().Append(Expanded()))
         {
             var window = new HudWindow { DataContext = model, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
             window.Show();
 
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            foreach (var theme in RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 window.UpdateLayout();
                 // The colour the state is supposed to be, taken off the pixels. Counting distinct
@@ -61,7 +59,7 @@ internal static class HudPreview
                 Console.WriteLine($"  {name}/{theme}: tone={tone} glyph foreground={window.GlyphForegroundDescription}");
                 WindowRenderer.SaveExpecting(
                     window,
-                    Path.Combine(directory, $"hud-{name}-{theme.ToString().ToLowerInvariant()}.png"),
+                    Path.Combine(directory, RenderThemes.FileName($"hud-{name}", theme)),
                     TokenColour(tone),
                     Colour("Brush.bg.surface"),
                     $"{tone} state");
@@ -77,6 +75,25 @@ internal static class HudPreview
         }
 
         Console.WriteLine($"{errors.Count} binding errors");
+        RenderIndex.Write(directory);
+    }
+
+    /// <summary>
+    /// The pill clicked open: the last three events and Mark moment (Spec §5 S2). Rendered here and not in
+    /// <see cref="Variants"/>, which is the spec's list of states the accessibility suite walks.
+    /// </summary>
+    private static (string Name, HudViewModel Model, HudTone Tone) Expanded()
+    {
+        var model = For(CaptureStates.Recording, elapsedMs: 761_000);
+        model.Expanded = true;
+
+        // Kinds and counts only, as INV-10 allows on a pill a customer can see.
+        foreach (var line in new[] { "Click · screenshot", "Typing · 14 keys", "Click · screenshot" })
+        {
+            model.RecentEvents.Add(line);
+        }
+
+        return ("expanded", model, HudTone.Recording);
     }
 
     /// <summary>The design token each tone must actually appear in, read from the live dictionary.</summary>

@@ -191,8 +191,10 @@
                            Text="{Binding Enlarged.Label}" />
 
                 <Grid Grid.Row="1" Margin="0,10,0,0">
+                    <!-- TargetNullValue: the picture is bytes, dropped to null when the view lets go of it,
+                         and without it WPF tries to convert that null and logs a binding error each time. -->
                     <Image x:Name="EnlargedImage"
-                           Source="{Binding Enlarged.Image}"
+                           Source="{Binding Enlarged.Image, TargetNullValue={x:Null}}"
                            Stretch="Uniform"
                            SizeChanged="OnBlurLayoutChanged"
                            AutomationProperties.Name="{Binding Enlarged.Label}" />

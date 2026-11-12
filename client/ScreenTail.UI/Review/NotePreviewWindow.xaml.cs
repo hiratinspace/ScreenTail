@@ -2,7 +2,6 @@ using System.IO;
 using System.Windows;
 using ScreenTail.Shared.Schema;
 using ScreenTail.UI.Render;
-using ScreenTail.UI.Theme;
 
 namespace ScreenTail.UI.Review;
 
@@ -36,11 +35,19 @@ public partial class NotePreviewWindow : Window
         }
 
         InitializeComponent();
+        _ = WindowRenderer.Intend(this);
         _screenshotDirectory = screenshotDirectory;
         Pane.DataContext = new NoteEditorViewModel(LoadFixture());
         if (_screenshotDirectory is not null)
         {
-            ContentRendered += async (_, _) => await CaptureAsync();
+            // Once only: ContentRendered fires again when a tall render takes Content out and puts it back.
+            EventHandler? capture = null;
+            capture = async (_, _) =>
+            {
+                ContentRendered -= capture;
+                await CaptureAsync();
+            };
+            ContentRendered += capture;
         }
     }
 
@@ -92,16 +99,17 @@ public partial class NotePreviewWindow : Window
         })
         {
             Pane.DataContext = new NoteEditorViewModel(session, retryDraft: _ => Task.CompletedTask);
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            foreach (var theme in RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 UpdateLayout();
-                WindowRenderer.Save(this, Path.Combine(_screenshotDirectory!, $"note-{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                WindowRenderer.Save(this, Path.Combine(_screenshotDirectory!, RenderThemes.FileName($"note-{name}", theme)));
             }
         }
 
         Report();
+        RenderIndex.Write(_screenshotDirectory!);
         Application.Current.Shutdown();
     }
 

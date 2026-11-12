@@ -12,8 +12,6 @@ using ScreenTail.UI.Settings.Activation;
 using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
-using ScreenTail.UI.Theme;
-using AppTheme = ScreenTail.UI.Theme.AppTheme;
 
 namespace ScreenTail.UI.Shell;
 
@@ -104,6 +102,10 @@ public partial class ShellWindow : Window
 
         InitializeComponent();
         _screenshotDirectory = screenshotDirectory;
+        if (screenshotDirectory is not null)
+        {
+            _ = Render.WindowRenderer.Intend(this);
+        }
 
         // A state store with something in it, so a screenshot shows the shell doing its job rather than an
         // empty frame that would pass the check while proving nothing.
@@ -142,7 +144,16 @@ public partial class ShellWindow : Window
         Sample = state;
         if (_screenshotDirectory is not null)
         {
-            ContentRendered += async (_, _) => await CaptureAsync(state);
+            // Once only. ContentRendered fires again whenever Content changes, and a render that is bigger
+            // than the screen takes the content out of the window and puts it back, so a plain subscription
+            // restarted the whole capture after every tall render and looped until the CI job timed out.
+            EventHandler? capture = null;
+            capture = async (_, _) =>
+            {
+                ContentRendered -= capture;
+                await CaptureAsync(state);
+            };
+            ContentRendered += capture;
         }
     }
 
@@ -359,57 +370,57 @@ public partial class ShellWindow : Window
         })
         {
             arrange();
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            await ThumbnailsAsync();
+            foreach (var theme in Render.RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
+                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 UpdateLayout();
-                Save(Path.Combine(_screenshotDirectory!, $"shell-{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                Save(Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName($"shell-{name}", theme)));
             }
         }
+
+        // The service comes back for the passes below, which draw a working shell.
+        state.Connected(new Shared.Ipc.CaptureStateSnapshot { State = "recording", SessionId = "preview", RemoteTool = "screenconnect", ElapsedMs = 12 * 60 * 1000 });
+        await EnlargedAsync(state);
+        await SettingsSectionsAsync(state);
+        await FocusAsync(state);
+        await HighDpiAsync(state);
+        await DialogsAsync();
 
         // ST-083's wizard, every step, over the sample gateways: a binding that breaks in a step fails
         // this harness rather than the technician's first five minutes.
         foreach (var step in Enum.GetValues<OnboardingStep>())
         {
             var model = await SampleOnboardingAsync(step);
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            foreach (var theme in Render.RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
-                var window = new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                var window = Render.WindowRenderer.Intend(new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 });
                 window.Show();
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 window.UpdateLayout();
-                Save(window, Path.Combine(_screenshotDirectory!, $"onboarding-{step.ToString().ToLowerInvariant()}-{theme.ToString().ToLowerInvariant()}.png"));
+                Save(window, Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName($"onboarding-{step.ToString().ToLowerInvariant()}", theme)));
                 window.Close();
             }
         }
 
         // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
         // rather than appearing inside the shell's. Answered, and with the service not answering, which
-        // is the panel that says unknown on every row rather than zeros (T-152).
-        // The two typed confirmations render here too (ST-016): the tray's discard dialog carried a
+        // is the panel that says unknown on every row rather than zeros (T-152). The two typed
+        // confirmations are built and rendered by DialogsAsync, in every theme: the tray's dialog carried a
         // TextBlock style on its TextBox from #86 to #228, which WPF refuses as the window is built, and
-        // nothing ever built it to find out. They are two windows that do the same job (Spec §3); merging
-        // them is its own change.
+        // nothing ever built it to find out (#281).
         foreach (var (name, build) in new (string, Func<Window>)[]
         {
             ("panel", () => new Diagnostics.DiagnosticsWindow()),
             ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)),
-            ("confirm-tray-discard", () => new ConfirmWindow(
-                "Discard this session?",
-                "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
-                "DISCARD")),
-            ("confirm-review-discard", () => new ConfirmTypedDialog(
-                Core.Review.TypedConfirmation.ForDiscard(),
-                "Discard this session?",
-                "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone.")),
         })
         {
-            foreach (var theme in new[] { AppTheme.Dark, AppTheme.Light, AppTheme.HighContrast })
+            foreach (var theme in Render.RenderThemes.All)
             {
-                ThemeManager.Apply(theme, Application.Current.Resources);
-                var panel = build();
+                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                var panel = Render.WindowRenderer.Intend(build());
                 panel.ShowInTaskbar = false;
                 panel.WindowStartupLocation = WindowStartupLocation.Manual;
                 panel.Left = -4000;
@@ -417,7 +428,7 @@ public partial class ShellWindow : Window
                 panel.Show();
                 await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
                 panel.UpdateLayout();
-                Save(panel, Path.Combine(_screenshotDirectory!, $"{name}-{theme.ToString().ToLowerInvariant()}.png"));
+                Save(panel, Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName(name, theme)));
                 panel.Close();
             }
         }
@@ -430,6 +441,7 @@ public partial class ShellWindow : Window
         }
 
         Console.WriteLine($"{errors.Count} binding errors");
+        Render.RenderIndex.Write(_screenshotDirectory!);
         Application.Current.Shutdown();
     }
 

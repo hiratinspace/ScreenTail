@@ -512,6 +512,12 @@ public sealed class LiveShell : IAsyncDisposable
             token => new DiscardCommand { RequestId = 0, Confirmation = token });
     }
 
+    /// <summary>The Delete everything confirmation's words, shared with the render harness so its render is this dialog.</summary>
+    internal const string EraseHeading = "Delete everything on this device?";
+
+    /// <inheritdoc cref="EraseHeading"/>
+    internal const string EraseConsequence = "Every session, draft, screenshot and transcript, your settings, and this device's tokens go. ScreenTail will need to be set up again. It cannot be undone.";
+
     /// <summary>
     /// Spec §5 S6 "Delete everything": the service issues the token, the technician types the phrase, and
     /// INV-12 does the rest. <see cref="DeleteEverything"/> asks nothing while a session is being captured
@@ -519,11 +525,7 @@ public sealed class LiveShell : IAsyncDisposable
     /// says it beside the button: a message box would be a modal too.
     /// </summary>
     private Task<ConfirmedResult> EraseEverythingAsync() => _erase.RunAsync(
-        phrase => OnUiThread(() => ConfirmWindow.Asks(
-            _window,
-            "Delete everything on this device?",
-            "Every session, draft, screenshot and transcript, your settings, and this device's tokens go. ScreenTail will need to be set up again. It cannot be undone.",
-            phrase)));
+        phrase => OnUiThread(() => ConfirmWindow.Asks(_window, EraseHeading, EraseConsequence, phrase)));
 
     /// <summary>Where the technician wants the audit log. The service writes it and the panel copies it there.</summary>
     private string? ChooseAuditFile()
