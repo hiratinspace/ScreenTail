@@ -33,7 +33,7 @@ public sealed partial class PillResourcesTests
         }
 
         // The control: the pill asks for its styles and its surface, so an empty set cannot pass.
-        Assert.Contains("Text.Body", asked);
+        Assert.Contains("Hud.IconButton", asked);
         Assert.Contains("Brush.shell.bg", asked);
         Assert.Empty(asked.Except(defined));
     }
@@ -52,7 +52,7 @@ public sealed partial class PillResourcesTests
 
         foreach (var key in new[]
         {
-            "Brush.shell.bg", "Brush.shell.text", "Brush.shell.muted", "Brush.shell.accent", "Brush.brand.ribbon.band",
+            "Brush.shell.bg", "Brush.shell.text", "Brush.shell.muted", "Brush.shell.line", "Brush.brand.ribbon.band",
             "Brush.shell.recording", "Brush.shell.paused", "Brush.shell.scope", "Brush.shell.offline",
         })
         {

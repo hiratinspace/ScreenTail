@@ -17,139 +17,298 @@
          the shell's quit and re-dock tests run on; a dynamic one resolves to the same style in the app. -->
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
+
+        <!-- A state's colour on the frame (Spec §2.1, shell.*). DataTriggers with DynamicResource, not a
+             converter: a converter resolves the brush once, at bind time, so it cannot follow a theme swap,
+             and the first version silently produced no Foreground at all for three of the four tones. The
+             render asserts each variant's token colour is actually on the pill, which is what caught it. -->
+        <Style x:Key="Hud.ToneGlyph" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.shell.muted}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Tone}" Value="Recording">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.shell.recording}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Tone}" Value="Paused">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.shell.paused}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Tone}" Value="Scope">
+                    <Setter Property="Foreground" Value="{DynamicResource Brush.shell.scope}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Words on the frame. -->
+        <Style x:Key="Hud.Text" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
+            <Setter Property="FontSize" Value="{DynamicResource Size.md}" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.shell.text}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+        <Style x:Key="Hud.Meta" BasedOn="{StaticResource Hud.Text}" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="{DynamicResource Size.sm}" />
+        </Style>
+        <Style x:Key="Hud.Muted" BasedOn="{StaticResource Hud.Meta}" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Brush.shell.muted}" />
+        </Style>
+
+        <!-- An icon-font glyph on the frame, hidden from a screen reader (controls:Glyph). -->
+        <Style x:Key="Hud.Icon" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="FontFamily" Value="{DynamicResource Font.icon}" />
+            <Setter Property="FontSize" Value="{DynamicResource Icon.control}" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.shell.text}" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
+
+        <!-- A segment after the state, set off by a short shell.line rule (the masked count, No mic, Offline). -->
+        <Style x:Key="Hud.Segment" TargetType="Border">
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="Padding" Value="8,0,0,0" />
+            <Setter Property="Height" Value="{DynamicResource Icon.nav}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.line}" />
+            <Setter Property="BorderThickness" Value="1,0,0,0" />
+        </Style>
     </Window.Resources>
-    <!-- v0.5: the segments after the state are set off by a short rule, so the pill reads as
-         "state | mic | redactions" at a glance instead of one run of small grey words. -->
 
-    <!-- 44 px tall, 999 radius, bg.surface on border.strong (Spec §5 S2). -->
-    <Border x:Name="Pill"
-            Height="44"
-            CornerRadius="22"
-            Padding="16,0,18,0"
-            Background="{DynamicResource Brush.bg.surface}"
-            BorderBrush="{DynamicResource Brush.border.strong}"
-            BorderThickness="1"
-            MouseLeftButtonDown="OnPillMouseDown"
-            MouseRightButtonUp="OnPillRightClick">
-        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+    <!-- The pill on top and, clicked open, the session card under it. Both left-aligned in one column, so
+         opening the card never moves the pill under the pointer, and the card is never narrower than it. -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
 
-            <!-- The state segment. Glyph and words both, so it reads with no colour at all (Spec §7) —
-                 which matters more here than anywhere: this is the indicator INV-4 is about. -->
-            <!-- DataTriggers with DynamicResource, not a converter. A converter resolves the brush once,
-                 at bind time, so it cannot follow a theme swap — and the first version silently produced
-                 no Foreground at all for three of the four tones, leaving the glyph the TextBlock default
-                 black. The render now asserts each variant's token colour is actually on the pill, which
-                 is what caught it. -->
-            <TextBlock x:Name="StateGlyphText"
-                       VerticalAlignment="Center"
-                       FontSize="{DynamicResource Size.lg}"
-                       Text="{Binding StateGlyph}"
-                       ToolTip="{Binding StateTooltip}">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Foreground" Value="{DynamicResource Brush.text.muted}" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding Tone}" Value="Recording">
-                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.recording}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Tone}" Value="Paused">
-                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
-                            </DataTrigger>
-                            <DataTrigger Binding="{Binding Tone}" Value="Scope">
-                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.scope}" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBlock.Style>
-            </TextBlock>
+        <!-- v0.6.0 (Spec §5 S2): part of the frame. shell.bg with a shell.muted outline, Layout.hud-height
+             tall, fully rounded, with the ribbon cap on its leading edge. -->
+        <Border x:Name="Pill"
+                Grid.Row="0"
+                HorizontalAlignment="Left"
+                Height="{DynamicResource Layout.hud-height}"
+                CornerRadius="{DynamicResource Radius.pill}"
+                Background="{DynamicResource Brush.shell.bg}"
+                BorderBrush="{DynamicResource Brush.shell.muted}"
+                BorderThickness="1"
+                MouseLeftButtonDown="OnPillMouseDown"
+                MouseRightButtonUp="OnPillRightClick">
+            <Grid>
+                <!-- The ribbon cap: the brand's band wrapping the pill's end (§2.0, §2.1). Decorative and never
+                     the only cue: the pill has its outline and words. Clipped to the pill's own round end. In
+                     high contrast the band is the window colour, so it is not drawn at all. -->
+                <Path HorizontalAlignment="Left"
+                      VerticalAlignment="Top"
+                      IsHitTestVisible="False"
+                      Fill="{DynamicResource Brush.brand.ribbon.band}">
+                    <Path.Data>
+                        <CombinedGeometry GeometryCombineMode="Intersect">
+                            <CombinedGeometry.Geometry1>
+                                <RectangleGeometry Rect="0,0,42,42" RadiusX="21" RadiusY="21" />
+                            </CombinedGeometry.Geometry1>
+                            <CombinedGeometry.Geometry2>
+                                <PathGeometry Figures="M0,0 L14,0 L6,42 L0,42 Z" />
+                            </CombinedGeometry.Geometry2>
+                        </CombinedGeometry>
+                    </Path.Data>
+                </Path>
 
-            <!-- The state in words while recording. The other states say theirs in StateText; recording's
-                 is the elapsed time, and a red dot beside a number is colour plus a clock, not a word. -->
-            <TextBlock Margin="8,0,0,0"
-                       VerticalAlignment="Center"
-                       FontFamily="{DynamicResource Font.ui}"
-                       FontSize="{DynamicResource Size.md}"
-                       FontWeight="{DynamicResource Weight.semibold}"
-                       Foreground="{DynamicResource Brush.text.primary}"
-                       Text="Recording">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding Tone}" Value="Recording">
-                                <Setter Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </TextBlock.Style>
-            </TextBlock>
+                <StackPanel Margin="24,0,5,0" Orientation="Horizontal" VerticalAlignment="Center">
 
-            <TextBlock Margin="8,0,0,0"
-                       VerticalAlignment="Center"
-                       Style="{DynamicResource Text.Body}"
-                       FontWeight="{DynamicResource Weight.semibold}"
-                       Typography.NumeralAlignment="Tabular"
-                       Text="{Binding StateText}"
-                       ToolTip="{Binding StateTooltip}"
-                       AutomationProperties.Name="{Binding SpokenState}"
-                       controls:LiveRegion.Setting="Assertive"
-                       controls:LiveRegion.Key="{Binding Announcement}" />
+                    <!-- The state segment. Glyph and words both, so it reads with no colour at all (Spec §7),
+                         which matters more here than anywhere: this is the indicator INV-4 is about. -->
+                    <TextBlock x:Name="StateGlyphText"
+                               Style="{StaticResource Hud.ToneGlyph}"
+                               FontSize="{DynamicResource Size.lg}"
+                               Text="{Binding StateGlyph}"
+                               ToolTip="{Binding StateTooltip}" />
 
-            <Border Margin="12,0,0,0"
-                    Padding="12,0,0,0"
-                    VerticalAlignment="Center"
-                    BorderBrush="{DynamicResource Brush.border.subtle}"
-                    BorderThickness="1,0,0,0"
-                    Visibility="{Binding ShowMic, Converter={StaticResource Visible}}">
-                <TextBlock VerticalAlignment="Center"
-                           Style="{DynamicResource Text.Muted}"
-                           Text="{Binding MicTooltip}"
-                           ToolTip="{Binding MicTooltip}" />
-            </Border>
+                    <!-- The state in words while recording. The other states say theirs in StateText;
+                         recording's is the elapsed time, and a red dot beside a number is colour plus a
+                         clock, not a word. -->
+                    <TextBlock Margin="8,0,0,0" Text="Recording" FontWeight="{DynamicResource Weight.semibold}">
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource Hud.Text}" TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Tone}" Value="Recording">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
-            <Border Margin="12,0,0,0"
-                    Padding="12,0,0,0"
-                    VerticalAlignment="Center"
-                    BorderBrush="{DynamicResource Brush.border.subtle}"
-                    BorderThickness="1,0,0,0"
-                    Visibility="{Binding ShowRedactions, Converter={StaticResource Visible}}">
-                <TextBlock VerticalAlignment="Center"
-                           Style="{DynamicResource Text.Muted}"
-                           Text="{Binding RedactionText}"
-                           ToolTip="Screenshots still being masked. They are not readable until this reaches zero." />
-            </Border>
+                    <TextBlock Margin="8,0,8,0"
+                               Style="{StaticResource Hud.Text}"
+                               FontWeight="{DynamicResource Weight.semibold}"
+                               Typography.NumeralAlignment="Tabular"
+                               Text="{Binding StateText}"
+                               ToolTip="{Binding StateTooltip}"
+                               AutomationProperties.Name="{Binding SpokenState}"
+                               controls:LiveRegion.Setting="Assertive"
+                               controls:LiveRegion.Key="{Binding Announcement}" />
 
-            <Border Margin="12,0,0,0"
-                    Padding="12,0,0,0"
-                    VerticalAlignment="Center"
-                    BorderBrush="{DynamicResource Brush.border.subtle}"
-                    BorderThickness="1,0,0,0"
-                    Visibility="{Binding ShowCloud, Converter={StaticResource Visible}}">
-                <TextBlock VerticalAlignment="Center"
-                           Style="{DynamicResource Text.Muted}"
-                           Text="☁ Offline"
-                           ToolTip="{Binding CloudTooltip}" />
-            </Border>
+                    <!-- The masked-count chip: screenshots still being masked. -->
+                    <Border Style="{StaticResource Hud.Segment}"
+                            ToolTip="{Binding RedactionSpoken}"
+                            Visibility="{Binding ShowRedactions, Converter={StaticResource Visible}}">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Hud.Icon}" Foreground="{DynamicResource Brush.shell.muted}" Text="&#xEA18;" />
+                            <TextBlock Margin="4,0,0,0"
+                                       Style="{StaticResource Hud.Meta}"
+                                       Typography.NumeralAlignment="Tabular"
+                                       Text="{Binding RedactionText}"
+                                       AutomationProperties.Name="{Binding RedactionSpoken}" />
+                        </StackPanel>
+                    </Border>
 
-            <!-- Expanded: the last three events and Mark moment (Spec §5 S2). Counts and kinds only —
-                 a HUD a customer can see over a technician's shoulder holds no content (INV-10). -->
-            <StackPanel Margin="16,0,0,0"
-                        VerticalAlignment="Center"
-                        Visibility="{Binding Expanded, Converter={StaticResource Visible}}">
+                    <!-- No mic and Offline: the icon carries the hue (shell.offline), the word stays in
+                         shell.text, so neither is colour alone. -->
+                    <Border Style="{StaticResource Hud.Segment}"
+                            ToolTip="{Binding MicTooltip}"
+                            Visibility="{Binding ShowMic, Converter={StaticResource Visible}}">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Hud.Icon}" Foreground="{DynamicResource Brush.shell.offline}" Text="&#xE720;" />
+                            <TextBlock Margin="4,0,0,0"
+                                       Style="{StaticResource Hud.Meta}"
+                                       Text="{Binding MicText}"
+                                       AutomationProperties.Name="{Binding MicTooltip}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Hud.Segment}"
+                            ToolTip="{Binding CloudTooltip}"
+                            Visibility="{Binding ShowCloud, Converter={StaticResource Visible}}">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Hud.Icon}" Foreground="{DynamicResource Brush.shell.offline}" Text="&#xE753;" />
+                            <TextBlock Margin="4,0,0,0"
+                                       Style="{StaticResource Hud.Meta}"
+                                       Text="{Binding CloudText}"
+                                       AutomationProperties.Name="{Binding CloudTooltip}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Mark, Pause or Resume, Stop: one click each, 32 px, each offered only where the
+                         service would accept it (HudControls). The tooltip names the hotkey. -->
+                    <Button Margin="8,0,0,0"
+                            Style="{DynamicResource Hud.IconButton}"
+                            Command="{Binding MarkCommand}"
+                            ToolTip="{Binding MarkButton.Tooltip}"
+                            AutomationProperties.Name="{Binding MarkButton.Spoken}"
+                            Visibility="{Binding ShowMarkControl, Converter={StaticResource Visible}}">
+                        <controls:Glyph Style="{StaticResource Hud.Icon}" Text="&#xE7C1;" />
+                    </Button>
+                    <Button Margin="4,0,0,0"
+                            Style="{DynamicResource Hud.IconButton}"
+                            Command="{Binding PauseOrResumeCommand}"
+                            ToolTip="{Binding PauseButton.Tooltip}"
+                            AutomationProperties.Name="{Binding PauseButton.Spoken}"
+                            Visibility="{Binding ShowPauseControl, Converter={StaticResource Visible}}">
+                        <controls:Glyph Style="{StaticResource Hud.Icon}" Text="{Binding PauseGlyph}" />
+                    </Button>
+                    <Button Margin="4,0,0,0"
+                            Style="{DynamicResource Hud.IconButton}"
+                            Command="{Binding StopCommand}"
+                            ToolTip="{Binding StopButton.Tooltip}"
+                            AutomationProperties.Name="{Binding StopButton.Spoken}"
+                            Visibility="{Binding ShowStopControl, Converter={StaticResource Visible}}">
+                        <controls:Glyph Style="{StaticResource Hud.Icon}" Text="&#xE71A;" />
+                    </Button>
+                    <Button Margin="4,0,0,0"
+                            Style="{DynamicResource Hud.IconButton}"
+                            Command="{Binding ToggleExpandedCommand}"
+                            ToolTip="{Binding ExpandName}"
+                            AutomationProperties.Name="{Binding ExpandName}">
+                        <controls:Glyph Style="{StaticResource Hud.Icon}" Text="{Binding ExpandGlyph}" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Expanded: the session's tool and start, the last three events as kinds and times, Mark moment
+             and Open in ScreenTail (Spec §5 S2). Its own card under the pill, so it has room: inside the
+             44 px pill it was three rows of 11 px text squeezed between the state and the buttons. A HUD a
+             customer can see over a technician's shoulder holds no content (INV-10). -->
+        <Border x:Name="Card"
+                Grid.Row="1"
+                Margin="0,8,0,0"
+                HorizontalAlignment="Stretch"
+                Padding="{DynamicResource Padding.control}"
+                CornerRadius="{DynamicResource Radius.card}"
+                Background="{DynamicResource Brush.shell.bg}"
+                BorderBrush="{DynamicResource Brush.shell.muted}"
+                BorderThickness="1"
+                Visibility="{Binding Expanded, Converter={StaticResource Visible}}">
+            <StackPanel Margin="0,4,0,4">
+                <TextBlock Margin="0,0,0,8"
+                           Style="{StaticResource Hud.Text}"
+                           FontWeight="{DynamicResource Weight.semibold}"
+                           Text="{Binding SessionTitle}" />
+
                 <controls:Repeater ItemsSource="{Binding RecentEvents}">
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Style="{DynamicResource Text.Muted}" FontSize="{DynamicResource Size.xs}" Text="{Binding}" />
+                        <DataTemplate DataType="{x:Type hud:HudEventRow}">
+                            <Border Padding="0,6" BorderBrush="{DynamicResource Brush.shell.line}" BorderThickness="0,1,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <controls:Glyph Grid.Column="0" Style="{StaticResource Hud.Icon}" Foreground="{DynamicResource Brush.shell.muted}" Text="{Binding Glyph}" />
+                                    <TextBlock Grid.Column="1"
+                                               Margin="10,0,16,0"
+                                               Style="{StaticResource Hud.Meta}"
+                                               Text="{Binding Text}"
+                                               AutomationProperties.Name="{Binding Spoken}" />
+                                    <!-- The time is already in the row's spoken words beside it, so it is
+                                         drawn without a peer of its own rather than read twice. -->
+                                    <controls:Glyph Grid.Column="2"
+                                                    Style="{StaticResource Hud.Muted}"
+                                                    Typography.NumeralAlignment="Tabular"
+                                                    Text="{Binding Time}" />
+                                </Grid>
+                            </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </controls:Repeater>
-            </StackPanel>
 
-            <Button Margin="16,0,0,0"
-                    Style="{DynamicResource Pill.Control}"
-                    Content="Mark moment"
-                    Command="{Binding MarkCommand}"
-                    Visibility="{Binding Expanded, Converter={StaticResource Visible}}" />
-        </StackPanel>
-    </Border>
+                <!-- Nothing yet: said, rather than an empty card that looks broken. -->
+                <Border Padding="0,6" BorderBrush="{DynamicResource Brush.shell.line}" BorderThickness="0,1,0,0">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasRecentEvents}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock Style="{StaticResource Hud.Muted}" Text="No events yet" />
+                </Border>
+
+                <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                    <Button Margin="0,0,8,0"
+                            Style="{DynamicResource Hud.TextButton}"
+                            Command="{Binding MarkCommand}"
+                            ToolTip="{Binding MarkButton.Tooltip}"
+                            AutomationProperties.Name="{Binding MarkButton.Spoken}"
+                            Visibility="{Binding ShowMarkControl, Converter={StaticResource Visible}}">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Hud.Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xE7C1;" />
+                            <TextBlock Margin="6,0,0,0" Style="{StaticResource Hud.Meta}" Text="Mark moment" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{DynamicResource Hud.TextButton}"
+                            Command="{Binding ReviewCommand}"
+                            Content="Open in ScreenTail"
+                            ToolTip="Open this session in ScreenTail. It can be edited once the session is stopped."
+                            AutomationProperties.Name="Open in ScreenTail" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>
