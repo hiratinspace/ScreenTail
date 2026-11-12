@@ -30,7 +30,7 @@ public sealed class ShellPanesTests
         Assert.Equal(4, settings.Count);
         Assert.Single(settings, s => s.LoadSettings);
         Assert.True(settings[0].LoadSettings, "the panels were not read when the view became Settings");
-        Assert.False(settings[0].KeepEdits, "a view entered afresh is read whole");
+        Assert.True(settings[0].KeepEdits, "entering Settings read over changes the technician left pending (Spec, Settings layout)");
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class ShellPanesTests
         state.Observe(Capture(CaptureStates.Recording, "s1", elapsed: 5_000));
 
         Assert.Equal(
-            [(true, false), (true, true), (false, false), (false, false), (true, true), (false, false), (false, false), (true, true), (false, false)],
+            [(true, true), (true, true), (false, false), (false, false), (true, true), (false, false), (false, false), (true, true), (false, false)],
             steps.Where(s => s.Action == PaneAction.Settings).Select(s => (s.LoadSettings, s.KeepEdits)));
     }
 
@@ -69,8 +69,22 @@ public sealed class ShellPanesTests
         Assert.Equal(PaneAction.History, panes.Next(Snapshot(ShellView.History) with { Connection = ServiceConnection.Unavailable }).Action);
         Assert.Equal(PaneAction.History, panes.Next(Snapshot(ShellView.History)).Action);
 
-        // Entering Settings afterwards reads it whole, as any entry does.
-        Assert.Equal(new PaneStep(PaneAction.Settings, LoadSettings: true), panes.Next(Snapshot(ShellView.Settings)));
+        // Entering Settings afterwards reads it, as any entry does, keeping what is pending.
+        Assert.Equal(new PaneStep(PaneAction.Settings, LoadSettings: true, KeepEdits: true), panes.Next(Snapshot(ShellView.Settings)));
+    }
+
+    [Fact]
+    public void LeavingSettingsAndComingBackKeepsWhatIsPending()
+    {
+        // Spec, Settings layout (owner decision): one Save bar for the page, and leaving Settings keeps the
+        // changes pending with no dialog. Coming back reads only the panels with nothing pending.
+        var panes = new ShellPanes();
+
+        Assert.True(panes.Next(Snapshot(ShellView.Settings)).KeepEdits);
+        Assert.Equal(PaneAction.History, panes.Next(Snapshot(ShellView.History)).Action);
+        var back = panes.Next(Snapshot(ShellView.Settings));
+        Assert.True(back.LoadSettings);
+        Assert.True(back.KeepEdits, "coming back to Settings read over the changes left pending");
     }
 
     [Fact]
