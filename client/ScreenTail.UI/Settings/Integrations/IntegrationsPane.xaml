@@ -13,7 +13,7 @@
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
-                        <ContentControl Margin="10,0,0,0"
+                        <ContentControl Margin="8,0,0,0"
                                         VerticalAlignment="Center"
                                         Style="{StaticResource Badge.Published}"
                                         Content="Connected"
@@ -158,7 +158,7 @@
                         <StackPanel Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
-                                <ContentControl Margin="10,0,0,0"
+                                <ContentControl Margin="8,0,0,0"
                                                 VerticalAlignment="Center"
                                                 Style="{StaticResource Badge.Published}"
                                                 Content="Connected"

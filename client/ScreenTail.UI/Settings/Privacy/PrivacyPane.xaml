@@ -19,7 +19,7 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
-                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[LocalOnlyMode]}" />
+                    <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[LocalOnlyMode]}" />
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
@@ -32,7 +32,7 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Excluded apps" />
-                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[ExcludedApps]}" />
+                    <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[ExcludedApps]}" />
                 </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Add any process that must never be captured." />
                 <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
@@ -60,7 +60,7 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Redaction patterns" />
-                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[RedactionPatterns]}" />
+                    <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[RedactionPatterns]}" />
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Social security numbers" IsChecked="{Binding Ssn}" />
                 <CheckBox Margin="0,4,0,0" Content="Card numbers" IsChecked="{Binding Cards}" />
@@ -97,7 +97,7 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Retention" />
-                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Retention]}" />
+                    <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Retention]}" />
                 </StackPanel>
                 <!-- Maximum binds before Value: until it does, the slider's top is WPF's 10, and a value bound first would be clamped and pushed back. -->
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
@@ -115,7 +115,7 @@
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Usage telemetry" />
-                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[UsageTelemetry]}" />
+                    <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[UsageTelemetry]}" />
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Exactly these fields, and never any text from a session:" />
