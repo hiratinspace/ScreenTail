@@ -25,9 +25,9 @@ internal sealed class ContrastPalette
     }
 
     /// <summary>
-    /// Night sky: white on black, yellow controls, mauve selection, violet links. The "UI elements" yellow
-    /// is the button text, and is used for the active border too, which is how the theme draws a control's
-    /// outline.
+    /// Night sky: white on black, yellow controls, mauve selection, violet links. Every value is the one in
+    /// Windows' own <c>hc2.theme</c> (<c>[Control Panel\Colors]</c>), as the hosted runner's copy printed it
+    /// on 2026-11-12 (<see cref="ContrastThemeFiles"/>).
     /// </summary>
     public static ContrastPalette NightSky { get; } = new("Night sky", new Dictionary<string, string>(StringComparer.Ordinal)
     {
@@ -36,22 +36,25 @@ internal sealed class ContrastPalette
         ["WindowFrame"] = "#FFFFFF",
         ["Control"] = "#000000",
         ["ControlText"] = "#FFEE32",
-        ["ActiveBorder"] = "#FFEE32",
+        ["ActiveBorder"] = "#FFFF00",
         ["GrayText"] = "#A6A6A6",
         ["Highlight"] = "#D6B4FD",
         ["HighlightText"] = "#2B2B2B",
         ["HotTrack"] = "#8080FF",
     });
 
-    /// <summary>Desert: dark grey on off-white, brown selection, blue links, onyx controls.</summary>
+    /// <summary>
+    /// Desert: dark grey on off-white, brown selection, blue links, onyx controls. Every value is the one in
+    /// Windows' own <c>hcwhite.theme</c>, printed the same way.
+    /// </summary>
     public static ContrastPalette Desert { get; } = new("Desert", new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["Window"] = "#FFFAEF",
         ["WindowText"] = "#3D3D3D",
-        ["WindowFrame"] = "#3D3D3D",
+        ["WindowFrame"] = "#000000",
         ["Control"] = "#FFFAEF",
         ["ControlText"] = "#202020",
-        ["ActiveBorder"] = "#202020",
+        ["ActiveBorder"] = "#808080",
         ["GrayText"] = "#676767",
         ["Highlight"] = "#903909",
         ["HighlightText"] = "#FFF5E3",

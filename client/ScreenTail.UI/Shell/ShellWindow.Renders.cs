@@ -9,6 +9,8 @@ using ScreenTail.Core.Review;
 using ScreenTail.Core.Shell;
 using ScreenTail.UI.Render;
 using ScreenTail.UI.Review;
+using Rect = System.Windows.Rect;
+using Size = System.Windows.Size;
 
 namespace ScreenTail.UI.Shell;
 
@@ -162,10 +164,22 @@ public partial class ShellWindow
                 await FocusAndSaveAsync(Find(settings, e => pick(e) && Usable(e)), $"focus-{name}", theme);
             }
 
+            // A table row draws no ring of its own (Table.Row sets none); keyboard focus in a DataGrid sits
+            // on a cell, and the cell is what draws it. The rows load after the pane, so they are waited for.
             state.Navigate(ShellView.History);
-            await SettleAsync();
-            _ = WindowRenderer.Lay(this);
-            await FocusAndSaveAsync(Find(this, e => e is DataGridRow && Usable(e)), "focus-list-row", theme);
+            DependencyObject? cell = null;
+            for (var waited = 0; waited < 2000 && cell is null; waited += 50)
+            {
+                await SettleAsync();
+                _ = WindowRenderer.Lay(this);
+                cell = Find(this, e => e is DataGridCell && Usable(e));
+                if (cell is null)
+                {
+                    await Task.Delay(50).ConfigureAwait(true);
+                }
+            }
+
+            await FocusAndSaveAsync(cell, "focus-list-row", theme);
         }
 
         Keyboard.ClearFocus();
@@ -188,9 +202,58 @@ public partial class ShellWindow
         element.BringIntoView();
         _ = Keyboard.Focus(element);
         await SettleAsync();
-        var ring = HasAdorner(element) ? "focus ring drawn" : "no focus adorner; the control's own focused trigger is what shows";
+
+        // The first hosted run focused all three controls and WPF drew no ring for any of them: it decides
+        // "focus arrived by keyboard" from input this harness cannot really send. So the ring is drawn the
+        // way WPF draws it, the element's own FocusVisualStyle on a Control in an adorner over it, and taken
+        // away after the render. What is reviewed is the style the product ships, not a stand-in.
+        Adorner? drawn = null;
+        if (!HasAdorner(element) && element.FocusVisualStyle is { } style && AdornerLayer.GetAdornerLayer(element) is { } layer)
+        {
+            drawn = new FocusRingAdorner(element, style);
+            layer.Add(drawn);
+            await SettleAsync();
+        }
+
+        var ring = drawn is not null ? "its FocusVisualStyle drawn by the harness"
+            : HasAdorner(element) ? "focus ring drawn by WPF"
+            : "no FocusVisualStyle; the control's own focused trigger is what shows";
         Console.WriteLine($"  {screen}/{theme.Suffix()}: {element.GetType().Name} focused={element.IsKeyboardFocused}, {ring}");
         WindowRenderer.Save(this, Shot(screen, theme));
+        if (drawn is not null)
+        {
+            AdornerLayer.GetAdornerLayer(element)?.Remove(drawn);
+        }
+    }
+
+    /// <summary>What WPF's own focus visual is: a Control styled with the element's FocusVisualStyle, sized to the element.</summary>
+    private sealed class FocusRingAdorner : Adorner
+    {
+        private readonly Control _ring;
+
+        public FocusRingAdorner(UIElement adorned, Style style)
+            : base(adorned)
+        {
+            _ring = new Control { Style = style, Focusable = false };
+            IsHitTestVisible = false;
+            AddVisualChild(_ring);
+        }
+
+        protected override int VisualChildrenCount => 1;
+
+        protected override Visual GetVisualChild(int index) => _ring;
+
+        protected override Size MeasureOverride(Size constraint)
+        {
+            _ring.Measure(AdornedElement.RenderSize);
+            return AdornedElement.RenderSize;
+        }
+
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            _ring.Arrange(new Rect(finalSize));
+            return finalSize;
+        }
     }
 
     private static bool HasAdorner(UIElement element) =>
