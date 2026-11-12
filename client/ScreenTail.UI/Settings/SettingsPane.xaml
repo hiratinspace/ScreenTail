@@ -120,8 +120,7 @@
                 Style="{StaticResource SaveBar}"
                 Visibility="{Binding BarVisibility}"
                 PreviewKeyDown="OnBarKeyDown"
-                IsVisibleChanged="OnBarVisibilityChanged"
-                AutomationProperties.Name="{Binding BarName}">
+                IsVisibleChanged="OnBarVisibilityChanged">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -171,7 +170,8 @@
                             Style="{StaticResource Button.Primary}"
                             Content="Save   Ctrl+S"
                             Command="{Binding SaveCommand}"
-                            AutomationProperties.AcceleratorKey="Ctrl+S" />
+                            AutomationProperties.AcceleratorKey="Ctrl+S"
+                            AutomationProperties.HelpText="{Binding BarName}" />
                 </StackPanel>
             </Grid>
         </Border>

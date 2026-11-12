@@ -126,7 +126,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     public partial string FailureMessage { get; set; } = string.Empty;
 
-    /// <summary>Every change by name and section, for a screen reader: "Unsaved changes: Capture scope (Capture), Retention (Privacy)".</summary>
+    /// <summary>Every change by name and section, the Save button's help text for a screen reader: "Unsaved changes: Capture scope (Capture), Retention (Privacy)".</summary>
     [ObservableProperty]
     public partial string BarName { get; set; } = string.Empty;
 
