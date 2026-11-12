@@ -77,7 +77,20 @@ public partial class ReviewPane : UserControl
             return;
         }
 
-        Form.MinHeight = Outer(EnvelopeCard) + PanesRow.MinHeight + Outer(TimelineRow);
+        SetFormFloor();
+    }
+
+    private void SetFormFloor() => Form.MinHeight = Outer(EnvelopeCard) + PanesRow.MinHeight + Outer(TimelineRow);
+
+    // The strip, and a frame enlarged in it, need more than the note's floor. Beside the rail at the
+    // smallest window the envelope wraps, the panes sit on their 300 px floor, and under the way back, the
+    // frame's heading, its buttons and the blur hint an enlarged frame was left 63 px: drawn smaller than
+    // its own thumbnail, with a blur box too small to show its focus rings. So while the strip is over the
+    // note the floor is layout.strip-min-height, and the form scrolls where the window cannot hold it.
+    private void SetPanesFloor(bool stripShown)
+    {
+        PanesRow.SetResourceReference(RowDefinition.MinHeightProperty, stripShown ? "Layout.strip-min-height" : "Layout.pane-min-height");
+        SetFormFloor();
     }
 
     private static double Outer(FrameworkElement part) => part.ActualHeight + part.Margin.Top + part.Margin.Bottom;
@@ -161,6 +174,7 @@ public partial class ReviewPane : UserControl
     private void OnStripShown(object sender, DependencyPropertyChangedEventArgs e)
     {
         var open = e.NewValue is true;
+        SetPanesFloor(open);
         _ = Dispatcher.BeginInvoke(
             System.Windows.Threading.DispatcherPriority.Background,
             () =>
