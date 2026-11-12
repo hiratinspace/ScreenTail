@@ -52,7 +52,8 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
             await Shows(7, ClientSettings.MaxRetentionDays, locked: false, "default");
 
             screen.Telemetry = true;
-            await screen.SaveCommand.ExecuteAsync(null);
+            Assert.Null(await screen.Section.SaveAsync());
+            screen.Refresh();
             Assert.Equal(7, gateway.Saved!.RetentionDays);
             Assert.Equal(7, (int)slider.Value);
         });
@@ -86,7 +87,8 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
         Assert.Equal(12, (int)slider.Value);
         Assert.Equal(12, screen.RetentionDays);
         screen.Telemetry = true;
-        await screen.SaveCommand.ExecuteAsync(null);
+        Assert.Null(await screen.Section.SaveAsync());
+        screen.Refresh();
         Assert.Equal(12, gateway.Saved!.RetentionDays);
 
         // The admin's 90 days, locked: shown whole, and the technician's own 12 is what a save keeps.
@@ -99,7 +101,8 @@ public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
         Assert.Equal(90, locked.RetentionDays);
         Assert.False(slider.IsEnabled);
         locked.Telemetry = true;
-        await locked.SaveCommand.ExecuteAsync(null);
+        Assert.Null(await locked.Section.SaveAsync());
+        locked.Refresh();
         Assert.Equal(12, gateway.Saved!.RetentionDays);
     }
 

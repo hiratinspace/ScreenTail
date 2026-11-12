@@ -37,6 +37,7 @@
     <sys:Double x:Key="Layout.field-narrow">72</sys:Double>
     <sys:Double x:Key="Layout.side-column">300</sys:Double>
     <sys:Double x:Key="Layout.pane-min-height">300</sys:Double>
+    <sys:Double x:Key="Layout.rail-width">280</sys:Double>
     <Thickness x:Key="Padding.pane">24</Thickness>
     <Thickness x:Key="Padding.card">20</Thickness>
     <Thickness x:Key="Padding.control">14,5</Thickness>

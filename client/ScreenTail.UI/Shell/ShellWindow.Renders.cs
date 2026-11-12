@@ -83,10 +83,75 @@ public partial class ShellWindow
         await SettleAsync();
     }
 
-    /// <summary>Every Settings section, each in a render tall enough to hold all of it under the shell's header.</summary>
+    /// <summary>
+    /// Every Settings section, each in a render tall enough to hold all of it under the shell's header:
+    /// first with nothing changed, then with a change pending in each section that has a Save path, so the
+    /// "Changed" marks, the nav's counts and the one Save bar show (settings-pending-*), and then the bar
+    /// after a Save that one section could not make (settings-save-failed). Undone afterwards.
+    /// </summary>
     private async Task SettingsSectionsAsync(ShellState state)
     {
         state.Navigate(ShellView.Settings);
+        await SettleAsync();
+        await SettingsSectionsAsync("settings");
+        if (_model.Content is not Settings.SettingsViewModel settings)
+        {
+            throw new InvalidOperationException("Settings has no view model to change.");
+        }
+
+        Pend(settings);
+        await SettleAsync();
+        if (settings.BarVisibility != Visibility.Visible)
+        {
+            throw new InvalidOperationException("The Save bar did not appear with changes pending.");
+        }
+
+        Console.WriteLine($"  Save bar: {settings.Summary} {settings.LinkSection} ({settings.BarName})");
+        await SettingsSectionsAsync("settings-pending");
+
+        // A Save that Capture cannot make: "All windows" chosen and not confirmed (INV-5). Privacy's change
+        // commits, Capture's stays, and the bar says which and why.
+        await settings.UndoCommand.ExecuteAsync(null);
+        settings.Capture.AllWindows = true;
+        settings.Privacy.Telemetry = !settings.Privacy.Telemetry;
+        await settings.SaveCommand.ExecuteAsync(null);
+        await SettleAsync();
+        Console.WriteLine($"  Save bar after a failed save: {settings.FailureMessage}");
+        foreach (var theme in RenderThemes.All)
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            Save(Shot("settings-save-failed", theme));
+        }
+
+        await settings.UndoCommand.ExecuteAsync(null);
+        await SettleAsync();
+
+        // Back to the window's own height, and to the top, for whatever renders next.
+        var pane = Find(this, element => element is Settings.SettingsPane);
+        if (pane is not null && Find(pane, e => e is ScrollViewer) is ScrollViewer back)
+        {
+            back.ScrollToTop();
+        }
+    }
+
+    /// <summary>A change in every section the Save bar covers, as a technician would make them.</summary>
+    private static void Pend(Settings.SettingsViewModel settings)
+    {
+        settings.Capture.AutoStart = !settings.Capture.AutoStart;
+        settings.Capture.Sensitivity = settings.Capture.Sensitivity == "high" ? "low" : "high";
+        settings.Privacy.Telemetry = !settings.Privacy.Telemetry;
+        settings.Integrations.Hudu.ChangeCommand.Execute(null);
+        settings.Integrations.Hudu.SiteUrl = "https://docs.contosomsp.com/kb";
+        if (settings.Updates.ChannelEditable)
+        {
+            settings.Updates.Pilot = !settings.Updates.Pilot;
+            settings.Updates.Stable = !settings.Updates.Pilot;
+        }
+    }
+
+    private async Task SettingsSectionsAsync(string prefix)
+    {
         foreach (var theme in RenderThemes.All)
         {
             RenderThemeApplier.Apply(theme, Application.Current.Resources);
@@ -106,20 +171,13 @@ public partial class ShellWindow
 
                 // The scroll happens once the page is laid out at the render's height, which may be in a
                 // host outside the window: scrolled before, it would be clamped to the window's shorter view.
-                WindowRenderer.Save(this, Shot($"settings-{name}", theme), height, prepare: () =>
+                WindowRenderer.Save(this, Shot($"{prefix}-{name}", theme), height, prepare: () =>
                 {
                     scroller.ScrollToVerticalOffset(top);
                     scroller.UpdateLayout();
                     return null;
                 });
             }
-        }
-
-        // Back to the window's own height, and to the top, for whatever renders next.
-        var settings = Find(this, element => element is Settings.SettingsPane);
-        if (settings is not null && Find(settings, e => e is ScrollViewer) is ScrollViewer back)
-        {
-            back.ScrollToTop();
         }
     }
 
@@ -276,6 +334,103 @@ public partial class ShellWindow
 
     private static bool Usable(DependencyObject element) =>
         element is UIElement { IsVisible: true, IsEnabled: true, Focusable: true };
+
+    /// <summary>
+    /// The inbox rail (Spec v0.6.0 §5 S4, as built v0.6.4) in each state worth reviewing: every group with
+    /// rows and a To check session open as the pane's tab, no sessions at all, a search that matches
+    /// nothing, a Not confirmed session open, History's table with Bulk discard held while a session is
+    /// captured, and the rail at 150%. Then keyboard focus on a rail row and on the search.
+    /// </summary>
+    private async Task RailAsync(ShellState state)
+    {
+        var earlier = _model.Rail.Groups.Single(g => g.Collapsible);
+
+        async Task EachThemeAsync(string screen)
+        {
+            await ThumbnailsAsync();
+            foreach (var theme in RenderThemes.All)
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await SettleAsync();
+                UpdateLayout();
+                Save(Shot(screen, theme));
+            }
+        }
+
+        state.OpenSession("s-1");
+        earlier.IsExpanded = true;
+        await EachThemeAsync("shell-rail-groups");
+        earlier.IsExpanded = false;
+
+        state.OpenSession("s-4");
+        await EachThemeAsync("shell-rail-not-confirmed");
+        await ThumbnailsAsync();
+        foreach (var theme in new[] { RenderTheme.Dark, RenderTheme.Light })
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            WindowRenderer.Save(this, Shot("shell-rail-150pct", theme), scale: 1.5);
+        }
+
+        _model.Rail.Query = "anydesk";
+        await EachThemeAsync("shell-rail-no-match");
+        _model.Rail.Query = string.Empty;
+
+        var rows = _sampleRows;
+        _sampleRows = [];
+        await _model.Rail.RefreshAsync();
+        state.Navigate(ShellView.Review);
+        state.OpenSession("preview");
+        await EachThemeAsync("shell-rail-empty");
+        _sampleRows = rows;
+        await _model.Rail.RefreshAsync();
+
+        // History's table with two sessions selected and Bulk discard pressed while the sample session
+        // records: nothing is asked, and the reason is said beside the button (Spec §4).
+        state.Navigate(ShellView.History);
+        DataGrid? table = null;
+        for (var waited = 0; waited < 2000 && table is not { Items.Count: > 1 }; waited += 50)
+        {
+            await SettleAsync();
+            _ = WindowRenderer.Lay(this);
+            table = Find(this, e => e is DataGrid) as DataGrid;
+            if (table is not { Items.Count: > 1 })
+            {
+                await Task.Delay(50).ConfigureAwait(true);
+            }
+        }
+
+        if (table is null || _model.Content is not History.HistoryViewModel history)
+        {
+            throw new InvalidOperationException("History has no table to select in.");
+        }
+
+        table.SelectedItems.Clear();
+        table.SelectedItems.Add(table.Items[0]);
+        table.SelectedItems.Add(table.Items[1]);
+        await history.BulkDiscardCommand.ExecuteAsync(null);
+        if (history.DiscardError != SessionDiscard.WhileCapturing)
+        {
+            throw new InvalidOperationException($"Bulk discard while capturing said \"{history.DiscardError}\".");
+        }
+
+        await EachThemeAsync("shell-history-discard-blocked");
+        table.SelectedItems.Clear();
+
+        // Keyboard focus on the open row (the tab) and on the search.
+        state.OpenSession("s-1");
+        await ThumbnailsAsync();
+        foreach (var theme in RenderThemes.All)
+        {
+            RenderThemeApplier.Apply(theme, Application.Current.Resources);
+            await SettleAsync();
+            _ = WindowRenderer.Lay(this);
+            await FocusAndSaveAsync(Find(Rail, e => e is ListBoxItem { IsSelected: true } && Usable(e)), "focus-rail-row", theme);
+            await FocusAndSaveAsync(Find(Rail, e => e is TextBox && Usable(e)), "focus-rail-search", theme);
+        }
+
+        Keyboard.ClearFocus();
+    }
 
     /// <summary>Review, History and Settings at 150%, in dark and light.</summary>
     private async Task HighDpiAsync(ShellState state)

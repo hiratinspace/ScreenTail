@@ -15,13 +15,16 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
 {
     private readonly IntegrationCard _card;
     private readonly Func<Task> _changed;
+    private readonly Action _edited;
     private readonly OneAtATime _removing = new();
 
-    /// <param name="changed">Called after a save or a removal, so the screen can refresh what depends on it.</param>
-    internal IntegrationCardViewModel(IntegrationCard card, Func<Task> changed)
+    /// <param name="changed">Called after a removal, so the screen can refresh what depends on it.</param>
+    /// <param name="edited">Called after a field changes, so the Settings page's Save bar counts again.</param>
+    internal IntegrationCardViewModel(IntegrationCard card, Func<Task> changed, Action edited)
     {
         _card = card;
         _changed = changed;
+        _edited = edited;
         Refresh();
     }
 
@@ -63,8 +66,23 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
     [ObservableProperty]
     public partial string CheckMark { get; set; } = string.Empty;
 
+    /// <summary>The "Changed" mark beside the card's title: a key typed or the site changed, not yet saved (Spec, Settings layout).</summary>
+    [ObservableProperty]
+    public partial Visibility ChangedVisibility { get; set; } = Visibility.Collapsed;
+
     [ObservableProperty]
     public partial bool CanSave { get; set; }
+
+    /// <summary>
+    /// The card's own Save button: shown in onboarding's Connect step, which has no Save bar, and hidden in
+    /// Settings, where the page's one Save bar stores the connection (<see cref="IntegrationsViewModel.UsePageSave"/>).
+    /// </summary>
+    [ObservableProperty]
+    public partial Visibility SaveVisibility { get; set; } = Visibility.Visible;
+
+    /// <summary>The line that says the page's Save bar stores the connection: shown where the card's own button is not.</summary>
+    [ObservableProperty]
+    public partial Visibility PageSaveNoteVisibility { get; set; } = Visibility.Collapsed;
 
     [ObservableProperty]
     public partial bool Connected { get; set; }
@@ -84,6 +102,7 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility ConnectedBadgeVisibility { get; set; } = Visibility.Collapsed;
 
+    /// <summary>The card's own Save, where there is no Save bar (onboarding).</summary>
     [RelayCommand]
     private async Task SaveAsync()
     {
@@ -134,7 +153,20 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
         set();
         Problem = _card.Problem ?? string.Empty;
         ProblemVisibility = Problem.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        Counted();
+    }
+
+    internal void UsePageSave()
+    {
+        SaveVisibility = Visibility.Collapsed;
+        PageSaveNoteVisibility = Visibility.Visible;
+    }
+
+    private void Counted()
+    {
         CanSave = _card.CanSave;
+        ChangedVisibility = _card.HasPendingChange ? Visibility.Visible : Visibility.Collapsed;
+        _edited?.Invoke();
     }
 
     internal void Refresh()
@@ -152,12 +184,12 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
         // Validation is shown once something has been typed; a fresh card says what to fill in, not
         // that it is wrong.
         ProblemVisibility = _card.Editing && Problem.Length > 0 && (_card.SiteUrl.Length > 0 || _card.Problem == Problem && _card.Connected) ? Visibility.Visible : Visibility.Collapsed;
-        CanSave = _card.CanSave;
         FieldsVisibility = _card.Editing ? Visibility.Visible : Visibility.Collapsed;
         SummaryVisibility = _card.Editing ? Visibility.Collapsed : Visibility.Visible;
         ConnectedBadgeVisibility = _card.Connected ? Visibility.Visible : Visibility.Collapsed;
         CheckResult = _card.CheckResult ?? _card.LastError ?? string.Empty;
         CheckMark = _card.CheckOk switch { true => "✓", false => "✗", null => _card.LastError is null ? string.Empty : "✗" };
         CheckVisibility = CheckResult.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        Counted();
     }
 }

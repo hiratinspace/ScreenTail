@@ -42,7 +42,11 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private readonly ShellPanes _panes = new();
     private object? _settingsPane;
     private readonly HeldPane _review = new();
+    private readonly Action? _diagnostics;
     private int _loads;
+
+    /// <summary>What the rail last read the list for, so a snapshot that changes nothing it shows does not read it again.</summary>
+    private (ServiceConnection, string?, string?, ShellView, string?)? _railRead;
 
     public ShellViewModel()
         : this(new ShellState())
@@ -59,18 +63,26 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// The shell's recording clock, shared with the tray and the pill so the status line says the same
     /// time they do (ST-072). One of this window's own when none is given, let go of with the window.
     /// </param>
+    /// <param name="sessions">The rail's rows, the same <c>list_sessions</c> History reads. None given, the rail says the service did not answer.</param>
+    /// <param name="diagnostics">Opens the diagnostics panel from the rail's foot (Spec §5 S4). None given, the button is off.</param>
+    /// <param name="time">The rail's clock, for its ages and Published today. The system's when none is given.</param>
     public ShellViewModel(
         ShellState state,
         Func<string, CancellationToken, Task<object?>>? loadReview = null,
         Func<object>? history = null,
         Func<object>? settings = null,
-        RecordingClock? clock = null)
+        RecordingClock? clock = null,
+        Func<CancellationToken, Task<IReadOnlyList<Shared.Ipc.SessionRow>?>>? sessions = null,
+        Action? diagnostics = null,
+        TimeProvider? time = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _loadReview = loadReview;
         _history = history;
         _settings = settings;
+        _diagnostics = diagnostics;
         _closing = _lifetime.Token;
+        Rail = new History.InboxRailViewModel(state, sessions ?? (_ => Task.FromResult<IReadOnlyList<Shared.Ipc.SessionRow>?>(null)), time);
 
         // The clock first, so it has taken a new snapshot as its base before this model draws it.
         _ownsClock = clock is null;
@@ -115,6 +127,15 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// </summary>
     [ObservableProperty]
     public partial object? Content { get; set; } = ShellStatus.NothingToReviewYet;
+
+    /// <summary>The workspace's left rail: History grouped by what each session needs (Spec §5 S4).</summary>
+    public History.InboxRailViewModel Rail { get; }
+
+    /// <summary>The rail's foot: the diagnostics panel, "What's being captured?" (ST-071).</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenDiagnostics))]
+    private void OpenDiagnostics() => _diagnostics?.Invoke();
+
+    private bool CanOpenDiagnostics() => _diagnostics is not null;
 
     [RelayCommand]
     private void Navigate(string? view)
@@ -194,6 +215,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ShowStatus(snapshot);
         View = snapshot.View;
         Show(snapshot);
+        ShowRail(snapshot);
 
         // Review's Discard is off while its session is being captured, with the reason beside it, and
         // comes back when capture stops: asked again on every change of state.
@@ -217,6 +239,24 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         {
             ShowStatus(_state.Snapshot);
         }
+    }
+
+    /// <summary>
+    /// The rail's tab follows the session the pane shows, and the list is read again when something it
+    /// shows may have moved: the service answering or going, capture changing state or session, a session
+    /// opened, or another view. Not on a snapshot that changes none of those.
+    /// </summary>
+    private void ShowRail(ShellSnapshot snapshot)
+    {
+        Rail.Sync(snapshot.View == ShellView.Review ? snapshot.Reviewing : null);
+        var read = (snapshot.Connection, snapshot.Capture?.State, snapshot.Capture?.SessionId, snapshot.View, snapshot.Reviewing);
+        if (_railRead == read)
+        {
+            return;
+        }
+
+        _railRead = read;
+        _ = Rail.RefreshAsync(_closing);
     }
 
     /// <summary>The words first and the announcement's key after, so the region is announced with the new words.</summary>

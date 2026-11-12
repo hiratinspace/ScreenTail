@@ -31,6 +31,7 @@ public partial class ShortcutSheet : Window
         new("Everywhere", [
             new("?", "This sheet, when the cursor is not in a text box"),
             new("Tab, Shift+Tab", "Move to the next or previous control"),
+            new("Ctrl+F", "Search the sessions in the rail"),
             new("Esc", "Close a dialog, this sheet or an enlarged screenshot"),
         ]),
         new("During a session (change these in Settings, under Capture)", [
@@ -62,6 +63,11 @@ public partial class ShortcutSheet : Window
             new("Shift+arrows", "Resize the blur box"),
             new("Ctrl+arrows", "Bigger steps, with or without Shift"),
             new("Enter, Esc", "Blur what the box covers, or put it away"),
+        ]),
+        new("Settings", [
+            new("Ctrl+S", "Save every change on the page"),
+            new("Up, Down", "Move through the sections"),
+            new("Esc on the Save bar", "Undo the changes"),
         ]),
     ];
 

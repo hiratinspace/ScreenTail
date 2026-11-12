@@ -39,16 +39,28 @@ public partial class ShellWindow : Window
         Func<string, CancellationToken, Task<object?>> loadReview,
         Func<object> history,
         Func<object> settings,
-        RecordingClock? clock = null)
+        RecordingClock? clock = null,
+        Func<CancellationToken, Task<IReadOnlyList<SessionRow>?>>? sessions = null,
+        Action? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(loadReview);
         ArgumentNullException.ThrowIfNull(history);
         ArgumentNullException.ThrowIfNull(settings);
         InitializeComponent();
-        _model = new ShellViewModel(state, loadReview, history, settings, clock);
+        _model = new ShellViewModel(state, loadReview, history, settings, clock, sessions, diagnostics);
         DataContext = _model;
+        BindFind();
     }
+
+    /// <summary>
+    /// <c>Ctrl+F</c>: focus the rail's search (Spec §5 S4), from anywhere in the window. The key is bound in
+    /// the window's XAML, so the cross-platform tests read it off the file.
+    /// </summary>
+    public static System.Windows.Input.RoutedCommand FindCommand { get; } = new(nameof(FindCommand), typeof(ShellWindow));
+
+    private void BindFind() =>
+        CommandBindings.Add(new System.Windows.Input.CommandBinding(FindCommand, (_, _) => Rail.FocusSearch()));
 
     /// <summary>
     /// The sample shell's store, so the accessibility suite (ST-084) can open the same session variants the
@@ -138,15 +150,26 @@ public partial class ShellWindow : Window
                 // The receipt's Next to check over the sample rows; opening one is the store's, as in the app.
                 next: new Review.Publish.NextSessions(_ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()), state.OpenSession),
                 openSettings: () => state.Navigate(ShellView.Settings))),
-            history: () => new HistoryViewModel(state, _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows())),
+            // Discard wired, so History's table shows Bulk discard held while the sample session records
+            // (Spec §4): the reason is said beside the button and nothing is asked. Nothing is ever sent.
+            history: () => new HistoryViewModel(
+                state,
+                _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()),
+                confirm: (_, _) => Task.FromResult(false),
+                discard: (_, _, _) => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)),
+                discardBlocked: _ => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording } ? SessionDiscard.WhileCapturing : null),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
                 new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
-                new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))));
+                new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))),
+            sessions: _ => Task.FromResult<IReadOnlyList<SessionRow>?>(_sampleRows),
+            diagnostics: () => { },
+            time: new FixedClock(SampleNow));
         DataContext = _model;
         Sample = state;
+        BindFind();
         if (_screenshotDirectory is not null)
         {
             // Once only. ContentRendered fires again whenever Content changes, and a render that is bigger
@@ -373,6 +396,18 @@ public partial class ShellWindow : Window
         public Task<string?> UnmapAsync(string psaCompany, CancellationToken ct = default) => Task.FromResult<string?>(null);
     }
 
+    /// <summary>The sample rail's "now": the morning after the sample's Review, so each of its groups has rows.</summary>
+    private static readonly DateTimeOffset SampleNow = new(2026, 9, 16, 10, 0, 0, TimeSpan.Zero);
+
+    /// <summary>What the sample rail lists. The harness empties it for the rail's empty render.</summary>
+    private IReadOnlyList<SessionRow>? _sampleRows = SampleRows();
+
+    /// <summary>A clock that always says <see cref="SampleNow"/>, so the rail's ages render the same on every run.</summary>
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     private static IReadOnlyList<SessionRow> SampleRows() =>
     [
         new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1 },
@@ -381,6 +416,10 @@ public partial class ShellWindow : Window
 
         // A publish that may have reached the ticket, so the screenshots and the accessibility scan see the second badge.
         new() { Id = "s-4", StartedAt = new DateTimeOffset(2026, 9, 14, 16, 40, 0, TimeSpan.Zero), DurationMs = 540_000, Status = "draft", Tool = "screenconnect", Frames = 12, FramesPurged = 0, PublishUnconfirmed = true },
+
+        // The rail's other groups: a partial capture to check, and one published the morning of SampleNow.
+        new() { Id = "s-5", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 20, 0, TimeSpan.Zero), DurationMs = 1_260_000, Status = "partial", Tool = "rdp", Frames = 9, FramesPurged = 0 },
+        new() { Id = "s-6", StartedAt = new DateTimeOffset(2026, 9, 16, 8, 5, 0, TimeSpan.Zero), DurationMs = 720_000, Status = "published", Tool = "splashtop", Frames = 6, FramesPurged = 0 },
     ];
 
     private async Task CaptureAsync(ShellState state)
@@ -420,6 +459,7 @@ public partial class ShellWindow : Window
         await NoteAsync(state);
         await SettingsSectionsAsync(state);
         await FocusAsync(state);
+        await RailAsync(state);
         await HighDpiAsync(state);
         await DialogsAsync();
 

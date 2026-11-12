@@ -6,7 +6,11 @@ using ScreenTail.Core.Update;
 
 namespace ScreenTail.UI.Update;
 
-/// <summary>Settings → Updates (ST-113), bound over <see cref="UpdatesPanel"/>, which holds every rule.</summary>
+/// <summary>
+/// Settings → Updates (ST-113), bound over <see cref="UpdatesPanel"/>, which holds every rule. The channel
+/// is held as a change for the Settings page's one Save bar (<see cref="UpdatesSection"/>); Install acts
+/// at once, as it did.
+/// </summary>
 public sealed partial class UpdatesViewModel : ObservableObject
 {
     private readonly UpdatesPanel _panel;
@@ -15,8 +19,18 @@ public sealed partial class UpdatesViewModel : ObservableObject
     public UpdatesViewModel(UpdatesPanel panel)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
+        Section = new UpdatesSection(panel);
         Refresh();
     }
+
+    /// <summary>This section on the Settings page's one Save bar: the channel chosen, until Save.</summary>
+    public UpdatesSection Section { get; }
+
+    /// <summary>The "Changed" mark beside the Channel card's heading.</summary>
+    public Settings.ChangeMarks Changed { get; } = new();
+
+    /// <summary>The channel was chosen, so the page's Save bar counts again.</summary>
+    public event EventHandler? Edited;
 
     [ObservableProperty]
     public partial string Sentence { get; set; } = string.Empty;
@@ -65,7 +79,7 @@ public sealed partial class UpdatesViewModel : ObservableObject
     {
         if (!_refreshing && value)
         {
-            _ = ChooseAsync(UpdateChannel.Pilot);
+            Choose(UpdateChannel.Pilot);
         }
     }
 
@@ -73,25 +87,26 @@ public sealed partial class UpdatesViewModel : ObservableObject
     {
         if (!_refreshing && value)
         {
-            _ = ChooseAsync(UpdateChannel.Stable);
+            Choose(UpdateChannel.Stable);
         }
     }
 
-    private async Task ChooseAsync(UpdateChannel channel)
+    private void Choose(UpdateChannel channel)
     {
-        _ = await _panel.ChooseAsync(channel).ConfigureAwait(true);
+        Section.Choose(channel);
         Refresh();
     }
 
-    private void Refresh()
+    /// <summary>Shows the card as it is now: after a load or an install, a choice, and after the page saved or undid its changes.</summary>
+    public void Refresh()
     {
         _refreshing = true;
         try
         {
             Sentence = _panel.Sentence;
             Installed = _panel.InstalledVersion.Length == 0 ? string.Empty : $"Installed: ScreenTail {_panel.InstalledVersion}";
-            Stable = _panel.Channel == UpdateChannel.Stable;
-            Pilot = _panel.Channel == UpdateChannel.Pilot;
+            Stable = Section.Shown == UpdateChannel.Stable;
+            Pilot = Section.Shown == UpdateChannel.Pilot;
             ChannelEditable = _panel.CanChooseChannel;
             LockedNote = _panel.ChannelNote ?? string.Empty;
             LockedVisibility = _panel.ChannelNote is null ? Visibility.Collapsed : Visibility.Visible;
@@ -103,5 +118,8 @@ public sealed partial class UpdatesViewModel : ObservableObject
         {
             _refreshing = false;
         }
+
+        Changed.Set(Section.Changes);
+        Edited?.Invoke(this, EventArgs.Empty);
     }
 }

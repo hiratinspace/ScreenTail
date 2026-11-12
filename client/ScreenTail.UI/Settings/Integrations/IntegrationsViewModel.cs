@@ -50,8 +50,28 @@ public sealed partial class IntegrationsViewModel : ObservableObject
     public IntegrationsViewModel(IntegrationsPanel panel)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
-        ConnectWise = new IntegrationCardViewModel(panel.ConnectWise, RefreshMappingsAsync);
-        Hudu = new IntegrationCardViewModel(panel.Hudu, RefreshMappingsAsync);
+        Section = new IntegrationsSection(panel);
+        ConnectWise = new IntegrationCardViewModel(panel.ConnectWise, RefreshMappingsAsync, () => Edited?.Invoke(this, EventArgs.Empty));
+        Hudu = new IntegrationCardViewModel(panel.Hudu, RefreshMappingsAsync, () => Edited?.Invoke(this, EventArgs.Empty));
+    }
+
+    /// <summary>
+    /// This section on the Settings page's one Save bar: a card being filled in is a change, stored when
+    /// the page saves. Test connection, Remove and the company mapping act at once and are never on it.
+    /// </summary>
+    public IntegrationsSection Section { get; }
+
+    /// <summary>A card's field changed, so the page's Save bar counts again.</summary>
+    public event EventHandler? Edited;
+
+    /// <summary>
+    /// Settings has one Save bar for the page, so the cards' own Save buttons go and a line says the bar
+    /// stores the connection. Onboarding's Connect step, which has no bar, keeps them.
+    /// </summary>
+    public void UsePageSave()
+    {
+        ConnectWise.UsePageSave();
+        Hudu.UsePageSave();
     }
 
     public IntegrationCardViewModel ConnectWise { get; }
@@ -97,6 +117,15 @@ public sealed partial class IntegrationsViewModel : ObservableObject
 
     /// <summary>The panel holds a change the technician has not saved, so the shell does not read it again on a reconnect.</summary>
     public bool HasUnsavedEdits => _panel.HasUnsavedEdits;
+
+    /// <summary>After the page saved or undid its changes: the cards as they are now, and the mapping table, which a newly stored Hudu opens.</summary>
+    public async Task RefreshAsync(CancellationToken ct = default)
+    {
+        ConnectWise.Refresh();
+        Hudu.Refresh();
+        await _panel.RefreshMappingsAsync(ct).ConfigureAwait(true);
+        ShowMappings();
+    }
 
     public async Task LoadAsync(CancellationToken ct = default)
     {
