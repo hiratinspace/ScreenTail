@@ -55,7 +55,7 @@ public sealed class TrayAndDiagnosticsTests
     {
         // Spec §5 S1's wording. "Recording" alone does not tell a technician whether the thing they
         // started an hour ago is still going.
-        Assert.Equal("ScreenTail · Recording: screenconnect (12:41)", Presence("recording").Tooltip);
+        Assert.Equal("ScreenTail · Recording: ScreenConnect (12:41)", Presence("recording").Tooltip);
     }
 
     [Theory]

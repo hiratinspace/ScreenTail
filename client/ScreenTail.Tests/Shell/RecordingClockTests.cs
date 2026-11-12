@@ -212,8 +212,8 @@ public sealed class RecordingClockTests
         time.Advance(TimeSpan.FromSeconds(70));
 
         var shown = clock.Show(state.Snapshot);
-        Assert.Equal("ScreenTail · Recording: screenconnect (1:15)", TrayPresence.From(shown).Tooltip);
-        Assert.Equal("Recording: screenconnect (1:15)", ShellStatus.Describe(shown));
+        Assert.Equal("ScreenTail · Recording: ScreenConnect (1:15)", TrayPresence.From(shown).Tooltip);
+        Assert.Equal("Recording: ScreenConnect (1:15)", ShellStatus.Describe(shown));
 
         // What the store holds is still what the service said.
         Assert.Equal(5_000, state.Snapshot.Capture!.ElapsedMs);

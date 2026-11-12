@@ -49,8 +49,8 @@ public sealed class RecordingClockOnScreenTests
                 time.Advance(TimeSpan.FromSeconds(70.1));
                 await StaThread.UntilAsync(() => shell.Tray.Tooltip.EndsWith("(1:11)", StringComparison.Ordinal), TimeSpan.FromSeconds(5));
 
-                Assert.Equal("ScreenTail · Recording: screenconnect (1:11)", shell.Tray.Tooltip);
-                Assert.Equal("Recording: screenconnect (1:11)", shell.Tray.StateLine);
+                Assert.Equal("ScreenTail · Recording: ScreenConnect (1:11)", shell.Tray.Tooltip);
+                Assert.Equal("Recording: ScreenConnect (1:11)", shell.Tray.StateLine);
                 Assert.Equal("01:11", PillClock(shell.Pill!));
 
                 // What the store holds is still what the service said: the clock only draws.
@@ -220,7 +220,7 @@ public sealed class PillClockTests(TheApplication app)
                     var arrived = await StaThread.UntilAsync(
                         () => shell.Tray.Tooltip.EndsWith("(1:11)", StringComparison.Ordinal)
                             && RecordingClockOnScreenTests.StateSegment(shell.Pill!).Text == "01:11"
-                            && status.Status == "Recording: screenconnect (1:11)",
+                            && status.Status == "Recording: ScreenConnect (1:11)",
                         TimeSpan.FromSeconds(10));
                     Assert.True(arrived, $"tray '{shell.Tray.Tooltip}', pill '{RecordingClockOnScreenTests.StateSegment(shell.Pill!).Text}', status '{status.Status}'");
                 }

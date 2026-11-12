@@ -236,6 +236,10 @@ public sealed class OnboardingWizardTests
         Assert.True(wizard.Finished);
     }
 
+    /// <summary>A wizard whose service answers the permission checks with <paramref name="checks"/>.</summary>
+    internal static OnboardingWizard WizardFor(IReadOnlyList<CapabilityStatus> checks) =>
+        Wizard(capabilities: new FakeCapabilities { Checks = checks });
+
     private static OnboardingWizard Wizard(FakeDevice? device = null, FakeCapabilities? capabilities = null, FakeIntegrations? integrations = null, FakeTestSession? session = null, Action<DateTimeOffset>? finished = null) =>
         new(
             new ActivationPanel(device ?? new FakeDevice(), "TECH-LAPTOP"),

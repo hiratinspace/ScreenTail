@@ -120,7 +120,7 @@ public sealed class HudStateTests
         var hud = HudState.For(Capture(CaptureStates.Suppressed, reason: CaptureReasons.OutOfScope, process: "OUTLOOK"));
 
         Assert.Equal(HudTone.Scope, hud.State.Tone);
-        Assert.Equal("Not capturing: OUTLOOK", hud.State.Text);
+        Assert.Equal("Not capturing: Outlook", hud.State.Text);
     }
 
     [Fact]
