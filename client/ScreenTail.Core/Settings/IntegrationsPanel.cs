@@ -39,6 +39,25 @@ public static class IntegrationNames
         _ => provider,
     };
 
+    /// <summary>
+    /// The name a sentence uses for the provider: "Open in ConnectWise", "Retry Hudu". The demo's are
+    /// called what they are, never a real product's name; one this version does not know goes by its own.
+    /// </summary>
+    public static string InSentence(string provider) => provider switch
+    {
+        IntegrationCard.ConnectWiseProvider => "ConnectWise",
+        IntegrationCard.HuduProvider => "Hudu",
+        DemoPsa => "the demo PSA",
+        DemoKb => "the demo knowledge base",
+        _ => provider,
+    };
+
+    /// <summary>A PSA, which takes the ticket note and the time entry.</summary>
+    public static bool IsPsa(string provider) => provider is IntegrationCard.ConnectWiseProvider or DemoPsa;
+
+    /// <summary>A documentation platform, which takes the KB article.</summary>
+    public static bool IsDocumentation(string provider) => provider is IntegrationCard.HuduProvider or DemoKb;
+
     /// <summary>One of the backend's demo providers, which publish nowhere a customer or colleague can read.</summary>
     public static bool IsDemo(string provider) =>
         provider is not null && provider.StartsWith("demo-", StringComparison.Ordinal);

@@ -26,7 +26,6 @@ namespace ScreenTail.UI.Shell;
 /// </summary>
 public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
-    private const string NothingToReview = "No draft to review yet. Record a session and stop it with Ctrl+Alt+S.";
     private const string SettingsLater = "Settings arrive when the capture service answers.";
     private const string Loading = "Asking the capture service for the session…";
 
@@ -85,6 +84,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial string Status { get; set; } = "Connecting to the capture service…";
 
+    /// <summary>The status chip's dot and border colour, as the pill would show the state (<see cref="ShellStatus.Tone"/>).</summary>
+    [ObservableProperty]
+    public partial Core.Hud.HudTone StatusTone { get; set; } = Core.Hud.HudTone.Idle;
+
     /// <summary>
     /// <see cref="Status"/> without the clock: what the status line's live region is announced on, so a
     /// screen reader hears the state change and not every second of a recording (ST-084, ST-072).
@@ -111,7 +114,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// template by type.
     /// </summary>
     [ObservableProperty]
-    public partial object? Content { get; set; } = NothingToReview;
+    public partial object? Content { get; set; } = ShellStatus.NothingToReviewYet;
 
     [RelayCommand]
     private void Navigate(string? view)
@@ -191,6 +194,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ShowStatus(snapshot);
         View = snapshot.View;
         Show(snapshot);
+
+        // Review's Discard is off while its session is being captured, with the reason beside it, and
+        // comes back when capture stops: asked again on every change of state.
+        (_review.Current as Review.ReviewViewModel)?.Note.RefreshDiscard();
     }
 
     /// <summary>
@@ -216,6 +223,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private void ShowStatus(ShellSnapshot snapshot)
     {
         Status = ShellStatus.Describe(_clock.Show(snapshot));
+        StatusTone = ShellStatus.Tone(snapshot);
         StatusAnnouncement = ShellStatus.Announcement(snapshot);
     }
 
@@ -241,7 +249,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                 // A load still under way is for a session no longer to be shown, and the pane already
                 // shown is finished with: off the screen first, then let go of, which writes its last.
                 _loads++;
-                Content = NothingToReview;
+                Content = ShellStatus.NothingToReview(snapshot);
                 _review.Hold(null);
                 break;
             case PaneAction.LoadReview:

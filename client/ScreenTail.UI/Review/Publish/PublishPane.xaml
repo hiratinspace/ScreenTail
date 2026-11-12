@@ -171,8 +171,9 @@
                 <controls:Repeater Margin="0,14,0,0" ItemsSource="{Binding Results}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <!-- One row per destination: the mark and its name, then the link on its own line,
-                                 so a long "Open in ConnectWise" never pushes the name off the pane. -->
+                            <!-- One row per destination: the mark in its state's colour, the name and the state
+                                 in a word, then the link on its own line, named for the provider it goes to, so a
+                                 long provider name never pushes the destination off the pane. -->
                             <Border Margin="0,0,0,8"
                                     Padding="12,10"
                                     Background="{DynamicResource Brush.bg.raised}"
@@ -184,16 +185,50 @@
                                         <ColumnDefinition Width="22" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" AutomationProperties.Name="{Binding MarkName}" />
+                                    <!-- State colours are indicators (Spec §2.1): the glyph takes it, the words stay text.primary. -->
+                                    <TextBlock Grid.Column="0" FontWeight="{DynamicResource Weight.semibold}" Text="{Binding Mark}" AutomationProperties.Name="{Binding MarkName}">
+                                        <TextBlock.Style>
+                                            <Style BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding State}" Value="Sent">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.state.published}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding State}" Value="Failed">
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.state.danger}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <StackPanel Grid.Column="1">
-                                        <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Label}" />
-                                        <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Error}" Visibility="{Binding ErrorVisibility}" />
+                                        <WrapPanel Orientation="Horizontal">
+                                            <TextBlock Margin="0,0,8,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding Label}" />
+                                            <!-- The state in a word: the tint and border agree with it, the words carry it. -->
+                                            <ContentControl VerticalAlignment="Center" Content="{Binding Badge}">
+                                                <ContentControl.Style>
+                                                    <Style BasedOn="{StaticResource Badge.Unconfirmed}" TargetType="ContentControl">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding State}" Value="Sent">
+                                                                <Setter Property="Background" Value="{DynamicResource Brush.bg.success}" />
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.published}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding State}" Value="Failed">
+                                                                <Setter Property="Background" Value="{DynamicResource Brush.bg.danger}" />
+                                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.danger}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ContentControl.Style>
+                                            </ContentControl>
+                                        </WrapPanel>
+                                        <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding Error}" Visibility="{Binding ErrorVisibility}" />
                                         <Button Margin="-10,4,0,0"
                                                 HorizontalAlignment="Left"
                                                 Style="{StaticResource Button.Ghost}"
                                                 Foreground="{DynamicResource Brush.accent.primary}"
-                                                Content="Open in ConnectWise"
-                                                AutomationProperties.Name="{Binding Label, StringFormat='Open in ConnectWise: {0}'}"
+                                                Content="{Binding LinkText}"
+                                                AutomationProperties.Name="{Binding LinkName}"
                                                 Command="{Binding DataContext.OpenLinkCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                 CommandParameter="{Binding Link}"
                                                 Visibility="{Binding LinkVisibility}" />
@@ -260,7 +295,8 @@
                 </Border>
                 <Button Style="{StaticResource Button.Primary}"
                         HorizontalAlignment="Left"
-                        Content="Retry"
+                        Content="{Binding RetryLabel}"
+                        AutomationProperties.Name="{Binding RetryName}"
                         Command="{Binding RetryCommand}"
                         IsEnabled="{Binding CanRetry}"
                         Visibility="{Binding RetryVisibility}"

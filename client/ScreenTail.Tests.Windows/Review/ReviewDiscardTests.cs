@@ -110,6 +110,35 @@ public sealed class ReviewDiscardTests
     }
 
     [Fact]
+    public void WhileTheSessionIsCapturedDiscardIsOffAndSaysWhyBesideIt()
+    {
+        // The button was greyed out with no reason anyone could see. The reason is beside it now, and goes
+        // when capture stops, so the button comes back without the technician leaving Review.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var capturing = true;
+            await using var review = new ReviewViewModel(
+                Session(Frames(1)),
+                new RecordingFrames(),
+                confirm: _ => true,
+                discard: _ => Task.CompletedTask,
+                discardBlocked: () => capturing ? "This session is still being captured. Stop it first, then discard it." : null);
+
+            Assert.Equal("Stop the session to discard", review.Note.DiscardHint);
+            Assert.True(review.Note.DiscardHintVisible);
+            Assert.False(review.Note.DiscardCommand.CanExecute(null));
+
+            capturing = false;
+            review.Note.RefreshDiscard();
+
+            Assert.Null(review.Note.DiscardHint);
+            Assert.False(review.Note.DiscardHintVisible);
+            Assert.True(review.Note.DiscardCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
     public void ASessionThatBeginsWhileTheDialogIsUpStopsTheDiscardAndTheNoteGoesOnSaving()
     {
         // As the mark and History's bulk discard: the service starts sessions by itself, so whether one is

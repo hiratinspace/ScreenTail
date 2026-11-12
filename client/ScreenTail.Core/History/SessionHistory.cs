@@ -89,6 +89,12 @@ public static class SessionHistory
         return session.Title is not null ? SessionStatus.Draft : SessionStatus.Pending;
     }
 
+    /// <summary>
+    /// History with no sessions, with the next step (Spec §5 S4). There is no Start button: a session is
+    /// started by the remote tool coming to the front, or by the service's own hotkey.
+    /// </summary>
+    public const string Empty = "No sessions yet. Start a remote session and ScreenTail will capture it, or press Ctrl+Alt+R to start one now.";
+
     /// <summary>The words History and the tray use for a publish that may have reached the ticket and was never confirmed.</summary>
     public const string NotConfirmedLabel = "Not confirmed";
 

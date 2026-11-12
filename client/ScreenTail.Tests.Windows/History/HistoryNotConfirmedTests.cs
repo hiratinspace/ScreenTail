@@ -242,6 +242,19 @@ public sealed class HistoryNotConfirmedTests
         });
     }
 
+    [Theory]
+    [InlineData("screenconnect", "ScreenConnect")]
+    [InlineData("rdp", "Remote Desktop")]
+    [InlineData("anydesk", "AnyDesk")]
+    [InlineData(null, "Unknown")]
+    public void TheToolColumnShowsTheToolsNameNotItsId(string? tool, string expected)
+    {
+        // The service sends the registry's id; the technician reads the product's name.
+        var row = Row("s1", "draft") with { Tool = tool };
+
+        Assert.Equal(expected, HistoryViewModel.Format(row).Tool);
+    }
+
     private static SessionRow Row(string id, string status, bool unconfirmed = false) => new()
     {
         Id = id,

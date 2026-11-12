@@ -41,6 +41,12 @@ public interface ITestSession
 public sealed record PermissionRow(string Capability, string Label, bool Ok, string Message, string? FixLink)
 {
     public string Mark => Ok ? "✓" : "✗";
+
+    /// <summary>What the fix button says: the page it opens, for the microphone, whose page is Windows' privacy settings.</summary>
+    public string FixLabel => Capability == "microphone" ? "Open Windows privacy settings" : "Fix in Windows Settings";
+
+    /// <summary>The fix button for a screen reader, with the check it is for.</summary>
+    public string FixName => $"{FixLabel}: {Label}";
 }
 
 /// <summary>

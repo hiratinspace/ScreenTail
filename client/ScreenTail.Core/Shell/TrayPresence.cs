@@ -48,7 +48,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
         }
 
         var drafts = capture.DraftsReady;
-        var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : capture.RemoteTool;
+        var tool = string.IsNullOrEmpty(capture.RemoteTool) ? null : ToolNames.Display(capture.RemoteTool);
         var elapsed = capture.ElapsedMs is { } ms
             ? ShellStatus.Clock(ms)
             : null;
