@@ -173,7 +173,7 @@
                         <DataTemplate>
                             <!-- One row per destination: the mark in its state's colour, the name and the state
                                  in a word, then the link on its own line, named for the provider it goes to, so a
-                                 long "Open in ConnectWise" never pushes the name off the pane. -->
+                                 long provider name never pushes the destination off the pane. -->
                             <Border Margin="0,0,0,8"
                                     Padding="12,10"
                                     Background="{DynamicResource Brush.bg.raised}"
