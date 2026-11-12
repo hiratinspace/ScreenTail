@@ -286,7 +286,7 @@ public partial class ShellWindow : Window
         public Task<IReadOnlyList<CapabilityStatus>?> CheckAsync(CancellationToken ct = default) =>
             Task.FromResult<IReadOnlyList<CapabilityStatus>?>(
             [
-                new CapabilityStatus { Capability = "microphone", State = "blocked", Message = "Microphone access is off for desktop apps.", FixHint = "ms-settings:privacy-microphone" },
+                new CapabilityStatus { Capability = "microphone", State = "blocked", Message = "Microphone access is off for desktop apps.", FixHint = "Allow desktop apps to use your microphone.", FixLink = "ms-settings:privacy-microphone" },
                 new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
                 new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
             ]);

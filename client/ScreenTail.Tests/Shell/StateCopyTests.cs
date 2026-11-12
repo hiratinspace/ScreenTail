@@ -86,34 +86,23 @@ public sealed class StateCopyTests
     }
 
     [Fact]
-    public async Task ABlockedMicrophoneWithoutALinkStillOffersThePrivacyPage()
+    public async Task AMicrophoneWindowsBlockedOffersItsPrivacyPageByName()
     {
         // "Microphone access is off" with only "Check again" left the technician to find the page alone.
-        var wizard = OnboardingWizardTests.WizardFor(
+        // The service's check carries the page; the button says where it goes. (A microphone the admin
+        // blocked has no link and no button: AMicrophoneTheAdminBlockedOffersNoFixButton.)
+        var wizard = Onboarding.OnboardingWizardTests.WizardFor(
         [
-            new CapabilityStatus { Capability = "microphone", State = "blocked", Message = "Microphone access is off." },
+            CapabilityCopy.MicrophoneBlocked().ToWire(),
             new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
             new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Hooks work." },
-            new CapabilityStatus { Capability = "elevated_windows", State = "degraded", Message = "No microphone found." },
         ]);
 
         await wizard.RecheckAsync();
 
-        Assert.Equal(CapabilityCopy.MicrophoneSettings, wizard.Permissions.Single(p => p.Capability == "microphone").FixLink);
-    }
-
-    [Fact]
-    public async Task AMissingMicrophoneIsNotSentToThePrivacyPage()
-    {
-        // No device is not a setting: the page would not help.
-        var wizard = OnboardingWizardTests.WizardFor(
-        [
-            new CapabilityStatus { Capability = "microphone", State = "degraded", Message = "No microphone found." },
-        ]);
-
-        await wizard.RecheckAsync();
-
-        Assert.Null(wizard.Permissions.Single(p => p.Capability == "microphone").FixLink);
+        var mic = wizard.Permissions.Single(p => p.Capability == "microphone");
+        Assert.Equal("ms-settings:privacy-microphone", mic.FixLink);
+        Assert.Equal("Open Windows privacy settings", mic.FixLabel);
     }
 
     private static ShellSnapshot Snapshot(string state) =>
