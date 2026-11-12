@@ -198,7 +198,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <controls:Glyph Style="{StaticResource Icon}" FontSize="{DynamicResource Size.sm}" Text="&#xE72B;" />
                                     <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Back to the note" />
-                                    <TextBlock Margin="10,0,0,0" Style="{StaticResource Text.KeyHint}" Foreground="{DynamicResource Brush.text.muted}" Text="Alt+1" />
+                                    <TextBlock Margin="12,0,0,0" Style="{StaticResource Text.KeyHint}" Foreground="{DynamicResource Brush.text.muted}" Text="Alt+1" />
                                 </StackPanel>
                             </Button>
 

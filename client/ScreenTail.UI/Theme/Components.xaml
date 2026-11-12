@@ -400,7 +400,7 @@
          read as the ticket will show it. At rest it is the text on the pane; the edge shows on hover, and
          focus is the accent outline at 2 px and the focus ring, as on every other field. -->
     <Style x:Key="Input.InPlace" BasedOn="{StaticResource Input.Multiline}" TargetType="TextBox">
-        <Setter Property="Padding" Value="8,5" />
+        <Setter Property="Padding" Value="8,4" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Template">
