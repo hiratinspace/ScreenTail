@@ -21,6 +21,15 @@ namespace ScreenTail.Service.Privacy;
 /// (finding 7). Shipping fewer third-party binaries is also less attack surface in a process that reads
 /// everything on a technician's screen.
 ///
+/// It reads the frame at twice its size (ST-042, after #275). The engine reads small text badly: on the
+/// hosted runner's probe of 9 and 11 pt text at 100% to 150% display scale it masked 879 of 1,200 drawn
+/// secrets read as captured and 1,053 read at twice the size, and through a remote viewer's resizing
+/// and JPEG it did better at every scale and quality. What it lost read as captured was mostly long
+/// random strings misread or not read at all. The cost is time: a full HD frame dense with text took
+/// 168 ms to read as captured on that runner and 373 ms at twice the size, against 700 ms for the whole
+/// frame. So the larger reading is held to <see cref="OcrScaling.PixelBudget"/>: a larger frame is read less
+/// enlarged, and one with that many pixels or more as it is, which is how every frame was read before.
+///
 /// One thing it does not give us: a confidence score. Tesseract reports per-word confidence and the
 /// worker uses it to throw away frames it could not read; this engine reports none, so that gate is inert
 /// here and says so rather than pretending to a number it does not have.
@@ -31,10 +40,21 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
     /// <summary>What this engine reports when it cannot say. Documented rather than invented.</summary>
     public const double UnknownConfidence = 1.0;
 
-    private readonly OcrEngine? _engine;
+    /// <summary>How much larger than captured a frame is read, at most.</summary>
+    public const double DefaultScale = 2.0;
 
-    public WindowsOcrRecogniser(string? language = null)
+    private readonly OcrEngine? _engine;
+    private readonly double _scale;
+
+    /// <param name="language">The language to read, or null for the user's own.</param>
+    /// <param name="scale">
+    /// How much larger the engine is given the frame than it was captured, at most, with every box
+    /// brought back to the frame's own pixels. One reads it as it is.
+    /// </param>
+    public WindowsOcrRecogniser(string? language = null, double scale = DefaultScale)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(scale, 1.0);
+        _scale = scale;
         // The user's own languages first: a technician working in German reads German dialogs, and an
         // engine that only knows English would quietly miss the words a secret sits beside.
         _engine = language is null
@@ -49,6 +69,9 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
 
     public string? Language => _engine?.RecognizerLanguage.LanguageTag;
 
+    /// <summary>The largest width or height, in pixels, the engine reads.</summary>
+    public static uint MaxImageDimension => OcrEngine.MaxImageDimension;
+
     public async Task<RecognisedText> ReadAsync(ReadOnlyMemory<byte> image, CancellationToken ct = default)
     {
         if (_engine is null)
@@ -62,7 +85,23 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
         stream.Seek(0);
 
         var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(ct).ConfigureAwait(false);
-        using var bitmap = await decoder.GetSoftwareBitmapAsync().AsTask(ct).ConfigureAwait(false);
+
+        // The size and the way back are worked out in Core (OcrScaling), where every platform tests them.
+        var (width, height) = (decoder.PixelWidth, decoder.PixelHeight);
+        var read = OcrScaling.ReadSize(width, height, _scale, OcrEngine.MaxImageDimension);
+        using var bitmap = read.Width == width && read.Height == height
+            ? await decoder.GetSoftwareBitmapAsync().AsTask(ct).ConfigureAwait(false)
+            : await decoder.GetSoftwareBitmapAsync(
+                BitmapPixelFormat.Bgra8,
+                BitmapAlphaMode.Premultiplied,
+                new BitmapTransform
+                {
+                    ScaledWidth = read.Width,
+                    ScaledHeight = read.Height,
+                    InterpolationMode = BitmapInterpolationMode.Cubic,
+                },
+                ExifOrientationMode.IgnoreExifOrientation,
+                ColorManagementMode.DoNotColorManage).AsTask(ct).ConfigureAwait(false);
 
         var result = await _engine.RecognizeAsync(bitmap).AsTask(ct).ConfigureAwait(false);
         var words = new List<FoundWord>();
@@ -70,13 +109,10 @@ internal sealed class WindowsOcrRecogniser : IFrameTextRecogniser
         {
             foreach (var word in line.Words)
             {
+                // Outward to whole pixels of the frame on all four sides, so a box brought back from a
+                // larger reading covers no less than the engine said.
                 var box = word.BoundingRect;
-                words.Add(new FoundWord(
-                    word.Text,
-                    (int)Math.Round(box.X),
-                    (int)Math.Round(box.Y),
-                    (int)Math.Round(box.Width),
-                    (int)Math.Round(box.Height)));
+                words.Add(OcrScaling.BoxBack(word.Text, box.X, box.Y, box.Width, box.Height, width, height, read));
             }
         }
 

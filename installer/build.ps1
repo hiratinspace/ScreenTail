@@ -11,7 +11,8 @@
       2. Signs every executable and library in it that is not already signed (installer/sign.ps1).
          Without signing configured it signs nothing and says so.
       3. Builds ScreenTail.msi from that folder with WiX 5, and signs it.
-      4. Downloads Microsoft's Visual C++ runtime installer, checks it is Microsoft-signed, and builds
+      4. Downloads the Visual C++ runtime installer pinned in tools.json, checks its SHA-256, version
+         and Microsoft signature, and builds
          ScreenTail-Setup.exe, which installs that runtime and then the package. Signs it.
       5. Reports sizes against the ticket's 250 MB limit.
 

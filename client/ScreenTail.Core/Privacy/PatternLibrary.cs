@@ -19,6 +19,42 @@ public sealed record PatternMatch(MaskKind Kind, int Start, int Length, string R
 }
 
 /// <summary>
+/// The rules that match what the OCR engine makes of a secret rather than the secret as written (ST-042,
+/// after #275). All of them run in the product; a test can leave each out to measure what it adds.
+/// </summary>
+[Flags]
+internal enum MisreadRules
+{
+    None = 0,
+
+    /// <summary>A key's known prefix with its underscore or a letter misread.</summary>
+    Prefixes = 1,
+
+    /// <summary>Any run of text that looks random (<see cref="PatternLibrary.RandomRuns"/>).</summary>
+    RandomRuns = 2,
+
+    /// <summary>"pass" with its colon misread, and a secret straight after it.</summary>
+    BarePass = 4,
+
+    /// <summary>An AWS access key ID with the I of its prefix misread, or a space after the prefix.</summary>
+    AwsPrefix = 8,
+
+    /// <summary>A random run's + / and = padding counted toward its length (review of PR #278).</summary>
+    Base64Runs = 16,
+
+    /// <summary>Two neighbouring pieces read as one random run where the OCR engine put a space between.</summary>
+    SplitRuns = 32,
+
+    /// <summary>"pass" with its colon read as a dash, a bar or an i, and "pw:".</summary>
+    PassForms = 64,
+
+    /// <summary>The rules of the round before the review of PR #278, kept to measure the review's against.</summary>
+    Round1 = Prefixes | RandomRuns | BarePass,
+
+    All = Round1 | AwsPrefix | Base64Runs | SplitRuns | PassForms,
+}
+
+/// <summary>
 /// The built-in pattern library (ST-042). Each detector reports spans; <see cref="RedactionEngine"/> decides
 /// what to do with them. Detectors never log or return the matched text.
 /// </summary>
@@ -413,7 +449,11 @@ internal static partial class PatternLibrary
     /// Set to false when a detector could not finish. The caller must treat the text as unscanned rather
     /// than clean: a frame we failed to search is not a frame we may store (INV-1).
     /// </param>
-    public static IEnumerable<PatternMatch> Find(string text, RedactionPolicy policy, Action onIncomplete)
+    public static IEnumerable<PatternMatch> Find(string text, RedactionPolicy policy, Action onIncomplete) =>
+        Find(text, policy, onIncomplete, MisreadRules.All);
+
+    /// <param name="misreads">Which of the rules for what the OCR engine misreads run; all of them in the product.</param>
+    internal static IEnumerable<PatternMatch> Find(string text, RedactionPolicy policy, Action onIncomplete, MisreadRules misreads)
     {
         if (policy.Ssn)
         {
@@ -440,6 +480,30 @@ internal static partial class PatternLibrary
             {
                 yield return new PatternMatch(MaskKind.ApiKey, m.Index, m.Length, "[SECRET]");
             }
+
+            if (misreads.HasFlag(MisreadRules.Prefixes))
+            {
+                foreach (Match m in Safely(MisreadKey().Matches(text), onIncomplete))
+                {
+                    yield return new PatternMatch(MaskKind.ApiKey, m.Index, m.Length, "[SECRET]");
+                }
+            }
+
+            if (misreads.HasFlag(MisreadRules.AwsPrefix))
+            {
+                foreach (Match m in Safely(MisreadAwsKey().Matches(text), onIncomplete))
+                {
+                    yield return new PatternMatch(MaskKind.ApiKey, m.Index, m.Length, "[SECRET]");
+                }
+            }
+
+            if (misreads.HasFlag(MisreadRules.RandomRuns))
+            {
+                foreach (var (start, length) in RandomRuns(text, misreads))
+                {
+                    yield return new PatternMatch(MaskKind.ApiKey, start, length, "[SECRET]");
+                }
+            }
         }
 
         if (policy.Passwords)
@@ -448,6 +512,23 @@ internal static partial class PatternLibrary
             {
                 // Keep the cue ("the password is") and mask what follows it, so Review still reads sensibly.
                 if (SecretAfter(text, m.Index + m.Length) is { Length: > 0 } secret)
+                {
+                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]") { CueStarts = [m.Index] };
+                }
+            }
+
+            var forms = misreads.HasFlag(MisreadRules.PassForms);
+            foreach (Match m in Safely(misreads.HasFlag(MisreadRules.BarePass) ? BarePassCue().Matches(text) : NeverMatches().Matches(string.Empty), onIncomplete))
+            {
+                if (SecretRightAfter(text, m.Index + m.Length, forms) is { Length: > 0 } secret)
+                {
+                    yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]") { CueStarts = [m.Index] };
+                }
+            }
+
+            foreach (Match m in Safely(forms ? PassFormCue().Matches(text) : NeverMatches().Matches(string.Empty), onIncomplete))
+            {
+                if (SecretRightAfter(text, m.Index + m.Length, forms) is { Length: > 0 } secret)
                 {
                     yield return new PatternMatch(MaskKind.Password, secret.Start, secret.Length, "[REDACTED]") { CueStarts = [m.Index] };
                 }
@@ -523,6 +604,200 @@ internal static partial class PatternLibrary
                 }
             }
         }
+    }
+
+    /// <summary>How many letters and digits a run needs before <see cref="RandomRuns"/> reads it as random.</summary>
+    internal const int RandomRunLength = 16;
+
+    /// <summary>
+    /// The share of neighbouring letters and digits in a run that change class (capital, small letter,
+    /// digit) at which <see cref="RandomRuns"/> reads it as random. A random string of the 62 changes at
+    /// about 0.62 of its pairs; a name built of words and a number, "Office365ProPlusRetail" or
+    /// "Int32.TryParse(value", at 0.35 or less.
+    /// </summary>
+    internal const double RandomRunChanges = 0.4;
+
+    /// <summary>
+    /// How often, as a share of a run's neighbouring pairs of letters and digits, one letter is a capital
+    /// and the next letter a small one or the other way, digits between them skipped, at which
+    /// <see cref="RandomRuns"/> reads it as random. A random string does at about 0.4 of its pairs, and
+    /// "A1b2C3d4E5f6G7h8" at 0.47. A hexadecimal number joined to a word does once or twice: the wrap pass joins the
+    /// GUID that ends a table's row to the device name that starts the next, "5b8e0f1a2c3dAccounts-PC23",
+    /// and without this the hosted runner's table pages lost 58.6% of their ink to it, against 11.1%.
+    /// </summary>
+    internal const double RandomRunCaseChanges = 0.15;
+
+    /// <summary>
+    /// Every run of text between spaces and separators (<see cref="EndsRun"/>) that looks random, whatever
+    /// introduces it (ST-042, after #275):
+    /// at least <see cref="RandomRunLength"/> letters and digits, with a capital, a small letter and a
+    /// digit among them, changing class at no less than <see cref="RandomRunChanges"/> of its pairs and
+    /// between a capital and a small letter at no less than <see cref="RandomRunCaseChanges"/>.
+    ///
+    /// The shape rules need a prefix or a cue read right, and the OCR engine reads a long random string
+    /// worst of all: on the hosted runner's probe it misread the prefix or cue of most of the keys and
+    /// tokens it did not mask, while reading their bodies well enough to be seen to be random. This
+    /// infers nothing about what the string is for. Measured on random strings, it takes 91% of 16
+    /// characters, 98% of 26 and 99% of 36; it takes no word of prose, and names in code only where they change
+    /// case and digit as often as random text does. The wrap pass reads a key cut by its row's end as
+    /// one run, so a piece too short to be taken alone is taken with the piece below it.
+    ///
+    /// After the review of PR #278: base64's + and / and its = padding count toward the length
+    /// (<see cref="MisreadRules.Base64Runs"/>), and two neighbouring pieces with one space between, a random
+    /// run and a short piece or two short pieces (shorter than <see cref="RandomRunLength"/>, with a digit
+    /// or two changes of case), are taken as one run where together they are
+    /// (<see cref="MisreadRules.SplitRuns"/>): the OCR engine splits a key with a space, and two halves of
+    /// a 16 to 31 character key were each too short. The join is in the text; on the screen the words
+    /// the match touches are masked, and the token rule takes what touches them, as for any match.
+    /// </summary>
+    internal static IEnumerable<(int Start, int Length)> RandomRuns(string text, MisreadRules rules = MisreadRules.All)
+    {
+        var symbols = rules.HasFlag(MisreadRules.Base64Runs);
+        var split = rules.HasFlag(MisreadRules.SplitRuns);
+        (int Start, int End, bool Random)? held = null;
+        var i = 0;
+        while (i < text.Length)
+        {
+            while (i < text.Length && EndsRun(text, i, symbols))
+            {
+                i++;
+            }
+
+            var start = i;
+            while (i < text.Length && !EndsRun(text, i, symbols))
+            {
+                i++;
+            }
+
+            if (i == start)
+            {
+                continue;
+            }
+
+            var run = Shape(text.AsSpan(start, i - start), symbols);
+            if (run.Random)
+            {
+                yield return (start, i - start);
+            }
+
+            // Two pieces with one space between, at least one of them not random alone: a random run and
+            // the short piece the engine cut from it, or two short halves. A piece is short and has a
+            // digit or changes case twice, so a word of prose, the cue before a key, and a long name that
+            // is not random alone are not halves of anything.
+            var joins = run.Random || run.Piece;
+            if (split && joins && held is var (heldStart, heldEnd, heldRandom) && !(heldRandom && run.Random)
+                && start == heldEnd + 1 && text[heldEnd] == ' '
+                && Shape(string.Concat(text.AsSpan(heldStart, heldEnd - heldStart), text.AsSpan(start, i - start)), symbols).Random)
+            {
+                yield return (heldStart, i - heldStart);
+            }
+
+            held = joins ? (start, i, run.Random) : null;
+        }
+    }
+
+    /// <summary>Whether a run looks random, and whether it could be a piece of one: short, with a digit or two changes of case.</summary>
+    private static (bool Random, bool Piece) Shape(ReadOnlySpan<char> run, bool symbols)
+    {
+        var (count, length, changes, cases, upper, lower, digit, previous, letter) = (0, 0, 0, 0, false, false, false, 0, 0);
+        foreach (var c in run)
+        {
+            var kind = char.IsAsciiLetterUpper(c) ? 1 : char.IsAsciiLetterLower(c) ? 2 : char.IsAsciiDigit(c) ? 3 : 0;
+            if (kind == 0)
+            {
+                // Base64's symbols make up its length but say nothing of its letters.
+                length += symbols && c is '+' or '/' or '=' ? 1 : 0;
+                continue;
+            }
+
+            (upper, lower, digit) = (upper || kind == 1, lower || kind == 2, digit || kind == 3);
+            changes += previous != 0 && previous != kind ? 1 : 0;
+            if (kind != 3)
+            {
+                // Between letters, with any digits between them skipped: "A1b2C3d4" changes case
+                // at every letter, though no two neighbours are a capital and a small letter.
+                cases += letter != 0 && letter != kind ? 1 : 0;
+                letter = kind;
+            }
+
+            previous = kind;
+            count++;
+            length++;
+        }
+
+        var random = length >= RandomRunLength && upper && lower && digit
+            && changes >= RandomRunChanges * (count - 1) && cases >= RandomRunCaseChanges * (count - 1);
+        return (random, length < RandomRunLength && (digit || cases >= 2));
+    }
+
+    /// <summary>
+    /// What ends a run for <see cref="RandomRuns"/>: a space, or a separator that stands between a name
+    /// and its value, so "api_key=A1b2C3d4E5f6G7h8I9j0K1l2M3n4" keeps its cue readable as the cue rule
+    /// does. A full stop does not: a signed token is three runs joined by them.
+    /// </summary>
+    private static bool EndsRun(char c) => char.IsWhiteSpace(c) || c is '=' or ':' or '"' or '\'' or ',' or ';';
+
+    /// <summary>
+    /// <see cref="EndsRun(char)"/> at <paramref name="at"/>, except, with <paramref name="padding"/>, an
+    /// = that ends a run, as base64's padding does: after a letter, digit or symbol of the run and before
+    /// another = or whatever ends a run. "api_key=..." still parts its cue from its value.
+    /// </summary>
+    private static bool EndsRun(string text, int at, bool padding)
+    {
+        if (!padding || text[at] != '=' || at == 0 || EndsRun(text[at - 1]) && text[at - 1] != '=')
+        {
+            return EndsRun(text[at]);
+        }
+
+        var next = at + 1;
+        while (next < text.Length && text[next] == '=')
+        {
+            next++;
+        }
+
+        return next < text.Length && !EndsRun(text[next]);
+    }
+
+    /// <summary>
+    /// The secret straight after a bare "pass" with no colon, or with the colon read as a full stop or
+    /// a comma: "pass Tangerine3327Wobble", "pass. Juniper8749Quiver". The OCR engine read "pass:" so on
+    /// 6 of 80 pages at 125% and on 11 to 19 of 80 through a viewer at 0.6, 0.8 and 0.9 (hosted runner,
+    /// after #275), and the cue rule, which needs the colon to tell "pass" from the verb, never fired.
+    ///
+    /// Only the very next word is taken, and only when it is at least six characters with a digit or a
+    /// symbol in it, so "pass the test", "PASS FAIL" and "pass it on" are left alone. It takes its row
+    /// the way any password does.
+    ///
+    /// With <see cref="MisreadRules.PassForms"/> (review of PR #278) the colon may also have been read as
+    /// a dash or a bar, "pass - X" and "pass| X", and two more cues take the same next word: "passi", the
+    /// colon read as an i, and "pw:".
+    /// </summary>
+    private static (int Start, int Length)? SecretRightAfter(string text, int from, bool forms)
+    {
+        var i = from;
+        while (i < text.Length && (char.IsWhiteSpace(text[i]) || text[i] is '.' or ',' or ';' || forms && text[i] is '-' or '|' or ':' or '='))
+        {
+            i++;
+        }
+
+        var start = i;
+        while (i < text.Length && IsWordChar(text[i]))
+        {
+            i++;
+        }
+
+        if (i - start < 6)
+        {
+            return null;
+        }
+
+        var value = text.Substring(start, i - start);
+        if (!LooksLikeSecret(value) || NotSecrets.Contains(value) || Connectives.Contains(value) || !value.Any(c => char.IsDigit(c) || !char.IsLetter(c)))
+        {
+            return null;
+        }
+
+        return (start, SecretEnd(text, i) - start);
     }
 
     /// <summary>
@@ -703,6 +978,17 @@ internal static partial class PatternLibrary
         BuiltInTimeoutMs)]
     private static partial Regex ApiKey();
 
+    // The GitHub, Stripe and npm prefixes as the OCR engine reads them on a screen (ST-042, after
+    // #275). On the hosted runner's probe the engine read the underscore of "ghp_" and "sk_live_" as a
+    // space, as nothing, or as punctuation, and the l of "live" as 1, I or |, on 165 of the 264 secrets
+    // it misread at 100% to 150% display scale; one character wrong in the prefix and ApiKey never
+    // fired, however well the rest was read. These shapes are not words in any language.
+    [GeneratedRegex(
+        @"gh[pousr][ _.,-]?[A-Za-z0-9]{30,}|sk[ _.,-]?(?:[lI1|i]ive|t[e3]st)[ _.,-]?[A-Za-z0-9]{16,}|npm[ _.,-]?[A-Za-z0-9]{30,}",
+        RegexOptions.CultureInvariant,
+        BuiltInTimeoutMs)]
+    private static partial Regex MisreadKey();
+
     // "password", "pwd", "passphrase". Only the cue: where the secret sits after it is a question about
     // how somebody speaks, and a regex answered it by assuming the very next token (2026-09-20 review).
     [GeneratedRegex(
@@ -710,6 +996,23 @@ internal static partial class PatternLibrary
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
         BuiltInTimeoutMs)]
     private static partial Regex PasswordCue();
+
+    [GeneratedRegex("(?!)", RegexOptions.CultureInvariant)]
+    private static partial Regex NeverMatches();
+
+    // An AWS access key ID as the OCR engine reads it (review of PR #278): the I of AKIA or ASIA read as
+    // 1, l or |, or a space after the prefix. ApiKey takes AKIA read right. Sixteen capitals and digits
+    // and no more, so "ASIA PACIFIC" and words that start so are left alone.
+    [GeneratedRegex(@"\bA[KS][I1l|]A ?[0-9A-Z]{16}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
+    private static partial Regex MisreadAwsKey();
+
+    // "passi", "pass:" with the colon read as an i, and "pw:" (see SecretRightAfter).
+    [GeneratedRegex(@"\b(?:passi\b|pw(?=\s{0,3}[:=]))", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, BuiltInTimeoutMs)]
+    private static partial Regex PassFormCue();
+
+    // "pass" with no colon after it, as the OCR engine reads "pass:" (see SecretRightAfter).
+    [GeneratedRegex(@"\bpass\b(?!\s{0,3}[:=])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase, BuiltInTimeoutMs)]
+    private static partial Regex BarePassCue();
 
     [GeneratedRegex(@"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", RegexOptions.CultureInvariant, BuiltInTimeoutMs)]
     private static partial Regex Email();

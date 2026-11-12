@@ -13,7 +13,8 @@
 
       Msi       ScreenTail.msi (or -MsiName) from the payload folder
       Bundle    ScreenTail-Setup.exe from that package and Microsoft's Visual C++ runtime installer,
-                downloaded here and checked to be Microsoft-signed
+                the exact file pinned in installer/tools.json (URL, version, SHA-256), downloaded
+                here and checked against the pin and to be Microsoft-signed
       Detach    takes the setup program's engine out into work\engine.exe, to be signed on its own
       Reattach  puts the engine back into the setup program, and reports sizes against the ticket's
                 250 MB limit
@@ -48,7 +49,6 @@ Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN
 
 . (Join-Path $PSScriptRoot 'tools.ps1')
 
-$VcRedistUrls = @('https://aka.ms/vc14/vc_redist.x64.exe', 'https://aka.ms/vs/17/release/vc_redist.x64.exe')
 $SizeLimitBytes = 250MB
 
 if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)$' -or [int]$Matches[1] -gt 255 -or [int]$Matches[2] -gt 255 -or [int]$Matches[3] -gt 65535) {
@@ -126,26 +126,16 @@ if ($Step -eq 'Bundle') {
     $bal = Get-Extension 'WixToolset.Bal.wixext' 'wixext5\WixToolset.BootstrapperApplications.wixext.dll'
 
     Write-Step 'Getting the Visual C++ runtime installer'
-    $vcRedist = Join-Path $work 'vc_redist.x64.exe'
-    if (Test-Path $vcRedist) {
-        Remove-Item $vcRedist -Force
-    }
-    foreach ($url in $VcRedistUrls) {
-        try {
-            Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $vcRedist
-            break
-        } catch {
-            Write-Host "  $url did not answer: $($_.Exception.Message)"
-        }
-    }
-    if (-not (Test-Path $vcRedist)) {
-        throw 'Could not download the Visual C++ runtime installer.'
-    }
+    # The exact file pinned in installer/tools.json, refused unless its SHA-256 and version are the
+    # pinned ones. Its build number is the bundle's detect condition, so a build of one commit always
+    # carries, and always detects, the same runtime.
+    $pinnedVc = Get-PinnedDownload 'vc_redist.x64' $work
+    $vcRedist = $pinnedVc.Path
+    $vcVersion = $pinnedVc.Version
     $signature = Get-AuthenticodeSignature $vcRedist
     if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
-        throw "The downloaded Visual C++ runtime installer is not validly signed by Microsoft ($($signature.Status), $($signature.SignerCertificate.Subject))."
+        throw "The pinned Visual C++ runtime installer is not validly signed by Microsoft ($($signature.Status), $($signature.SignerCertificate.Subject))."
     }
-    $vcVersion = [version](Get-Item $vcRedist).VersionInfo.FileVersion
     Write-Host "  vc_redist.x64.exe $vcVersion, signed by Microsoft"
 
     Write-Step 'Building ScreenTail-Setup.exe'

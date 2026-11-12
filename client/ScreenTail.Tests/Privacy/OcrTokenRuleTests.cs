@@ -12,7 +12,7 @@ namespace ScreenTail.Tests.Privacy;
 /// </summary>
 public sealed class OcrTokenRuleTests
 {
-    private const int Height = 24;
+    internal const int Height = 24;
 
     private static readonly RedactionEngine Engine = new();
     private static readonly RedactionEngine WithEmails = new(new RedactionPolicy { Emails = true });
@@ -342,43 +342,8 @@ public sealed class OcrTokenRuleTests
         Assert.True(region.Y <= 100 && region.Y + region.Height >= 124, "the paint misses the row");
     }
 
-    /// <summary>
-    /// What a big frame costs (review of #268, MAJOR 4). The budget is 700 ms a frame on the laptop; the
-    /// row rule and the token search were quadratic and took 300 ms to 2 s on the Mac for these. Best of
-    /// three, so a busy runner's one slow pass does not fail it.
-    /// </summary>
-    [Theory]
-    [InlineData("8,000 words, a password on every row")]
-    [InlineData("2,500 password cues in 5,000 words")]
-    [InlineData("a private key with no end, 5,000 words")]
-    [InlineData("8,000 words, a box as tall as the page and 100 cues")]
-    public void ABigFrameRedactsWithinBudget(string frame)
-    {
-        var words = frame switch
-        {
-            "8,000 words, a password on every row" => Grid(8000, (row, col) => col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"word{col}"),
-            "2,500 password cues in 5,000 words" => Grid(5000, (row, col) => col % 2 == 0 ? "pwd:" : $"Ab{(row * 40) + col}"),
-            "8,000 words, a box as tall as the page and 100 cues" =>
-            [
-                .. Grid(8000, (row, col) => row % 2 == 1 ? $"w{row}x{col}" : col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"w{row}x{col}"),
-                new("|", 46, 0, 4, 6000),
-            ],
-            _ => [new("-----BEGIN", 0, 0, 100, Height), new("PRIVATE", 110, 0, 80, Height), new("KEY-----", 200, 0, 80, Height), .. Grid(5000, (row, col) => $"w{row}x{col}", top: 30)],
-        };
-
-        var best = double.MaxValue;
-        for (var i = 0; i < 3; i++)
-        {
-            var clock = Stopwatch.StartNew();
-            _ = Engine.RedactFrame(words);
-            best = Math.Min(best, clock.Elapsed.TotalMilliseconds);
-        }
-
-        Assert.True(best < 700, $"{frame}: {best:0} ms, over the 700 ms a frame may take");
-    }
-
     /// <summary>Rows of 40 words, 30 px apart.</summary>
-    private static List<OcrWord> Grid(int count, Func<int, int, string> text, int top = 0)
+    internal static List<OcrWord> Grid(int count, Func<int, int, string> text, int top = 0)
     {
         var words = new List<OcrWord>(count);
         for (var i = 0; i < count; i++)
@@ -400,4 +365,48 @@ public sealed class OcrTokenRuleTests
         redaction.Regions.Any(r =>
             r.X < word.X + word.Width && word.X < r.X + r.Width
             && r.Y < word.Y + word.Height && word.Y < r.Y + r.Height);
+}
+
+/// <summary>The token and row rules on a big frame, timed alone (see <see cref="OcrWrapCostTests"/>).</summary>
+[Collection("Timed with nothing running beside it")]
+public sealed class OcrTokenRuleCostTests
+{
+    private static readonly RedactionEngine Engine = new();
+
+    /// <summary>
+    /// What a big frame costs (review of #268, MAJOR 4). The budget is 700 ms a frame on the laptop; the
+    /// row rule and the token search were quadratic and took 300 ms to 2 s on the Mac for these. Best of
+    /// three, so a busy runner's one slow pass does not fail it. Timed with no other test beside it, as
+    /// <see cref="OcrWrapCostTests"/> is: inside the parallel suite one of these failed once in Debug and
+    /// passed alone, which measured the suite and not the frame.
+    /// </summary>
+    [Theory]
+    [InlineData("8,000 words, a password on every row")]
+    [InlineData("2,500 password cues in 5,000 words")]
+    [InlineData("a private key with no end, 5,000 words")]
+    [InlineData("8,000 words, a box as tall as the page and 100 cues")]
+    public void ABigFrameRedactsWithinBudget(string frame)
+    {
+        var words = frame switch
+        {
+            "8,000 words, a password on every row" => OcrTokenRuleTests.Grid(8000, (row, col) => col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"word{col}"),
+            "2,500 password cues in 5,000 words" => OcrTokenRuleTests.Grid(5000, (row, col) => col % 2 == 0 ? "pwd:" : $"Ab{(row * 40) + col}"),
+            "8,000 words, a box as tall as the page and 100 cues" =>
+            [
+                .. OcrTokenRuleTests.Grid(8000, (row, col) => row % 2 == 1 ? $"w{row}x{col}" : col == 0 ? "password:" : col == 1 ? $"Xy{row}ab" : $"w{row}x{col}"),
+                new("|", 46, 0, 4, 6000),
+            ],
+            _ => [new("-----BEGIN", 0, 0, 100, OcrTokenRuleTests.Height), new("PRIVATE", 110, 0, 80, OcrTokenRuleTests.Height), new("KEY-----", 200, 0, 80, OcrTokenRuleTests.Height), .. OcrTokenRuleTests.Grid(5000, (row, col) => $"w{row}x{col}", top: 30)],
+        };
+
+        var best = double.MaxValue;
+        for (var i = 0; i < 3; i++)
+        {
+            var clock = Stopwatch.StartNew();
+            _ = Engine.RedactFrame(words);
+            best = Math.Min(best, clock.Elapsed.TotalMilliseconds);
+        }
+
+        Assert.True(best < 700, $"{frame}: {best:0} ms, over the 700 ms a frame may take");
+    }
 }
