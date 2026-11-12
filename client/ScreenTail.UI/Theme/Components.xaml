@@ -1608,7 +1608,7 @@
         <Setter Property="Padding" Value="12,0" />
     </Style>
 
-    <!-- v0.6.4 (Outbox): the workspace frame, the title band and the inbox rail (Spec §5 S3, S4). They sit on
+    <!-- v0.6.4 (Outbox): the workspace frame and the inbox rail (Spec §5 S3, S4). They sit on
          shell.bg, so they take the frame's tokens: shell.text and shell.muted for words, shell.hover under
          the pointer, and keyboard focus as a 3 px shell.accent ring outside the control, which is 4.5:1 or
          more on shell.bg and shell.hover in both themes where the panes' 2 px accent.primary is 2.80:1 on

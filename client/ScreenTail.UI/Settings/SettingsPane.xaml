@@ -14,7 +14,13 @@
         </Style>
     </UserControl.Resources>
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
-    <Grid Width="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
+    <!-- The readable width, on the left, and narrower when the pane is: beside the inbox rail at the 1024
+         minimum (v0.6.4) the pane is under 760, and a fixed width cut the cards' buttons off at its edge. -->
+    <Grid>
+    <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MaxWidth="{DynamicResource Layout.content-max-width}" />
+    </Grid.ColumnDefinitions>
+    <Grid Grid.Column="0">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -46,6 +52,7 @@
         <!-- ST-113: the last group, so the bottom margin the page ends on moves here. -->
         <TextBlock Grid.Row="7" Style="{StaticResource Settings.Group}" Text="Updates" />
         <update:UpdatesPane Grid.Row="8" Margin="0,0,0,24" DataContext="{Binding Updates}" />
+    </Grid>
     </Grid>
     </ScrollViewer>
 </UserControl>

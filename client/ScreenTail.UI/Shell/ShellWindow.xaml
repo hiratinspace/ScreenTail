@@ -79,36 +79,23 @@
         <KeyBinding Modifiers="Ctrl" Key="F" Command="{x:Static shell:ShellWindow.FindCommand}" />
     </Window.InputBindings>
 
-    <!-- Spec v0.6.0 §5 S3 and S4, as built v0.6.4: the frame (title band and rail, shell.bg) round the
-         session pane (bg.base). The rail comes first in the Tab order, then the pane. -->
+    <!-- Spec v0.6.0 §5 S3 and S4, as built v0.6.4: the frame (the rail, shell.bg) beside the session
+         pane (bg.base). The window's own title bar carries the name, so there is no title band: the
+         status chip heads the rail and the pane keeps the height. The rail comes first in the Tab
+         order, then the pane. -->
     <Grid Background="{DynamicResource Brush.shell.bg}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <!-- The title band: the product's name and what the service says it is doing, on the frame. -->
-        <Grid Grid.Row="0"
-              Grid.Column="0"
-              Grid.ColumnSpan="2"
-              Height="48">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-
-            <TextBlock Grid.Column="0"
-                       Margin="20,0,0,0"
-                       VerticalAlignment="Center"
-                       Style="{StaticResource Text.Frame}"
-                       FontSize="{DynamicResource Size.lg}"
-                       FontWeight="{DynamicResource Weight.semibold}"
-                       Text="ScreenTail" />
+        <!-- The inbox rail (Spec §5 S4): the status chip, search and the groups, then its foot. -->
+        <Grid Grid.Column="0" Width="{DynamicResource Layout.rail-width}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
             <!-- What the service says it is doing. Its own region so a screen reader is told when it
                  changes without the whole window being re-announced (Spec §7). -->
@@ -117,9 +104,9 @@
                  reader (ST-084). -->
             <!-- On the frame (Spec §3, status chip): the dot and the border in the shell.* colour of the
                  state, the words in shell.text, since state colours are indicators, not text (§2.1). -->
-            <ContentControl Grid.Column="2"
-                            Margin="0,0,16,0"
-                            VerticalAlignment="Center">
+            <ContentControl Grid.Row="0"
+                            Margin="16,12,16,4"
+                            HorizontalAlignment="Left">
                 <ContentControl.Style>
                     <Style BasedOn="{StaticResource Badge.Frame}" TargetType="ContentControl">
                         <Style.Triggers>
@@ -135,9 +122,9 @@
                         </Style.Triggers>
                     </Style>
                 </ContentControl.Style>
-                <StackPanel Orientation="Horizontal">
+                <DockPanel>
                     <!-- The shared StateDot, with each tone's colour on the frame. -->
-                    <Ellipse Margin="0,0,8,0">
+                    <Ellipse Margin="0,0,8,0" DockPanel.Dock="Left">
                         <Ellipse.Style>
                             <Style BasedOn="{StaticResource StateDot}" TargetType="Ellipse">
                                 <Setter Property="Fill" Value="{DynamicResource Brush.shell.offline}" />
@@ -157,25 +144,19 @@
                     </Ellipse>
                     <!-- Announced on the state without the clock, so a recording is not read out every second. -->
                     <TextBlock VerticalAlignment="Center"
+                               TextWrapping="Wrap"
                                Text="{Binding Status}"
                                AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
                                controls:LiveRegion.Setting="Polite"
                                controls:LiveRegion.Key="{Binding StatusAnnouncement}" />
-                </StackPanel>
+                </DockPanel>
             </ContentControl>
-        </Grid>
 
-        <!-- The inbox rail (Spec §5 S4): search and the groups, then its foot. -->
-        <Grid Grid.Row="1" Grid.Column="0" Width="{DynamicResource Layout.rail-width}">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-            </Grid.RowDefinitions>
-            <history:InboxRailView x:Name="Rail" Grid.Row="0" DataContext="{Binding Rail}" />
+            <history:InboxRailView x:Name="Rail" Grid.Row="1" DataContext="{Binding Rail}" />
 
             <!-- The foot: every session in a table (select several to discard them, or mark one as
                  published), Settings and the diagnostics panel. -->
-            <Border Grid.Row="1"
+            <Border Grid.Row="2"
                     Padding="8,8,16,12"
                     BorderBrush="{DynamicResource Brush.shell.line}"
                     BorderThickness="0,1,0,0">
@@ -213,7 +194,7 @@
         </Grid>
 
         <!-- The session pane: the open session, History's table, Settings, or a sentence saying why none. -->
-        <Grid Grid.Row="1" Grid.Column="1" Background="{DynamicResource Brush.bg.base}">
+        <Grid Grid.Column="1" Background="{DynamicResource Brush.bg.base}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
