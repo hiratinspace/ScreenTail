@@ -8,7 +8,10 @@
         <!-- Remote tools: a toggle per tool the registry knows. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Remote tools" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Remote tools" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[RemoteTools]}" />
+                </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A session starts when one of these takes focus. Switch one off and its windows are not captured." />
                 <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding Tools}">
                     <ItemsControl.ItemTemplate>
@@ -23,7 +26,10 @@
         <!-- Capture scope, with the inline warning and a confirmation before "All windows" saves (INV-5). -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Capture scope" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Capture scope" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[CaptureScope]}" />
+                </StackPanel>
                 <RadioButton Margin="0,8,0,0" GroupName="Scope" Content="Remote-tool windows and admin tools (Recommended)" IsChecked="{Binding RemoteToolsOnly}" IsEnabled="{Binding ScopeEditable}" />
                 <RadioButton Margin="0,4,0,0" GroupName="Scope" Content="All windows during a session" IsChecked="{Binding AllWindows}" IsEnabled="{Binding ScopeEditable}" />
                 <Border Style="{StaticResource Banner.Warning}" Margin="0,8,0,0" Visibility="{Binding ScopeWarningVisibility}">
@@ -38,7 +44,10 @@
         <!-- Auto-start and the grace period. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Starting and stopping" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Starting and stopping" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[StartingAndStopping]}" />
+                </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Start a session by itself when a remote tool takes focus" IsChecked="{Binding AutoStart}" />
                 <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Label}" Text="Stop after the remote tool has been gone for" />
                 <StackPanel Orientation="Horizontal">
@@ -52,7 +61,10 @@
         <!-- Hotkeys, checked as typed; a clash names an alternative inline (ST-029). -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Hotkeys" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Hotkeys" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Hotkeys]}" />
+                </StackPanel>
                 <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding Hotkeys}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -75,14 +87,20 @@
         <!-- Screenshots and the microphone. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Screenshots" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Screenshots" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Screenshots]}" />
+                </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="How much the screen has to change for a screenshot between clicks" />
                 <ComboBox Margin="0,8,0,0" Width="180" HorizontalAlignment="Left" ItemsSource="{Binding Sensitivities}" SelectedItem="{Binding Sensitivity}" AutomationProperties.Name="Scene-change sensitivity" />
 
                 <!-- ST-080 AC3: the device and its live level. The level is read only while this card is
                      on screen with the window in front (the code-behind says when); nothing is recorded. -->
                 <StackPanel x:Name="MicrophoneCard">
-                    <TextBlock Margin="0,24,0,0" Style="{StaticResource Text.SectionHeading}" Text="Microphone" />
+                    <StackPanel Margin="0,24,0,0" Orientation="Horizontal">
+                        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Microphone" />
+                        <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Microphone]}" />
+                    </StackPanel>
                     <TextBlock Margin="0,8,0,6" Style="{StaticResource Text.Label}" Text="Device" />
                     <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding MicrophoneOptions}" SelectedItem="{Binding SelectedMicrophone}" DisplayMemberPath="Label" AutomationProperties.Name="Microphone">
                         <ComboBox.ItemContainerStyle>
@@ -99,7 +117,10 @@
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneLevelStatus}" />
                     <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneApplies, Mode=OneWay}" />
                 </StackPanel>
-                <TextBlock Margin="0,14,0,6" Style="{StaticResource Text.Label}" Text="Speech model" />
+                <StackPanel Margin="0,14,0,6" Orientation="Horizontal">
+                    <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Speech model" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[SpeechModel]}" />
+                </StackPanel>
                 <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding Models}" SelectedItem="{Binding Model}" AutomationProperties.Name="Speech model">
                     <ComboBox.ItemContainerStyle>
                         <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
@@ -127,11 +148,14 @@
         </Border>
 
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
-            <CheckBox Content="Start ScreenTail when I sign in to Windows" IsChecked="{Binding StartUiAtLogin}" />
+            <StackPanel Orientation="Horizontal">
+                <CheckBox Content="Start ScreenTail when I sign in to Windows" IsChecked="{Binding StartUiAtLogin}" />
+                <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[StartAtSignIn]}" />
+            </StackPanel>
         </Border>
 
-        <Button Margin="0,4,0,0" MinWidth="96" Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
-        <TextBlock Margin="0,6,0,12" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" controls:LiveRegion.Setting="Polite" />
+        <!-- Saved by the page's one Save bar (Spec, Settings layout). Why this section cannot be saved as it
+             is stays here, beside its fields, as well as on the bar when a save is tried. -->
+        <TextBlock Margin="0,0,0,12" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
     </StackPanel>
 </UserControl>

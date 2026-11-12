@@ -17,7 +17,10 @@
         <!-- Local-only, locked when the admin set it (INV-11): the toggle stays visible, read-only, with the reason. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Local-only mode" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[LocalOnlyMode]}" />
+                </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here. Notes are drafted on this device from what was said and shown: plainer than the model's, and marked as such in Review." />
@@ -27,7 +30,10 @@
         <!-- Excluded apps: process names, never captured. The shipped list is the defaults and is not editable here. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Excluded apps" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Excluded apps" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[ExcludedApps]}" />
+                </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Add any process that must never be captured." />
                 <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
                     <ItemsControl.ItemTemplate>
@@ -52,7 +58,10 @@
         <!-- Redaction patterns, with the custom one checked as it is typed and tried against a sample. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Redaction patterns" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Redaction patterns" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[RedactionPatterns]}" />
+                </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Social security numbers" IsChecked="{Binding Ssn}" />
                 <CheckBox Margin="0,4,0,0" Content="Card numbers" IsChecked="{Binding Cards}" />
                 <CheckBox Margin="0,4,0,0" Content="API keys, tokens and private keys" IsChecked="{Binding ApiKeys}" />
@@ -86,7 +95,10 @@
         <!-- Retention, locked when the admin's policy set it. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Retention" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Retention" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Retention]}" />
+                </StackPanel>
                 <!-- Maximum binds before Value: until it does, the slider's top is WPF's 10, and a value bound first would be clamped and pushed back. -->
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <Slider Width="280" Minimum="1" Maximum="{Binding RetentionMaximum}" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
@@ -101,29 +113,38 @@
         <!-- Telemetry, with the exact field list, read off the wire type. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Usage telemetry" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Usage telemetry" />
+                    <ContentControl Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[UsageTelemetry]}" />
+                </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Exactly these fields, and never any text from a session:" />
                 <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding TelemetryFieldList}" />
             </StackPanel>
         </Border>
 
-        <Button Margin="0,4,0,0" MinWidth="96" Style="{StaticResource Button.Primary}" HorizontalAlignment="Left" Content="Save" Command="{Binding SaveCommand}" IsEnabled="{Binding CanSave}" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
-        <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Saved}" controls:LiveRegion.Setting="Polite" />
+        <!-- Saved by the page's one Save bar (Spec, Settings layout). Why this section cannot be saved as it
+             is, or why an export did not land, stays here beside the fields. -->
+        <TextBlock Margin="0,0,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding Problem}" Visibility="{Binding ProblemVisibility}" controls:LiveRegion.Setting="Polite" />
 
-        <!-- Your data: export the audit log; delete everything, typed (INV-12). -->
-        <Border Style="{StaticResource Card}" Margin="0,16,0,12">
+        <!-- Your data, the danger zone at the end of Privacy: export the audit log; delete everything, typed
+             (INV-12), with the capture guard (#280). Both act at once and are never on the Save bar. -->
+        <Border Style="{StaticResource Card}" Margin="0,16,0,12" BorderBrush="{DynamicResource Brush.state.danger}">
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Your data" />
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="These act straight away. They are not part of Save." />
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                     <Button Style="{StaticResource Button.Secondary}" Content="Export audit log" Command="{Binding ExportAuditCommand}" />
                     <Button Margin="8,0,0,0"
                             Style="{StaticResource Button.Danger}"
-                            Content="Delete everything on this device…"
                             Command="{Binding EraseEverythingCommand}"
                             AutomationProperties.Name="Delete everything on this device"
-                            AutomationProperties.HelpText="Deletes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will be asked to type DELETE EVERYTHING." />
+                            AutomationProperties.HelpText="Deletes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will be asked to type DELETE EVERYTHING.">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.danger}" Text="&#xE74D;" />
+                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Text="Delete everything on this device…" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
                 <!-- Why it did not happen (a session is being captured, the service is not answering, or it
                      refused): beside the button, never a dialog, and read out as it changes (Spec §4). -->

@@ -18,6 +18,11 @@
                                         Style="{StaticResource Badge.Published}"
                                         Content="Connected"
                                         Visibility="{Binding ConnectedBadgeVisibility}" />
+                        <ContentControl Margin="8,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource Badge.Changed}"
+                                        Content="Changed"
+                                        Visibility="{Binding ChangedVisibility}" />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" />
 
@@ -92,13 +97,22 @@
                                    Visibility="{Binding ProblemVisibility}"
                                    controls:LiveRegion.Setting="Polite" />
 
+                        <!-- In Settings the page's one Save bar stores the connection (Spec, Settings layout) and
+                             this button is hidden; onboarding's Connect step has no bar and keeps it. Test
+                             connection checks what is stored and never saves what is typed. -->
                         <Button Margin="0,10,0,0"
                                 HorizontalAlignment="Left"
                                 Style="{StaticResource Button.Primary}"
                                 Content="Save"
                                 Command="{Binding SaveCommand}"
                                 AutomationProperties.Name="{Binding Title, StringFormat='Save the {0} connection'}"
-                                IsEnabled="{Binding CanSave}" />
+                                IsEnabled="{Binding CanSave}"
+                                Visibility="{Binding SaveVisibility}" />
+                        <TextBlock Margin="0,8,0,0"
+                                   Style="{StaticResource Text.Muted}"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding PageSaveNoteVisibility}"
+                                   Text="Save on the bar below stores the connection. Test connection checks the one already stored." />
                     </StackPanel>
 
                     <!-- Test connection, and the last answer in words either way (Spec §4). -->
@@ -129,112 +143,111 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
-            <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
-                <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" controls:LiveRegion.Setting="Polite" />
-            </Border>
+    <!-- No scroller of its own: the Settings page scrolls, and a second scroller inside it held the wheel. -->
+    <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
+        <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
+            <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" controls:LiveRegion.Setting="Polite" />
+        </Border>
 
-            <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
-                 nobody takes it for ConnectWise or Hudu, or a provider this version does not know. -->
-            <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding OthersVisibility}">
-                <controls:Repeater ItemsSource="{Binding Others}">
+        <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
+             nobody takes it for ConnectWise or Hudu, or a provider this version does not know. -->
+        <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding OthersVisibility}">
+            <controls:Repeater ItemsSource="{Binding Others}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                                <ContentControl Margin="10,0,0,0"
+                                                VerticalAlignment="Center"
+                                                Style="{StaticResource Badge.Published}"
+                                                Content="Connected"
+                                                Visibility="{Binding BadgeVisibility}" />
+                            </StackPanel>
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding SiteUrl}" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding LastError}" Visibility="{Binding ErrorVisibility}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </controls:Repeater>
+        </Border>
+
+        <!-- Not Tab stops themselves (a ContentControl is one by default): Tab goes to the card's fields (ST-084). -->
+        <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
+        <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
+
+        <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
+             filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
+        <Border Style="{StaticResource Card}" Visibility="{Binding MappingsVisibility}">
+            <StackPanel>
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
+                <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
+                <controls:Repeater Margin="0,10,0,0" ItemsSource="{Binding Mappings}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,0,0,8">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
-                                    <ContentControl Margin="10,0,0,0"
-                                                    VerticalAlignment="Center"
-                                                    Style="{StaticResource Badge.Published}"
-                                                    Content="Connected"
-                                                    Visibility="{Binding BadgeVisibility}" />
-                                </StackPanel>
-                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" />
-                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding SiteUrl}" />
-                                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding LastError}" Visibility="{Binding ErrorVisibility}" />
-                            </StackPanel>
+                            <Grid Margin="0,0,0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="2*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" Text="{Binding PsaCompany}" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" Text="{Binding DocCompanyName}" VerticalAlignment="Center" />
+                                <ContentControl Grid.Column="2" Style="{StaticResource Badge}" Content="{Binding ConfidenceLabel}" VerticalAlignment="Center" />
+                                <Button Grid.Column="3"
+                                        Margin="8,0,0,0"
+                                        Style="{StaticResource Button.Ghost}"
+                                        Content="Forget"
+                                        AutomationProperties.Name="{Binding PsaCompany, StringFormat='Forget the mapping for {0}'}"
+                                        Command="{Binding DataContext.UnmapCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                        CommandParameter="{Binding}" />
+                            </Grid>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </controls:Repeater>
-            </Border>
 
-            <!-- Not Tab stops themselves (a ContentControl is one by default): Tab goes to the card's fields (ST-084). -->
-            <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
-            <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
-
-            <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
-                 filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
-            <Border Style="{StaticResource Card}" Visibility="{Binding MappingsVisibility}">
-                <StackPanel>
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
-                    <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
-                    <controls:Repeater Margin="0,10,0,0" ItemsSource="{Binding Mappings}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Grid Margin="0,0,0,6">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Style="{StaticResource Text.Body}" Text="{Binding PsaCompany}" VerticalAlignment="Center" />
-                                    <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" Text="{Binding DocCompanyName}" VerticalAlignment="Center" />
-                                    <ContentControl Grid.Column="2" Style="{StaticResource Badge}" Content="{Binding ConfidenceLabel}" VerticalAlignment="Center" />
-                                    <Button Grid.Column="3"
-                                            Margin="8,0,0,0"
-                                            Style="{StaticResource Button.Ghost}"
-                                            Content="Forget"
-                                            AutomationProperties.Name="{Binding PsaCompany, StringFormat='Forget the mapping for {0}'}"
-                                            Command="{Binding DataContext.UnmapCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                            CommandParameter="{Binding}" />
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </controls:Repeater>
-
-                    <Border Margin="0,10,0,10" Height="1" Background="{DynamicResource Brush.border.subtle}" />
-                    <TextBlock Style="{StaticResource Text.Label}" Text="Map a company by hand" />
-                    <Grid Margin="0,6,0,0">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="2*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBox Grid.Column="0"
-                                 Style="{StaticResource Input.Default}"
-                                 Text="{Binding NewPsaCompany, UpdateSourceTrigger=PropertyChanged}"
-                                 AutomationProperties.Name="Company name in the PSA"
-                                 AutomationProperties.HelpText="Exactly as ConnectWise names it" />
-                        <ComboBox Grid.Column="1"
-                                  Margin="8,0,0,0"
-                                  ItemsSource="{Binding Companies}"
-                                  SelectedItem="{Binding NewDocCompany}"
-                                  DisplayMemberPath="Name"
-                                  AutomationProperties.Name="Company in Hudu">
-                            <ComboBox.ItemContainerStyle>
-                                <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
-                                    <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
-                                </Style>
-                            </ComboBox.ItemContainerStyle>
-                        </ComboBox>
-                        <Button Grid.Column="2"
-                                Margin="8,0,0,0"
-                                Style="{StaticResource Button.Secondary}"
-                                Content="Map"
-                                Command="{Binding AddMappingCommand}"
-                                IsEnabled="{Binding CanAddMapping}" />
-                    </Grid>
-                    <TextBlock Margin="0,6,0,0"
-                               Style="{StaticResource Text.Error}"
-                               TextWrapping="Wrap"
-                               Text="{Binding MappingProblem}"
-                               Visibility="{Binding MappingProblemVisibility}"
-                               controls:LiveRegion.Setting="Polite" />
-                </StackPanel>
-            </Border>
-        </StackPanel>
-    </ScrollViewer>
+                <Border Margin="0,10,0,10" Height="1" Background="{DynamicResource Brush.border.subtle}" />
+                <TextBlock Style="{StaticResource Text.Label}" Text="Map a company by hand" />
+                <Grid Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox Grid.Column="0"
+                             Style="{StaticResource Input.Default}"
+                             Text="{Binding NewPsaCompany, UpdateSourceTrigger=PropertyChanged}"
+                             AutomationProperties.Name="Company name in the PSA"
+                             AutomationProperties.HelpText="Exactly as ConnectWise names it" />
+                    <ComboBox Grid.Column="1"
+                              Margin="8,0,0,0"
+                              ItemsSource="{Binding Companies}"
+                              SelectedItem="{Binding NewDocCompany}"
+                              DisplayMemberPath="Name"
+                              AutomationProperties.Name="Company in Hudu">
+                        <ComboBox.ItemContainerStyle>
+                            <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                                <Setter Property="AutomationProperties.Name" Value="{Binding Name}" />
+                            </Style>
+                        </ComboBox.ItemContainerStyle>
+                    </ComboBox>
+                    <Button Grid.Column="2"
+                            Margin="8,0,0,0"
+                            Style="{StaticResource Button.Secondary}"
+                            Content="Map"
+                            Command="{Binding AddMappingCommand}"
+                            IsEnabled="{Binding CanAddMapping}" />
+                </Grid>
+                <TextBlock Margin="0,6,0,0"
+                           Style="{StaticResource Text.Error}"
+                           TextWrapping="Wrap"
+                           Text="{Binding MappingProblem}"
+                           Visibility="{Binding MappingProblemVisibility}"
+                           controls:LiveRegion.Setting="Polite" />
+            </StackPanel>
+        </Border>
+    </StackPanel>
 </UserControl>
