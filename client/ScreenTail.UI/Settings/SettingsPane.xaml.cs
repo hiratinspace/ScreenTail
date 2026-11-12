@@ -20,6 +20,7 @@ public partial class SettingsPane : UserControl
     public SettingsPane()
     {
         InitializeComponent();
+        Page.GotKeyboardFocus += OnPageGotKeyboardFocus;
         DataContextChanged += (_, e) =>
         {
             if (e.OldValue is SettingsViewModel old)
@@ -104,6 +105,54 @@ public partial class SettingsPane : UserControl
             model.SelectedSection = model.Sections.FirstOrDefault(s => s.Key == current);
             _following = false;
         }
+    }
+
+    /// <summary>
+    /// Focus reached the page's first stop, coming back up it: nothing above that stop takes focus (an
+    /// activated licence is only text), so the page goes back to its top when the stop still fits there.
+    /// The keyboard can then reach what is above it again, and the nav's section is the one Tab left it
+    /// at, so Shift+Tab into the nav retraces Tab instead of landing on whichever section the minimal
+    /// scroll left at the top.
+    /// </summary>
+    private void OnPageGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (e.NewFocus is not FrameworkElement focused || Scroller.VerticalOffset == 0 || FirstStop(Page) is not { } first || !IsInside(focused, first))
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (ReferenceEquals(Keyboard.FocusedElement, focused) && focused.TranslatePoint(new Point(0, focused.ActualHeight), Page).Y <= Scroller.ViewportHeight)
+            {
+                Scroller.ScrollToVerticalOffset(0);
+            }
+        });
+    }
+
+    /// <summary>The first control in the page Tab can stop on, in tree order (the page is one column).</summary>
+    private static Control? FirstStop(DependencyObject at)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(at); i++)
+        {
+            var child = VisualTreeHelper.GetChild(at, i);
+            if (child is UIElement { IsVisible: false })
+            {
+                continue;
+            }
+
+            if (child is Control { Focusable: true, IsEnabled: true, IsTabStop: true } control)
+            {
+                return control;
+            }
+
+            if (FirstStop(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
