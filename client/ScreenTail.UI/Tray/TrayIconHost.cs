@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Runtime.Versioning;
 using System.Windows;
 using ScreenTail.Core.Notifications;
@@ -17,11 +16,16 @@ namespace ScreenTail.UI.Tray;
 /// (weaknesses P0-2). INV-4 — capture is always visibly indicated, and there is no silent-capture mode —
 /// is the invariant that makes the product defensible, and it was enforced by nothing.
 ///
-/// The icon is drawn rather than shipped as a resource so that the five states differ by shape as well as
-/// by colour (Spec §7): a technician with a colour-vision deficiency, and a technician glancing at a
-/// 16-pixel glyph, both have to be able to tell recording from paused. It is also the one indicator that
-/// cannot be dismissed — the HUD can be hidden between sessions, the tray icon cannot — which is why the
-/// grey "unknown" state is its own icon rather than falling back to idle.
+/// The icons are the brand's tray glyphs (Spec §2.0, tray glyph tiers), built from
+/// <c>shared/design/brand/tray-*.svg</c> by <c>build-icons.py</c> and embedded here, one .ico per state and
+/// taskbar with a frame for each scale from 100% to 300%. The states differ by shape as well as by colour
+/// (Spec §7): a technician with a colour-vision deficiency, and a technician glancing at a 16-pixel glyph,
+/// both have to be able to tell recording (a dot) from paused (two bars) from offline (a cross). It is
+/// also the one indicator that cannot be dismissed (the HUD can be hidden between sessions, the tray icon
+/// cannot), which is why the grey "unknown" state is its own icon rather than falling back to idle.
+///
+/// The glyph follows the taskbar: Iris on a light one, Ribbon 400 on a dark one, re-read whenever Windows
+/// says a user preference changed.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class TrayIconHost : IDisposable
@@ -29,15 +33,25 @@ public sealed class TrayIconHost : IDisposable
     /// <summary>The thread that built the icon, which is the one that may touch it (the shell's UI thread).</summary>
     private readonly System.Windows.Threading.Dispatcher _dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
     private readonly Forms.NotifyIcon _icon = new() { Visible = false };
-    private readonly Dictionary<TrayIcon, Icon> _icons = [];
-    private readonly List<IntPtr> _handles = [];
+    private readonly Dictionary<(TrayIcon State, bool Light), Icon> _icons = [];
+    private readonly Func<bool> _readLightTaskbar;
     private readonly Forms.ToolStripMenuItem _stateLine;
     private readonly Dictionary<Forms.ToolStripMenuItem, Forms.Padding> _padding = [];
     private TrayPresence? _shown;
     private NotificationAction? _pending;
+    private bool _lightTaskbar;
 
     public TrayIconHost()
+        : this(ReadLightTaskbar)
     {
+    }
+
+    /// <param name="readLightTaskbar">Whether the taskbar is light now; a test passes its own.</param>
+    internal TrayIconHost(Func<bool> readLightTaskbar)
+    {
+        _readLightTaskbar = readLightTaskbar;
+        _lightTaskbar = readLightTaskbar();
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
         _stateLine = new Forms.ToolStripMenuItem("Connecting…") { Enabled = false };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(_stateLine);
@@ -81,6 +95,9 @@ public sealed class TrayIconHost : IDisposable
 
     /// <summary>The icon's tooltip as Windows holds it, for the tests that watch the clock move (ST-072).</summary>
     internal string Tooltip => _icon.Text;
+
+    /// <summary>The file name of the icon on show, for the tests of the state and taskbar pick.</summary>
+    internal string? ShownIcon { get; private set; }
 
     /// <summary>The menu's first row as drawn, for the same tests.</summary>
     internal string StateLine => _stateLine.Text ?? string.Empty;
@@ -146,7 +163,7 @@ public sealed class TrayIconHost : IDisposable
         }
 
         _shown = presence;
-        _icon.Icon = IconFor(presence.Icon);
+        ShowIcon(presence.Icon);
 
         // Windows truncates a tooltip past 63 characters, and a truncated state is a misread state.
         _icon.Text = presence.Tooltip.Length <= 63 ? presence.Tooltip : presence.Tooltip[..60] + "...";
@@ -197,6 +214,7 @@ public sealed class TrayIconHost : IDisposable
         }
 
         Disposed = true;
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _icon.Visible = false;
         _icon.Dispose();
         foreach (var icon in _icons.Values)
@@ -204,18 +222,77 @@ public sealed class TrayIconHost : IDisposable
             icon.Dispose();
         }
 
-        foreach (var handle in _handles)
-        {
-            _ = DestroyIcon(handle);
-        }
-
         _icons.Clear();
-        _handles.Clear();
     }
 
-    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-    private static extern bool DestroyIcon(IntPtr handle);
+    /// <summary>
+    /// Re-reads the taskbar's theme and, when it changed, repaints the icon on show. Windows raises this
+    /// for any preference change, on its own thread, so it marshals and compares rather than repainting.
+    /// </summary>
+    internal void RefreshTheme()
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(RefreshTheme);
+            return;
+        }
+
+        if (Disposed)
+        {
+            return;
+        }
+
+        var light = _readLightTaskbar();
+        if (light == _lightTaskbar)
+        {
+            return;
+        }
+
+        _lightTaskbar = light;
+        if (_shown is { } shown)
+        {
+            ShowIcon(shown.Icon);
+        }
+    }
+
+    /// <summary>
+    /// One state's icon at this screen's small-icon size, from the embedded .ico: 16 px at 100%, 20 at
+    /// 125%, 24 at 150%, 32 at 200%, and so on, so Windows never scales a 16-pixel glyph up.
+    /// </summary>
+    internal static Icon Load(TrayIcon state, bool lightTaskbar, System.Drawing.Size size)
+    {
+        var name = ResourcePrefix + TrayGlyph.FileName(state, lightTaskbar);
+        using var stream = typeof(TrayIconHost).Assembly.GetManifestResourceStream(name)
+            ?? throw new InvalidOperationException($"The tray icon {name} is not embedded.");
+        return new Icon(stream, size);
+    }
+
+    private const string ResourcePrefix = "ScreenTail.UI.Assets.Tray.";
+
+    /// <summary>
+    /// Whether the taskbar is light. Any failure to read it is the default dark taskbar: the icon is
+    /// still shown, in the glyph that is legible on most taskbars, rather than not at all.
+    /// </summary>
+    private static bool ReadLightTaskbar()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return TrayGlyph.IsLightTaskbar(key?.GetValue("SystemUsesLightTheme"));
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or System.IO.IOException)
+        {
+            return false;
+        }
+    }
+
+    private void OnUserPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category is Microsoft.Win32.UserPreferenceCategory.General or Microsoft.Win32.UserPreferenceCategory.VisualStyle or Microsoft.Win32.UserPreferenceCategory.Color)
+        {
+            RefreshTheme();
+        }
+    }
 
     /// <summary>
     /// Pads each item to at least 28 device-independent pixels at the menu's DPI: back to its own padding,
@@ -251,67 +328,16 @@ public sealed class TrayIconHost : IDisposable
         return item;
     }
 
-    private Icon IconFor(TrayIcon state)
+    private void ShowIcon(TrayIcon state)
     {
-        if (_icons.TryGetValue(state, out var cached))
+        var key = (state, _lightTaskbar);
+        if (!_icons.TryGetValue(key, out var icon))
         {
-            return cached;
+            icon = Load(state, _lightTaskbar, Forms.SystemInformation.SmallIconSize);
+            _icons[key] = icon;
         }
 
-        var icon = Draw(state, out var handle);
-        _handles.Add(handle);
-        _icons[state] = icon;
-        return icon;
-    }
-
-    /// <summary>
-    /// Draws one 16x16 glyph. Shape first, colour second: a filled circle is recording, two bars are
-    /// paused, a hollow ring is idle, a square is a draft waiting, and a hollow ring with a gap is the
-    /// state nobody knows.
-    /// </summary>
-    private static Icon Draw(TrayIcon state, out IntPtr handle)
-    {
-        using var bitmap = new Bitmap(16, 16);
-        using (var g = Graphics.FromImage(bitmap))
-        {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.Clear(Color.Transparent);
-            var colour = state switch
-            {
-                TrayIcon.Recording => Color.FromArgb(0xE5, 0x5B, 0x5B),
-                TrayIcon.Paused => Color.FromArgb(0xE8, 0xB3, 0x39),
-                TrayIcon.DraftReady => Color.FromArgb(0x4F, 0x8C, 0xFF),
-                TrayIcon.Offline => Color.FromArgb(0x94, 0xA3, 0xB8),
-                _ => Color.FromArgb(0xB6, 0xC2, 0xD1),
-            };
-
-            using var brush = new SolidBrush(colour);
-            using var pen = new Pen(colour, 2f);
-            switch (state)
-            {
-                case TrayIcon.Recording:
-                    g.FillEllipse(brush, 3, 3, 10, 10);
-                    break;
-                case TrayIcon.Paused:
-                    g.FillRectangle(brush, 4, 3, 3, 10);
-                    g.FillRectangle(brush, 9, 3, 3, 10);
-                    break;
-                case TrayIcon.DraftReady:
-                    g.FillRectangle(brush, 3, 3, 10, 10);
-                    break;
-                case TrayIcon.Offline:
-                    // A ring with a gap: the shape says "incomplete" before the colour says "grey".
-                    g.DrawArc(pen, 3, 3, 10, 10, 45, 270);
-                    break;
-                default:
-                    g.DrawEllipse(pen, 3, 3, 10, 10);
-                    break;
-            }
-        }
-
-        // FromHandle does not own the handle, so it is kept and destroyed in Dispose. Without that this
-        // leaks one GDI icon per state for the life of the process.
-        handle = bitmap.GetHicon();
-        return Icon.FromHandle(handle);
+        _icon.Icon = icon;
+        ShownIcon = TrayGlyph.FileName(state, _lightTaskbar);
     }
 }

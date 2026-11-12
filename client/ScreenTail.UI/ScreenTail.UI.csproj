@@ -14,7 +14,16 @@
          environment asks. RunningHonestly's check runs at start-up, after a hook would already have
          run, so it cannot be what keeps one out. ProcessStartupTests pins this for both processes. -->
     <StartupHookSupport>false</StartupHookSupport>
+    <!-- The Iris app icon (Spec v0.6.0 §2.0), built from shared/design/brand by build-icons.py. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The window and taskbar icon, set on Window.Base (Theme/Components.xaml) for every window. -->
+    <Resource Include="Assets\app.ico" />
+    <!-- The tray icons, one per state and taskbar theme (TrayIconHost, TrayGlyph). -->
+    <EmbeddedResource Include="Assets\Tray\*.ico" LogicalName="ScreenTail.UI.Assets.Tray.%(Filename)%(Extension)" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- Enabling Windows Forms brings its implicit usings with it, and System.Windows.Forms and

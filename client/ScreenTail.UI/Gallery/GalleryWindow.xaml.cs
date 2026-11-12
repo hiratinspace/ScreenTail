@@ -45,6 +45,7 @@ public partial class GalleryWindow : Window
             WindowRenderer.Save(this, Path.Combine(_screenshotDirectory, RenderThemes.FileName("gallery", theme)));
         }
 
+        BrandIconSheet.Save(_screenshotDirectory);
         RenderIndex.Write(_screenshotDirectory);
         Application.Current.Shutdown();
     }
