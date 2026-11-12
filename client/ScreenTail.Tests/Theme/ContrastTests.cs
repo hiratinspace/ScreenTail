@@ -126,6 +126,58 @@ public class ContrastTests
         Assert.True(ratio > 1.0, $"{theme}: {border} is the same colour as {background}, so it draws nothing");
     }
 
+    public static TheoryData<string, string, string> ControlEdgePairs
+    {
+        get
+        {
+            var data = new TheoryData<string, string, string>();
+            var contrast = Tokens.RootElement.GetProperty("contrast");
+            foreach (var theme in new[] { "dark", "light" })
+            {
+                foreach (var edge in contrast.GetProperty("control_edges").EnumerateArray())
+                {
+                    foreach (var background in contrast.GetProperty("control_edge_backgrounds").EnumerateArray())
+                    {
+                        data.Add(theme, edge.GetString()!, background.GetString()!);
+                    }
+                }
+            }
+
+            return data;
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(ControlEdgePairs))]
+    public void AnInputsEdgeCanBeSeenOnWhatItSitsOn(string theme, string edge, string background)
+    {
+        // WCAG 1.4.11 (ST-016): an input's fill is a near-white on a near-white card, so its outline is
+        // the only thing that says where the box is. Inputs were outlined in border.strong, 1.51:1 to
+        // 1.67:1 in light, which the structural test above let through because it asks only for "not
+        // the same colour". The floor is checked here, not read from the file alone.
+        var minimum = Tokens.RootElement.GetProperty("contrast").GetProperty("control_edge_minimum").GetDouble();
+        Assert.True(minimum >= 3.0, $"contrast.control_edge_minimum is {minimum}; WCAG 1.4.11 needs 3:1");
+
+        var ratio = ContrastRatio(Hex(theme, edge), Hex(theme, background));
+
+        Assert.True(ratio >= minimum, $"{theme}: {edge} on {background} is {ratio:0.00}:1, below {minimum}:1");
+    }
+
+    [Fact]
+    public void TheControlEdgeListHoldsTheSurfacesTheReviewMeasured()
+    {
+        // The list is in the file under test, so a change that dropped bg.surface from it would pass
+        // every edge. The two surfaces the review measured are held here.
+        var backgrounds = Tokens.RootElement.GetProperty("contrast").GetProperty("control_edge_backgrounds")
+            .EnumerateArray().Select(b => b.GetString()).ToList();
+        Assert.Contains("bg.base", backgrounds);
+        Assert.Contains("bg.surface", backgrounds);
+
+        var edges = Tokens.RootElement.GetProperty("contrast").GetProperty("control_edges")
+            .EnumerateArray().Select(b => b.GetString()).ToList();
+        Assert.Contains("border.control", edges);
+    }
+
     [Fact]
     public void EveryColourHasToSayWhatItIsAllowedToDo()
     {
@@ -135,7 +187,7 @@ public class ContrastTests
         // adds it has to decide which it is.
         var contrast = Tokens.RootElement.GetProperty("contrast");
         var classified = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var list in new[] { "text", "backgrounds", "indicators", "structural" })
+        foreach (var list in new[] { "text", "backgrounds", "indicators", "structural", "control_edges" })
         {
             foreach (var name in contrast.GetProperty(list).EnumerateArray())
             {
