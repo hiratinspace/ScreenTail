@@ -58,22 +58,15 @@
         </DataTemplate>
         <shell:ShellContentTemplateSelector x:Key="Shell.Content" Message="{StaticResource Shell.Message}" />
 
-        <!-- A header tab. Tag="Selected" draws the current view's underline (Components.xaml, Nav.Item). -->
-        <Style x:Key="Nav.Review" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding View}" Value="Review">
-                    <Setter Property="Tag" Value="Selected" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="Nav.History" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
+        <!-- The rail's foot items. Tag="Selected" marks the view the session pane shows (Rail.FootItem). -->
+        <Style x:Key="Foot.History" BasedOn="{StaticResource Rail.FootItem}" TargetType="Button">
             <Style.Triggers>
                 <DataTrigger Binding="{Binding View}" Value="History">
                     <Setter Property="Tag" Value="Selected" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style x:Key="Nav.Settings" BasedOn="{StaticResource Nav.Item}" TargetType="Button">
+        <Style x:Key="Foot.Settings" BasedOn="{StaticResource Rail.FootItem}" TargetType="Button">
             <Style.Triggers>
                 <DataTrigger Binding="{Binding View}" Value="Settings">
                     <Setter Property="Tag" Value="Selected" />
@@ -81,142 +74,168 @@
             </Style.Triggers>
         </Style>
     </Window.Resources>
-    <Grid Background="{DynamicResource Brush.bg.base}">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+    <Window.InputBindings>
+        <!-- Spec §5 S4: Ctrl+F puts focus in the rail's search, from anywhere in the window. -->
+        <KeyBinding Modifiers="Ctrl" Key="F" Command="{x:Static shell:ShellWindow.FindCommand}" />
+    </Window.InputBindings>
 
-        <!-- Navigation. Spec §5: Review, History, Settings, on the surface layer above the window. -->
-        <Border Grid.Row="0"
-                Padding="20,8,16,0"
-                Background="{DynamicResource Brush.bg.surface}"
-                BorderBrush="{DynamicResource Brush.border.subtle}"
-                BorderThickness="0,0,0,1">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+    <!-- Spec v0.6.0 §5 S3 and S4, as built v0.6.4: the frame (the rail, shell.bg) beside the session
+         pane (bg.base). The window's own title bar carries the name, so there is no title band: the
+         status chip heads the rail and the pane keeps the height. The rail comes first in the Tab
+         order, then the pane. -->
+    <Grid Background="{DynamicResource Brush.shell.bg}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-                <TextBlock Grid.Column="0"
-                           Margin="0,0,28,8"
-                           VerticalAlignment="Center"
-                           Style="{StaticResource Text.SectionHeading}"
-                           Text="ScreenTail" />
+        <!-- The inbox rail (Spec §5 S4): the status chip, search and the groups, then its foot. -->
+        <Grid Grid.Column="0" Width="{DynamicResource Layout.rail-width}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
 
-                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                    <Button Style="{StaticResource Nav.Review}"
-                            Margin="0,0,4,0"
-                            Content="Review"
+            <!-- What the service says it is doing. Its own region so a screen reader is told when it
+                 changes without the whole window being re-announced (Spec §7). -->
+            <!-- The words are a TextBlock inside the badge, named and announced there: a ContentControl
+                 has no automation peer, so a name or a live region on the badge itself reached no screen
+                 reader (ST-084). -->
+            <!-- On the frame (Spec §3, status chip): the dot and the border in the shell.* colour of the
+                 state, the words in shell.text, since state colours are indicators, not text (§2.1). -->
+            <ContentControl Grid.Row="0"
+                            Margin="16,12,16,4"
+                            HorizontalAlignment="Left">
+                <ContentControl.Style>
+                    <Style BasedOn="{StaticResource Badge.Frame}" TargetType="ContentControl">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding StatusTone}" Value="Recording">
+                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.recording}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
+                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.paused}" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding StatusTone}" Value="Scope">
+                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.shell.scope}" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ContentControl.Style>
+                <DockPanel>
+                    <!-- The shared StateDot, with each tone's colour on the frame. -->
+                    <Ellipse Margin="0,0,8,0" DockPanel.Dock="Left">
+                        <Ellipse.Style>
+                            <Style BasedOn="{StaticResource StateDot}" TargetType="Ellipse">
+                                <Setter Property="Fill" Value="{DynamicResource Brush.shell.offline}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding StatusTone}" Value="Recording">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.shell.recording}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.shell.paused}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding StatusTone}" Value="Scope">
+                                        <Setter Property="Fill" Value="{DynamicResource Brush.shell.scope}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Ellipse.Style>
+                    </Ellipse>
+                    <!-- Announced on the state without the clock, so a recording is not read out every second. -->
+                    <TextBlock VerticalAlignment="Center"
+                               TextWrapping="Wrap"
+                               Text="{Binding Status}"
+                               AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
+                               controls:LiveRegion.Setting="Polite"
+                               controls:LiveRegion.Key="{Binding StatusAnnouncement}" />
+                </DockPanel>
+            </ContentControl>
+
+            <history:InboxRailView x:Name="Rail" Grid.Row="1" DataContext="{Binding Rail}" />
+
+            <!-- The foot: every session in a table (select several to discard them, or mark one as
+                 published), Settings and the diagnostics panel. -->
+            <Border Grid.Row="2"
+                    Padding="8,8,16,12"
+                    BorderBrush="{DynamicResource Brush.shell.line}"
+                    BorderThickness="0,1,0,0">
+                <StackPanel>
+                    <Button Style="{StaticResource Foot.History}"
                             Command="{Binding NavigateCommand}"
-                            CommandParameter="Review" />
-                    <Button Style="{StaticResource Nav.History}"
-                            Margin="0,0,4,0"
-                            Content="History"
+                            CommandParameter="History"
+                            AutomationProperties.Name="All sessions"
+                            AutomationProperties.HelpText="Every session in a table: select several to discard them, or one marked Not confirmed to mark it as published.">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.shell.muted}" Text="&#xE8FD;" />
+                            <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="All sessions" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource Foot.Settings}"
                             Command="{Binding NavigateCommand}"
-                            CommandParameter="History" />
-                    <Button Style="{StaticResource Nav.Settings}"
-                            Content="Settings"
-                            Command="{Binding NavigateCommand}"
-                            CommandParameter="Settings" />
+                            CommandParameter="Settings"
+                            AutomationProperties.Name="Settings">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.shell.muted}" Text="&#xE713;" />
+                            <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Settings" />
+                        </StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource Rail.FootItem}"
+                            Command="{Binding OpenDiagnosticsCommand}"
+                            AutomationProperties.Name="Diagnostics"
+                            AutomationProperties.HelpText="What's being captured, in a window of its own.">
+                        <StackPanel Orientation="Horizontal">
+                            <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.shell.muted}" Text="&#xE9D9;" />
+                            <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Text="Diagnostics" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
+            </Border>
+        </Grid>
 
-                <!-- What the service says it is doing. Its own region so a screen reader is told when it
-                     changes without the whole window being re-announced (Spec §7). -->
-                <!-- The words are a TextBlock inside the badge, named and announced there: a ContentControl
-                     has no automation peer, so a name or a live region on the badge itself reached no screen
-                     reader (ST-084). -->
-                <!-- The state dot and a border in the state's colour, as the pill shows it (Spec §5 S2); the
-                     words stay text.primary, since state colours are indicators, not text (Spec §2.1). -->
-                <ContentControl Grid.Column="3"
-                                Margin="0,0,0,8"
-                                VerticalAlignment="Center">
-                    <ContentControl.Style>
-                        <Style BasedOn="{StaticResource Badge.Status}" TargetType="ContentControl">
-                            <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.offline}" />
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding StatusTone}" Value="Recording">
-                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.recording}" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
-                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding StatusTone}" Value="Scope">
-                                    <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.scope}" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </ContentControl.Style>
-                    <StackPanel Orientation="Horizontal">
-                        <!-- The shared StateDot, with each tone's colour; its own fill is recording's red. -->
-                        <Ellipse Margin="0,0,8,0">
-                            <Ellipse.Style>
-                                <Style BasedOn="{StaticResource StateDot}" TargetType="Ellipse">
-                                    <Setter Property="Fill" Value="{DynamicResource Brush.state.offline}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding StatusTone}" Value="Recording">
-                                            <Setter Property="Fill" Value="{DynamicResource Brush.state.recording}" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
-                                            <Setter Property="Fill" Value="{DynamicResource Brush.state.paused}" />
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding StatusTone}" Value="Scope">
-                                            <Setter Property="Fill" Value="{DynamicResource Brush.state.scope}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Ellipse.Style>
-                        </Ellipse>
-                        <!-- Announced on the state without the clock, so a recording is not read out every second. -->
-                        <TextBlock VerticalAlignment="Center"
-                                   Text="{Binding Status}"
-                                   AutomationProperties.Name="{Binding Status, StringFormat='Capture state: {0}'}"
-                                   controls:LiveRegion.Setting="Polite"
-                                   controls:LiveRegion.Key="{Binding StatusAnnouncement}" />
-                    </StackPanel>
-                </ContentControl>
-            </Grid>
-        </Border>
+        <!-- The session pane: the open session, History's table, Settings, or a sentence saying why none. -->
+        <Grid Grid.Column="1" Background="{DynamicResource Brush.bg.base}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
 
-        <!-- Spec §5 S1: shown only when the service is not answering. A bar that is always there is a bar
-             nobody reads, including on the day it says something that matters. -->
-        <Border Grid.Row="1"
-                Margin="24,16,24,0"
-                Style="{StaticResource Banner.Warning}"
-                Visibility="{Binding BannerVisibility}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0"
-                           Margin="0,0,10,0"
-                           Style="{StaticResource Text.Body}"
-                           VerticalAlignment="Center"
-                           Text="⚠" />
-                <TextBlock Grid.Column="1"
-                           VerticalAlignment="Center"
-                           Style="{StaticResource Text.Body}"
-                           Text="{Binding Banner}"
-                           controls:LiveRegion.Setting="Assertive" />
-                <Button Grid.Column="2"
-                        Margin="12,0,0,0"
-                        Style="{StaticResource Button.Secondary}"
-                        Content="Start"
-                        Command="{Binding StartServiceCommand}"
-                        AutomationProperties.Name="Start the capture service" />
-            </Grid>
-        </Border>
+            <!-- Spec §5 S1: shown only when the service is not answering. A bar that is always there is a bar
+                 nobody reads, including on the day it says something that matters. -->
+            <Border Grid.Row="0"
+                    Margin="24,16,24,0"
+                    Style="{StaticResource Banner.Warning}"
+                    Visibility="{Binding BannerVisibility}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0"
+                               Margin="0,0,10,0"
+                               Style="{StaticResource Text.Body}"
+                               VerticalAlignment="Center"
+                               Text="⚠" />
+                    <TextBlock Grid.Column="1"
+                               VerticalAlignment="Center"
+                               Style="{StaticResource Text.Body}"
+                               Text="{Binding Banner}"
+                               controls:LiveRegion.Setting="Assertive" />
+                    <Button Grid.Column="2"
+                            Margin="12,0,0,0"
+                            Style="{StaticResource Button.Secondary}"
+                            Content="Start"
+                            Command="{Binding StartServiceCommand}"
+                            AutomationProperties.Name="Start the capture service" />
+                </Grid>
+            </Border>
 
-        <ContentControl Grid.Row="2"
-                        Margin="{DynamicResource Padding.pane}"
-                        Content="{Binding Content}"
-                        ContentTemplateSelector="{StaticResource Shell.Content}"
-                        Focusable="False" />
+            <ContentControl Grid.Row="1"
+                            Margin="{DynamicResource Padding.pane}"
+                            Content="{Binding Content}"
+                            ContentTemplateSelector="{StaticResource Shell.Content}"
+                            Focusable="False" />
+        </Grid>
     </Grid>
 </Window>

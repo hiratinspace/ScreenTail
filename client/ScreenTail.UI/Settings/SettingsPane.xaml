@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:activation="clr-namespace:ScreenTail.UI.Settings.Activation"
              xmlns:capture="clr-namespace:ScreenTail.UI.Settings.Capture"
+             xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
              xmlns:privacy="clr-namespace:ScreenTail.UI.Settings.Privacy"
              xmlns:update="clr-namespace:ScreenTail.UI.Update"
@@ -13,39 +14,173 @@
             <Setter Property="Margin" Value="0,28,0,12" />
         </Style>
     </UserControl.Resources>
-    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,12,0">
-    <Grid Width="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Left">
+    <!-- Ctrl+S saves every changed section (Spec, Settings layout). Esc undoes only from the bar itself
+         (the code-behind), because Undo throws away what was typed. -->
+    <UserControl.InputBindings>
+        <KeyBinding Key="S" Modifiers="Control" Command="{Binding SaveCommand}" />
+    </UserControl.InputBindings>
+
+    <!-- Spec v0.6.0, Settings layout (owner decision): a nav of the sections beside one scrolling page, and
+         one Save bar for the whole page, pinned under it. The bar is its own row, so it never lies over the
+         page: the page's view ends above it, and a control that takes focus is scrolled into that view. -->
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="188" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <TextBlock Grid.Row="0" Style="{StaticResource Text.ScreenTitle}" Text="Settings" />
-
-        <!-- The sections Spec §5 lists, in its order. -->
-        <activation:ActivationPane Grid.Row="1" Margin="0,16,0,0" DataContext="{Binding Activation}" />
-
-        <StackPanel Grid.Row="2">
-            <TextBlock Style="{StaticResource Settings.Group}" Text="Capture" />
-            <capture:CapturePane DataContext="{Binding Capture}" />
+        <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Text.ScreenTitle}" Text="Settings" />
+        <!-- What the last Save did, once it wrote everything: a word, a check and the published colour. -->
+        <StackPanel Grid.Row="0" Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center" Orientation="Horizontal" Visibility="{Binding SavedVisibility}">
+            <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.published}" Text="&#xE73E;" />
+            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="{Binding SavedNote}" controls:LiveRegion.Setting="Polite" />
         </StackPanel>
 
-        <TextBlock Grid.Row="3" Style="{StaticResource Settings.Group}" Text="Privacy and redaction" />
-        <privacy:PrivacyPane Grid.Row="4" DataContext="{Binding Privacy}" />
+        <!-- The nav: the arrows move through it and bring each section into view; Tab leaves it for the page. -->
+        <ListBox x:Name="Nav"
+                 Grid.Row="1"
+                 Grid.Column="0"
+                 Margin="0,16,0,0"
+                 VerticalAlignment="Top"
+                 Style="{StaticResource Settings.Nav}"
+                 ItemContainerStyle="{StaticResource Settings.NavItem}"
+                 ItemsSource="{Binding Sections}"
+                 SelectedItem="{Binding SelectedSection}"
+                 SelectionChanged="OnNavSelectionChanged"
+                 AutomationProperties.Name="Settings sections">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" TextWrapping="NoWrap" Text="{Binding Label}" />
+                        <!-- How many changes the section holds: the number in a badge, read in the item's name. -->
+                        <ContentControl Grid.Column="1"
+                                        Margin="8,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource Badge.Changed}"
+                                        Content="{Binding PendingText}"
+                                        Visibility="{Binding PendingVisibility}" />
+                    </Grid>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
 
-        <TextBlock Grid.Row="5" Style="{StaticResource Settings.Group}" Text="Integrations" />
-        <integrations:IntegrationsPane Grid.Row="6" DataContext="{Binding Integrations}" />
+        <ScrollViewer x:Name="Scroller"
+                      Grid.Row="1"
+                      Grid.Column="1"
+                      Margin="24,0,0,0"
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="0,0,12,0"
+                      ScrollChanged="OnScrollChanged">
+            <!-- Each section is a group tagged with its nav key: the nav scrolls to it, and scrolling selects it. -->
+            <!-- The readable width, on the left, and narrower when the pane is: beside the inbox rail at the
+                 1024 minimum (v0.6.4) the page has under 760, and a fixed width cut the cards' buttons off. -->
+            <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MaxWidth="{DynamicResource Layout.content-max-width}" />
+            </Grid.ColumnDefinitions>
+            <StackPanel x:Name="Page" Grid.Column="0">
+                <StackPanel Tag="Activation">
+                    <TextBlock Style="{StaticResource Settings.Group}" Margin="0,16,0,12" Text="Activation" />
+                    <activation:ActivationPane DataContext="{Binding Activation}" />
+                </StackPanel>
 
-        <!-- ST-113: the last group, so the bottom margin the page ends on moves here. -->
-        <TextBlock Grid.Row="7" Style="{StaticResource Settings.Group}" Text="Updates" />
-        <update:UpdatesPane Grid.Row="8" Margin="0,0,0,24" DataContext="{Binding Updates}" />
+                <StackPanel Tag="Capture">
+                    <TextBlock Style="{StaticResource Settings.Group}" Text="Capture" />
+                    <capture:CapturePane DataContext="{Binding Capture}" />
+                </StackPanel>
+
+                <StackPanel Tag="Privacy">
+                    <TextBlock Style="{StaticResource Settings.Group}" Text="Privacy and redaction" />
+                    <privacy:PrivacyPane DataContext="{Binding Privacy}" />
+                </StackPanel>
+
+                <StackPanel Tag="Integrations">
+                    <TextBlock Style="{StaticResource Settings.Group}" Text="Integrations" />
+                    <integrations:IntegrationsPane DataContext="{Binding Integrations}" />
+                </StackPanel>
+
+                <!-- ST-113: the last group, so the bottom margin the page ends on is here. -->
+                <StackPanel Tag="Updates" Margin="0,0,0,24">
+                    <TextBlock Style="{StaticResource Settings.Group}" Text="Updates" />
+                    <update:UpdatesPane DataContext="{Binding Updates}" />
+                </StackPanel>
+            </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- The one Save bar (Spec §3, Save bar: hidden, pending, saving, failed). Shown only with a change
+             pending; pinned; never scrolls. Each state is a word, a mark and a colour: the iris dot while
+             pending or saving, the danger cross when a section failed, with the section named in words. -->
+        <Border x:Name="Bar"
+                Grid.Row="2"
+                Grid.Column="0"
+                Grid.ColumnSpan="2"
+                Style="{StaticResource SaveBar}"
+                Visibility="{Binding BarVisibility}"
+                PreviewKeyDown="OnBarKeyDown"
+                IsVisibleChanged="OnBarVisibilityChanged">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="8"
+                                 Height="8"
+                                 VerticalAlignment="Center"
+                                 Fill="{DynamicResource Brush.accent.primary}"
+                                 Visibility="{Binding PendingMarkVisibility}" />
+                        <controls:Glyph Style="{StaticResource Icon}"
+                                        Foreground="{DynamicResource Brush.state.danger}"
+                                        Text="&#xE711;"
+                                        Visibility="{Binding FailedMarkVisibility}" />
+                        <TextBlock Margin="8,0,0,0"
+                                   VerticalAlignment="Center"
+                                   Style="{StaticResource Text.Body}"
+                                   TextWrapping="NoWrap"
+                                   Text="{Binding Summary}"
+                                   controls:LiveRegion.Setting="Polite" />
+                        <Button Margin="6,0,0,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource Button.Link}"
+                                Content="{Binding LinkSection}"
+                                Command="{Binding GoToCommand}"
+                                CommandParameter="{Binding LinkSection}"
+                                Visibility="{Binding LinkVisibility}"
+                                AutomationProperties.Name="{Binding LinkName}" />
+                    </StackPanel>
+                    <!-- Which section did not save and why, in the <What happened>. <What to do>. pattern. -->
+                    <TextBlock Margin="16,4,0,0"
+                               Style="{StaticResource Text.Body}"
+                               TextWrapping="Wrap"
+                               Text="{Binding FailureMessage}"
+                               controls:LiveRegion.Setting="Assertive" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Button Style="{StaticResource Button.Secondary}"
+                            Content="Undo changes"
+                            Command="{Binding UndoCommand}"
+                            AutomationProperties.HelpText="Puts every section back to what was last saved. Esc does the same while the bar has focus." />
+                    <!-- The bar's one filled button, the key beside its word as Publish carries Ctrl+Enter. -->
+                    <Button Margin="8,0,0,0"
+                            MinWidth="96"
+                            Style="{StaticResource Button.Primary}"
+                            Content="Save   Ctrl+S"
+                            Command="{Binding SaveCommand}"
+                            AutomationProperties.AcceleratorKey="Ctrl+S"
+                            AutomationProperties.HelpText="{Binding BarName}" />
+                </StackPanel>
+            </Grid>
+        </Border>
     </Grid>
-    </ScrollViewer>
 </UserControl>

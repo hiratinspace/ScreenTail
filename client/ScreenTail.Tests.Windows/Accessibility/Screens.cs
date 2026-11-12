@@ -25,7 +25,7 @@ internal static class Screens
     public static readonly string[] All =
     [
         "review", "review-no-psa", "review-published", "review-partial", "review-needs-mapping", "review-timeline", "review-enlarged",
-        "review-blur-box", "history", "settings", "service-down",
+        "review-blur-box", "rail-not-confirmed", "history", "settings", "settings-pending", "service-down",
         "onboarding-welcome", "onboarding-activate", "onboarding-permissions", "onboarding-tools", "onboarding-connect", "onboarding-tryit", "onboarding-done",
         "diagnostics", "diagnostics-unanswered",
         "confirm-discard", "confirm-bulk-discard", "confirm-erase", "shortcut-sheet",
@@ -52,6 +52,11 @@ internal static class Screens
                 }
 
                 break;
+            case "rail-not-confirmed":
+                // The inbox rail with a Not confirmed session open, so its row is the pane's tab (Spec §5 S4).
+                window = await ShellAsync(state => state.OpenSession("s-4"));
+                await PaneAsync<ReviewPane>(window);
+                break;
             case "history":
                 window = await ShellAsync(state => state.Navigate(ShellView.History));
                 await PaneAsync<UI.History.HistoryPane>(window);
@@ -59,6 +64,17 @@ internal static class Screens
             case "settings":
                 window = await ShellAsync(state => state.Navigate(ShellView.Settings));
                 await PaneAsync<UI.Settings.SettingsPane>(window);
+                break;
+            case "settings-pending":
+                // The one Save bar up, with a change in two sections: its link, Undo changes and Save are
+                // in the Tab order after the page, and the page's view ends above it, so nothing is covered.
+                window = await ShellAsync(state => state.Navigate(ShellView.Settings));
+                var settings = await PaneAsync<UI.Settings.SettingsPane>(window);
+                var model = Assert.IsType<UI.Settings.SettingsViewModel>(settings.DataContext);
+                model.Capture.AutoStart = !model.Capture.AutoStart;
+                model.Privacy.Telemetry = !model.Privacy.Telemetry;
+                await DrawnAsync(window);
+                Assert.Equal(Visibility.Visible, model.BarVisibility);
                 break;
             case "service-down":
                 window = await ShellAsync(state =>

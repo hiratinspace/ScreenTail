@@ -29,6 +29,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
     public PrivacyViewModel(PrivacyPanel panel, Func<string?> chooseFile, Func<Task<ConfirmedResult>> eraseEverything)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
+        Section = new PrivacySection(panel);
         _chooseFile = chooseFile ?? throw new ArgumentNullException(nameof(chooseFile));
         _eraseEverything = eraseEverything ?? throw new ArgumentNullException(nameof(eraseEverything));
         Refresh();
@@ -124,11 +125,14 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility ProblemVisibility { get; set; } = Visibility.Collapsed;
 
-    [ObservableProperty]
-    public partial bool CanSave { get; set; }
+    /// <summary>This section on the Settings page's one Save bar. Your data's actions are never on it: they act at once.</summary>
+    public PrivacySection Section { get; }
 
-    [ObservableProperty]
-    public partial string Saved { get; set; } = string.Empty;
+    /// <summary>The "Changed" mark beside each card with a change not yet saved.</summary>
+    public ChangeMarks Changed { get; } = new();
+
+    /// <summary>A field changed, so the page's Save bar counts again.</summary>
+    public event EventHandler? Edited;
 
     /// <summary>The panel holds a change the technician has not saved, so the shell does not read it again on a reconnect.</summary>
     public bool HasUnsavedEdits => _panel.HasUnsavedEdits;
@@ -137,14 +141,6 @@ public sealed partial class PrivacyViewModel : ObservableObject
     {
         await _panel.LoadAsync(ct).ConfigureAwait(true);
         Refresh();
-    }
-
-    [RelayCommand]
-    private async Task SaveAsync()
-    {
-        var saved = await _panel.SaveAsync().ConfigureAwait(true);
-        Refresh();
-        Saved = saved ? "Saved and applied." : string.Empty;
     }
 
     [RelayCommand]
@@ -274,10 +270,15 @@ public sealed partial class PrivacyViewModel : ObservableObject
     private void Field(Action set)
     {
         set();
-        Saved = string.Empty;
         Problem = _panel.Problem ?? string.Empty;
         ProblemVisibility = Problem.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        CanSave = _panel.CanSave;
+        Counted();
+    }
+
+    private void Counted()
+    {
+        Changed.Set(Section.Changes);
+        Edited?.Invoke(this, EventArgs.Empty);
     }
 
     private void Tried()
@@ -288,7 +289,8 @@ public sealed partial class PrivacyViewModel : ObservableObject
         SampleMasked = _panel.SampleMasked;
     }
 
-    private void Refresh()
+    /// <summary>Shows the panel as it is now: after a load, an add or a removal, and after the page saved or undid its changes.</summary>
+    public void Refresh()
     {
         LocalOnly = _panel.LocalOnly;
         LocalOnlyEditable = !_panel.LocalOnlyLocked;
@@ -329,8 +331,8 @@ public sealed partial class PrivacyViewModel : ObservableObject
         Tried();
         Problem = _panel.Problem ?? string.Empty;
         ProblemVisibility = Problem.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        CanSave = _panel.CanSave;
         CanAddProcess = _panel.CanAddProcess;
+        Counted();
     }
 
     /// <summary>Spec §5 S6: the slider says what is deleted and what is kept.</summary>

@@ -302,7 +302,12 @@ public sealed class LiveShell : IAsyncDisposable
                     new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
                     new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection))),
                     new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))),
-                _clock);
+                _clock,
+
+                // The inbox rail reads History's rows, and its foot opens the panel the tray's "What's being
+                // captured?" opens (Spec §5 S4).
+                sessions: ListSessionsAsync,
+                diagnostics: ShowDiagnostics);
 
             // Once, when the window is made. A closed window's Review pane may still be writing its last,
             // and Quit waits for it even after the window has gone (T-169).

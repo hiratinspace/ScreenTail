@@ -162,6 +162,9 @@ public sealed class IntegrationCard
 
     public bool CanSave => Editing && Problem is null && !Busy;
 
+    /// <summary>Why the fields cannot be saved as they are, leaving out the backend's last refusal, which a new save may not repeat.</summary>
+    internal string? Unsavable => Validate();
+
     /// <summary>
     /// A site or key is being typed, Change was pressed on a saved card, or a save is on its way. Reading
     /// the card again would put it back to what is saved, so the shell does not on a reconnect.
@@ -175,6 +178,18 @@ public sealed class IntegrationCard
             || !string.IsNullOrWhiteSpace(PrivateKey)
             || !string.IsNullOrWhiteSpace(ApiKey)));
 
+    /// <summary>
+    /// What Settings' Save bar counts as a change on this card: a key typed, or a site that differs from
+    /// the saved one. Change pressed with nothing typed is not one; neither is a save on its way.
+    /// </summary>
+    public bool HasPendingChange =>
+        Editing && !Busy
+        && (!string.IsNullOrWhiteSpace(CompanyId)
+            || !string.IsNullOrWhiteSpace(PublicKey)
+            || !string.IsNullOrWhiteSpace(PrivateKey)
+            || !string.IsNullOrWhiteSpace(ApiKey)
+            || !string.Equals(SiteUrl.Trim().TrimEnd('/'), _savedSite, StringComparison.Ordinal));
+
     public string Status => Connected
         ? LastError is null
             ? LastCheckedAt is { } at ? $"Connected · checked {at.ToLocalTime():HH:mm}" : "Connected"
@@ -183,14 +198,33 @@ public sealed class IntegrationCard
 
     private string? _refusal;
 
+    /// <summary>The site as the backend has it, or empty with nothing saved.</summary>
+    private string _savedSite = string.Empty;
+
     internal void Load(IntegrationDetail? detail)
     {
         Connected = detail is not null;
         Editing = detail is null;
         SiteUrl = detail?.SiteUrl ?? string.Empty;
+        _savedSite = SiteUrl.Trim().TrimEnd('/');
         SecretHint = detail?.SecretHint ?? string.Empty;
         LastCheckedAt = detail?.LastCheckedAt;
         LastError = detail?.LastError;
+        _refusal = null;
+    }
+
+    /// <summary>
+    /// Forgets what was typed and puts the card back as saved (Settings' Undo changes): a connected card
+    /// closes its fields again; one with nothing saved stays open and empty. The service is asked nothing.
+    /// </summary>
+    public void Undo()
+    {
+        SiteUrl = _savedSite;
+        CompanyId = string.Empty;
+        PublicKey = string.Empty;
+        PrivateKey = string.Empty;
+        ApiKey = string.Empty;
+        Editing = !Connected;
         _refusal = null;
     }
 
@@ -233,6 +267,7 @@ public sealed class IntegrationCard
         // Stored: the parts are cleared now, not when the card closes, so a window left open does not
         // hold a private key in memory for the afternoon.
         SiteUrl = site;
+        _savedSite = site;
         SecretHint = "••••" + secret[Math.Max(0, secret.Length - 4)..];
         CompanyId = string.Empty;
         PublicKey = string.Empty;

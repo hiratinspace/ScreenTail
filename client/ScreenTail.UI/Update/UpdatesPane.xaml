@@ -39,7 +39,10 @@
 
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Channel" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Channel" />
+                    <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Channel]}" />
+                </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Which releases this installation follows." />
                 <RadioButton Margin="0,8,0,0" GroupName="UpdateChannel" Content="Stable (Recommended)" IsChecked="{Binding Stable}" IsEnabled="{Binding ChannelEditable}" />
                 <RadioButton Margin="0,4,0,0" GroupName="UpdateChannel" Content="Pilot: each release first, before everyone else" IsChecked="{Binding Pilot}" IsEnabled="{Binding ChannelEditable}" />
