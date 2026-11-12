@@ -99,7 +99,10 @@ jobs:
             # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
             # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
             # for evidence that is never coming.
-            only '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
+            # The Windows tests count only for those areas and the files at the project's root, which they
+            # all share; the UI tests' folders run on the hosted job and nightly on the laptop (owner,
+            # 2026-11-12). A new root file fails the check below until hardware-checks.yml names it too.
+            only '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/((Capabilities|Capture|Detection|Host|Input|Ipc|Performance|Privacy|Speech|Store)/|[^/]+$)|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
             # The Windows scripts, which are parse-checked below. This used to ride on
             # spike-windows.yml, which now runs only by hand, so without this line a change to
             # check-skips.ps1 would be checked by nothing at all (2026-09-20 review).
@@ -981,10 +984,15 @@ jobs:
               'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
               '.github/workflows/hardware-checks.yml',
           ]
+          # A screen and its Windows tests do not either: the hosted job runs those, and the nightly run
+          # puts them on the laptop (owner, 2026-11-12).
           must_not = [
               'backend/ScreenTail.Backend.sln',
               'web/package.json',
               'docs/adr/0001-client-stack.md',
+              'client/ScreenTail.UI/Review/FilmstripView.xaml',
+              'client/ScreenTail.Tests.Windows/Review/FilmstripEditTests.cs',
+              'client/ScreenTail.Tests.Windows/Shell/ConfirmWindowTests.cs',
           ]
 
           tracked = set(filter(None, subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True).stdout.split('\n')))
