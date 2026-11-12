@@ -203,6 +203,68 @@ internal sealed class DesktopWindow : IDisposable
     }
 
     /// <summary>
+    /// The visible windows above this one in the z-order that overlap it, as "process/class", with
+    /// "(topmost)" for an always-on-top one, or "nothing" when the window is uncovered. Being in front is
+    /// not being seen: an always-on-top window (Task Manager, a video call, a screen tool) stays over the
+    /// foreground window, and a capture of the screen shows it instead. Process and class only, never a
+    /// title, for the reason <see cref="Why"/> gives.
+    /// </summary>
+    public string Above()
+    {
+        _ = GetWindowRect(Handle, out var ours);
+        var found = new List<string>();
+        for (var at = GetWindow(Handle, GW_HWNDPREV); at != IntPtr.Zero && found.Count < 8; at = GetWindow(at, GW_HWNDPREV))
+        {
+            if (!IsWindowVisible(at) || IsCloaked(at) || !GetWindowRect(at, out var theirs)
+                || theirs.Right <= ours.Left || theirs.Left >= ours.Right || theirs.Bottom <= ours.Top || theirs.Top >= ours.Bottom
+                || theirs.Right - theirs.Left <= 1 || theirs.Bottom - theirs.Top <= 1)
+            {
+                continue;
+            }
+
+            _ = GetWindowThreadProcessId(at, out var processId);
+            string owner;
+            try
+            {
+                owner = System.Diagnostics.Process.GetProcessById((int)processId).ProcessName;
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+            {
+                owner = "(gone)";
+            }
+
+            var buffer = new char[256];
+            var length = GetClassName(at, buffer, buffer.Length);
+            var className = length > 0 ? new string(buffer, 0, length) : "(unknown)";
+            var topmost = (GetWindowLongPtr(at, GWL_EXSTYLE).ToInt64() & WS_EX_TOPMOST) != 0 ? " (topmost)" : string.Empty;
+            found.Add($"{owner}/{className}{topmost}");
+        }
+
+        return found.Count == 0 ? "nothing" : string.Join(", ", found);
+    }
+
+    private static bool IsCloaked(IntPtr window) =>
+        DwmGetWindowAttribute(window, DWMWA_CLOAKED, out var cloaked, sizeof(int)) == 0 && cloaked != 0;
+
+    private const uint GW_HWNDPREV = 3;
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_EX_TOPMOST = 0x8;
+    private const int DWMWA_CLOAKED = 14;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr window, uint command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr window);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr window, int index);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out int value, int size);
+
+    /// <summary>
     /// The marker a run leaves when no test could get a window in front. The workflow fails on it, because
     /// the alternative is a green tick over a run that verified nothing on the hardware it exists for.
     /// </summary>
