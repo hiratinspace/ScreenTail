@@ -59,4 +59,48 @@ public sealed class ForegroundEventTests
 
         Assert.Equal(32_776, swept);
     }
+
+    private const nint Front = 0x1001;
+    private const nint Behind = 0x2002;
+
+    [Fact]
+    public void AForegroundEventNamingAWindowNoLongerInFrontIsAboutTheWindowInFront()
+    {
+        // The name hook follows the window this answers with, and only renames of the window in front pass
+        // (the rule below). They used to come from two places: the hook followed the window the foreground
+        // event named, and renames were checked against GetForegroundWindow. A foreground event that names a
+        // window no longer in front (handed over late, or raised by an application about a window of its
+        // own) left the hook on that window's thread while another window was in front, and every rename of
+        // the window in front went unheard until the next foreground change or the poll: the laptop's failure
+        // of RetitlingTheWindowInFrontIsReported, with the window in front throughout (ST-031).
+        Assert.Equal(Front, ForegroundEvents.WindowInFront(ForegroundEvents.SystemForeground, Behind, ForegroundEvents.WindowObject, Front));
+    }
+
+    [Fact]
+    public void AForegroundEventIsAboutItsOwnWindowWhileWindowsNamesNothingInFront()
+    {
+        // The desktop is without a foreground for a moment during a switch. The event's window is then the
+        // best answer there is, as it always was, rather than reporting nothing until the poll.
+        Assert.Equal(Behind, ForegroundEvents.WindowInFront(ForegroundEvents.SystemForeground, Behind, ForegroundEvents.WindowObject, 0));
+        Assert.Equal(Front, ForegroundEvents.WindowInFront(ForegroundEvents.SystemForeground, Front, ForegroundEvents.WindowObject, Front));
+    }
+
+    [Fact]
+    public void OnlyTheWindowInFrontRetitlingItselfIsNews()
+    {
+        Assert.Equal(Front, ForegroundEvents.WindowInFront(ForegroundEvents.ObjectNameChange, Front, ForegroundEvents.WindowObject, Front));
+
+        // A window behind renaming itself, a control inside the window in front, and a window with nothing
+        // in front.
+        Assert.Equal(0, ForegroundEvents.WindowInFront(ForegroundEvents.ObjectNameChange, Behind, ForegroundEvents.WindowObject, Front));
+        Assert.Equal(0, ForegroundEvents.WindowInFront(ForegroundEvents.ObjectNameChange, Front, -4, Front));
+        Assert.Equal(0, ForegroundEvents.WindowInFront(ForegroundEvents.ObjectNameChange, Front, ForegroundEvents.WindowObject, 0));
+    }
+
+    [Fact]
+    public void AnEventWithNoWindowOrOfAnotherTypeIsAboutNothing()
+    {
+        Assert.Equal(0, ForegroundEvents.WindowInFront(ForegroundEvents.SystemForeground, 0, ForegroundEvents.WindowObject, Front));
+        Assert.Equal(0, ForegroundEvents.WindowInFront(0x800Bu, Front, ForegroundEvents.WindowObject, Front));
+    }
 }

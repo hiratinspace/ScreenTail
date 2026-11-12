@@ -30,6 +30,32 @@ public static class ForegroundEvents
     /// <summary>Whether this event type may change what the watcher believes is in front.</summary>
     public static bool Interesting(uint eventType) => eventType is SystemForeground or ObjectNameChange;
 
+    /// <summary>The object id a window's own title change is raised with. <c>OBJID_WINDOW</c>.</summary>
+    public const int WindowObject = 0;
+
+    /// <summary>
+    /// The window an event is news about, or zero when it is news about nothing in front. Only the window in
+    /// front counts.
+    /// </summary>
+    /// <param name="eventType">The event's type, one <see cref="Interesting"/> accepts.</param>
+    /// <param name="window">The window the event names.</param>
+    /// <param name="objectId">The event's object id.</param>
+    /// <param name="foreground">The window Windows says is in front now (<c>GetForegroundWindow</c>), or zero.</param>
+    public static nint WindowInFront(uint eventType, nint window, int objectId, nint foreground)
+    {
+        if (window == 0 || !Interesting(eventType))
+        {
+            return 0;
+        }
+
+        if (eventType == ObjectNameChange)
+        {
+            return objectId == WindowObject && window == foreground ? window : 0;
+        }
+
+        return window;
+    }
+
     /// <summary>The window class of a classic console, drawn by conhost.</summary>
     public const string ClassicConsoleClass = "ConsoleWindowClass";
 
