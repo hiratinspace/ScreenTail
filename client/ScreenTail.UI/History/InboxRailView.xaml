@@ -21,10 +21,10 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Rail.RowTitle}" Text="{Binding Title}" />
                 <TextBlock Grid.Row="0" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Rail.RowMeta}" Text="{Binding Age}" />
-                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,2,0,0" VerticalAlignment="Center" Style="{StaticResource Rail.RowMeta}" Text="{Binding Meta}" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,4,0,0" VerticalAlignment="Center" Style="{StaticResource Rail.RowMeta}" Text="{Binding Meta}" />
                 <ContentControl Grid.Row="1"
                                 Grid.Column="1"
-                                Margin="8,2,0,0"
+                                Margin="8,4,0,0"
                                 VerticalAlignment="Center"
                                 Style="{StaticResource Rail.Badge}"
                                 Visibility="{Binding BadgeVisibility}">
@@ -45,14 +45,14 @@
 
         <!-- Search over what the rows say (Ctrl+F). The hint sits behind the text and goes once anything is typed. -->
         <Grid Grid.Row="0" Margin="16,16,16,8">
-            <controls:Glyph Margin="10,0,0,0"
+            <controls:Glyph Margin="12,0,0,0"
                             HorizontalAlignment="Left"
                             Panel.ZIndex="1"
                             IsHitTestVisible="False"
                             Style="{StaticResource Icon}"
                             Foreground="{DynamicResource Brush.shell.muted}"
                             Text="&#xE721;" />
-            <TextBlock Margin="33,0,10,0"
+            <TextBlock Margin="32,0,12,0"
                        VerticalAlignment="Center"
                        Panel.ZIndex="1"
                        IsHitTestVisible="False"
@@ -83,7 +83,7 @@
                     <TextBlock Style="{StaticResource Text.FrameMuted}"
                                Text="{Binding Notice}"
                                controls:LiveRegion.Setting="Polite" />
-                    <Button Margin="-4,6,0,0"
+                    <Button Margin="-4,8,0,0"
                             Style="{StaticResource Rail.Link}"
                             Content="Clear search"
                             Command="{Binding ClearSearchCommand}"
@@ -95,16 +95,18 @@
                         <DataTemplate>
                             <StackPanel Margin="0,8,0,0" Visibility="{Binding Visibility}">
                                 <!-- The heading: words and the count, or for Earlier a toggle that opens it. -->
-                                <StackPanel Margin="20,0,16,2"
+                                <!-- In line with the rows' words: the rail's 8 inset, then the row's 12. -->
+                                <StackPanel Margin="8,0,16,4"
                                             Orientation="Horizontal"
                                             Visibility="{Binding HeaderTextVisibility}">
-                                    <TextBlock Style="{StaticResource Text.Frame}"
+                                    <TextBlock Margin="12,0,0,0"
+                                               Style="{StaticResource Text.Frame}"
                                                FontSize="{DynamicResource Size.sm}"
                                                FontWeight="{DynamicResource Weight.semibold}"
                                                Text="{Binding Name}" />
                                     <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.FrameMuted}" Text="{Binding CountText}" />
                                 </StackPanel>
-                                <ToggleButton Margin="12,0,16,2"
+                                <ToggleButton Margin="12,0,16,4"
                                               Style="{StaticResource Rail.GroupToggle}"
                                               IsChecked="{Binding IsExpanded}"
                                               Visibility="{Binding ToggleVisibility}"
