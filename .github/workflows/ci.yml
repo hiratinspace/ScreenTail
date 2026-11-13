@@ -197,7 +197,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.client == 'true'
     runs-on: windows-latest
-    timeout-minutes: 20
+    # 30: the job ran about 20 minutes on a slow hosted runner by November 2026 (the Windows tests up to
+    # 16 of them, with the gallery's renders after), so the old 20 cancelled runs partway through.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: client
