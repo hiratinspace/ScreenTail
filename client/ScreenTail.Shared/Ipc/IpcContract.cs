@@ -52,8 +52,14 @@ namespace ScreenTail.Shared.Ipc;
 /// tray can say "not confirmed". New members on replies both sides exchange, which an older UI would
 /// fail on, so the version moves. <c>mark_published</c> is a new command and would not have moved it
 /// on its own.
+///
+/// 11: Spec v0.6.9 §5 S4, the inbox rail's rows say the company, the note's title and the ticket. A
+/// <c>sessions</c> row gains <c>title</c>, <c>ticket</c> and <c>company</c>, each optional and left off
+/// when unknown, so a row without them is the v10 row and is drawn as before. Additive, but the framing
+/// rejects unknown members, so a v10 UI would fail on a v11 row: the version moves and the handshake turns
+/// a mismatched pair away instead of leaving the list unreadable.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 10;
+    public const int Version = 11;
 }

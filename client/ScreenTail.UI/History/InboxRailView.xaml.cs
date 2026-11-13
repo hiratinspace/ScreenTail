@@ -1,4 +1,6 @@
+using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 
 namespace ScreenTail.UI.History;
 
@@ -18,6 +20,27 @@ public partial class InboxRailView : UserControl
     {
         _ = Search.Focus();
         Search.SelectAll();
+    }
+
+    /// <summary>
+    /// <c>Enter</c> on a row (spec v0.6.9 S4): its session opens, if the arrows have not opened it already,
+    /// and the shell puts keyboard focus in the pane, where the review is done.
+    /// </summary>
+    public event EventHandler? RowActivated;
+
+    private void OnRowKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter
+            || Keyboard.Modifiers != ModifierKeys.None
+            || DataContext is not InboxRailViewModel model
+            || (e.OriginalSource as FrameworkElement)?.DataContext is not InboxRowViewModel row)
+        {
+            return;
+        }
+
+        e.Handled = true;
+        model.Open(row);
+        RowActivated?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

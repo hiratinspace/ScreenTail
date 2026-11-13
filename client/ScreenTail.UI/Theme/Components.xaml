@@ -1302,6 +1302,50 @@
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
     </Style>
+    <!-- A session's state on the content surfaces (the All sessions table, spec v0.6.9 S4): the rail's word
+         and glyph (StatusBadges), the state's tint and edge, and the glyph in the state's colour. The word
+         and the glyph say it; the hue only agrees, so high contrast and colour blindness read it the same.
+         Bound to a row with StatusTone (Accent, Published, Paused, Offline, Muted). -->
+    <Style x:Key="Badge.State" BasedOn="{StaticResource Badge}" TargetType="ContentControl">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+        <Setter Property="Padding" Value="4,0,8,0" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Accent">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Published">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.success}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.published}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.warning}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Offline">
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.offline}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+    <Style x:Key="Badge.StateGlyph" BasedOn="{StaticResource Icon}" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{DynamicResource Size.xs}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.secondary}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Accent">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.accent.primary}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Published">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.state.published}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Paused">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
+            </DataTrigger>
+            <DataTrigger Binding="{Binding StatusTone}" Value="Offline">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.state.offline}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
     <!-- The shell's capture state: the badge at body-adjacent size, because it is read, not glanced at. -->
     <Style x:Key="Badge.Status" BasedOn="{StaticResource Badge}" TargetType="ContentControl">
         <Setter Property="FontSize" Value="{DynamicResource Size.sm}" />
@@ -2084,6 +2128,17 @@
             </DataTrigger>
         </Style.Triggers>
     </Style>
+    <!-- The note's title under a company: the row's body words, regular weight, one line. -->
+    <Style x:Key="Rail.RowSubtitle" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{DynamicResource Brush.shell.text}" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="TextWrapping" Value="NoWrap" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsOpen}" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
     <Style x:Key="Rail.RowMeta" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{DynamicResource Size.sm}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.shell.muted}" />
@@ -2122,6 +2177,16 @@
             <DataTrigger Binding="{Binding BadgeTone}" Value="Offline">
                 <Setter Property="Foreground" Value="{DynamicResource Brush.shell.offline}" />
             </DataTrigger>
+            <DataTrigger Binding="{Binding BadgeTone}" Value="Accent">
+                <Setter Property="Foreground" Value="{DynamicResource Brush.shell.accent}" />
+            </DataTrigger>
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding IsOpen}" Value="True" />
+                    <Condition Binding="{Binding BadgeTone}" Value="Accent" />
+                </MultiDataTrigger.Conditions>
+                <Setter Property="Foreground" Value="{DynamicResource Brush.accent.primary}" />
+            </MultiDataTrigger>
             <MultiDataTrigger>
                 <MultiDataTrigger.Conditions>
                     <Condition Binding="{Binding IsOpen}" Value="True" />

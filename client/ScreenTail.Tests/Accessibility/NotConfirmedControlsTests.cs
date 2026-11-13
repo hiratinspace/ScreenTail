@@ -23,14 +23,17 @@ public sealed class NotConfirmedControlsTests
         var badges = column.Descendants(Wpf + "ContentControl").ToList();
         Assert.Equal(2, badges.Count);
 
-        // The status first, as it always was, so sorting and the words do not change.
-        Assert.Equal("{StaticResource Badge}", (string?)badges[0].Attribute("Style"));
-        Assert.Equal("{Binding Status}", (string?)badges[0].Attribute("Content"));
+        // The status first, as it always was, so sorting and the words do not change. Since v0.6.9 it is
+        // the rail's badge: the word with its glyph beside it, in the state's hue (never colour alone).
+        Assert.Equal("{StaticResource Badge.State}", (string?)badges[0].Attribute("Style"));
+        Assert.Contains(badges[0].Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding Status}");
+        Assert.Contains(badges[0].Descendants(), e => e.Name.LocalName == "Glyph" && (string?)e.Attribute("Text") == "{Binding StatusGlyph}");
         Assert.Equal("Status", (string?)column.Attribute("SortMemberPath"));
 
         var notConfirmed = badges[1];
         Assert.Equal("{StaticResource Badge.Unconfirmed}", (string?)notConfirmed.Attribute("Style"));
-        Assert.Equal("{Binding NotConfirmedLabel}", (string?)notConfirmed.Attribute("Content"));
+        Assert.Contains(notConfirmed.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding NotConfirmedLabel}");
+        Assert.Contains(notConfirmed.Descendants(), e => e.Name.LocalName == "Glyph" && ((string?)e.Attribute("Text"))?.Contains("NotConfirmedGlyph", StringComparison.Ordinal) == true);
         Assert.Equal("{Binding NotConfirmedVisibility}", (string?)notConfirmed.Attribute("Visibility"));
         Assert.False(string.IsNullOrWhiteSpace((string?)notConfirmed.Attribute("AutomationProperties.Name")));
 

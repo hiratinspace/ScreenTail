@@ -59,8 +59,88 @@ public partial class ShellWindow : Window
     /// </summary>
     public static System.Windows.Input.RoutedCommand FindCommand { get; } = new(nameof(FindCommand), typeof(ShellWindow));
 
-    private void BindFind() =>
+    private void BindFind()
+    {
         CommandBindings.Add(new System.Windows.Input.CommandBinding(FindCommand, (_, _) => Rail.FocusSearch()));
+        BindRail();
+    }
+
+    /// <summary>
+    /// Until when keyboard focus goes into the pane once it shows the session a rail row's Enter opened: a
+    /// few seconds, so a pane that never arrives (the service could not hand it over) does not take focus
+    /// later, when the technician has moved on.
+    /// </summary>
+    private DateTime _focusPaneUntil;
+
+    /// <summary>
+    /// Spec v0.6.9 S4: the rail is <c>layout.rail-width-narrow</c> in a window under
+    /// <c>layout.rail-narrow-below</c> wide (<see cref="Core.History.RailLayout"/>), and <c>Enter</c> on a
+    /// rail row opens its session and puts keyboard focus in the pane, where the review is done.
+    /// </summary>
+    private void BindRail()
+    {
+        // By the width the frame is laid out at, not the window's: the harness draws a window bigger than
+        // the runner's screen by laying its content out outside it, and the rail should follow that.
+        ShellFrame.SizeChanged += (_, e) => FitRail(e.NewSize.Width);
+        Rail.RowActivated += (_, _) =>
+        {
+            _focusPaneUntil = DateTime.UtcNow.AddSeconds(5);
+            FocusPaneSoon();
+        };
+        _model.PropertyChanged += (_, e) =>
+        {
+            if (DateTime.UtcNow < _focusPaneUntil && e.PropertyName == nameof(ShellViewModel.Content))
+            {
+                FocusPaneSoon();
+            }
+        };
+    }
+
+    /// <summary>The rail's width for a frame this wide, from the tokens.</summary>
+    private void FitRail(double frameWidth)
+    {
+        var breakpoint = TryFindResource("Layout.rail-narrow-below") is double below ? below : 0;
+        var wide = Core.History.RailLayout.IsWide(frameWidth, breakpoint);
+        RailFrame.SetResourceReference(WidthProperty, wide ? "Layout.rail-width" : "Layout.rail-width-narrow");
+    }
+
+    /// <summary>Once the pane has drawn, focus its first control; a pane still loading waits for the next.</summary>
+    private void FocusPaneSoon() =>
+        _ = Dispatcher.InvokeAsync(
+            () =>
+            {
+                if (DateTime.UtcNow < _focusPaneUntil && FirstFocusable(Pane) is { } target)
+                {
+                    _focusPaneUntil = default;
+                    _ = System.Windows.Input.Keyboard.Focus(target);
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+
+    /// <summary>The first visible, enabled tab stop under <paramref name="parent"/>, in the visual tree's order.</summary>
+    private static System.Windows.IInputElement? FirstFocusable(DependencyObject parent)
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is UIElement { IsVisible: false })
+            {
+                continue;
+            }
+
+            if (child is UIElement { IsEnabled: true, Focusable: true } element && System.Windows.Input.KeyboardNavigation.GetIsTabStop(element))
+            {
+                return element;
+            }
+
+            if (FirstFocusable(child) is { } inner)
+            {
+                return inner;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The sample shell's store, so the accessibility suite (ST-084) can open the same session variants the
@@ -411,16 +491,18 @@ public partial class ShellWindow : Window
 
     private static IReadOnlyList<SessionRow> SampleRows() =>
     [
-        new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1 },
-        new() { Id = "s-2", StartedAt = new DateTimeOffset(2026, 9, 15, 14, 20, 0, TimeSpan.Zero), DurationMs = 3_720_000, Status = "published", Tool = "rdp", Frames = 25, FramesPurged = 0 },
+        new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1, Title = "Printer offline after the driver update", Ticket = "48213" },
+        new() { Id = "s-2", StartedAt = new DateTimeOffset(2026, 9, 15, 14, 20, 0, TimeSpan.Zero), DurationMs = 3_720_000, Status = "published", Tool = "rdp", Frames = 25, FramesPurged = 0, Title = "Outlook keeps asking for the password", Ticket = "50117", Company = "Acme Dental" },
         new() { Id = "s-3", StartedAt = new DateTimeOffset(2026, 9, 15, 11, 5, 0, TimeSpan.Zero), DurationMs = 8_000, Status = "discarded", Tool = "screenconnect", Frames = 0, FramesPurged = 0 },
 
         // A publish that may have reached the ticket, so the screenshots and the accessibility scan see the second badge.
-        new() { Id = "s-4", StartedAt = new DateTimeOffset(2026, 9, 14, 16, 40, 0, TimeSpan.Zero), DurationMs = 540_000, Status = "draft", Tool = "screenconnect", Frames = 12, FramesPurged = 0, PublishUnconfirmed = true },
+        new() { Id = "s-4", StartedAt = new DateTimeOffset(2026, 9, 14, 16, 40, 0, TimeSpan.Zero), DurationMs = 540_000, Status = "draft", Tool = "screenconnect", Frames = 12, FramesPurged = 0, PublishUnconfirmed = true, Title = "VPN drops every hour", Ticket = "50342", Company = "Northwind Traders" },
 
         // The rail's other groups: a partial capture to check, and one published the morning of SampleNow.
+        // The partial one has nothing but its tool, as a row from a v10 service or a session not yet drafted
+        // reads; the published one has a company too long for the rail, which ends in an ellipsis.
         new() { Id = "s-5", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 20, 0, TimeSpan.Zero), DurationMs = 1_260_000, Status = "partial", Tool = "rdp", Frames = 9, FramesPurged = 0 },
-        new() { Id = "s-6", StartedAt = new DateTimeOffset(2026, 9, 16, 8, 5, 0, TimeSpan.Zero), DurationMs = 720_000, Status = "published", Tool = "splashtop", Frames = 6, FramesPurged = 0 },
+        new() { Id = "s-6", StartedAt = new DateTimeOffset(2026, 9, 16, 8, 5, 0, TimeSpan.Zero), DurationMs = 720_000, Status = "published", Tool = "splashtop", Frames = 6, FramesPurged = 0, Title = "New starter laptop set up", Ticket = "50388", Company = "Contoso Community Pharmacy Group" },
     ];
 
     private async Task CaptureAsync(ShellState state)
@@ -461,6 +543,7 @@ public partial class ShellWindow : Window
         await SettingsSectionsAsync(state);
         await FocusAsync(state);
         await RailAsync(state);
+        await SmallWindowAsync(state);
         await HighDpiAsync(state);
         await DialogsAsync();
 

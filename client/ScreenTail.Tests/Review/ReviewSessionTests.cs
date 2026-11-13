@@ -173,6 +173,8 @@ public sealed class ReviewSessionTests : IAsyncDisposable
 
         public Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default) => throw new NotSupportedException();
 
+        public Task<bool> SavePublishedTicketAsync(string sessionId, string ticketId, string? company, CancellationToken ct = default) => throw new NotSupportedException();
+
         public Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default) => throw new NotSupportedException();
 
         public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => throw new NotSupportedException();

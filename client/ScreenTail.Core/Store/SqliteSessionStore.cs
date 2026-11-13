@@ -847,6 +847,25 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             ("@id", sessionId)).ConfigureAwait(false) > 0;
     }
 
+    public async Task<bool> SavePublishedTicketAsync(string sessionId, string ticketId, string? company, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ticketId);
+        return await RunAsync(
+            """
+            UPDATE sessions
+            SET published_ticket = @ticket,
+                published_company = @company,
+                updated_at = @now
+            WHERE id = @id AND state IS NOT @discarded
+            """,
+            ct,
+            ("@ticket", ticketId.Trim()),
+            ("@company", string.IsNullOrWhiteSpace(company) ? null : company.Trim()),
+            ("@now", Iso(_time.GetUtcNow())),
+            ("@discarded", Sessions.SessionStateNames.Discarded),
+            ("@id", sessionId)).ConfigureAwait(false) > 0;
+    }
+
     public Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default) =>
         QueryAsync(
             "SELECT COUNT(*) FROM sessions WHERE publish_unconfirmed_at IS NOT NULL AND state IS NOT @discarded",
@@ -874,7 +893,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     private async Task<bool> MarkDiscardedAsync(string sessionId, bool onlyIfDiscardable, bool finished, CancellationToken ct)
     {
         await ExecuteAsync(_connection, "DELETE FROM outbox WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false);
-        var set = "SET draft_json = NULL, original_draft_json = NULL, suggested_ticket = NULL, "
+        var set = "SET draft_json = NULL, original_draft_json = NULL, suggested_ticket = NULL, published_ticket = NULL, published_company = NULL, "
             + (finished ? "raw_purged_at = @now, " : string.Empty)
             + "state = @state, state_reason = 'user', state_changed_at = @now, updated_at = @now";
         var marked = await ExecuteAsync(
@@ -1126,7 +1145,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                s.frames_purged_unredacted, s.raw_purged_at,
                json_extract(s.draft_json, '$.suggested_title'),
                (SELECT COUNT(*) FROM frames f WHERE f.session_id = s.id AND f.redaction_pending = 0 AND s.state IS NOT 'discarded'),
-               s.publish_unconfirmed_at IS NOT NULL
+               s.publish_unconfirmed_at IS NOT NULL,
+               COALESCE(NULLIF(TRIM(s.published_ticket), ''), NULLIF(TRIM(s.suggested_ticket), '')),
+               NULLIF(TRIM(s.published_company), '')
         FROM sessions s
         """;
 
@@ -1149,7 +1170,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
             reader.GetInt32(9),
             !reader.IsDBNull(7),
             string.IsNullOrWhiteSpace(title) ? null : title,
-            reader.GetInt64(10) != 0);
+            reader.GetInt64(10) != 0,
+            reader.IsDBNull(11) ? null : reader.GetString(11),
+            reader.IsDBNull(12) ? null : reader.GetString(12));
     }
 
     /// <summary>

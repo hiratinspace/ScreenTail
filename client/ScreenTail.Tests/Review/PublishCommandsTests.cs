@@ -1125,6 +1125,48 @@ public sealed class PublishCommandsTests : IAsyncDisposable
         Assert.Single(_gateway.Published);
     }
 
+    [Fact]
+    public async Task APublishThatLandedLeavesTheTicketAndItsCompanyOnTheSessionsRow()
+    {
+        // Spec v0.6.9 §5 S4: the rail says the company and the ticket once the session has gone to one.
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+
+        _ = Assert.IsType<SessionPublished>(await commands.ReplyToAsync(Publish(["f1"])));
+
+        var row = (await _store!.GetSessionSummaryAsync("s1"))!;
+        Assert.Equal("48213", row.Ticket);
+        Assert.Equal("Acme Dental", row.Company);
+    }
+
+    [Fact]
+    public async Task APublishThatMayHaveLandedLeavesThemTooSinceTheNoteMayBeOnThatTicket()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Kind: DestinationResult.Unknown, Error: "no answer"))];
+
+        _ = await commands.ReplyToAsync(Publish(["f1"]));
+
+        Assert.Equal("Acme Dental", (await _store!.GetSessionSummaryAsync("s1"))!.Company);
+    }
+
+    [Fact]
+    public async Task APublishThatPlainlyFailedOrWasRefusedLeavesNoCompany()
+    {
+        var commands = await CommandsAsync();
+        await SeedAsync(["f1"]);
+        _gateway.Outcomes = destinations => [.. destinations.Select(d => new PublishOutcomeRow(d, false, Error: "PSA down"))];
+
+        _ = await commands.ReplyToAsync(Publish(["f1"]));
+        Assert.Null((await _store!.GetSessionSummaryAsync("s1"))!.Company);
+
+        _gateway.Outcomes = null;
+        _gateway.Refusal = "Not connected.";
+        _ = await commands.ReplyToAsync(Publish(["f1"]) with { RequestId = 8 });
+        Assert.Null((await _store.GetSessionSummaryAsync("s1"))!.Company);
+    }
+
     private static PublishSessionCommand Publish(string[] frameIds) => new()
     {
         RequestId = 7,

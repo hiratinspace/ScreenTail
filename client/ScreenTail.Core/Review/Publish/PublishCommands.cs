@@ -349,6 +349,14 @@ public sealed class PublishCommands(
 
         await KeepingTheResultAsync("outcomes", () => SaveRecordAsync(publish.SessionId, written, ct)).ConfigureAwait(false);
 
+        // Spec v0.6.9 S4: the rail's row says the ticket and its company once the note may be on that
+        // ticket, landed or unknown; a plain failure left nothing there, and a search alone keeps nothing.
+        // Bookkeeping, like the rest: a fault here never hides the results. The log names the step only.
+        if (publish.Destinations.Any(written.ContainsKey))
+        {
+            await KeepingTheResultAsync("ticket", () => _store.SavePublishedTicketAsync(publish.SessionId, publish.TicketId, publish.TicketCompany, ct)).ConfigureAwait(false);
+        }
+
         // ST-098: the session counts as published once any destination landed. Counts and times only.
         // ST-067: and what the technician changed about the draft is learned now, as signals, never words.
         // S-37: by now the note is on the ticket, so neither may stand between the technician and the

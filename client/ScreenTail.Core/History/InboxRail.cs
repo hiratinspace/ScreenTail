@@ -21,30 +21,31 @@ public enum InboxGroup
 }
 
 /// <summary>One row of the rail, already worded.</summary>
-/// <param name="Title">"ScreenConnect session": the tool by its registry name (Spec S1).</param>
+/// <param name="Title">The row's heading: the company, else the note's title, else "ScreenConnect session" (the tool by its registry name, Spec S1).</param>
 /// <param name="Age">"14 min ago", "2 h ago", "Yesterday", or the day.</param>
-/// <param name="Meta">"12 min · 7 screenshots".</param>
+/// <param name="Meta">"#48213 · ScreenConnect · 12 min" for a row that names its session, else "12 min · 7 screenshots".</param>
 /// <param name="Badge">The state, where the group does not already say it; null when it does.</param>
 /// <param name="Spoken">The row as a screen reader says it, the start included so no two rows read the same.</param>
-public sealed record InboxItem(SessionRow Row, InboxGroup Group, string Title, string Age, string Meta, string? Badge, string Spoken);
+/// <param name="Subtitle">The note's title under the company, when both are known; null otherwise.</param>
+public sealed record InboxItem(SessionRow Row, InboxGroup Group, string Title, string Age, string Meta, string? Badge, string Spoken, string? Subtitle = null);
 
 /// <summary>
 /// The inbox rail (Spec v0.6.0 §5 S4): History as the workspace's left rail, grouped by what each session
 /// needs. Platform-neutral, so the grouping, the words and the search are tested on any OS (ADR-0002).
 ///
 /// The rows are History's (<see cref="SessionRow"/>): a tool, a start, a duration, a status, a count of
-/// screenshots and the not-confirmed mark. They carry no company, ticket or title. Company is not kept on
-/// this device at all (it comes from the PSA when a ticket is looked up), and the note's title is not sent
-/// over the list by the ST-079 contract, so each row says what it has, and the search looks through the
-/// same words (Spec v0.6.4, "As built" under S4).
+/// screenshots and the not-confirmed mark, and since contract v11 the note's title, the ticket and the
+/// published ticket's company when the service knows them. A row says what it has and leaves out what is
+/// not known, never a placeholder; a row with none of the three reads as it did in v0.6.4. The search
+/// looks through the same words (Spec v0.6.9, "As built" under S4).
 /// </summary>
 public static class InboxRail
 {
-    /// <summary>The search box's hint, in place of the target's "Company, ticket or title".</summary>
-    public const string SearchHint = "Search by tool, day or state";
+    /// <summary>The search box's hint, the target's words (Spec §5 S4).</summary>
+    public const string SearchHint = "Company, ticket or title";
 
     /// <summary>The search box's spoken help, with its key.</summary>
-    public const string SearchHelp = "Ctrl+F. Shows the sessions whose tool, day or state has these words. Esc clears it.";
+    public const string SearchHelp = "Ctrl+F. Shows the sessions whose company, ticket, title, tool, day or state has these words. Esc clears it.";
 
     /// <summary>The rail before the service has answered.</summary>
     public const string Asking = "Asking the capture service…";
@@ -104,12 +105,10 @@ public static class InboxRail
         ArgumentNullException.ThrowIfNull(row);
         return Status(row) switch
         {
-            SessionStatus.Discarded => "Discarded",
-            SessionStatus.Partial => "Partial capture",
-            SessionStatus.Pending => "No draft yet",
-            SessionStatus.Published when group == InboxGroup.Earlier => "Published",
+            SessionStatus.Discarded or SessionStatus.Partial or SessionStatus.Pending => StatusBadges.Of(row.Status).Word,
+            SessionStatus.Published when group == InboxGroup.Earlier => StatusBadges.Published.Word,
             SessionStatus.Draft or SessionStatus.Published => null,
-            _ => row.Status.Length == 0 ? null : char.ToUpperInvariant(row.Status[0]) + row.Status[1..],
+            _ => row.Status.Length == 0 ? null : StatusBadges.Of(row.Status).Word,
         };
     }
 
@@ -165,8 +164,7 @@ public static class InboxRail
     public static string Meta(SessionRow row)
     {
         ArgumentNullException.ThrowIfNull(row);
-        var shots = row.Frames == 1 ? "1 screenshot" : string.Create(CultureInfo.InvariantCulture, $"{row.Frames} screenshots");
-        return $"{Duration(row.DurationMs)} · {shots}";
+        return $"{Duration(row.DurationMs)} · {Screenshots(row.Frames)}";
     }
 
     /// <summary>
@@ -190,6 +188,9 @@ public static class InboxRail
         var today = Day(now, zone);
         var words = string.Join(
             ' ',
+            SessionHistory.Known(row.Company) ?? string.Empty,
+            SessionHistory.Known(row.Title) ?? string.Empty,
+            SessionHistory.Known(row.Ticket) is { } ticket ? $"#{ticket}" : string.Empty,
             ToolNames.Display(row.Tool),
             row.Tool ?? string.Empty,
             Name(group),
@@ -224,16 +225,38 @@ public static class InboxRail
         ArgumentNullException.ThrowIfNull(row);
         ArgumentNullException.ThrowIfNull(zone);
         var group = GroupOf(row, now, zone);
-        var title = $"{ToolNames.Display(row.Tool)} session";
+        var company = SessionHistory.Known(row.Company);
+        var note = SessionHistory.Known(row.Title);
+        var ticket = SessionHistory.Known(row.Ticket);
+        var tool = ToolNames.Display(row.Tool);
+        var shots = Screenshots(row.Frames);
+        var duration = Duration(row.DurationMs);
+
+        // The target's order (Spec §5 S4): the company, then the note's title, then ticket, tool and
+        // duration. What is not known is left out. Headed by the tool, the row keeps its screenshots, since
+        // the tool is already said; headed by a company or a title, the tool takes their place on the line.
+        var named = company is not null || note is not null;
+        var title = company ?? note ?? $"{tool} session";
+        var subtitle = company is not null ? note : null;
+        var hash = ticket is null ? null : $"#{ticket}";
+        var meta = named
+            ? Join(" · ", hash, tool, duration)
+            : Join(" · ", hash, duration, shots);
         var age = Age(row.StartedAt, now, zone);
-        var meta = Meta(row);
         var badge = Badge(row, group);
         var started = TimeZoneInfo.ConvertTime(row.StartedAt, zone).ToString("ddd d MMM HH:mm", CultureInfo.InvariantCulture);
-        var spoken = badge is null
-            ? $"{title}, {age}, started {started}, {meta}"
-            : $"{title}, {badge}, {age}, started {started}, {meta}";
-        return new InboxItem(row, group, title, age, meta, badge, spoken);
+        var heard = named || ticket is not null
+            ? Join(", ", ticket is null ? null : $"ticket {ticket}", named ? tool : null, $"{duration} · {shots}")
+            : meta;
+        var spoken = Join(", ", title, subtitle, badge, age, $"started {started}", heard);
+        return new InboxItem(row, group, title, age, meta, badge, spoken, subtitle);
     }
+
+    private static string Screenshots(int frames) =>
+        frames == 1 ? "1 screenshot" : string.Create(CultureInfo.InvariantCulture, $"{frames} screenshots");
+
+    private static string Join(string separator, params string?[] parts) =>
+        string.Join(separator, parts.Where(p => !string.IsNullOrEmpty(p)));
 
     /// <summary>A group's heading as a screen reader hears it: "To check, 2 sessions".</summary>
     public static string Heading(InboxGroup group, int count) =>

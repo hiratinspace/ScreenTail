@@ -215,6 +215,14 @@ public interface ISessionStore : IAsyncDisposable
     Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default);
 
     /// <summary>
+    /// The ticket a publish of the session may have reached, and its company as the ticket search named it
+    /// (spec v0.6.9 S4), for the inbox rail's row. Written once something of the publish landed or is
+    /// unknown, never from a search alone; a blank company is kept as none. Refused, and false, for a
+    /// discarded or missing session: a discard is the last word (INV-12).
+    /// </summary>
+    Task<bool> SavePublishedTicketAsync(string sessionId, string ticketId, string? company, CancellationToken ct = default);
+
+    /// <summary>
     /// How many sessions carry the unconfirmed mark, for the tray. A discarded session is not counted:
     /// the technician threw it away, and nothing can be done about it here (INV-12).
     /// </summary>
@@ -340,6 +348,8 @@ public sealed record FrameText(string? OcrText);
 /// <param name="Title">The drafted note's suggested title, once there is one. The only free text here,
 /// and it is the technician's own note rather than anything captured.</param>
 /// <param name="PublishUnconfirmed">The session carries the unconfirmed mark: a publish of it may have reached the ticket (O2).</param>
+/// <param name="Ticket">The ticket a publish may have reached, else the digits read off the window at start (ST-077); null when neither is known.</param>
+/// <param name="Company">The PSA's name for that published ticket's company; null until a publish may have reached one. Shown, never logged (INV-10).</param>
 public sealed record SessionSummary(
     string Id,
     DateTimeOffset StartedAt,
@@ -351,7 +361,9 @@ public sealed record SessionSummary(
     int Frames,
     bool RawPurged,
     string? Title,
-    bool PublishUnconfirmed = false);
+    bool PublishUnconfirmed = false,
+    string? Ticket = null,
+    string? Company = null);
 
 /// <summary>What the last publish of a session left on the ticket (O2): destination names and outcomes, never content.</summary>
 /// <param name="UnconfirmedAt">When a destination first became unknown; null when none is.</param>

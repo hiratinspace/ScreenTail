@@ -29,6 +29,28 @@ public partial class HistoryPane : UserControl
         }
     }
 
+    /// <summary>
+    /// <c>Enter</c> opens the row with keyboard focus, as Open and a double-click do (spec v0.6.9 S4). Taken
+    /// before the table sees it: a DataGrid's own Enter moves to the next row, which is not what a
+    /// technician on a session's row means. With modifiers held, the key is the table's.
+    /// </summary>
+    private void OnTableKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.None || DataContext is not HistoryViewModel model)
+        {
+            return;
+        }
+
+        var row = (e.OriginalSource as DependencyObject) is { } source && ItemsControl.ContainerFromElement(Sessions, source) is DataGridRow { Item: HistoryRow focused }
+            ? focused
+            : Sessions.CurrentItem as HistoryRow ?? Sessions.SelectedItem as HistoryRow;
+        if (row is not null)
+        {
+            e.Handled = true;
+            model.OpenCommand.Execute(row);
+        }
+    }
+
     private void OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (DataContext is HistoryViewModel model)

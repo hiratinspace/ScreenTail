@@ -7,11 +7,15 @@
          counts, each a list a screen reader hears by its name and count. Its foot (All sessions, Settings,
          Diagnostics) is the shell's, below this view. -->
     <UserControl.Resources>
-        <!-- One row: what it is and how long ago on the first line, how long and how many screenshots on the
-             second, and a state badge where the group does not already say it. -->
+        <!-- One row (spec v0.6.9 S4): the company, else the note's title, else the tool, and how long ago on
+             the first line; the note's title under a company; then ticket, tool and duration (or, for a row
+             headed by the tool, duration and screenshots) with a state badge where the group does not
+             already say it. A line with nothing to say is not drawn. Long words end in an ellipsis and the
+             tool tip has them whole. -->
         <DataTemplate x:Key="Rail.RowTemplate">
-            <Grid>
+            <Grid ToolTip="{Binding Full}">
                 <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
@@ -21,8 +25,15 @@
                 </Grid.ColumnDefinitions>
                 <TextBlock Grid.Row="0" Grid.Column="0" Style="{StaticResource Rail.RowTitle}" Text="{Binding Title}" />
                 <TextBlock Grid.Row="0" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Rail.RowMeta}" Text="{Binding Age}" />
-                <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,4,0,0" VerticalAlignment="Center" Style="{StaticResource Rail.RowMeta}" Text="{Binding Meta}" />
-                <ContentControl Grid.Row="1"
+                <TextBlock Grid.Row="1"
+                           Grid.Column="0"
+                           Grid.ColumnSpan="2"
+                           Margin="0,4,0,0"
+                           Style="{StaticResource Rail.RowSubtitle}"
+                           Visibility="{Binding SubtitleVisibility}"
+                           Text="{Binding Subtitle}" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Margin="0,4,0,0" VerticalAlignment="Center" Style="{StaticResource Rail.RowMeta}" Text="{Binding Meta}" />
+                <ContentControl Grid.Row="2"
                                 Grid.Column="1"
                                 Margin="8,4,0,0"
                                 VerticalAlignment="Center"
@@ -131,6 +142,7 @@
                                          ItemTemplate="{StaticResource Rail.RowTemplate}"
                                          Visibility="{Binding RowsVisibility}"
                                          SelectionChanged="OnSelectionChanged"
+                                         PreviewKeyDown="OnRowKeyDown"
                                          AutomationProperties.Name="{Binding Heading}" />
                             </StackPanel>
                         </DataTemplate>
