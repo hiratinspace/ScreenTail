@@ -1309,7 +1309,7 @@ WPF host with navigation (Review, History, Settings), MVVM store fed by IPC even
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Done 2026-09-13. No production tray icon until ST-085.
+- **Status:** Done 2026-09-13. No production tray icon until ST-085. **2026-11-12 (Spec v0.6.10):** the menu brought to S1's order, words, disabled states and access keys and drawn in the Outbox tokens; Resume from the tray; the pill row only between sessions (INV-4); the drafts count in words; Discard while capturing stops first. Still open, for the owner: Start capture from the tray (needs a start that reads the tool in front, an IPC change), a warning glyph for service stopped and a numbered draft badge (brand artwork).
 
 **Description:**
 Implements Spec §5 S1 exactly: five icon states, menu order and chords, diagnostics panel with Copy diagnostics (states only).
