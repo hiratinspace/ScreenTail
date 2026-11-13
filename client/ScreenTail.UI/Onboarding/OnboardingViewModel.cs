@@ -10,12 +10,6 @@ using ScreenTail.UI.Settings.Integrations;
 
 namespace ScreenTail.UI.Onboarding;
 
-/// <summary>One progress dot.</summary>
-public sealed record StepDot(int Number, bool Current, bool Done)
-{
-    public string Mark => Done ? "●" : Current ? "◉" : "○";
-}
-
 /// <summary>One remote tool with its toggle, in the "Your remote tools" step.</summary>
 public sealed partial class WizardToolViewModel(string id, string displayName, bool enabled, Action<string, bool> changed) : ObservableObject
 {
@@ -65,7 +59,11 @@ public sealed partial class OnboardingViewModel : ObservableObject
 
     public IntegrationsViewModel Integrations { get; }
 
-    public ObservableCollection<StepDot> Dots { get; } = [];
+    /// <summary>
+    /// The step list on the frame (Spec §5 S8, as built v0.6.7): every step by name, the ones behind
+    /// ticked, the one in hand marked. Progress to read, not navigation.
+    /// </summary>
+    public ObservableCollection<SetupStepRow> Steps { get; } = [];
 
     public ObservableCollection<PermissionRow> Permissions { get; } = [];
 
@@ -77,7 +75,7 @@ public sealed partial class OnboardingViewModel : ObservableObject
     [ObservableProperty]
     public partial string Title { get; set; } = string.Empty;
 
-    /// <summary>"Step 3 of 7": the progress dots in words, for a screen reader (ST-084). The dots have none.</summary>
+    /// <summary>"Step 3 of 7": where the technician is, in words, over the step's title (ST-084).</summary>
     [ObservableProperty]
     public partial string Progress { get; set; } = string.Empty;
 
@@ -226,10 +224,10 @@ public sealed partial class OnboardingViewModel : ObservableObject
             _ => "You're set",
         };
         Progress = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Step {_wizard.StepNumber} of {_wizard.StepCount}");
-        Dots.Clear();
-        for (var i = 1; i <= _wizard.StepCount; i++)
+        Steps.Clear();
+        foreach (var row in SetupSteps.For(Step))
         {
-            Dots.Add(new StepDot(i, i == _wizard.StepNumber, i < _wizard.StepNumber));
+            Steps.Add(row);
         }
 
         Permissions.Clear();
@@ -247,7 +245,9 @@ public sealed partial class OnboardingViewModel : ObservableObject
         Blocker = _wizard.Blocker ?? string.Empty;
         BlockerVisibility = Blocker.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         Note = _wizard.Note ?? string.Empty;
-        NoteVisibility = Note.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+        // Done's note is the step itself: the page says it in full, so the foot does not say it again.
+        NoteVisibility = Note.Length == 0 || Step == OnboardingStep.Done ? Visibility.Collapsed : Visibility.Visible;
         CanContinue = _wizard.CanContinue;
         CanGoBack = _wizard.CanGoBack;
         SkipVisibility = _wizard.CanSkip ? Visibility.Visible : Visibility.Collapsed;

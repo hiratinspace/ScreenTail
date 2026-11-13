@@ -50,6 +50,45 @@ public sealed class OnboardingViewModelTests
         Assert.False(screen.CanContinue);
     }
 
+    [Fact]
+    public async Task TheStepListFollowsTheWizard()
+    {
+        // Spec §5 S8, as built v0.6.7: the list on the frame names every step and marks the one in hand.
+        var screen = new OnboardingViewModel(Wizard(), () => { });
+        Assert.Equal(7, screen.Steps.Count);
+        Assert.Equal("Welcome", screen.Steps.Single(s => s.IsCurrent).Name);
+        Assert.Equal("Step 1 of 7", screen.Progress);
+        Assert.DoesNotContain(screen.Steps, s => s.IsDone);
+
+        await screen.NextCommand.ExecuteAsync(null);
+
+        Assert.Equal("Activate", screen.Steps.Single(s => s.IsCurrent).Name);
+        Assert.Equal("Welcome", screen.Steps.Single(s => s.IsDone).Name);
+        Assert.Equal("Step 2 of 7", screen.Progress);
+        Assert.Equal("Step 2 of 7: Activate, this step", screen.Steps[1].Spoken);
+
+        await screen.BackCommand.ExecuteAsync(null);
+        Assert.Equal("Welcome", screen.Steps.Single(s => s.IsCurrent).Name);
+    }
+
+    [Fact]
+    public void DonesNoteIsThePagesAndNotRepeatedInTheFoot()
+    {
+        // The page's first line on Done is the wizard's note, bound and announced there; the foot's copy
+        // of the same sentence under it is hidden. On every other step the foot shows the note.
+        var wizard = Wizard();
+        var screen = new OnboardingViewModel(wizard, () => { });
+
+        wizard.Go(OnboardingStep.Done);
+        screen.Refresh();
+
+        Assert.Equal("ScreenTail starts when you open a remote session. Look for the pill.", screen.Note);
+        Assert.Equal(System.Windows.Visibility.Collapsed, screen.NoteVisibility);
+        Assert.Equal(System.Windows.Visibility.Visible, screen.FinishVisibility);
+        Assert.Equal("Done", screen.Steps.Single(s => s.IsCurrent).Name);
+        Assert.Equal(6, screen.Steps.Count(s => s.IsDone));
+    }
+
     private static OnboardingWizard Wizard(FakeDevice? device = null) =>
         new(
             new ActivationPanel(device ?? new FakeDevice(), "TECH-LAPTOP"),

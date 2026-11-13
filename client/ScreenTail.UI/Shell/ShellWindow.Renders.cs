@@ -6,6 +6,7 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using ScreenTail.Core.Onboarding;
 using ScreenTail.Core.Review;
 using ScreenTail.Core.Shell;
 using ScreenTail.UI.Render;
@@ -492,6 +493,52 @@ public partial class ShellWindow
                 WindowRenderer.Save(this, Shot($"shell-{name}-150pct", theme), scale: 1.5);
             }
         }
+    }
+
+    /// <summary>
+    /// ST-083's wizard, every step, over the sample gateways: a binding that breaks in a step fails this
+    /// harness rather than the technician's first five minutes. Each step in all four themes at the size
+    /// the window opens at, then in dark and light at 150%, and in light at the window's own minimum
+    /// (Spec §5 S8, as built v0.6.7), which is where a step's content is most likely to be cut off.
+    /// </summary>
+    private async Task OnboardingAsync()
+    {
+        foreach (var step in Enum.GetValues<OnboardingStep>())
+        {
+            var model = await SampleOnboardingAsync(step);
+            var name = $"onboarding-{step.ToString().ToLowerInvariant()}";
+            foreach (var theme in RenderThemes.All)
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await OnboardingShotAsync(model, Shot(name, theme));
+            }
+
+            foreach (var theme in new[] { RenderTheme.Dark, RenderTheme.Light })
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await OnboardingShotAsync(model, Shot($"{name}-150pct", theme), scale: 1.5);
+            }
+
+            RenderThemeApplier.Apply(RenderTheme.Light, Application.Current.Resources);
+            await OnboardingShotAsync(model, Shot($"{name}-min", RenderTheme.Light), smallest: true);
+        }
+    }
+
+    private static async Task OnboardingShotAsync(Onboarding.OnboardingViewModel model, string path, double scale = 1, bool smallest = false)
+    {
+        var window = new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 };
+        if (smallest)
+        {
+            window.Width = window.MinWidth;
+            window.Height = window.MinHeight;
+        }
+
+        _ = WindowRenderer.Intend(window);
+        window.Show();
+        await SettleAsync();
+        window.UpdateLayout();
+        WindowRenderer.Save(window, path, scale: scale);
+        window.Close();
     }
 
     /// <summary>The enlarged frame over the Review pane, opened as Enter opens it.</summary>

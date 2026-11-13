@@ -52,10 +52,26 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PUSH_BEFORE: ${{ github.event.before }}
         run: |
           base=""
-          if [ "$EVENT" = "pull_request" ]; then base="$PR_BASE"; elif [ "$EVENT" = "push" ]; then base="$PUSH_BEFORE"; fi
+          if [ "$EVENT" = "pull_request" ]; then
+            # What a pull request changed is what its merge commit adds to the main it was merged into,
+            # and that main is the checkout's first parent. Not the event's base.sha: that is main as the
+            # pull request last saw it, and it goes stale. On 2026-11-12 a branch pushed after another
+            # pull request merged was compared with main from before that merge, so the other one's
+            # detection files counted as its own, the hardware flag said yes, and the gate failed
+            # waiting for a laptop run that was never going to start. If the checkout is not that merge
+            # commit, the fork point with the event's base is the next best answer.
+            if [ "$(git rev-parse -q --verify 'HEAD^2' || true)" = "$PR_HEAD" ]; then
+              base=$(git rev-parse 'HEAD^1')
+            else
+              base=$(git merge-base "$PR_BASE" HEAD 2>/dev/null || true)
+            fi
+          elif [ "$EVENT" = "push" ]; then
+            base="$PUSH_BEFORE"
+          fi
           if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             files="__all__"
           else
