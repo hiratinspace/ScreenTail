@@ -214,8 +214,12 @@ public sealed class InstallerAuthoringTests
         Assert.Equal(AppIcon, (string?)bundle.Attribute("IconSourceFile"));
     }
 
-    /// <summary>The app icon as both installers name it: beside the .wxs, so a build from any folder finds it.</summary>
-    private const string AppIcon = @"$(sys.SOURCEFILEDIR)..\client\ScreenTail.UI\Assets\app.ico";
+    /// <summary>
+    /// The app icon as both installers name it: a plain path from the repository root, where every step of
+    /// the workflow runs package.ps1 and so WiX, with no preprocessor value (the workflow check allows only
+    /// package.ps1's own $(var.X)).
+    /// </summary>
+    private const string AppIcon = @"client\ScreenTail.UI\Assets\app.ico";
 
     [Theory]
     [InlineData("ScreenTail.Service")]
