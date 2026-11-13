@@ -45,7 +45,7 @@
                 <TextBlock Grid.Column="0" Style="{StaticResource Envelope.Label}" Text="To" />
                 <StackPanel Grid.Column="1">
                     <WrapPanel Orientation="Horizontal">
-                        <Border Margin="0,4,12,4"
+                        <Border Margin="0,2,12,2"
                                 Padding="{DynamicResource Padding.control}"
                                 VerticalAlignment="Center"
                                 Background="{DynamicResource Brush.bg.raised}"
@@ -132,12 +132,14 @@
              hairline that runs the envelope's width. A rule per value broke it in two at the gap.
              v0.6.12: they wrap rather than split the line in halves. Two equal columns gave As half the pane,
              and at the 1024 minimum its second choice read "Discussion: the custo"; now each takes the width
-             it needs, and where both do not fit Time moves under As, its label in the same column. -->
-        <Border Style="{StaticResource Envelope.Line}" Padding="0,4,0,0">
+             it needs, and where both do not fit Time moves under As, its label in the same column. The
+             envelope keeps its 2 px vertical gaps (off the 4 px scale, kept in the literal baseline on purpose):
+             at the 1024 by 680 minimum, 4 px gaps pushed the note's foot and scroll bar out of the pane. -->
+        <Border Style="{StaticResource Envelope.Line}">
             <WrapPanel x:Name="AsAndTime" Orientation="Horizontal">
 
                 <!-- As: a visible two-way choice, Internal note by default (v0.4.1 Q2). Never behind Options. -->
-                <Border Margin="0,0,24,4">
+                <Border Margin="0,2,24,2">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Envelope.Label}" Text="As" />
                         <Border Style="{StaticResource Segment.Group}" VerticalAlignment="Center">
@@ -165,7 +167,7 @@
                 </Border>
 
                 <!-- Time: the entry in minutes, and what it was before rounding, so the number is not taken for the time worked. -->
-                <Border Margin="0,0,0,4">
+                <Border Margin="0,2,0,2">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Envelope.Label}" Text="Time" />
                         <TextBox Width="{DynamicResource Layout.field-narrow}"
@@ -192,11 +194,11 @@
                 <TextBlock Grid.Column="0" Style="{StaticResource Envelope.Label}" VerticalAlignment="Top" Margin="0,8,0,0" Text="Also" />
                 <StackPanel Grid.Column="1">
                     <WrapPanel Orientation="Horizontal">
-                        <CheckBox Margin="0,4,8,4" Style="{StaticResource CheckChip}" Content="{Binding TicketNoteLabel}" IsChecked="{Binding TicketNote}" AutomationProperties.Name="{Binding TicketNoteName}" />
-                        <CheckBox Margin="0,4,8,4" Style="{StaticResource CheckChip}" Content="{Binding TimeEntryLabel}" IsChecked="{Binding TimeEntry}" AutomationProperties.Name="{Binding TimeEntryName}" />
-                        <CheckBox Margin="0,4,8,4" Style="{StaticResource CheckChip}" Content="{Binding KbLabel}" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}" AutomationProperties.HelpText="{Binding KbReason}" />
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding TicketNoteLabel}" IsChecked="{Binding TicketNote}" AutomationProperties.Name="{Binding TicketNoteName}" />
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding TimeEntryLabel}" IsChecked="{Binding TimeEntry}" AutomationProperties.Name="{Binding TimeEntryName}" />
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding KbLabel}" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}" AutomationProperties.HelpText="{Binding KbReason}" />
                     </WrapPanel>
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding KbReason}" />
+                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" Text="{Binding KbReason}" />
                 </StackPanel>
             </Grid>
         </Border>
