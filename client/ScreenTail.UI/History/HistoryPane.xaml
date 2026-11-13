@@ -2,6 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
+             xmlns:local="clr-namespace:ScreenTail.UI.History"
+             xmlns:core="clr-namespace:ScreenTail.Core.History;assembly=ScreenTail.Core"
              AutomationProperties.Name="All sessions">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
@@ -63,20 +65,48 @@
 
         <!-- Page header: the title, and the count beside it. Since v0.6.4 the rail is History; this table,
              opened from the rail's foot, is where several sessions are selected at once. -->
-        <StackPanel Grid.Row="0" Orientation="Horizontal">
-            <TextBlock Style="{StaticResource Text.ScreenTitle}" Text="All sessions" />
-            <TextBlock Margin="12,0,0,4"
-                       VerticalAlignment="Bottom"
-                       Style="{StaticResource History.Count}"
-                       Text="{Binding Status}"
-                       controls:LiveRegion.Setting="Polite" />
+        <StackPanel Grid.Row="0">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Text.ScreenTitle}" Text="All sessions" />
+                <TextBlock Margin="12,0,0,4"
+                           VerticalAlignment="Bottom"
+                           Style="{StaticResource History.Count}"
+                           Text="{Binding Status}"
+                           controls:LiveRegion.Setting="Polite" />
+            </StackPanel>
+
+            <!-- Spec v0.6.9 S4: the v0.5 filters (status, tool, and the date range as whole-day periods),
+                 above the table they filter, once there is a session. They wrap rather than clip in a
+                 narrow pane. Each list says what it filters by in its first entry ("Any status"). -->
+            <WrapPanel Margin="0,16,0,0" Orientation="Horizontal" Visibility="{Binding FiltersVisibility}">
+                <ComboBox Width="160"
+                          Margin="0,0,8,8"
+                          ItemsSource="{x:Static core:HistoryFilters.StatusChoices}"
+                          SelectedItem="{Binding StatusChoice}"
+                          AutomationProperties.Name="Filter by status" />
+                <ComboBox Width="160"
+                          Margin="0,0,8,8"
+                          ItemsSource="{Binding ToolChoices}"
+                          SelectedItem="{Binding ToolChoice}"
+                          AutomationProperties.Name="Filter by tool" />
+                <ComboBox Width="160"
+                          Margin="0,0,8,8"
+                          ItemsSource="{x:Static core:HistoryFilters.PeriodChoices}"
+                          SelectedItem="{Binding PeriodChoice}"
+                          AutomationProperties.Name="Filter by when the session started" />
+                <Button Margin="0,0,0,8"
+                        Style="{StaticResource Button.Link}"
+                        Content="Clear filters"
+                        Command="{Binding ClearFiltersCommand}"
+                        Visibility="{Binding ClearFiltersVisibility}" />
+            </WrapPanel>
         </StackPanel>
 
         <!-- Extended: click, Shift and Ctrl with the mouse, Shift and Ctrl with the arrows and Space, and
              Ctrl+A, the way every Windows table selects. Spec §5 S4: multi-select, then Bulk discard. -->
         <DataGrid Grid.Row="1"
                   x:Name="Sessions"
-                  Margin="0,16,0,0"
+                  Margin="0,8,0,0"
                   Style="{StaticResource History.Table}"
                   ItemsSource="{Binding Rows}"
                   IsReadOnly="True"
@@ -84,8 +114,9 @@
                   SelectionUnit="FullRow"
                   SelectionChanged="OnSelectionChanged"
                   MouseDoubleClick="OnOpen"
+                  PreviewKeyDown="OnTableKeyDown"
                   AutomationProperties.Name="Sessions"
-                  AutomationProperties.HelpText="Select one or more sessions with Shift or Ctrl, then choose Bulk discard.">
+                  AutomationProperties.HelpText="Enter opens the session. Select one or more sessions with Shift or Ctrl, then choose Bulk discard.">
             <!-- The table's row style with each row named for a screen reader (ST-084). -->
             <DataGrid.RowStyle>
                 <Style TargetType="DataGridRow" BasedOn="{StaticResource Table.Row}">
@@ -97,7 +128,8 @@
                      up to 656, which the pane holds at the window's 1024 minimum beside a scroll bar. -->
                 <DataGridTextColumn Header="Started" Binding="{Binding Started}" Width="152" ElementStyle="{StaticResource History.CellText}" />
                 <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="80" ElementStyle="{StaticResource History.CellText}" />
-                <!-- The status as a badge, the way the spec's table draws it; the words are the same. -->
+                <!-- The status as a badge in the rail's word, glyph and hue (spec v0.6.9 S4), so a state reads
+                     the same on both and never by colour alone. -->
                 <!-- "Not confirmed" sits beside the status, never in place of it: a publish of the session may
                      have reached the ticket, and the session is still a draft or published in part. Not
                      focusable, so it is no tab stop; the row's own name says it to a screen reader. -->
@@ -105,13 +137,26 @@
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel HorizontalAlignment="Left" Orientation="Horizontal">
-                                <ContentControl Style="{StaticResource Badge}" Content="{Binding Status}" />
+                                <ContentControl Style="{StaticResource Badge.State}">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:Glyph Style="{StaticResource Badge.StateGlyph}" Text="{Binding StatusGlyph}" />
+                                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="{Binding Status}" />
+                                    </StackPanel>
+                                </ContentControl>
                                 <ContentControl Margin="8,0,0,0"
+                                                Padding="4,0,8,0"
                                                 Style="{StaticResource Badge.Unconfirmed}"
-                                                Content="{Binding NotConfirmedLabel}"
                                                 Visibility="{Binding NotConfirmedVisibility}"
                                                 ToolTip="A publish of this session may have reached the ticket. Check the ticket, then publish again from Review or mark it as published."
-                                                AutomationProperties.Name="Publish not confirmed" />
+                                                AutomationProperties.Name="Publish not confirmed">
+                                    <StackPanel Orientation="Horizontal">
+                                        <controls:Glyph Style="{StaticResource Icon}"
+                                                        FontSize="{DynamicResource Size.xs}"
+                                                        Foreground="{DynamicResource Brush.state.paused}"
+                                                        Text="{x:Static local:HistoryRow.NotConfirmedGlyph}" />
+                                        <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Text="{Binding NotConfirmedLabel}" />
+                                    </StackPanel>
+                                </ContentControl>
                             </StackPanel>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
@@ -143,6 +188,12 @@
                            TextWrapping="Wrap"
                            Text="{Binding Status}"
                            controls:LiveRegion.Setting="Polite" />
+                <Button Margin="0,8,0,0"
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource Button.Link}"
+                        Content="Clear filters"
+                        Command="{Binding ClearFiltersCommand}"
+                        Visibility="{Binding ClearFiltersVisibility}" />
             </StackPanel>
         </Border>
 
@@ -165,7 +216,7 @@
                 <TextBlock Margin="12,0,0,0"
                            VerticalAlignment="Center"
                            Style="{StaticResource Text.Muted}"
-                           Text="Or double-click a session to review it." />
+                           Text="Or press Enter, or double-click a session." />
             </StackPanel>
 
             <!-- How many are selected and how many of those a discard would take, so the number the

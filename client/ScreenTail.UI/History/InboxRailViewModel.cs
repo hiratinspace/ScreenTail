@@ -23,6 +23,15 @@ public sealed partial class InboxRowViewModel : ObservableObject
     [ObservableProperty]
     public partial string Title { get; set; } = string.Empty;
 
+    /// <summary>The note's title under the company, or empty when the row has no company or no title (spec v0.6.9 S4).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SubtitleVisibility))]
+    public partial string Subtitle { get; set; } = string.Empty;
+
+    /// <summary>The row's words in full, for the tool tip, since a narrow rail ends long ones in an ellipsis.</summary>
+    [ObservableProperty]
+    public partial string Full { get; set; } = string.Empty;
+
     [ObservableProperty]
     public partial string Age { get; set; } = string.Empty;
 
@@ -52,20 +61,20 @@ public sealed partial class InboxRowViewModel : ObservableObject
 
     public Visibility BadgeVisibility => Badge.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
 
+    public Visibility SubtitleVisibility => Subtitle.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
     internal void Update(InboxItem item)
     {
         Title = item.Title;
+        Subtitle = item.Subtitle ?? string.Empty;
         Age = item.Age;
         Meta = item.Meta;
         Badge = item.Badge ?? string.Empty;
-        (BadgeTone, BadgeGlyph) = item.Badge switch
-        {
-            "Published" => ("Published", ""),
-            "Partial capture" => ("Paused", ""),
-            "No draft yet" => ("Offline", ""),
-            "Discarded" => ("Muted", ""),
-            _ => ("Muted", ""),
-        };
+
+        // The same word, glyph and hue the All sessions table draws (spec v0.6.9 S4).
+        var badge = StatusBadges.Of(item.Row.Status);
+        (BadgeTone, BadgeGlyph) = (badge.Tone, badge.Glyph);
+        Full = string.Join(Environment.NewLine, new[] { item.Title, item.Subtitle, item.Meta }.Where(w => !string.IsNullOrEmpty(w)));
         Spoken = item.Spoken;
     }
 }

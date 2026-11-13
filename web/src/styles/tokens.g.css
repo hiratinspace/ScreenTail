@@ -78,6 +78,8 @@
   --layout-pane-min-height: 300px;
   --layout-strip-min-height: 416px;
   --layout-rail-width: 280px;
+  --layout-rail-width-narrow: 232px;
+  --layout-rail-narrow-below: 1180px;
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-pill: 999px;

@@ -46,6 +46,7 @@ public partial class ShortcutSheet : Window
             new("?", "This sheet, when the cursor is not in a text box"),
             new("Tab, Shift+Tab", "Move to the next or previous control"),
             new("Ctrl+F", "Search the sessions in the rail"),
+            new("Enter", "On a session in the rail or All sessions: open it"),
             new("Esc", "Close a dialog, this sheet or an enlarged screenshot"),
         ]),
         new("During a session (change these in Settings, under Capture)", [
@@ -89,13 +90,13 @@ public partial class ShortcutSheet : Window
     ];
 
     /// <summary>
-    /// The sheet's left column: anywhere, during a session, inside a step and in Settings, sixteen lines.
+    /// The sheet's left column: anywhere, during a session, inside a step and in Settings, seventeen lines.
     /// The columns are balanced by lines (v0.6.11, when Review gained Ctrl+T and the receipt's Enter) so
     /// neither grows the sheet past a 768 px screen; the step's group stays here, as v0.6.8 put it.
     /// </summary>
     public static IReadOnlyList<Group> LeftColumn { get; } = [.. Groups.Where(g => g.Name is not ("Review" or "In the screenshots"))];
 
-    /// <summary>The right column: Review and the screenshots, sixteen lines.</summary>
+    /// <summary>The right column: Review and the screenshots, sixteen lines (v0.6.9 added Enter on a session to the left).</summary>
     public static IReadOnlyList<Group> RightColumn { get; } = [.. Groups.Where(g => g.Name is "Review" or "In the screenshots")];
 
     /// <summary>

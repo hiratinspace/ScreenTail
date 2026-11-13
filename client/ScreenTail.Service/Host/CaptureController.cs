@@ -243,6 +243,12 @@ internal sealed class CaptureController(
 
                     // Beside the status, never in place of it, and never for a discarded session (v10).
                     PublishUnconfirmed = SessionHistory.PublishUnconfirmed(s),
+
+                    // Contract v11: what the rail's row says beside the tool, each left off when unknown.
+                    // The note's own title, never a window title; nothing of a discarded session.
+                    Title = SessionHistory.Labels(s).Title,
+                    Ticket = SessionHistory.Labels(s).Ticket,
+                    Company = SessionHistory.Labels(s).Company,
                 })],
         };
     }
