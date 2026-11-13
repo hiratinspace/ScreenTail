@@ -34,4 +34,6 @@ public static class TrayGlyph
     /// taskbar and no such value, and the dark glyph is the one Windows itself defaults to.
     /// </summary>
     public static bool IsLightTaskbar(object? systemUsesLightTheme) => systemUsesLightTheme is int value && value == 1;
+
+    public static bool IsLightTaskbar(object? systemUsesLightTheme, bool highContrast, bool windowIsLight) => IsLightTaskbar(systemUsesLightTheme);
 }
