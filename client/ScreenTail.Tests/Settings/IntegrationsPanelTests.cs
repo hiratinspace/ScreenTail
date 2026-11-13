@@ -222,9 +222,64 @@ public sealed class IntegrationsPanelTests
         var outcome = await panel.ConnectWise.CheckAsync();
 
         Assert.False(outcome.Ok);
-        Assert.Equal(outcome.Message, panel.ConnectWise.CheckResult);
+
+        // Spec v0.6.8: the backend's words point at "Settings → Integrations", which is this page, so the
+        // card says what to do on it. (Was: the card's words equal to the backend's.)
+        Assert.Equal("ConnectWise rejected the key. Press Change and enter a new key.", panel.ConnectWise.CheckResult);
         Assert.False(panel.ConnectWise.CheckOk);
         Assert.Equal(["connectwise"], gateway.Checked);
+    }
+
+    [Theory]
+    [InlineData("Hudu rejected the API key. Update it in Settings → Integrations.", "Hudu rejected the API key. Press Change and enter a new key.")]
+    [InlineData("The site did not answer. Check the site address in Settings → Integrations.", "The site did not answer. Check the site address on this page.")]
+    [InlineData("The stored credential could not be opened. Enter it again in Settings → Integrations.", "The stored credential could not be opened. Enter it again on this page.")]
+    [InlineData("HaloPSA rejected the key. Update it in Settings.", "HaloPSA rejected the key. Update it in Settings.")]
+    [InlineData("Connected to https://na.myconnectwise.net.", "Connected to https://na.myconnectwise.net.")]
+    public void OnTheIntegrationsPageNothingSendsTheTechnicianToTheIntegrationsPage(string fromTheBackend, string onThePage)
+    {
+        Assert.Equal(onThePage, IntegrationNames.OnThisPage(fromTheBackend));
+        Assert.DoesNotContain("Settings → Integrations", IntegrationNames.OnThisPage(fromTheBackend), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheLastErrorAndARefusedSaveSayWhatToDoOnThePageToo()
+    {
+        var gateway = new FakeIntegrations
+        {
+            Rows =
+            [
+                new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "Hudu rejected the API key. Update it in Settings → Integrations."),
+                new IntegrationDetail("demo-kb", "https://demo.example", "••••0000", DateTimeOffset.UnixEpoch, null, "The site did not answer. Check the site address in Settings → Integrations."),
+            ],
+            StoreRefusal = "The address is private. Enter the provider's public address in Settings → Integrations.",
+        };
+        var panel = new IntegrationsPanel(gateway);
+        await panel.LoadAsync();
+
+        Assert.Equal("Hudu rejected the API key. Press Change and enter a new key.", panel.Hudu.LastError);
+        Assert.Equal("The site did not answer. Check the site address on this page.", Assert.Single(panel.Others).LastError);
+
+        panel.Hudu.Change();
+        panel.Hudu.ApiKey = "new-key-0001";
+        Assert.False(await panel.Hudu.SaveAsync());
+        Assert.Equal("The address is private. Enter the provider's public address on this page.", panel.Hudu.Problem);
+    }
+
+    [Fact]
+    public async Task AnEmptyHuduKeySaysSoWithoutRepeatingTheHintUnderTheBox()
+    {
+        // Spec v0.6.8: the line under the API key box says where the key comes from ("From Hudu → Admin →
+        // API Keys ..."), and the problem line said it again in red straight under it. The hint stays; the
+        // problem says what is wrong and what to do.
+        var panel = new IntegrationsPanel(new FakeIntegrations());
+        await panel.LoadAsync();
+
+        panel.Hudu.SiteUrl = "https://acme.huducloud.com";
+
+        Assert.Equal("The API key is missing. Paste it into the box above.", panel.Hudu.Problem);
+        Assert.DoesNotContain("Admin", panel.Hudu.Problem, StringComparison.Ordinal);
+        Assert.False(panel.Hudu.CanSave);
     }
 
     [Fact]

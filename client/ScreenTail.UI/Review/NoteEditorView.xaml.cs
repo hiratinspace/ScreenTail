@@ -37,6 +37,21 @@ public partial class NoteEditorView : UserControl
 
         Loaded += (_, _) => _tick.Start();
 
+        // What Ctrl+Z means after Del on a step's frame depends on whether anything was typed since.
+        AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler((_, _) => _typedSinceDelete = true));
+        DataContextChanged += (_, e) =>
+        {
+            if (e.OldValue is NoteEditorViewModel old)
+            {
+                old.PropertyChanged -= OnModelChanged;
+            }
+
+            if (e.NewValue is NoteEditorViewModel now)
+            {
+                now.PropertyChanged += OnModelChanged;
+            }
+        };
+
         // T-169: the autosave waits for a pause in typing, so leaving Review straight after typing used to
         // lose that much. Navigating away unloads the pane, and what is outstanding is written now.
         Unloaded += async (_, _) =>
@@ -107,18 +122,129 @@ public partial class NoteEditorView : UserControl
     /// on the step's row). On PreviewKeyDown, so the button never sees the press and does not also enlarge
     /// it; Enter and a click are the button's own, through ShowFrameCommand.
     /// </summary>
+    /// <remarks>
+    /// `Del` deletes it, as in the strip (Spec v0.6.8 §5 S3), with the same five-second undo, which is on
+    /// the note. The button goes with the frame, so focus moves into the step's text, at its end, where a
+    /// second Del has nothing to delete; Ctrl+Z from there brings the frame back (<see cref="OnNoteKeyDown"/>).
+    /// </remarks>
     private void OnFrameKeyDown(object sender, KeyEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: FrameChip chip } && Model is { } model
-            && e.Key == Key.Space && e.KeyboardDevice.Modifiers == ModifierKeys.None)
+        if (sender is not FrameworkElement { DataContext: FrameChip chip } || Model is not { } model)
         {
-            if (!e.IsRepeat)
+            return;
+        }
+
+        switch (NoteEditorKeys.RouteFrame(e.Key, e.SystemKey, e.KeyboardDevice.Modifiers))
+        {
+            case NoteFrameKey.ToggleInclude:
+                if (!e.IsRepeat)
+                {
+                    model.ToggleFrameCommand.Execute(chip);
+                }
+
+                e.Handled = true;
+                break;
+
+            case NoteFrameKey.Delete:
+                // A held Del deletes one screenshot, not every one the focus lands on.
+                if (!e.IsRepeat)
+                {
+                    var row = model.Steps.FirstOrDefault(step => step.Frames.Contains(chip));
+                    _deleted = chip;
+                    model.DeleteFrameCommand.Execute(chip);
+                    if (row is not null && !chip.Present)
+                    {
+                        Focus(row);
+                    }
+                }
+
+                e.Handled = true;
+                break;
+
+            case NoteFrameKey.None:
+            default:
+                break;
+        }
+    }
+
+    /// <summary>The step's frame Del last took out here, so the undo can put focus back on it.</summary>
+    private FrameChip? _deleted;
+
+    /// <summary>The note's text has changed since the last delete: Ctrl+Z in a text box is that box's own again.</summary>
+    private bool _typedSinceDelete;
+
+    /// <summary>
+    /// `Ctrl+Z` anywhere in the note takes back a screenshot's delete while it is inside its five seconds
+    /// (Spec v0.6.8 §5 S3), as it does in the strip. On PreviewKeyDown, ahead of the focused text box,
+    /// whose own undo it stays once the technician has typed since Del (<see cref="Core.Review.NoteLanding.UndoIsTheDelete"/>).
+    /// </summary>
+    private void OnNoteKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Model is not { } model
+            || !NoteEditorKeys.IsUndoOfTheDelete(e.Key, e.KeyboardDevice.Modifiers, model.HasUndoToast, Keyboard.FocusedElement is TextBox, _typedSinceDelete))
+        {
+            return;
+        }
+
+        var back = _deleted;
+        _deleted = null;
+        model.UndoDeleteCommand.Execute(null);
+        e.Handled = true;
+        if (back is not null)
+        {
+            FocusFrame(back);
+        }
+    }
+
+    /// <summary>The toast's Undo, pressed: the frame is back, and focus goes to it rather than nowhere when the toast goes.</summary>
+    private void OnUndoClick(object sender, RoutedEventArgs e)
+    {
+        if (_deleted is { } back)
+        {
+            _deleted = null;
+            FocusFrame(back);
+        }
+    }
+
+    private void OnModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        // A new delete, here or in the strip: nothing has been typed since it.
+        if (e.PropertyName == nameof(NoteEditorViewModel.UndoToast) && Model is { HasUndoToast: true })
+        {
+            _typedSinceDelete = false;
+        }
+    }
+
+    /// <summary>Puts focus on a step's frame once it is back on its row and laid out.</summary>
+    private void FocusFrame(FrameChip chip) =>
+        _ = Dispatcher.BeginInvoke(
+            System.Windows.Threading.DispatcherPriority.Input,
+            () =>
             {
-                model.ToggleFrameCommand.Execute(chip);
+                if (chip.Present && FindFrame(StepList, chip) is { IsVisible: true } frame)
+                {
+                    _ = frame.Focus();
+                }
+            });
+
+    private static Button? FindFrame(DependencyObject parent, FrameChip chip)
+    {
+        var children = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+        for (var i = 0; i < children; i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is Button button && ReferenceEquals(button.DataContext, chip))
+            {
+                return button;
             }
 
-            e.Handled = true;
+            if (FindFrame(child, chip) is { } found)
+            {
+                return found;
+            }
         }
+
+        return null;
     }
 
     /// <summary>
@@ -206,9 +332,48 @@ public enum NoteEditorKey
     RemoveStep,
 }
 
+/// <summary>What one keypress on a step's frame does.</summary>
+public enum NoteFrameKey
+{
+    None,
+    ToggleInclude,
+    Delete,
+}
+
 /// <summary>The step box's chords (Spec §5 S3), as one pure function so they are tested without a window.</summary>
 public static class NoteEditorKeys
 {
+    /// <summary>
+    /// A step's frame: `Space` includes or excludes it and `Del` deletes it, as in the strip (Spec v0.6.8
+    /// §5 S3). Bare keys only; Enter is the button's own, and enlarges it.
+    /// </summary>
+    /// <param name="key">WPF's <see cref="KeyEventArgs.Key"/>, which is <see cref="Key.System"/> under Alt.</param>
+    /// <param name="systemKey">WPF's <see cref="KeyEventArgs.SystemKey"/>.</param>
+    public static NoteFrameKey RouteFrame(Key key, Key systemKey, ModifierKeys modifiers)
+    {
+        if (modifiers != ModifierKeys.None)
+        {
+            return NoteFrameKey.None;
+        }
+
+        return (key == Key.System ? systemKey : key) switch
+        {
+            Key.Space => NoteFrameKey.ToggleInclude,
+            Key.Delete => NoteFrameKey.Delete,
+            _ => NoteFrameKey.None,
+        };
+    }
+
+    /// <summary>
+    /// Whether this press is Ctrl+Z taking back a screenshot's delete: Ctrl+Z exactly (Ctrl+Shift+Z is a
+    /// redo), while one is pending, and not the focused text box's own undo
+    /// (<see cref="Core.Review.NoteLanding.UndoIsTheDelete"/>).
+    /// </summary>
+    public static bool IsUndoOfTheDelete(Key key, ModifierKeys modifiers, bool deletePending, bool inTextBox, bool typedSinceDelete) =>
+        key == Key.Z
+        && modifiers == ModifierKeys.Control
+        && Core.Review.NoteLanding.UndoIsTheDelete(deletePending, inTextBox, typedSinceDelete);
+
     /// <param name="key">WPF's <see cref="KeyEventArgs.Key"/>, which is <see cref="Key.System"/> under Alt (T-240).</param>
     /// <param name="systemKey">WPF's <see cref="KeyEventArgs.SystemKey"/>: the real key when <paramref name="key"/> is <see cref="Key.System"/>.</param>
     /// <param name="caretAtEnd">Whether the caret is after the step's last character.</param>

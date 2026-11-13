@@ -51,6 +51,7 @@ public partial class ShortcutSheet : Window
             new("Alt+Up, Alt+Down", "Move the step up or down"),
             new("Enter at the end", "Start a new step"),
             new("Backspace when empty", "Delete the step"),
+            new("Space, Enter, Del", "On its screenshot: include or exclude, enlarge, delete"),
         ]),
         new("In the screenshots", [
             new("Space", "Include or exclude the screenshot"),
@@ -71,11 +72,14 @@ public partial class ShortcutSheet : Window
         ]),
     ];
 
-    /// <summary>The sheet's left column: where you are anywhere, during a session, and in Review.</summary>
-    public static IReadOnlyList<Group> LeftColumn { get; } = [.. Groups.Take(3)];
+    /// <summary>
+    /// The sheet's left column: anywhere, during a session, in Review and inside a step. The step's group
+    /// sits here so neither column grows the sheet past a 768 px screen.
+    /// </summary>
+    public static IReadOnlyList<Group> LeftColumn { get; } = [.. Groups.Take(4)];
 
-    /// <summary>The right column: inside a step and in the screenshots.</summary>
-    public static IReadOnlyList<Group> RightColumn { get; } = [.. Groups.Skip(3)];
+    /// <summary>The right column: in the screenshots and in Settings.</summary>
+    public static IReadOnlyList<Group> RightColumn { get; } = [.. Groups.Skip(4)];
 
     /// <summary>
     /// Whether <c>?</c> typed with focus on <paramref name="focused"/> means the sheet. In a text box, a

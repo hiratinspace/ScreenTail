@@ -32,7 +32,10 @@ public sealed class CapturePanelTests
         Assert.Equal([false, true], panel.Tools.Select(t => t.Enabled));
         Assert.Equal(2, panel.Microphones.Count);
         Assert.Equal(120, panel.GraceSeconds);
-        Assert.Equal(3, panel.Models.Count);
+
+        // The three models and, first, the default that picks one (Spec v0.6.8; was three, with no entry for the default).
+        Assert.Equal(4, panel.Models.Count);
+        Assert.Equal(SpeechModels.All.Select(m => m.Name), panel.Models.Skip(1).Select(m => m.Name));
     }
 
     [Fact]
@@ -87,6 +90,71 @@ public sealed class CapturePanelTests
 
         Assert.Equal("small.en", gateway.Saved!.SpeechModel);
         Assert.Contains("accuracy", panel.Models.Single(m => m.Name == "small.en").Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task TheSpeechModelPickerIsNeverEmptyAndShowsTheDefault()
+    {
+        // Spec v0.6.8: with no model chosen (the default) the dropdown was empty. The default is a choice
+        // of its own, first in the list, and it names the model it uses.
+        var gateway = new FakeCapture();
+        var panel = new CapturePanel(gateway);
+        await panel.LoadAsync();
+
+        Assert.Null(panel.Model);
+        Assert.Same(panel.Models[0], panel.SelectedModel);
+        Assert.Null(panel.SelectedModel.Name);
+        Assert.Equal("Automatic", panel.SelectedModel.Label);
+        Assert.Contains(SpeechModels.For(Environment.ProcessorCount).Name, panel.SelectedModel.Hint, StringComparison.Ordinal);
+        Assert.False(panel.HasUnsavedEdits);
+
+        // A model named in the settings is the one shown, however it is cased, and showing it changes nothing.
+        gateway.Snapshot = gateway.Snapshot! with { Settings = new CaptureSettings { SpeechModel = "SMALL.EN" } };
+        await panel.LoadAsync();
+        Assert.Equal("small.en", panel.SelectedModel.Name);
+        Assert.Equal("small.en", panel.SelectedModel.Label);
+        panel.SelectedModel = panel.SelectedModel;
+        Assert.False(panel.HasUnsavedEdits);
+
+        // One the list does not have runs as the default does (the service falls back to it), so that is what is shown.
+        gateway.Snapshot = gateway.Snapshot! with { Settings = new CaptureSettings { SpeechModel = "large-v9" } };
+        await panel.LoadAsync();
+        Assert.Same(panel.Models[0], panel.SelectedModel);
+        Assert.False(panel.HasUnsavedEdits);
+
+        // Choosing Automatic saves no model name; choosing a model saves its name.
+        panel.SelectedModel = panel.Models.Single(m => m.Name == "tiny.en");
+        Assert.Equal("tiny.en", panel.Model);
+        panel.SelectedModel = panel.Models[0];
+        Assert.Null(panel.Model);
+        Assert.True(await panel.SaveAsync());
+        Assert.Null(gateway.Saved!.SpeechModel);
+    }
+
+    [Fact]
+    public async Task TheSensitivityIsShownByAPlainNameAndSavedAsItWas()
+    {
+        // Spec v0.6.8: the dropdown showed the stored values, "low", "medium" and "high". Each has a name
+        // that says what it does; what is saved is unchanged.
+        var gateway = new FakeCapture();
+        var panel = new CapturePanel(gateway);
+        await panel.LoadAsync();
+
+        Assert.Equal(CaptureSettingsRules.Sensitivities, CapturePanel.SensitivityChoices.Select(c => c.Value));
+        Assert.Equal(["Low: fewer screenshots", "Medium", "High: more screenshots"], CapturePanel.SensitivityChoices.Select(c => c.Label));
+        Assert.Equal("Medium", panel.SelectedSensitivity.Label);
+
+        panel.SelectedSensitivity = CapturePanel.SensitivityChoices.Single(c => c.Value == "high");
+        Assert.Equal("high", panel.Sensitivity);
+        Assert.True(await panel.SaveAsync());
+        Assert.Equal("high", gateway.Saved!.Sensitivity);
+
+        // Stored in another case, it is still shown by its name, and showing it is not a change.
+        gateway.Snapshot = gateway.Snapshot! with { Settings = new CaptureSettings { Sensitivity = "LOW" } };
+        await panel.LoadAsync();
+        Assert.Equal("Low: fewer screenshots", panel.SelectedSensitivity.Label);
+        panel.SelectedSensitivity = panel.SelectedSensitivity;
+        Assert.False(panel.HasUnsavedEdits);
     }
 
     [Fact]

@@ -77,6 +77,43 @@ public sealed class CaptureMicrophoneViewModelTests
         });
     }
 
+    [Fact]
+    public void TheSpeechModelAndSensitivityDropdownsAlwaysShowAChoiceByName()
+    {
+        // Spec v0.6.8: with the default settings the speech model dropdown was empty, and the sensitivity
+        // showed its stored value ("medium"). Both show a named choice, and showing it is not a change.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        OnUiThread(async () =>
+        {
+            var service = new FakeCapture();
+            var screen = new CaptureViewModel(new CapturePanel(service), _ => Task.CompletedTask, new MicrophoneLevelWatch(service));
+            await screen.LoadAsync();
+
+            Assert.NotNull(screen.SelectedModel);
+            Assert.Same(screen.Models[0], screen.SelectedModel);
+            Assert.Equal("Automatic", screen.SelectedModel.Label);
+            Assert.Equal("Medium", screen.SelectedSensitivity.Label);
+            Assert.Equal(["Low: fewer screenshots", "Medium", "High: more screenshots"], screen.Sensitivities.Select(s => s.Label));
+            Assert.False(screen.HasUnsavedEdits);
+
+            // The dropdowns write what they always wrote: the model's name, and the stored value.
+            screen.SelectedModel = screen.Models.Single(m => m.Name == "small.en");
+            screen.SelectedSensitivity = screen.Sensitivities.Single(s => s.Value == "high");
+            Assert.Equal("high", screen.Sensitivity);
+            Assert.True(screen.HasUnsavedEdits);
+            Assert.Null(await screen.Section.SaveAsync());
+            screen.Refresh();
+            Assert.Equal("small.en", service.Saved!.SpeechModel);
+            Assert.Equal("high", service.Saved.Sensitivity);
+            Assert.Equal("small.en", screen.SelectedModel.Label);
+            Assert.Equal("High: more screenshots", screen.SelectedSensitivity.Label);
+
+            // A dropdown cleared (WPF hands a null) goes back to the default, never to nothing.
+            screen.SelectedModel = null!;
+            Assert.Same(screen.Models[0], screen.SelectedModel);
+        });
+    }
+
     private static async Task UntilAsync(Func<bool> condition)
     {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);

@@ -88,6 +88,53 @@ public sealed class NoteEditorKeysTests
     }
 
     [Fact]
+    public void OnAStepsFrameSpaceIncludesOrExcludesAndDelDeletes()
+    {
+        // Spec v0.6.8 §5 S3: Del on a step's frame, as in the strip. Bare keys only: Ctrl+Enter is Publish
+        // and Enter is the button's own (it enlarges).
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+
+        Assert.Equal(NoteFrameKey.ToggleInclude, NoteEditorKeys.RouteFrame(Key.Space, Key.None, ModifierKeys.None));
+        Assert.Equal(NoteFrameKey.Delete, NoteEditorKeys.RouteFrame(Key.Delete, Key.None, ModifierKeys.None));
+        Assert.Equal(NoteFrameKey.None, NoteEditorKeys.RouteFrame(Key.Delete, Key.None, ModifierKeys.Control));
+        Assert.Equal(NoteFrameKey.None, NoteEditorKeys.RouteFrame(Key.Delete, Key.None, ModifierKeys.Shift));
+        Assert.Equal(NoteFrameKey.None, NoteEditorKeys.RouteFrame(Key.System, Key.Delete, ModifierKeys.Alt));
+        Assert.Equal(NoteFrameKey.None, NoteEditorKeys.RouteFrame(Key.Enter, Key.None, ModifierKeys.None));
+        Assert.Equal(NoteFrameKey.None, NoteEditorKeys.RouteFrame(Key.Back, Key.None, ModifierKeys.None));
+    }
+
+    [Fact]
+    public void CtrlZInTheNoteIsTheDeletesUndoOnlyWhileThereIsOneAndNothingWasTypedSince()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+
+        Assert.True(NoteEditorKeys.IsUndoOfTheDelete(Key.Z, ModifierKeys.Control, deletePending: true, inTextBox: false, typedSinceDelete: false));
+        Assert.True(NoteEditorKeys.IsUndoOfTheDelete(Key.Z, ModifierKeys.Control, deletePending: true, inTextBox: true, typedSinceDelete: false));
+
+        // Typed since Del: Ctrl+Z in a text box is that box's own undo again.
+        Assert.False(NoteEditorKeys.IsUndoOfTheDelete(Key.Z, ModifierKeys.Control, deletePending: true, inTextBox: true, typedSinceDelete: true));
+
+        // Nothing to take back, another key, or other modifiers (Ctrl+Shift+Z is redo): the text box's.
+        Assert.False(NoteEditorKeys.IsUndoOfTheDelete(Key.Z, ModifierKeys.Control, deletePending: false, inTextBox: false, typedSinceDelete: false));
+        Assert.False(NoteEditorKeys.IsUndoOfTheDelete(Key.Z, ModifierKeys.None, deletePending: true, inTextBox: false, typedSinceDelete: false));
+        Assert.False(NoteEditorKeys.IsUndoOfTheDelete(Key.Z, ModifierKeys.Control | ModifierKeys.Shift, deletePending: true, inTextBox: false, typedSinceDelete: false));
+        Assert.False(NoteEditorKeys.IsUndoOfTheDelete(Key.Y, ModifierKeys.Control, deletePending: true, inTextBox: false, typedSinceDelete: false));
+    }
+
+    [Fact]
+    public void AStepsFrameHearsDelBeforeTheButtonDoes()
+    {
+        // The wiring, as NoteEditorView.xaml declares it: the frame's keys on PreviewKeyDown, and Ctrl+Z on
+        // the pane's, ahead of the text box's own undo.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var xaml = XDocument.Load(Path.Combine(AppContext.BaseDirectory, "Review", "Xaml", "NoteEditorView.xaml"));
+        var chip = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "Button" && (string?)e.Attribute("Tag") == "{Binding Id}");
+
+        Assert.Equal("OnFrameKeyDown", (string?)chip.Attribute("PreviewKeyDown"));
+        Assert.Equal("OnNoteKeyDown", (string?)xaml.Root!.Attribute("PreviewKeyDown"));
+    }
+
+    [Fact]
     public void TheStepBoxListensBeforeTheTextBoxDoes()
     {
         // The wiring itself, as NoteEditorView.xaml declares it. The XAML is copied beside the tests at build.

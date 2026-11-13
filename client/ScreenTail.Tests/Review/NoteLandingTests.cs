@@ -60,9 +60,39 @@ public sealed class NoteLandingTests
         Assert.Equal(expected, NoteLanding.FrameState(place, included, withheld));
 
     [Fact]
+    public void AStepsFrameSaysWhatDelDoesWhereItSaysWhatSpaceDoes()
+    {
+        // Spec v0.6.8 \u00a75 S3: Del works on a step's row too, so its help says so, with the undo.
+        Assert.Equal("Enter enlarges it. Space includes or excludes it. Del deletes it, with 5 seconds to undo (Ctrl+Z).", NoteLanding.FrameHelp);
+        Assert.Equal("Enter or click to enlarge, B there to blur. Space includes or excludes it. Del deletes it, with 5 seconds to undo (Ctrl+Z).", NoteLanding.FrameTip);
+    }
+
+    [Theory]
+    [InlineData(true, false, false, true)] // on the step's frame, or any button: the delete
+    [InlineData(true, true, false, true)] // in a text box, nothing typed since Del: still the delete
+    [InlineData(true, true, true, false)] // typed since: the text box's own undo
+    [InlineData(true, false, true, true)] // typed since, but focus is not in a text box now
+    [InlineData(false, false, false, false)] // nothing to take back
+    [InlineData(false, true, false, false)]
+    public void CtrlZTakesBackTheDeleteUnlessTheTechnicianHasTypedSince(bool pending, bool inTextBox, bool typedSince, bool expected) =>
+        Assert.Equal(expected, NoteLanding.UndoIsTheDelete(pending, inTextBox, typedSince));
+
+    [Fact]
+    public void NoneLeftToReviewMeansEveryMaskedScreenshotThatGoesOutIsOnAStep()
+    {
+        // Owner decision (v0.6.8): the wording stays as built. One masked screenshot on a step, one not:
+        // the count names the one the note does not show; with both on steps there is none left.
+        var both = new HashSet<string>(["f1", "f2"], StringComparer.Ordinal);
+        var one = new HashSet<string>(["f1"], StringComparer.Ordinal);
+
+        Assert.Equal("2 items masked, none left to review", NoteLanding.Masking([Frame("f1", 1), Frame("f2", 1)], both));
+        Assert.Equal("2 items masked, 1 on a screenshot no step shows", NoteLanding.Masking([Frame("f1", 1), Frame("f2", 1)], one));
+    }
+
+    [Fact]
     public void TheCopyHasNoDashes() =>
         Assert.All(
-            [NoteLanding.Guide, NoteLanding.Inferred, NoteLanding.EmptySection],
+            [NoteLanding.Guide, NoteLanding.Inferred, NoteLanding.EmptySection, NoteLanding.FrameHelp, NoteLanding.FrameTip],
             line => Assert.DoesNotContain("\u2014", line, StringComparison.Ordinal));
 
     private static Session Timed() => Session(draft: Draft()) with
