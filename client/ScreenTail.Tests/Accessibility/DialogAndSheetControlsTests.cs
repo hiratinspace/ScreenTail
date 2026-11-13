@@ -68,6 +68,10 @@ public sealed class DialogAndSheetControlsTests
         Assert.Contains(sheet.Descendants(Wpf + "Border"), b => (string?)b.Attribute("Style") == "{StaticResource KeyCap.Sheet}");
         Assert.Contains(sheet.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Style") == "{StaticResource Sheet.GroupHeading}");
 
+        // A line's caps are read as one text, named by the keys with "or" between alternatives.
+        var caps = Assert.Single(sheet.Descendants(), e => e.Name.LocalName == "KeyCapList");
+        Assert.Equal("{Binding Spoken}", (string?)caps.Attribute("AutomationProperties.Name"));
+
         // Wide enough that most lines take one line, and inside a 1024 px screen with its frame.
         var width = double.Parse((string)sheet.Attribute("Width")!, System.Globalization.CultureInfo.InvariantCulture);
         Assert.InRange(width, 760, 1000);

@@ -26,6 +26,9 @@ public partial class ShortcutSheet : Window
         /// <summary>The line's key caps (<see cref="KeyCaps"/>), each with the comma drawn after it, if any.</summary>
         public IReadOnlyList<Cap> Caps { get; } = CapsOf(Keys);
 
+        /// <summary>The keys as a screen reader hears the line's caps: "Alt+1, Alt+2 or Alt+3".</summary>
+        public string Spoken => KeyCaps.Spoken(Keys);
+
         private static Cap[] CapsOf(string keys)
         {
             var caps = KeyCaps.Of(keys);

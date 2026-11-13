@@ -40,7 +40,7 @@
                                     <ColumnDefinition Width="140" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <controls:Repeater Grid.Column="0" VerticalAlignment="Top" ItemsSource="{Binding Caps}">
+                                <controls:KeyCapList Grid.Column="0" VerticalAlignment="Top" ItemsSource="{Binding Caps}" AutomationProperties.Name="{Binding Spoken}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <WrapPanel Orientation="Horizontal" />
@@ -55,7 +55,7 @@
                                                                FontSize="{DynamicResource Size.sm}"
                                                                Text="{Binding Key}" />
                                                 </Border>
-                                                <!-- The comma between alternatives is drawn, not read: each cap is read on its own. -->
+                                                <!-- Drawn, not read: the line is read as one text, its keys joined with "or" (KeyCapList). -->
                                                 <controls:Glyph Margin="0,0,4,0"
                                                                 VerticalAlignment="Bottom"
                                                                 Style="{StaticResource Text.Muted}"
@@ -63,7 +63,7 @@
                                             </StackPanel>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
-                                </controls:Repeater>
+                                </controls:KeyCapList>
                                 <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" Text="{Binding Action}" />
                             </Grid>
                         </DataTemplate>
