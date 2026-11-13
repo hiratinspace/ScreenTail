@@ -503,7 +503,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN published_ticket; ALTER TABLE sessions DROP COLUMN published_company; DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; ALTER TABLE frames DROP COLUMN stored_width; ALTER TABLE frames DROP COLUMN stored_height; DELETE FROM schema_migrations WHERE version >= 11;");
         }
 
         var upgraded = await OpenAsync();
@@ -534,7 +534,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN published_ticket; ALTER TABLE sessions DROP COLUMN published_company; DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DROP INDEX sessions_by_started; DELETE FROM schema_migrations WHERE version >= 12;");
         }
 
         var upgraded = await OpenAsync();
@@ -561,7 +561,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; DELETE FROM schema_migrations WHERE version >= 14;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN published_ticket; ALTER TABLE sessions DROP COLUMN published_company; DROP INDEX IF EXISTS sessions_publish_unconfirmed; DELETE FROM schema_migrations WHERE version >= 14;");
         }
 
         var upgraded = await OpenAsync();
@@ -591,7 +591,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
 
         await using (var raw = await OpenRawAsync())
         {
-            await RawAsync(raw, "DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DELETE FROM schema_migrations WHERE version >= 13;");
+            await RawAsync(raw, "ALTER TABLE sessions DROP COLUMN published_ticket; ALTER TABLE sessions DROP COLUMN published_company; DROP INDEX IF EXISTS sessions_publish_unconfirmed; ALTER TABLE sessions DROP COLUMN publish_unconfirmed_at; ALTER TABLE sessions DROP COLUMN publish_outcomes; DELETE FROM schema_migrations WHERE version >= 13;");
         }
 
         var upgraded = await OpenAsync();

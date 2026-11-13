@@ -363,6 +363,8 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
 
         public Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default) => inner.SavePublishRecordAsync(sessionId, outcomes, ct);
 
+        public Task<bool> SavePublishedTicketAsync(string sessionId, string ticketId, string? company, CancellationToken ct = default) => inner.SavePublishedTicketAsync(sessionId, ticketId, company, ct);
+
         public Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default) => inner.CountUnconfirmedPublishesAsync(ct);
 
         public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => inner.DeleteFrameAsync(frameId, ct);

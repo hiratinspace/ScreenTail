@@ -111,7 +111,7 @@ public sealed class RailLabelsTests
     [Fact]
     public void NoTwoStatusesShareAGlyphSoTheShapeAloneTellsThemApart()
     {
-        var glyphs = new[] { "draft", "published", "partial", "pending", "discarded" }
+        var glyphs = Enum.GetValues<SessionStatus>()
             .Select(s => StatusBadges.Of(s).Glyph)
             .Append(StatusBadges.NotConfirmed.Glyph)
             .ToList();
@@ -140,17 +140,17 @@ public sealed class RailLabelsTests
     {
         var rows = Rows();
 
-        Assert.Equal(rows.Select(r => r.Id), HistoryFilters.Apply(rows, HistoryFilter.Any, Now, Utc).Select(r => r.Id));
-        Assert.False(HistoryFilter.Any.IsActive);
+        Assert.Equal(rows.Select(r => r.Id), HistoryFilters.Apply(rows, TableFilter.Any, Now, Utc).Select(r => r.Id));
+        Assert.False(TableFilter.Any.IsActive);
     }
 
     [Fact]
     public void TheStatusFilterKeepsThatStatusOnly() =>
-        Assert.Equal(["partial"], HistoryFilters.Apply(Rows(), HistoryFilter.Any with { Status = "partial" }, Now, Utc).Select(r => r.Id));
+        Assert.Equal(["partial"], HistoryFilters.Apply(Rows(), TableFilter.Any with { Status = "partial" }, Now, Utc).Select(r => r.Id));
 
     [Fact]
     public void TheToolFilterKeepsThatToolOnly() =>
-        Assert.Equal(["rdp"], HistoryFilters.Apply(Rows(), HistoryFilter.Any with { Tool = "rdp" }, Now, Utc).Select(r => r.Id));
+        Assert.Equal(["rdp"], HistoryFilters.Apply(Rows(), TableFilter.Any with { Tool = "rdp" }, Now, Utc).Select(r => r.Id));
 
     [Theory]
     [InlineData(HistoryPeriod.Today, new[] { "today", "partial", "rdp" })]
@@ -159,7 +159,7 @@ public sealed class RailLabelsTests
     [InlineData(HistoryPeriod.AnyTime, new[] { "today", "partial", "rdp", "week", "month", "old" })]
     public void ThePeriodCountsWholeDaysInTheTechniciansZone(HistoryPeriod period, string[] kept)
     {
-        var filter = HistoryFilter.Any with { Period = period };
+        var filter = TableFilter.Any with { Period = period };
 
         Assert.Equal(kept, HistoryFilters.Apply(Rows(), filter, Now, Utc).Select(r => r.Id));
         Assert.Equal(period != HistoryPeriod.AnyTime, filter.IsActive);
@@ -176,6 +176,16 @@ public sealed class RailLabelsTests
     [Fact]
     public void FiltersThatLeaveNothingSaySoInPlaceOfTheTable() =>
         Assert.Equal("No sessions match these filters.", HistoryFilters.NoMatch);
+
+    [Fact]
+    public void TheServiceSendsNoLabelsForADiscardedSessionAndNoneThatAreBlank()
+    {
+        var kept = new Core.Store.SessionSummary("s1", Now, 1, "screenconnect", "draft_ready", false, 0, 0, false, "Printer offline", false, " 48213 ", "  ");
+        var discarded = kept with { State = Core.Sessions.SessionStateNames.Discarded };
+
+        Assert.Equal(("Printer offline", "48213", null), SessionHistory.Labels(kept));
+        Assert.Equal((null, null, null), SessionHistory.Labels(discarded));
+    }
 
     [Theory]
     [InlineData(1024, false)]

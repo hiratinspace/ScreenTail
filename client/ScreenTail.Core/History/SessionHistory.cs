@@ -115,6 +115,22 @@ public static class SessionHistory
     }
 
     /// <summary>
+    /// What a <c>sessions</c> row says beside the tool (contract v11, spec v0.6.9 S4): the note's own
+    /// title, the ticket and the published ticket's company, each null when unknown or blank. Nothing for a
+    /// discarded session, whatever its row still holds: the technician threw it away (INV-12).
+    /// </summary>
+    public static (string? Title, string? Ticket, string? Company) Labels(SessionSummary session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return StatusOf(session) == SessionStatus.Discarded
+            ? (null, null, null)
+            : (Known(session.Title), Known(session.Ticket), Known(session.Company));
+    }
+
+    /// <summary>The words trimmed, or null for none.</summary>
+    internal static string? Known(string? words) => string.IsNullOrWhiteSpace(words) ? null : words.Trim();
+
+    /// <summary>
     /// The same over the History screen's rows: whether "Mark as published" may be offered for this one.
     /// The service decides again when asked.
     /// </summary>
