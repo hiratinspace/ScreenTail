@@ -303,6 +303,26 @@ public class ContrastTests
         Assert.NotEqual(Hex(theme, "accent.primary"), Hex(theme, "state.scope"));
     }
 
+    [Fact]
+    public void DangerIsHeldAsTextBecauseItIsWords()
+    {
+        // state.danger draws words, not only a cross: the error line under a field (Text.Error), the
+        // Danger button's label and Review's Discard on hover. So it is in `text`, held to 4.5:1 on every
+        // content fill, the tints included, and not only to an indicator's 3:1 (v0.6.12). It stays in
+        // `indicators` for the cross and the outlines it also draws.
+        var contrast = Tokens.RootElement.GetProperty("contrast");
+        Assert.Contains("state.danger", Names(contrast, "text"));
+        Assert.Contains("state.danger", Names(contrast, "indicators"));
+        foreach (var theme in new[] { "dark", "light" })
+        {
+            foreach (var background in Names(contrast, "backgrounds"))
+            {
+                var ratio = ContrastRatio(Hex(theme, "state.danger"), Hex(theme, background));
+                Assert.True(ratio >= 4.5, $"state.danger on {background} ({theme}) is {ratio:F2}:1");
+            }
+        }
+    }
+
     private static List<string> Names(JsonElement contrast, string list) =>
         contrast.GetProperty(list).EnumerateArray().Select(n => n.GetString()!).ToList();
 

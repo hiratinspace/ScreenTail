@@ -59,6 +59,23 @@ public sealed class HighContrastTokensTests
         }
     }
 
+    [Fact]
+    public void NoTokenTakesTheWindowBorderColours()
+    {
+        // ActiveBorder and InactiveBorder are the colours of a window's sizing border, not of content. Night
+        // sky makes ActiveBorder yellow (#FFFF00), so every card outline and divider in the app was drawn
+        // yellow there (v0.6.12). Content draws only the content pairs: Window, WindowText, GrayText,
+        // Highlight and HighlightText, HotTrack, Control and ControlText, and WindowFrame for edges.
+        using var tokens = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Design", "tokens.json")));
+        foreach (var colour in tokens.RootElement.GetProperty("color").EnumerateObject())
+        {
+            var systemColour = colour.Value.GetProperty("hc").GetString();
+            Assert.DoesNotContain("Border", systemColour, StringComparison.Ordinal);
+        }
+
+        Assert.Equal("GrayText", tokens.RootElement.GetProperty("color").GetProperty("border.subtle").GetProperty("hc").GetString());
+    }
+
     private static SortedSet<string> Keys(string file)
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Theme", file);

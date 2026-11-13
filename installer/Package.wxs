@@ -34,6 +34,12 @@
          back a deleted file without uninstalling. -->
     <Property Id="ARPNOMODIFY" Value="1" />
 
+    <!-- The Iris app icon (Spec v0.6.0 §2.0, v0.6.12) in Installed apps and Programs and Features, the same
+         .ico the UI's executable carries, built from shared/design/brand by build-icons.py. The Start menu
+         shortcut takes the executable's own icon, which is this one too. -->
+    <Icon Id="ScreenTail.ico" SourceFile="$(sys.SOURCEFILEDIR)..\client\ScreenTail.UI\Assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ScreenTail.ico" />
+
     <!-- ST-112. The service registers for Restart Manager's restart, so that another program's installer
          that closes it starts it again. ScreenTail's own package does not: an upgrade or an uninstall
          leaves the service down until the next sign-in, as ADR-0007 says, and Windows Installer's restart

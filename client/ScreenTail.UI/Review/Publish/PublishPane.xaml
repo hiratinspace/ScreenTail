@@ -47,7 +47,19 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
+                            <!-- The brand's mid glyph at the plate's trailing edge (Spec §2.0: 28 to 48 px), as a
+                                 letterhead carries its mark. v0.6.1 left it for the brand asset PR. -->
+                            <Control x:Name="ReceiptMark"
+                                     Grid.Column="2"
+                                     Width="40"
+                                     Height="40"
+                                     Margin="16,0,0,0"
+                                     VerticalAlignment="Center"
+                                     Focusable="False"
+                                     IsTabStop="False"
+                                     Template="{StaticResource Brand.Glyph.Frame}" />
                             <Border Grid.Column="0"
                                     Width="{DynamicResource Layout.control-height}"
                                     Height="{DynamicResource Layout.control-height}"

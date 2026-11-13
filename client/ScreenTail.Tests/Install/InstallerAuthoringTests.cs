@@ -193,6 +193,30 @@ public sealed class InstallerAuthoringTests
             (string?)Bundle().Root!.Element(Wix + "Bundle")!.Attribute("UpgradeCode"));
     }
 
+    [Fact]
+    public void ThePackageShowsTheIrisAppIconInInstalledApps()
+    {
+        // Spec v0.6.0 §2.0 (built v0.6.12): Installed apps and Programs and Features show the app's .ico,
+        // the one build-icons.py makes from shared/design/brand, not Windows Installer's blank box.
+        var package = Package();
+        var property = Assert.Single(package.Descendants(Wix + "Property"), p => (string?)p.Attribute("Id") == "ARPPRODUCTICON");
+        var icon = Assert.Single(package.Descendants(Wix + "Icon"), i => (string?)i.Attribute("Id") == (string?)property.Attribute("Value"));
+        Assert.EndsWith(".ico", (string?)icon.Attribute("Id"), StringComparison.Ordinal);
+        Assert.Equal(AppIcon, (string?)icon.Attribute("SourceFile"));
+        Assert.True(System.IO.File.Exists(Repo.File("client", "ScreenTail.UI", "Assets", "app.ico")));
+    }
+
+    [Fact]
+    public void TheSetupProgramCarriesTheIrisAppIcon()
+    {
+        // ScreenTail-Setup.exe's own icon in Explorer and its progress window: the same app.ico.
+        var bundle = Bundle().Root!.Element(Wix + "Bundle")!;
+        Assert.Equal(AppIcon, (string?)bundle.Attribute("IconSourceFile"));
+    }
+
+    /// <summary>The app icon as both installers name it: beside the .wxs, so a build from any folder finds it.</summary>
+    private const string AppIcon = @"$(sys.SOURCEFILEDIR)..\client\ScreenTail.UI\Assets\app.ico";
+
     [Theory]
     [InlineData("ScreenTail.Service")]
     [InlineData("ScreenTail.UI")]

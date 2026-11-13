@@ -587,7 +587,11 @@ public partial class ShellWindow : Window
         return model;
     }
 
-    private void Save(string path) => Render.WindowRenderer.Save(this, path);
+    private void Save(string path)
+    {
+        AtRest(Path.GetFileNameWithoutExtension(path));
+        Render.WindowRenderer.Save(this, path);
+    }
 
     private static void Save(Window window, string path) => Render.WindowRenderer.Save(window, path);
 }

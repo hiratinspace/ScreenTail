@@ -80,6 +80,8 @@
   --layout-rail-width: 280px;
   --layout-rail-width-narrow: 232px;
   --layout-rail-narrow-below: 1180px;
+  --layout-field-wide: 320px;
+  --layout-slider-width: 264px;
   --radius-control: 6px;
   --radius-card: 8px;
   --radius-pill: 999px;

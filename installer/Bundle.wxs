@@ -14,10 +14,14 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <!-- IconSourceFile: the Iris app icon (Spec v0.6.0 §2.0, v0.6.12), the same .ico the UI carries, built from
+       shared/design/brand by build-icons.py. It is the setup program's icon in Explorer, in its progress
+       window and in Installed apps. -->
   <Bundle Name="ScreenTail"
           Manufacturer="ScreenTail"
           Version="$(var.Version)"
-          UpgradeCode="{B06B249C-CE0B-47AF-AD9E-C7FF7D00A4C0}">
+          UpgradeCode="{B06B249C-CE0B-47AF-AD9E-C7FF7D00A4C0}"
+          IconSourceFile="$(sys.SOURCEFILEDIR)..\client\ScreenTail.UI\Assets\app.ico">
 
     <!-- No setup window of its own: the runtime installs as a prerequisite with a small progress window,
          and then the package shows its own progress (with /quiet, nothing at all). The standard setup

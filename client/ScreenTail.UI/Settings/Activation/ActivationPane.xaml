@@ -15,7 +15,7 @@
                                 Content="Activated"
                                 Visibility="{Binding ActivatedVisibility}" />
             </StackPanel>
-            <TextBlock Margin="0,6,0,0"
+            <TextBlock Margin="0,8,0,0"
                        Style="{StaticResource Text.Secondary}"
                        TextWrapping="Wrap"
                        Text="{Binding Standing}"
@@ -23,10 +23,10 @@
 
             <StackPanel Margin="0,16,0,0" Visibility="{Binding FormVisibility}">
                 <TextBlock Style="{StaticResource Text.Label}" Text="Invite code" />
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <!-- Twenty characters in four groups of five (ADR-0009, "Guessing invite codes"): wide
                          enough for all of them in the mono face, typed in capitals as the invite shows them. -->
-                    <TextBox Width="300"
+                    <TextBox Width="{DynamicResource Layout.field-wide}"
                              MaxLength="64"
                              CharacterCasing="Upper"
                              Style="{StaticResource Input.Mono}"
@@ -39,7 +39,7 @@
                             Command="{Binding ActivateCommand}"
                             IsEnabled="{Binding CanActivate}" />
                 </StackPanel>
-                <TextBlock Margin="0,6,0,0"
+                <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Error}"
                            TextWrapping="Wrap"
                            Text="{Binding Problem}"

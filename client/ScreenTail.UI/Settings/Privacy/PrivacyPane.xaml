@@ -3,13 +3,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              AutomationProperties.Name="Privacy and redaction">
-    <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
+    <StackPanel MaxWidth="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Stretch">
 
         <!-- Spec §5 S6 "What leaves this device": the data flow in plain language, matching docs/security/data-flow.md. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="What leaves this device" />
-                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap"
+                <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap"
                            Text="Captured on this device → redacted on this device → one request to draft the note (or a plainer draft written here, in local-only mode) → you review → you publish. Nothing is published without your review." />
             </StackPanel>
         </Border>
@@ -47,7 +47,7 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </controls:Repeater>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
                     <TextBox Width="240" Style="{StaticResource Input.Default}" Text="{Binding NewProcess, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Process to exclude" AutomationProperties.HelpText="As Task Manager shows it, like keepass" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddProcessCommand}" IsEnabled="{Binding CanAddProcess}" />
                 </StackPanel>
@@ -68,7 +68,7 @@
                 <CheckBox Margin="0,4,0,0" Content="Passwords, when said or typed after a cue" IsChecked="{Binding Passwords}" />
                 <CheckBox Margin="0,4,0,0" Content="Email addresses" IsChecked="{Binding Emails}" />
 
-                <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Custom patterns (regular expressions)" />
+                <TextBlock Margin="0,16,0,8" Style="{StaticResource Text.Label}" Text="Custom patterns (regular expressions)" />
                 <controls:Repeater ItemsSource="{Binding CustomPatterns}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -81,12 +81,12 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </controls:Repeater>
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <TextBox Width="320" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding NewPattern, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New pattern" />
+                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                    <TextBox Width="{DynamicResource Layout.field-wide}" Style="{StaticResource Input.Default}" FontFamily="{DynamicResource Font.mono}" Text="{Binding NewPattern, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="New pattern" />
                     <Button Margin="8,0,0,0" Style="{StaticResource Button.Secondary}" Content="Add" Command="{Binding AddPatternCommand}" IsEnabled="{Binding CanAddPattern}" />
                 </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Error}" TextWrapping="Wrap" Text="{Binding NewPatternProblem}" Visibility="{Binding NewPatternProblemVisibility}" controls:LiveRegion.Setting="Polite" />
-                <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="Try it on some text" />
+                <TextBlock Margin="0,16,0,8" Style="{StaticResource Text.Label}" Text="Try it on some text" />
                 <TextBox Style="{StaticResource Input.Default}" Text="{Binding Sample, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Sample text" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding SampleMasked}" AutomationProperties.Name="What the sample becomes" />
             </StackPanel>
@@ -101,7 +101,7 @@
                 </StackPanel>
                 <!-- Maximum binds before Value: until it does, the slider's top is WPF's 10, and a value bound first would be clamped and pushed back. -->
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                    <Slider Width="280" Minimum="1" Maximum="{Binding RetentionMaximum}" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
+                    <Slider Width="{DynamicResource Layout.slider-width}" Minimum="1" Maximum="{Binding RetentionMaximum}" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding RetentionDays}" IsEnabled="{Binding RetentionEditable}" AutomationProperties.Name="Retention in days" />
                     <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding RetentionDays}" />
                     <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="days" />
                 </StackPanel>
@@ -119,7 +119,7 @@
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Exactly these fields, and never any text from a session:" />
-                <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding TelemetryFieldList}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding TelemetryFieldList}" />
             </StackPanel>
         </Border>
 
@@ -140,17 +140,17 @@
                             Content="Delete everything on this device…"
                             Command="{Binding EraseEverythingCommand}"
                             AutomationProperties.Name="Delete everything on this device"
-                            AutomationProperties.HelpText="Deletes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will be asked to type DELETE EVERYTHING." />
+                            AutomationProperties.HelpText="Deletes every session, draft, screenshot and transcript on this device, with your settings and this device's sign-in. Notes already published stay on their tickets. You will be asked to type DELETE EVERYTHING." />
                 </StackPanel>
                 <!-- Why it did not happen (a session is being captured, the service is not answering, or it
                      refused): beside the button, never a dialog, and read out as it changes (Spec §4). -->
-                <TextBlock Margin="0,6,0,0"
+                <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Error}"
                            TextWrapping="Wrap"
                            Text="{Binding EraseProblem}"
                            Visibility="{Binding EraseProblemVisibility}"
                            controls:LiveRegion.Setting="Assertive" />
-                <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Delete removes every session, draft, screenshot and transcript, your settings, and this device's tokens. You will type DELETE EVERYTHING to confirm. It cannot be undone." />
+                <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Delete removes every session, draft, screenshot and transcript on this device, with your settings and this device's sign-in. Notes already published stay on their tickets. You will type DELETE EVERYTHING to confirm. It cannot be undone." />
             </StackPanel>
         </Border>
     </StackPanel>

@@ -9,7 +9,8 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime"
-                    xmlns:controls="clr-namespace:ScreenTail.UI.Controls">
+                    xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
+                    xmlns:theme="clr-namespace:ScreenTail.UI.Theme">
 
     <!-- Focus ring: 2 px accent just outside the control; WPF shows FocusVisualStyle for keyboard focus only. -->
     <Style x:Key="FocusRing">
@@ -2385,10 +2386,53 @@
         </Viewbox>
     </ControlTemplate>
 
+    <!-- v0.6.12 (Spec §2.0 size ladder, 28 to 48 px): the mid glyph on the frame, drawn from
+         shared/design/brand/glyph-mid-on-navy.svg on its own 80 by 80 grid, the tile's 8 units of clear space
+         included; the tile itself is whatever frame plate it sits on. As Brand.Lockup.Frame does, every colour
+         is a token: the ribbon brand.signature, its underside and the long note line shell.text (paper), the
+         short line shell.accent (Ribbon 400), the screen and its surround shell.bg (the file's Ink is 1.08:1
+         from the frame and has no token). It heads the publish receipt's plate. Decoration: the heading names
+         what happened, so it has no automation peer and takes no focus. -->
+    <ControlTemplate x:Key="Brand.Glyph.Frame" TargetType="Control">
+        <Viewbox Stretch="Uniform">
+            <Canvas Width="80" Height="80">
+                <Canvas Canvas.Left="8" Canvas.Top="8">
+                    <Path Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.brand.signature}" />
+                    <Path Clip="M16.17,19.71 L-10.04,29.05 L-8,64 L44,64 L44,19.71 Z" Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.shell.text}" />
+                    <Canvas>
+                        <Canvas.RenderTransform>
+                            <RotateTransform Angle="180" CenterX="32" CenterY="32" />
+                        </Canvas.RenderTransform>
+                        <Path Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.brand.signature}" />
+                        <Path Clip="M16.17,19.71 L-10.04,29.05 L-8,64 L44,64 L44,19.71 Z" Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.shell.text}" />
+                    </Canvas>
+                    <Path Fill="{DynamicResource Brush.shell.bg}">
+                        <Path.Data>
+                            <RectangleGeometry Rect="12,16,40,32" RadiusX="8" RadiusY="8" />
+                        </Path.Data>
+                    </Path>
+                    <Path Fill="{DynamicResource Brush.shell.text}">
+                        <Path.Data>
+                            <RectangleGeometry Rect="20,26,22,4" RadiusX="2" RadiusY="2" />
+                        </Path.Data>
+                    </Path>
+                    <Path Fill="{DynamicResource Brush.shell.accent}">
+                        <Path.Data>
+                            <RectangleGeometry Rect="20,34,14,4" RadiusX="2" RadiusY="2" />
+                        </Path.Data>
+                    </Path>
+                </Canvas>
+            </Canvas>
+        </Viewbox>
+    </ControlTemplate>
+
     <!-- Window chrome defaults -->
     <Style x:Key="Window.Base" TargetType="Window">
         <!-- The Iris app icon (Spec v0.6.0 §2.0) in the title bar, the taskbar and Alt+Tab. -->
         <Setter Property="Icon" Value="pack://application:,,,/ScreenTail.UI;component/Assets/app.ico" />
+        <!-- v0.6.12 (Spec §3 Frame): the title bar takes the frame's colours, shell.bg under shell.text, through
+             DWM; the system's own in high contrast. The icon above is the app glyph it carries. -->
+        <Setter Property="theme:TitleBar.Tint" Value="True" />
         <Setter Property="Background" Value="{DynamicResource Brush.bg.base}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
         <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />

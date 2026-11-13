@@ -36,7 +36,7 @@ internal sealed class TrayMenuRenderer : Forms.ToolStripRenderer
             "text.muted" => SystemColors.GrayText,
             "accent.primary" => SystemColors.Highlight,
             "text.on-accent" => SystemColors.HighlightText,
-            "border.subtle" => SystemColors.ActiveBorder,
+            "border.subtle" => SystemColors.GrayText,
             _ => SystemColors.WindowFrame,
         };
     }

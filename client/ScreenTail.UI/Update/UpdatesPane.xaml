@@ -11,7 +11,7 @@
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="This installation" />
-                <TextBlock Margin="0,6,0,0"
+                <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Secondary}"
                            TextWrapping="Wrap"
                            Text="{Binding Sentence}"
@@ -24,11 +24,11 @@
                         Content="Install update"
                         Command="{Binding InstallCommand}"
                         IsEnabled="{Binding CanInstall}" />
-                <TextBlock Margin="0,6,0,0"
+                <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Muted}"
                            TextWrapping="Wrap"
                            Text="{x:Static core:UpdatesPanel.WhatInstallDoes}" />
-                <TextBlock Margin="0,6,0,0"
+                <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Error}"
                            TextWrapping="Wrap"
                            Text="{Binding Problem}"

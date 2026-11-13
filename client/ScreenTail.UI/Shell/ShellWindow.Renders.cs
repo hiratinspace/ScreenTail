@@ -175,6 +175,7 @@ public partial class ShellWindow
 
                 var (top, bottom) = Section(pane, page);
                 var height = natural.Height + Math.Max(0, bottom - top - scroller.ViewportHeight);
+                AtRest($"{prefix}-{name}");
 
                 // The scroll happens once the page is laid out at the render's height, which may be in a
                 // host outside the window: scrolled before, it would be clamped to the window's shorter view.
@@ -590,6 +591,7 @@ public partial class ShellWindow
             {
                 RenderThemeApplier.Apply(theme, Application.Current.Resources);
                 await SettleAsync();
+                AtRest($"shell-{name}-150pct");
                 WindowRenderer.Save(this, Shot($"shell-{name}-150pct", theme), scale: 1.5);
             }
         }
@@ -764,6 +766,9 @@ public partial class ShellWindow
 
         // Del on the first step's screenshot (Spec v0.6.8): the screenshot is off its row and the undo is at
         // the foot of the note. Deleted and undone in each theme, so the five seconds never run out mid-render.
+        // Pressed as Del on the focused screenshot, through the note's own key handler, so the render shows
+        // where focus goes (into the step's text, at its end) rather than a caret left wherever an earlier
+        // render put it (v0.6.12: the first renders called the command and drew a stray caret above step 1).
         state.OpenSession("preview-note-checked");
         await ThumbnailsAsync();
         if (_model.Content is ReviewViewModel { Note: { } deleting } && deleting.Steps.SelectMany(s => s.Frames).FirstOrDefault(f => f.Present) is { } first)
@@ -771,10 +776,11 @@ public partial class ShellWindow
             foreach (var theme in RenderThemes.All)
             {
                 RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                await deleting.DeleteFrameCommand.ExecuteAsync(first);
                 await SettleAsync();
+                await PressDelOnAsync(content, first, deleting);
                 WindowRenderer.Save(this, Shot("shell-review-step-deleted", theme), prepare: () => ScrollNoteTo(content, 0));
                 await deleting.UndoDeleteCommand.ExecuteAsync(null);
+                Keyboard.ClearFocus();
                 await SettleAsync();
             }
         }
@@ -849,6 +855,38 @@ public partial class ShellWindow
     }
 
     /// <summary>
+    /// Del on a step's screenshot, as the keyboard presses it: focus on the screenshot's button, then Del
+    /// through WPF's input pipeline to the note's own handler, which deletes it and puts focus into the
+    /// step's text. Settled twice, since focus moves at Input priority after the row has lost its frame.
+    /// Where the key could not be delivered the command runs instead and the log says so, so the render
+    /// still shows the deleted state.
+    /// </summary>
+    private async Task PressDelOnAsync(DependencyObject content, FrameChip chip, NoteEditorViewModel note)
+    {
+        if (Find(content, e => e is Button { IsVisible: true } button && ReferenceEquals(button.DataContext, chip)) is Button frame
+            && PresentationSource.FromVisual(frame) is { } source)
+        {
+            frame.BringIntoView();
+            _ = Keyboard.Focus(frame);
+            await SettleAsync();
+            InputManager.Current.ProcessInput(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, Key.Delete) { RoutedEvent = Keyboard.PreviewKeyDownEvent });
+            await SettleAsync();
+            await SettleAsync();
+        }
+
+        if (chip.Present)
+        {
+            Console.WriteLine("  shell-review-step-deleted: Del could not be pressed on the screenshot; deleted through the command");
+            await note.DeleteFrameCommand.ExecuteAsync(chip);
+            await SettleAsync();
+        }
+
+        UpdateLayout();
+        var focused = Keyboard.FocusedElement as FrameworkElement;
+        Console.WriteLine($"  shell-review-step-deleted: focus on {focused?.GetType().Name ?? "nothing"} holding {focused?.DataContext?.GetType().Name ?? "nothing"}");
+    }
+
+    /// <summary>
     /// Every question the app's one dialog asks (v0.6.11): the typed ones (Delete everything, Discard,
     /// bulk discard, before and after the count is typed), the plain ones (Mark as published, Quit while
     /// capturing) and the notice; then the shortcut sheet and <paramref name="others"/> (the diagnostics
@@ -911,6 +949,27 @@ public partial class ShellWindow
     /// written to the log first (types and names only, never text: INV-10), so a hover that is a real
     /// defect rather than the pointer's place can still be told apart.
     /// </summary>
+    /// <summary>
+    /// Before a render: no button or list row under the pointer, so it is drawn at rest (v0.6.12, after
+    /// Settings' Integrations nav item was seen hovered). Where one is, the mouse is taken off again; if
+    /// one still is, the render fails rather than shipping a hover as the screen's look.
+    /// </summary>
+    private void AtRest(string screen)
+    {
+        static bool Hovered(DependencyObject e) => e is System.Windows.Controls.Primitives.ButtonBase { IsMouseOver: true } or ListBoxItem { IsMouseOver: true };
+        if (Find(this, Hovered) is null)
+        {
+            return;
+        }
+
+        RestTheMouse();
+        UpdateLayout();
+        if (Find(this, Hovered) is FrameworkElement still)
+        {
+            throw new InvalidOperationException($"{screen}: a {still.GetType().Name} is drawn hovered; renders show controls at rest.");
+        }
+    }
+
     private void RestTheMouse()
     {
         var at = Mouse.GetPosition(this);
