@@ -463,22 +463,7 @@ public partial class ShellWindow : Window
         await HighDpiAsync(state);
         await DialogsAsync();
 
-        // ST-083's wizard, every step, over the sample gateways: a binding that breaks in a step fails
-        // this harness rather than the technician's first five minutes.
-        foreach (var step in Enum.GetValues<OnboardingStep>())
-        {
-            var model = await SampleOnboardingAsync(step);
-            foreach (var theme in Render.RenderThemes.All)
-            {
-                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                var window = Render.WindowRenderer.Intend(new Onboarding.OnboardingWindow(model) { ShowInTaskbar = false, WindowStartupLocation = WindowStartupLocation.Manual, Left = -4000, Top = -4000 });
-                window.Show();
-                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
-                window.UpdateLayout();
-                Save(window, Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName($"onboarding-{step.ToString().ToLowerInvariant()}", theme)));
-                window.Close();
-            }
-        }
+        await OnboardingAsync();
 
         // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
         // rather than appearing inside the shell's. Answered, and with the service not answering, which
