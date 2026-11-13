@@ -36,8 +36,15 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- A cell's words end in an ellipsis, not under the next column, when a column is too narrow for them. -->
+        <Style x:Key="History.CellText" TargetType="TextBlock">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="TextWrapping" Value="NoWrap" />
+        </Style>
     </UserControl.Resources>
-    <Grid MaxWidth="1100" HorizontalAlignment="Stretch">
+    <!-- Spec §5 S4, as built v0.6.6: the table takes the pane's width, and its Status column takes what the
+         others leave, so the rows and the selection run from edge to edge. -->
+    <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -48,7 +55,7 @@
              opened from the rail's foot, is where several sessions are selected at once. -->
         <StackPanel Grid.Row="0" Orientation="Horizontal">
             <TextBlock Style="{StaticResource Text.ScreenTitle}" Text="All sessions" />
-            <TextBlock Margin="14,0,0,3"
+            <TextBlock Margin="12,0,0,4"
                        VerticalAlignment="Bottom"
                        Style="{StaticResource History.Count}"
                        Text="{Binding Status}"
@@ -76,18 +83,20 @@
                 </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Started" Binding="{Binding Started}" Width="160" />
-                <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="90" />
+                <!-- The four worded columns are as wide as their longest words; with Status at its least they add
+                     up to 656, which the pane holds at the window's 1024 minimum beside a scroll bar. -->
+                <DataGridTextColumn Header="Started" Binding="{Binding Started}" Width="152" ElementStyle="{StaticResource History.CellText}" />
+                <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="80" ElementStyle="{StaticResource History.CellText}" />
                 <!-- The status as a badge, the way the spec's table draws it; the words are the same. -->
                 <!-- "Not confirmed" sits beside the status, never in place of it: a publish of the session may
                      have reached the ticket, and the session is still a draft or published in part. Not
                      focusable, so it is no tab stop; the row's own name says it to a screen reader. -->
-                <DataGridTemplateColumn Header="Status" Width="*" MinWidth="200" SortMemberPath="Status">
+                <DataGridTemplateColumn Header="Status" Width="*" MinWidth="168" SortMemberPath="Status">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <StackPanel HorizontalAlignment="Left" Orientation="Horizontal">
                                 <ContentControl Style="{StaticResource Badge}" Content="{Binding Status}" />
-                                <ContentControl Margin="6,0,0,0"
+                                <ContentControl Margin="8,0,0,0"
                                                 Style="{StaticResource Badge.Unconfirmed}"
                                                 Content="{Binding NotConfirmedLabel}"
                                                 Visibility="{Binding NotConfirmedVisibility}"
@@ -97,29 +106,26 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Tool" Binding="{Binding Tool}" Width="140" />
-                <DataGridTextColumn Header="Screenshots" Binding="{Binding Frames}" Width="110" />
+                <DataGridTextColumn Header="Tool" Binding="{Binding Tool}" Width="136" ElementStyle="{StaticResource History.CellText}" />
+                <DataGridTextColumn Header="Screenshots" Binding="{Binding Frames}" Width="120" ElementStyle="{StaticResource History.CellText}" />
             </DataGrid.Columns>
         </DataGrid>
 
         <!-- Nothing yet: the same sentence the count line says, as the screen's content. -->
         <Border Grid.Row="1"
                 MaxWidth="560"
-                Margin="0,0,0,48"
-                Padding="32,28"
+                Margin="0,0,0,40"
+                Padding="32"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center"
                 Style="{StaticResource History.Empty}">
             <StackPanel>
-                <Border Width="56"
-                        Height="56"
-                        HorizontalAlignment="Center"
-                        Background="{DynamicResource Brush.bg.selected}"
-                        CornerRadius="28">
+                <Grid Width="56" Height="56" HorizontalAlignment="Center">
+                    <Ellipse Fill="{DynamicResource Brush.bg.selected}" />
                     <controls:Glyph Style="{StaticResource EmptyState.Icon}"
-                               Foreground="{DynamicResource Brush.accent.primary}"
-                               Text="&#xE81C;" />
-                </Border>
+                                    Foreground="{DynamicResource Brush.accent.primary}"
+                                    Text="&#xE81C;" />
+                </Grid>
                 <TextBlock Margin="0,16,0,0"
                            HorizontalAlignment="Center"
                            Style="{StaticResource Text.Body}"
@@ -165,7 +171,7 @@
             <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal">
                 <!-- For one selected session whose publish was not confirmed: the technician checked the
                      ticket and the note is there. Asks first, sends nothing to the ticket. -->
-                <Button Margin="0,0,10,0"
+                <Button Margin="0,0,8,0"
                         Style="{StaticResource Button.Secondary}"
                         Content="Mark as published"
                         Command="{Binding MarkPublishedCommand}"
