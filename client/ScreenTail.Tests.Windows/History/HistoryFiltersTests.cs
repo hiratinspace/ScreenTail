@@ -118,6 +118,27 @@ public sealed class HistoryFiltersTests
         });
     }
 
+    /// <summary>
+    /// A table cell with no name of its own is read as its row's text (WPF names it "Item: " plus the
+    /// row's ToString), so the row reads as its sentence: never the badge's icon-font glyph (spec §7).
+    /// </summary>
+    [Fact]
+    public void ARowReadsAsItsSentenceNeverItsBadgesGlyph()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var model = Model(Rows());
+            await model.RefreshAsync();
+
+            foreach (var row in model.Rows)
+            {
+                Assert.Equal(row.Spoken, row.ToString());
+                Assert.DoesNotContain(row.ToString(), c => c is >= '' and <= '');
+            }
+        });
+    }
+
     private static HistoryViewModel Model(IReadOnlyList<SessionRow> rows) =>
         new(new ShellState(), _ => Task.FromResult<IReadOnlyList<SessionRow>?>(rows), time: new Fixed(Now), zone: TimeZoneInfo.Utc);
 

@@ -32,6 +32,12 @@ public sealed record HistoryRow(string Id, string Started, string Duration, stri
     /// <summary>The second badge's words, or nothing for a row that has no such badge.</summary>
     public string NotConfirmedLabel => NotConfirmed ? SessionHistory.NotConfirmedLabel : string.Empty;
 
+    /// <summary>
+    /// The row's sentence. A table cell with no name of its own is read as "Item: " plus this, so the
+    /// record's printed form (badge glyphs included) must never be what a screen reader hears (Spec §7).
+    /// </summary>
+    public override string ToString() => Spoken;
+
     public System.Windows.Visibility NotConfirmedVisibility => NotConfirmed ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 }
 
