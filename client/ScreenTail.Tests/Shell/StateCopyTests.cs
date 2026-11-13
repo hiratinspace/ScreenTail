@@ -62,7 +62,7 @@ public sealed class StateCopyTests
     [Fact]
     public void AnEmptyHistorySaysWhatToDoNext()
     {
-        Assert.Equal("No sessions yet. Start a remote session and ScreenTail will capture it, or press Ctrl+Alt+R to start one now.", SessionHistory.Empty);
+        Assert.Equal("No sessions yet. Start a remote session and ScreenTail will capture it, or press Ctrl\u2060+\u2060Alt\u2060+\u2060R to start one now.", SessionHistory.Empty);
     }
 
     [Fact]

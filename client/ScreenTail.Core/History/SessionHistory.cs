@@ -91,9 +91,10 @@ public static class SessionHistory
 
     /// <summary>
     /// History with no sessions, with the next step (Spec §5 S4). There is no Start button: a session is
-    /// started by the remote tool coming to the front, or by the service's own hotkey.
+    /// started by the remote tool coming to the front, or by the service's own hotkey. Word joiners
+    /// (U+2060) hold the shortcut on one line: wrapped, it broke after "Ctrl".
     /// </summary>
-    public const string Empty = "No sessions yet. Start a remote session and ScreenTail will capture it, or press Ctrl+Alt+R to start one now.";
+    public const string Empty = "No sessions yet. Start a remote session and ScreenTail will capture it, or press Ctrl\u2060+\u2060Alt\u2060+\u2060R to start one now.";
 
     /// <summary>The words History and the tray use for a publish that may have reached the ticket and was never confirmed.</summary>
     public const string NotConfirmedLabel = "Not confirmed";

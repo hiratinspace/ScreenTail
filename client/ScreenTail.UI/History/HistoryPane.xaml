@@ -36,6 +36,16 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- The actions only when there is a session to act on: with none, the empty state's sentence
+             is the whole screen, not beside an Open with nothing to open. -->
+        <Style x:Key="History.Actions" TargetType="StackPanel">
+            <Setter Property="Orientation" Value="Horizontal" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Rows.Count}" Value="0">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <!-- A cell's words end in an ellipsis, not under the next column, when a column is too narrow for them. -->
         <Style x:Key="History.CellText" TargetType="TextBlock">
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
@@ -147,7 +157,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
+            <StackPanel Grid.Row="0" Grid.Column="0" Style="{StaticResource History.Actions}">
                 <Button Style="{StaticResource Button.Primary}"
                         Content="Open"
                         Command="{Binding OpenCommand}"
@@ -168,7 +178,7 @@
                        Style="{StaticResource Text.Secondary}"
                        Text="{Binding SelectionNote}"
                        controls:LiveRegion.Setting="Polite" />
-            <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal">
+            <StackPanel Grid.Row="0" Grid.Column="2" Style="{StaticResource History.Actions}">
                 <!-- For one selected session whose publish was not confirmed: the technician checked the
                      ticket and the note is there. Asks first, sends nothing to the ticket. -->
                 <Button Margin="0,0,8,0"
