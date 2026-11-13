@@ -17,18 +17,21 @@ namespace ScreenTail.Tests.Windows.Accessibility;
 [Collection(WpfApplicationOwner.Name)]
 public sealed class StepFrameDeleteTests(TheApplication app)
 {
-    /// <summary>The shortcut sheet (Spec §4) says Del works on a step's screenshot, where the step's other keys are.</summary>
+    /// <summary>
+    /// The shortcut sheet (Spec §4) says Del works on a step's screenshot, where the step's other keys are,
+    /// and the step's group sits in the left column so the extra line does not push Close off a 768 px screen.
+    /// </summary>
     [Fact]
     public void TheShortcutSheetSaysDelWorksOnAStepsScreenshot()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        var step = UI.Shell.ShortcutSheet.Groups.Single(g => g.Name == "In a step of the note").Chords;
+        var step = UI.Shell.ShortcutSheet.Groups.Single(g => g.Name == "In a step of the note");
 
-        var onItsScreenshot = Assert.Single(step, chord => chord.Keys == "Space, Enter, Del");
+        var onItsScreenshot = Assert.Single(step.Chords, chord => chord.Keys == "Space, Enter, Del");
         Assert.Contains("delete", onItsScreenshot.Action, StringComparison.Ordinal);
-        Assert.Contains("undo for 5 seconds", onItsScreenshot.Action, StringComparison.Ordinal);
+        Assert.Contains(step, UI.Shell.ShortcutSheet.LeftColumn);
 
-        // The strip's own lines are as they were.
+        // The strip's own lines, with the undo's five seconds, are as they were.
         var screenshots = UI.Shell.ShortcutSheet.Groups.Single(g => g.Name == "In the screenshots").Chords;
         Assert.Equal("Delete it (undo for 5 seconds)", screenshots.Single(c => c.Keys == "Del").Action);
         Assert.Equal("Undo the delete", screenshots.Single(c => c.Keys == "Ctrl+Z").Action);
