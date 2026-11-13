@@ -1,7 +1,9 @@
 <#
 .SYNOPSIS
     Runs laptop-readiness.ps1's decision and text on made-up readings and fails if a slow laptop goes
-    unwarned, a fine one is warned about, an unknown reads as anything but "unknown", or a probe throws.
+    unwarned, a fine one is warned about, an unknown reads as anything but "unknown", or a probe throws;
+    and if the battery stop lets a laptop on battery or too low on charge through, or stops one that
+    has enough charge or no battery at all.
 
 .DESCRIPTION
     laptop-readiness.ps1 is dot-sourced, which defines its functions and measures nothing. Every case
@@ -73,10 +75,94 @@ Test-Case 'a laptop that is fine gets no warning' {
     (@(Rules (New-FineReading)).Count -eq 0) -and ($null -eq $report.Warning)
 }
 
-Test-Case 'a laptop on battery is warned about, with its charge, and told to plug in' {
+# --- The battery stop: the one thing here that fails the job ----------------------------------------
+
+function Stop-Of($Reading) {
+    return (Get-ReadinessStop -Reading $Reading)
+}
+
+Test-Case 'a laptop that is fine is not stopped' {
+    $null -eq (Stop-Of (New-FineReading))
+}
+
+Test-Case 'a laptop on battery is stopped with its charge, told to plug in and re-run' {
     $r = New-FineReading; $r.OnBattery = $true; $r.BatteryPercent = 42
-    $report = Get-ReadinessReport -Reading $r
-    ((Rules $r) -contains 'battery') -and $report.Warning.Contains('on battery (42%)') -and $report.Warning.Contains('plug in')
+    $s = Stop-Of $r
+    ($null -ne $s) -and $s.Contains('on battery (42% left)') -and $s.Contains('plug it in') -and $s.Contains('re-run this job')
+}
+
+Test-Case 'a laptop on battery is stopped even when it is full' {
+    $r = New-FineReading; $r.OnBattery = $true; $r.BatteryPercent = 100
+    $null -ne (Stop-Of $r)
+}
+
+Test-Case 'a laptop on battery whose charge is unknown is still stopped' {
+    $r = New-FineReading; $r.OnBattery = $true; $r.BatteryPercent = $null
+    $s = Stop-Of $r
+    ($null -ne $s) -and $s.Contains('on battery') -and -not $s.Contains('unknown') -and $s.Contains('plug it in')
+}
+
+Test-Case 'a laptop on AC with too little charge is stopped and told to let it charge to the threshold' {
+    $r = New-FineReading; $r.BatteryPercent = 18
+    $s = Stop-Of $r
+    ($null -ne $s) -and $s.Contains('18%') -and $s.Contains("let it charge to at least $($script:ReadinessMinBatteryPercent)%") -and $s.Contains('re-run this job')
+}
+
+Test-Case 'the low-charge threshold is 30%: 29% on AC is stopped, 30% is not' {
+    $low = New-FineReading; $low.BatteryPercent = 29
+    $edge = New-FineReading; $edge.BatteryPercent = 30
+    ($script:ReadinessMinBatteryPercent -eq 30) -and ($null -ne (Stop-Of $low)) -and ($null -eq (Stop-Of $edge))
+}
+
+Test-Case 'a laptop on AC with enough charge is not stopped' {
+    $r = New-FineReading; $r.BatteryPercent = 64
+    $null -eq (Stop-Of $r)
+}
+
+Test-Case 'a desktop with no battery is never stopped' {
+    $r = New-FineReading; $r.HasBattery = $false; $r.BatteryPercent = $null
+    $odd = New-FineReading; $odd.HasBattery = $false; $odd.BatteryPercent = 0
+    ($null -eq (Stop-Of $r)) -and ($null -eq (Stop-Of $odd))
+}
+
+Test-Case 'an unknown power source, or an unknown charge on AC, is never a stop' {
+    $unknown = New-ReadinessReading
+    $ac = New-FineReading; $ac.BatteryPercent = $null
+    ($null -eq (Stop-Of $unknown)) -and ($null -eq (Stop-Of $ac))
+}
+
+Test-Case 'the stop is one plain ASCII sentence that names nothing but the power' {
+    $r = New-FineReading; $r.OnBattery = $true; $r.BatteryPercent = 12
+    $r.Processes = @([pscustomobject]@{ Name = 'Quarterly invoice - Excel'; Percent = 40 })
+    $low = New-FineReading; $low.BatteryPercent = 12; $low.Processes = $r.Processes
+    $all = @((Stop-Of $r), (Stop-Of $low))
+    $ok = $true
+    foreach ($s in $all) {
+        if ($s.Contains("`n") -or $s.Contains('invoice') -or $s.Contains('::')) { $ok = $false }
+        if ($s.ToCharArray() | Where-Object { [int]$_ -gt 127 }) { $ok = $false }
+        if (-not $s.EndsWith('.')) { $ok = $false }
+    }
+    $ok
+}
+
+Test-Case 'on battery is no longer a readiness warning, since the stop says it' {
+    $r = New-FineReading; $r.OnBattery = $true; $r.BatteryPercent = 42
+    -not ((Rules $r) -contains 'battery')
+}
+
+Test-Case 'a given power source reads as the probe would: battery, AC and no battery' {
+    $b = New-ReadinessPower -Source 'Battery' -Percent 42
+    $a = New-ReadinessPower -Source 'AC' -Percent 18
+    $d = New-ReadinessPower -Source 'NoBattery'
+    ($b.OnBattery -eq $true) -and ($b.HasBattery -eq $true) -and ($b.Percent -eq 42) -and
+    ($a.OnBattery -eq $false) -and ($a.HasBattery -eq $true) -and ($a.Percent -eq 18) -and
+    ($d.OnBattery -eq $false) -and ($d.HasBattery -eq $false) -and ($null -eq $d.Percent)
+}
+
+Test-Case 'Invoke-LaptopPowerCheck stops on the power it is given and passes a desktop' {
+    $stop = Invoke-LaptopPowerCheck -Power (New-ReadinessPower -Source 'Battery' -Percent 50)
+    $pass = Invoke-LaptopPowerCheck -Power (New-ReadinessPower -Source 'NoBattery')
+    ($null -ne $stop) -and $stop.Contains('on battery (50% left)') -and ($null -eq $pass)
 }
 
 Test-Case 'energy saver on is warned about' {
@@ -146,10 +232,10 @@ Test-Case 'a quiet Windows Update process is not called busy' {
 }
 
 Test-Case 'several problems make one warning with every fix once' {
-    $r = New-FineReading; $r.OnBattery = $true; $r.BatteryPercent = 80; $r.PowerMode = 'Best power efficiency'; $r.ClockLimitPercent = 50; $r.BusyPercent = 30
+    $r = New-FineReading; $r.SaverOn = $true; $r.PowerMode = 'Best power efficiency'; $r.ClockLimitPercent = 50; $r.BusyPercent = 30
     $report = Get-ReadinessReport -Reading $r
     $w = $report.Warning
-    (@($report.Warnings).Count -eq 4) -and $w.Contains('plug in') -and $w.Contains('Best performance') -and $w.Contains('Warning only') -and -not $w.Contains("`n")
+    (@($report.Warnings).Count -eq 4) -and $w.Contains('turn energy saver off') -and $w.Contains('Best performance') -and $w.Contains('Warning only') -and -not $w.Contains("`n")
 }
 
 Test-Case 'the busiest five are listed, most first' {
@@ -184,7 +270,7 @@ Test-Case 'the block is ASCII, so the 5.1 console and the summary show it as wri
 $summary = Join-Path ([System.IO.Path]::GetTempPath()) ('readiness-summary-' + [guid]::NewGuid().ToString('N') + '.md')
 Test-Case 'a slow laptop adds its block and warning to the job summary, after what was there' {
     [System.IO.File]::WriteAllText($summary, "earlier step`n")
-    $r = New-FineReading; $r.OnBattery = $true
+    $r = New-FineReading; $r.OnBattery = $true; $r.SaverOn = $true
     $report = Get-ReadinessReport -Reading $r
     Add-ReadinessSummary -Report $report -Path $summary
     $text = [System.IO.File]::ReadAllText($summary)

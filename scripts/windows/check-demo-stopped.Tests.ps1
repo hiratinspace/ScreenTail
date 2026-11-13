@@ -10,8 +10,11 @@
     are what start.ps1 would have recorded for it. No Pester, no network: Windows PowerShell 5.1 and a
     temp folder.
 
-    The cases pass -NoReadiness, so each stays quick, except one, which runs the readiness block for
-    real on this machine and checks that the block prints and the exit code is still the demo check's.
+    The cases pass -NoReadiness, so each stays quick, except two: one runs the readiness block for real
+    on this machine and checks that the block prints and the exit code is still the demo check's, and
+    one checks that a laptop on battery stops before the block. Every case gives the power source
+    (-PowerSource, -BatteryPercent) rather than reading this machine's, so the battery stop answers the
+    same here as on the laptop.
     The block's decisions are tested on made-up readings in laptop-readiness.Tests.ps1, run from here.
 
     ASCII only, for the same reason as the check itself.
@@ -50,6 +53,9 @@ $elsewhere = $self.SessionId + 1000
 # The process line names each process and its id: this script's own powershell is one of them.
 $unrecorded = "$($self.ProcessName) (pid $PID)"
 $closeIt = 'was not started by the demo, so stop.cmd will not stop it. Close it, then re-run this job.'
+# The battery stop's lines (laptop-readiness.ps1, Get-ReadinessStop).
+$onBattery = '::error::This laptop is running on battery (42% left), which can run out partway through this job: plug it in, then re-run this job.'
+$lowCharge = '::error::This laptop''s battery is at 18%, too low to be sure it lasts this job even on the charger: let it charge to at least 30%, then re-run this job.'
 
 $cases = @(
     [pscustomobject]@{ Name = 'no state file and no ScreenTail process passes'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
@@ -60,7 +66,13 @@ $cases = @(
     [pscustomobject]@{ Name = 'a ScreenTail process the demo did not start is named with its id and is to be closed'; Entries = $null; Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($unrecorded, $closeIt) },
     [pscustomobject]@{ Name = 'a ScreenTail process in another desktop session passes'; Entries = $null; Names = @($self.ProcessName); Session = $elsewhere; ExpectExit = 0; MustSay = @($idle) },
     [pscustomobject]@{ Name = 'the demo running says stop.cmd, even with a process beside it'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($busy) },
-    [pscustomobject]@{ Name = 'a passing check prints the readiness block and still exits 0, whatever it finds'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle, 'Laptop readiness (warns only, never fails the job):', '  Power source: ', '  CPU busy:     '); Readiness = $true }
+    [pscustomobject]@{ Name = 'a passing check prints the readiness block and still exits 0, whatever it finds'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle, 'Laptop readiness (warns only, never fails the job):', '  Power source: AC (no battery)', '  CPU busy:     '); Readiness = $true },
+    [pscustomobject]@{ Name = 'a laptop on battery stops with one line saying plug it in'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($idle, $onBattery); Power = @('-PowerSource', 'Battery', '-BatteryPercent', '42') },
+    [pscustomobject]@{ Name = 'a laptop on AC with too little charge stops with one line saying let it charge'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($idle, $lowCharge); Power = @('-PowerSource', 'AC', '-BatteryPercent', '18') },
+    [pscustomobject]@{ Name = 'a laptop on AC with enough charge passes'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle); MustNotSay = @('::error::'); Power = @('-PowerSource', 'AC', '-BatteryPercent', '64') },
+    [pscustomobject]@{ Name = 'a desktop with no battery passes'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle); MustNotSay = @('::error::'); Power = @('-PowerSource', 'NoBattery') },
+    [pscustomobject]@{ Name = 'a laptop on battery stops before the readiness block, which it does not need'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($onBattery); MustNotSay = @('Laptop readiness'); Power = @('-PowerSource', 'Battery', '-BatteryPercent', '42'); Readiness = $true },
+    [pscustomobject]@{ Name = 'the demo running is said first, even on battery'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($busy); MustNotSay = @('on battery'); Power = @('-PowerSource', 'Battery', '-BatteryPercent', '42') }
 )
 
 $bad = 0
@@ -80,11 +92,20 @@ foreach ($case in $cases) {
     if (-not $case.Readiness) {
         $arguments += '-NoReadiness'
     }
+    # The power is given, never measured, so a case answers the same on a laptop on battery as on the
+    # hosted runner, which has none.
+    if ($case.Power) {
+        $arguments += $case.Power
+    }
+    else {
+        $arguments += @('-PowerSource', 'NoBattery')
+    }
     $output = & powershell.exe @arguments 2>&1 | Out-String
     $exit = $LASTEXITCODE
 
     $missing = @($case.MustSay | Where-Object { -not $output.Contains($_) })
-    $ok = ($exit -eq $case.ExpectExit) -and ($missing.Count -eq 0)
+    $unwanted = @(@($case.MustNotSay) | Where-Object { $_ -and $output.Contains($_) })
+    $ok = ($exit -eq $case.ExpectExit) -and ($missing.Count -eq 0) -and ($unwanted.Count -eq 0)
     if ($ok) {
         Write-Host "ok   $($case.Name) (exit $exit)"
     } else {
