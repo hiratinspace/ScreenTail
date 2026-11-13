@@ -11,12 +11,6 @@ Gallery/GalleryWindow.xaml	Margin	6	3
 Gallery/GalleryWindow.xaml	Margin	6,0,0,0	6
 Gallery/GalleryWindow.xaml	Padding	16,10	1
 Gallery/GalleryWindow.xaml	Width	280	2
-History/HistoryPane.xaml	CornerRadius	28	1
-History/HistoryPane.xaml	Margin	0,0,0,48	1
-History/HistoryPane.xaml	Margin	0,0,10,0	1
-History/HistoryPane.xaml	Margin	14,0,0,3	1
-History/HistoryPane.xaml	Margin	6,0,0,0	1
-History/HistoryPane.xaml	Padding	32,28	1
 Hud/HudWindow.xaml	Margin	10,0,16,0	1
 Hud/HudWindow.xaml	Margin	24,0,5,0	1
 Hud/HudWindow.xaml	Padding	0,6	2

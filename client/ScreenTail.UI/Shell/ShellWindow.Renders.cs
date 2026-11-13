@@ -229,8 +229,10 @@ public partial class ShellWindow
                 await FocusAndSaveAsync(Find(settings, e => pick(e) && Usable(e)), $"focus-{name}", theme);
             }
 
-            // A table row draws no ring of its own (Table.Row sets none); keyboard focus in a DataGrid sits
-            // on a cell, and the cell is what draws it. The rows load after the pane, so they are waited for.
+            // Keyboard focus in a DataGrid sits on a cell, and the row draws the outline round itself
+            // (Table.Row, RowFocus). The second row, selected as the arrows leave it, so the outline is seen
+            // against the selection's tint and the rows above and below. The rows load after the pane, so
+            // they are waited for.
             state.Navigate(ShellView.History);
             DependencyObject? cell = null;
             for (var waited = 0; waited < 2000 && cell is null; waited += 50)
@@ -244,7 +246,16 @@ public partial class ShellWindow
                 }
             }
 
+            var sessions = Find(this, e => e is DataGrid) as DataGrid;
+            if (sessions is { Items.Count: > 1 } && sessions.ItemContainerGenerator.ContainerFromIndex(1) is DataGridRow second)
+            {
+                sessions.SelectedItem = sessions.Items[1];
+                await SettleAsync();
+                cell = Find(second, e => e is DataGridCell && Usable(e)) ?? cell;
+            }
+
             await FocusAndSaveAsync(cell, "focus-list-row", theme);
+            sessions?.UnselectAll();
         }
 
         Keyboard.ClearFocus();
@@ -276,12 +287,26 @@ public partial class ShellWindow
         // window's, or the host's when the render draws the content outside the window.
         var byWpf = HasAdorner(element);
         var style = byWpf ? null : element.FocusVisualStyle;
+
+        // A table's row draws its own outline while RowFocus says focus came to it by keyboard, which is
+        // the same decision from the same input. Where the product did not make it here, the harness sets
+        // what the product would have set, for the picture only: the outline drawn is still the row's own.
+        var row = element is DataGridCell ? Ancestor<DataGridRow>(element) : null;
+        var byRow = row is not null && Controls.RowFocus.GetShown(row);
         var ring = style is not null ? "its FocusVisualStyle drawn by the harness"
             : byWpf ? "focus ring drawn by WPF"
+            : byRow ? "the row's focus outline, shown by RowFocus"
+            : row is not null ? "the row's focus outline, switched on by the harness"
             : "no FocusVisualStyle; the control's own focused trigger is what shows";
         Console.WriteLine($"  {screen}/{theme.Suffix()}: {element.GetType().Name} focused={element.IsKeyboardFocused}, {ring}");
         WindowRenderer.Save(this, Shot(screen, theme), prepare: () =>
         {
+            if (row is not null && !byRow)
+            {
+                Controls.RowFocus.SetShown(row, true);
+                return new Removal(() => Controls.RowFocus.SetShown(row, false));
+            }
+
             if (style is null || AdornerLayer.GetAdornerLayer(element) is not { } layer)
             {
                 return null;
@@ -383,6 +408,22 @@ public partial class ShellWindow
         state.Navigate(ShellView.Review);
         state.OpenSession("preview");
         await EachThemeAsync("shell-rail-empty");
+
+        // All sessions with none: the sentence as the screen's content, in place of the table.
+        state.Navigate(ShellView.History);
+        for (var waited = 0; waited < 2000 && _model.Content is not History.HistoryViewModel { Rows.Count: 0, Status: Core.History.SessionHistory.Empty }; waited += 50)
+        {
+            await SettleAsync();
+            await Task.Delay(50).ConfigureAwait(true);
+        }
+
+        if (_model.Content is not History.HistoryViewModel { Rows.Count: 0, Status: Core.History.SessionHistory.Empty })
+        {
+            throw new InvalidOperationException("All sessions did not come up empty.");
+        }
+
+        await EachThemeAsync("shell-history-empty");
+        state.Navigate(ShellView.Review);
         _sampleRows = rows;
         await _model.Rail.RefreshAsync();
 
