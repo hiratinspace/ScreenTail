@@ -90,7 +90,7 @@ public sealed class DiscardControlsTests
     [Theory]
     [InlineData("Review", "ReviewPane.xaml")]
     [InlineData("History", "HistoryPane.xaml")]
-    [InlineData("Review", "ConfirmTypedDialog.xaml")]
+    [InlineData("Shell", "ConfirmWindow.xaml")]
     public void TheNewControlsUseTheTokensAndPlainText(string folder, string file)
     {
         // No colour literal on any element, and no font size or control height outside the styles. Copy
@@ -105,10 +105,12 @@ public sealed class DiscardControlsTests
     [Fact]
     public void TheTypedDialogPutsTheCaretInTheBoxAndNamesItsButtons()
     {
-        // The technician opens it to type, so the box has focus when it appears; Esc keeps the session.
-        var dialog = Load("Review", "ConfirmTypedDialog.xaml");
+        // The technician opens it to type, so the box has focus when it appears (set as it loads, since
+        // the dialog without a phrase puts it on Cancel); Esc keeps the session.
+        var dialog = Load("Shell", "ConfirmWindow.xaml");
+        var code = File.ReadAllText(Path.ChangeExtension(Find("Shell", "ConfirmWindow.xaml"), ".xaml.cs"));
 
-        Assert.Equal("{Binding ElementName=Typed}", (string?)dialog.Attribute("FocusManager.FocusedElement"));
+        Assert.Contains("Typed.Focus()", code, StringComparison.Ordinal);
         var buttons = Buttons(dialog).ToList();
         Assert.Contains(buttons, b => (string?)b.Attribute("IsCancel") == "True");
         Assert.All(buttons, b => Assert.False(string.IsNullOrWhiteSpace((string?)b.Attribute("AutomationProperties.Name"))));
@@ -116,7 +118,9 @@ public sealed class DiscardControlsTests
 
     private static IEnumerable<XElement> Buttons(XElement root) => root.Descendants(Wpf + "Button");
 
-    private static XElement Load(string folder, string file)
+    private static XElement Load(string folder, string file) => XDocument.Load(Find(folder, file)).Root!;
+
+    private static string Find(string folder, string file)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)
@@ -124,7 +128,7 @@ public sealed class DiscardControlsTests
             var candidate = Path.Combine(directory.FullName, "client", "ScreenTail.UI", folder, file);
             if (File.Exists(candidate))
             {
-                return XDocument.Load(candidate).Root!;
+                return candidate;
             }
 
             directory = directory.Parent;
