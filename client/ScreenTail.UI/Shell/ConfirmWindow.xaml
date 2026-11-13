@@ -41,7 +41,7 @@
                     Style="{StaticResource Button.Danger}"
                     Content="{Binding Action}"
                     Click="OnConfirm"
-                    AutomationProperties.Name="{Binding Action}" />
+                    AutomationProperties.Name="{Binding Action, TargetNullValue=''}" />
         </StackPanel>
     </StackPanel>
 </Window>

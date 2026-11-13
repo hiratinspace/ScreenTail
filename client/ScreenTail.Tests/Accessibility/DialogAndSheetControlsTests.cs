@@ -37,7 +37,8 @@ public sealed class DialogAndSheetControlsTests
         Assert.Equal("{Binding Cancel}", (string?)cancel.Attribute("AutomationProperties.Name"));
         var action = Assert.Single(buttons, b => b != cancel);
         Assert.Equal("{Binding Action}", (string?)action.Attribute("Content"));
-        Assert.Equal("{Binding Action}", (string?)action.Attribute("AutomationProperties.Name"));
+        // A notice has no action: its hidden button is named "" rather than null, which WPF rejects as a binding error.
+        Assert.Equal("{Binding Action, TargetNullValue=''}", (string?)action.Attribute("AutomationProperties.Name"));
 
         // The phrase box is the dialog's own and is named by what it asks for.
         var typed = Assert.Single(dialog.Descendants(Wpf + "TextBox"));
