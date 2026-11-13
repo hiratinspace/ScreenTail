@@ -62,6 +62,9 @@ public sealed partial class HistoryViewModel : ObservableObject
     private readonly Func<TypedConfirmation, int, Task<bool>>? _confirm;
     private readonly Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? _discard;
     private readonly Func<IReadOnlyCollection<string>, string?>? _discardBlocked;
+
+    /// <summary>The reason the last press was held before anything was asked, while it is the one shown.</summary>
+    private string? _held;
     private readonly Func<string, string, CancellationToken, Task<ConfirmedResult>>? _markPublished;
     private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
     private readonly TimeProvider _time;
@@ -264,7 +267,18 @@ public sealed partial class HistoryViewModel : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(rows);
         var chosen = rows.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+        var before = _selected.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
         _selected = [.. Rows.Where(r => chosen.Contains(r.Id))];
+
+        // Why a press was held is about the sessions that were selected; under another selection, or a
+        // filter showing other rows, it would say something no longer true. What a discard that ran
+        // said stays: reading the list again after it clears the selection.
+        if (_held is not null && DiscardError == _held && !before.SetEquals(_selected.Select(r => r.Id)))
+        {
+            DiscardError = null;
+            _held = null;
+        }
+
         OnPropertyChanged(nameof(Selected));
         OnPropertyChanged(nameof(DiscardableCount));
         OnPropertyChanged(nameof(SelectionNote));
@@ -300,10 +314,12 @@ public sealed partial class HistoryViewModel : ObservableObject
         if (_discardBlocked?.Invoke(ids) is { } blocked)
         {
             DiscardError = blocked;
+            _held = blocked;
             return;
         }
 
         DiscardError = null;
+        _held = null;
         var confirm = _confirm;
         var result = await _discard(ids, phrase => confirm(new TypedConfirmation(phrase), ids.Count), CancellationToken.None).ConfigureAwait(true);
         switch (result.Outcome)

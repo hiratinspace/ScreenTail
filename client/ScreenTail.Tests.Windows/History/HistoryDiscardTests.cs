@@ -123,6 +123,30 @@ public sealed class HistoryDiscardTests
     }
 
     [Fact]
+    public void WhyASelectionCannotBeDiscardedGoesWhenTheSelectionChanges()
+    {
+        // The reason was about the sessions that were selected: left up under another selection, or
+        // under a filter that shows other rows, it says something no longer true of what is on screen.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var service = new FakeService(Row("s1", "draft"), Row("live", "pending"));
+            var model = service.Model(
+                confirm: (_, _) => Task.FromResult(true),
+                blocked: ids => ids.Contains("live") ? SessionDiscard.OneStillCapturing : null);
+            await model.RefreshAsync();
+            model.Select(model.Rows);
+            await model.BulkDiscardCommand.ExecuteAsync(null);
+            Assert.Equal(SessionDiscard.OneStillCapturing, model.DiscardError);
+
+            model.Select(model.Rows.Where(r => r.Id == "s1"));
+
+            Assert.Null(model.DiscardError);
+            Assert.False(model.DiscardFailed);
+        });
+    }
+
+    [Fact]
     public void WhileTheTypedQuestionIsUpTheButtonIsOffAndASecondPressAsksNothing()
     {
         // As the mark on #274: the command's Execute does not look at whether it is running, so a second
