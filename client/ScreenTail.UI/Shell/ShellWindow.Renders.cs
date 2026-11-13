@@ -756,6 +756,23 @@ public partial class ShellWindow
             }
         }
 
+        // Del on the first step's screenshot (Spec v0.6.8): the screenshot is off its row and the undo is at
+        // the foot of the note. Deleted and undone in each theme, so the five seconds never run out mid-render.
+        state.OpenSession("preview-note-checked");
+        await ThumbnailsAsync();
+        if (_model.Content is ReviewViewModel { Note: { } deleting } && deleting.Steps.SelectMany(s => s.Frames).FirstOrDefault(f => f.Present) is { } first)
+        {
+            foreach (var theme in RenderThemes.All)
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await deleting.DeleteFrameCommand.ExecuteAsync(first);
+                await SettleAsync();
+                WindowRenderer.Save(this, Shot("shell-review-step-deleted", theme), prepare: () => ScrollNoteTo(content, 0));
+                await deleting.UndoDeleteCommand.ExecuteAsync(null);
+                await SettleAsync();
+            }
+        }
+
         // Long, scrolled: the scroll happens once the note is laid out at the render's size.
         state.OpenSession("preview-note-long");
         await ThumbnailsAsync();

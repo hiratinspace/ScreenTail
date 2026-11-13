@@ -397,12 +397,17 @@
         </Setter>
     </Style>
     <!-- In place (Spec v0.6.0 §5 S3, "The note is edited in place as it will land"): the note's own text,
-         read as the ticket will show it. At rest it is the text on the pane; the edge shows on hover, and
-         focus is the accent outline at 2 px and the focus ring, as on every other field. -->
+         read as the ticket will show it. At rest it is the text on the pane inside a faint 1 px edge
+         (v0.6.8, owner decision: a field that looked like plain text until it was focused did not say it
+         could be typed in). The edge is border.strong, the quiet one the secondary buttons carry: 1.75:1
+         on the light pane and 1.53:1 on the dark, seen but well under the 3:1 control edge, so the note
+         still reads as a note. Hover shows the control edge (border.control), and focus is the accent
+         outline at 2 px and the focus ring, as on every other field. High contrast maps all three to
+         system colours. -->
     <Style x:Key="Input.InPlace" BasedOn="{StaticResource Input.Multiline}" TargetType="TextBox">
         <Setter Property="Padding" Value="8,4" />
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.strong}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">

@@ -9,7 +9,7 @@ public sealed record IntegrationDetail(string Provider, string SiteUrl, string S
 /// A provider the backend lists that has no card of its own: the backend's Development demo (ST-090), or
 /// one this version does not know yet. Shown by name and site; there is nothing here to change or test.
 /// </summary>
-/// <param name="LastError">The backend's last word on it, shown as it came.</param>
+/// <param name="LastError">The backend's last word on it, said as this page says it (<see cref="IntegrationNames.OnThisPage"/>).</param>
 public sealed record OtherIntegration(string Provider, string Title, string SiteUrl, string? LastError = null)
 {
     /// <summary>
@@ -61,6 +61,19 @@ public static class IntegrationNames
     /// <summary>One of the backend's demo providers, which publish nowhere a customer or colleague can read.</summary>
     public static bool IsDemo(string provider) =>
         provider is not null && provider.StartsWith("demo-", StringComparison.Ordinal);
+
+    private const string Pointer = " in Settings → Integrations";
+
+    /// <summary>
+    /// The backend's words, as they read on the Integrations page itself (Spec v0.6.8). Its errors end by
+    /// sending the technician to "Settings → Integrations", which is right on the publish pane and wrong
+    /// here, where they already are: the card says what to do on it instead. A rejected key is changed
+    /// with the card's Change; anything else the backend points here for is done "on this page".
+    /// </summary>
+    [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(message))]
+    public static string? OnThisPage(string? message) => message?
+        .Replace("Update it" + Pointer + ".", "Press Change and enter a new key.", StringComparison.Ordinal)
+        .Replace(Pointer, " on this page", StringComparison.Ordinal);
 }
 
 /// <summary>"Test connection"'s answer, in words either way (Spec §4: what happened, then what to do).</summary>
@@ -209,7 +222,7 @@ public sealed class IntegrationCard
         _savedSite = SiteUrl.Trim().TrimEnd('/');
         SecretHint = detail?.SecretHint ?? string.Empty;
         LastCheckedAt = detail?.LastCheckedAt;
-        LastError = detail?.LastError;
+        LastError = IntegrationNames.OnThisPage(detail?.LastError);
         _refusal = null;
     }
 
@@ -252,7 +265,7 @@ public sealed class IntegrationCard
         Busy = true;
         try
         {
-            _refusal = await _gateway.StoreAsync(Provider, site, secret, ct).ConfigureAwait(false);
+            _refusal = IntegrationNames.OnThisPage(await _gateway.StoreAsync(Provider, site, secret, ct).ConfigureAwait(false));
         }
         finally
         {
@@ -288,8 +301,8 @@ public sealed class IntegrationCard
         {
             var outcome = await _gateway.CheckAsync(Provider, ct).ConfigureAwait(false);
             CheckOk = outcome.Ok;
-            CheckResult = outcome.Message;
-            LastError = outcome.Ok ? null : outcome.Message;
+            CheckResult = IntegrationNames.OnThisPage(outcome.Message);
+            LastError = outcome.Ok ? null : CheckResult;
             return outcome;
         }
         finally
@@ -300,7 +313,7 @@ public sealed class IntegrationCard
 
     public async Task<bool> RemoveAsync(CancellationToken ct = default)
     {
-        _refusal = await _gateway.RemoveAsync(Provider, ct).ConfigureAwait(false);
+        _refusal = IntegrationNames.OnThisPage(await _gateway.RemoveAsync(Provider, ct).ConfigureAwait(false));
         if (_refusal is not null)
         {
             return false;
@@ -327,7 +340,7 @@ public sealed class IntegrationCard
 
         if (!IsConnectWise)
         {
-            return string.IsNullOrWhiteSpace(ApiKey) ? "Paste the API key from Hudu → Admin → API Keys." : null;
+            return string.IsNullOrWhiteSpace(ApiKey) ? "The API key is missing. Paste it into the box above." : null;
         }
 
         if (string.IsNullOrWhiteSpace(CompanyId))
@@ -415,7 +428,7 @@ public sealed class IntegrationsPanel
 
         Others = rows is null
             ? []
-            : [.. rows.Where(r => !Cards.Any(c => c.Provider == r.Provider)).Select(r => new OtherIntegration(r.Provider, IntegrationNames.Title(r.Provider), r.SiteUrl, r.LastError))];
+            : [.. rows.Where(r => !Cards.Any(c => c.Provider == r.Provider)).Select(r => new OtherIntegration(r.Provider, IntegrationNames.Title(r.Provider), r.SiteUrl, IntegrationNames.OnThisPage(r.LastError)))];
 
         await RefreshMappingsAsync(ct).ConfigureAwait(false);
     }

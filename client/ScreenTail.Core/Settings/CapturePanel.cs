@@ -8,8 +8,18 @@ namespace ScreenTail.Core.Settings;
 
 public sealed record ToolChoice(string Id, string DisplayName);
 
+/// <param name="Name">What is saved: the model's name, or null for the default, which names no model.</param>
 /// <param name="Hint">Size and accuracy in a phrase, for the model picker (Spec §5 S5).</param>
-public sealed record ModelChoice(string Name, string Hint);
+public sealed record ModelChoice(string? Name, string Hint)
+{
+    /// <summary>What the picker calls it: the model's name, or "Automatic" for the default.</summary>
+    public string Label => Name ?? "Automatic";
+}
+
+/// <summary>One line of the scene-change sensitivity picker.</summary>
+/// <param name="Value">What is saved: "low", "medium" or "high" (<see cref="CaptureSettingsRules.Sensitivities"/>).</param>
+/// <param name="Label">What the picker calls it, and what it does to the number of screenshots.</param>
+public sealed record SensitivityChoice(string Value, string Label);
 
 /// <param name="PolicyForcesAllWindows">The admin's policy set the scope; the radio is read-only here (INV-11).</param>
 /// <param name="DefaultGraceSeconds">The registry's grace, shown when the technician has not set one.</param>
@@ -95,6 +105,33 @@ public sealed class CapturePanel(ICaptureGateway gateway)
     public string Sensitivity { get; set; } = "medium";
 
     /// <summary>
+    /// The sensitivity picker's lines, by name (Spec v0.6.8): the picker showed the stored values, "low",
+    /// "medium" and "high", which say nothing about which way more screenshots lies.
+    /// </summary>
+    public static IReadOnlyList<SensitivityChoice> SensitivityChoices { get; } =
+    [
+        new("low", "Low: fewer screenshots"),
+        new("medium", "Medium"),
+        new("high", "High: more screenshots"),
+    ];
+
+    /// <summary>
+    /// The line that is chosen now, however the stored value is cased. A value the list does not have is
+    /// shown as Medium, which is how the sampler runs it. Choosing the line already shown changes nothing.
+    /// </summary>
+    public SensitivityChoice SelectedSensitivity
+    {
+        get => SensitivityChoices.FirstOrDefault(c => string.Equals(c.Value, Sensitivity, StringComparison.OrdinalIgnoreCase)) ?? SensitivityChoices[1];
+        set
+        {
+            if (value is not null && !string.Equals(value.Value, SelectedSensitivity.Value, StringComparison.Ordinal))
+            {
+                Sensitivity = value.Value;
+            }
+        }
+    }
+
+    /// <summary>
     /// When a new choice takes effect. The microphone reads the choice each time it opens, and within a
     /// session it opens again after every pause and every moment capture stopped (a password field, an
     /// excluded app), so it can be sooner than the next session.
@@ -156,8 +193,13 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         }
     }
 
+    /// <summary>
+    /// The model picker's lines: the default first, naming the model it uses now, then each model. With no
+    /// model chosen, which is how every installation starts, the picker used to show nothing (Spec v0.6.8).
+    /// </summary>
     public IReadOnlyList<ModelChoice> Models { get; } =
     [
+        new ModelChoice(null, $"recommended, uses {SpeechModels.For(Environment.ProcessorCount).Name}"),
         .. SpeechModels.All.Select(m => new ModelChoice(m.Name, m.Name switch
         {
             "tiny.en" => "smallest download, fastest, least accurate",
@@ -168,6 +210,26 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
     /// <summary>Null is the model chosen for this machine's cores.</summary>
     public string? Model { get; set; }
+
+    /// <summary>
+    /// The line in <see cref="Models"/> that is chosen now, never none: the default when no model is named,
+    /// and when the one named is not in the list, since the service then runs the default. Choosing the
+    /// line already shown changes nothing; choosing the default saves no name.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public ModelChoice SelectedModel
+    {
+        get => Models.FirstOrDefault(m => m.Name is not null && string.Equals(m.Name, Model, StringComparison.OrdinalIgnoreCase)) ?? Models[0];
+        set
+        {
+            // A picker that is cleared hands over nothing: that is the default, never an empty picker.
+            var chosen = value ?? Models[0];
+            if (!ReferenceEquals(chosen, SelectedModel))
+            {
+                Model = chosen.Name;
+            }
+        }
+    }
 
     public bool StartUiAtLogin { get; set; }
 

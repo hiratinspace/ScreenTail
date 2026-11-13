@@ -60,6 +60,105 @@ public sealed class NoteAsItLandsTests
     }
 
     [Fact]
+    public async Task DelOnAStepsFrameIsTheStripsDelAndItsUndoIsOnTheNote()
+    {
+        // Spec v0.6.8 §5 S3: Del on a step's row takes the screenshot out of what goes out, as Del in the
+        // strip does: gone at once, the exclusion written now, the row deleted only when the five seconds
+        // are up, and the same words on the toast.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new RecordingFrames();
+        var review = new ReviewViewModel(Session(Draft("Spooler", "f2"), Frames(2)), frames);
+        var chip = review.Note.Steps.Single().Frames.Single();
+        var raised = new List<string?>();
+        review.Note.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        Assert.False(review.Note.HasUndoToast);
+
+        await review.Note.DeleteFrameCommand.ExecuteAsync(chip);
+
+        Assert.False(chip.Present);
+        Assert.DoesNotContain("f2", review.Strip.IncludedFrameIds);
+        Assert.DoesNotContain(chip.Item, review.Strip.Items);
+        Assert.Equal([("f2", false)], frames.Included);
+        Assert.Empty(frames.Deleted);
+        Assert.True(review.Note.HasUndoToast);
+        Assert.Equal("Deleted frame 2", review.Note.UndoToast);
+        Assert.Equal(review.Strip.UndoToast, review.Note.UndoToast);
+        Assert.Contains(nameof(NoteEditorViewModel.UndoToast), raised);
+        Assert.Contains(nameof(NoteEditorViewModel.HasUndoToast), raised);
+        Assert.Equal("1 of 1 included", review.Note.StripHeader);
+
+        // A second Del on a frame that is already gone does nothing: one delete, one undo.
+        await review.Note.DeleteFrameCommand.ExecuteAsync(chip);
+        Assert.Equal([("f2", false)], frames.Included);
+
+        raised.Clear();
+        await review.Note.UndoDeleteCommand.ExecuteAsync(null);
+
+        Assert.True(chip.Present);
+        Assert.Equal("screenshot 2", chip.Place);
+        Assert.Equal(["f1", "f2"], review.Strip.IncludedFrameIds);
+        Assert.Equal([("f2", false), ("f2", true)], frames.Included);
+        Assert.Empty(frames.Deleted);
+        Assert.False(review.Note.HasUndoToast);
+        Assert.Null(review.Note.UndoToast);
+        Assert.Contains(nameof(NoteEditorViewModel.HasUndoToast), raised);
+    }
+
+    [Fact]
+    public async Task ADeleteFromAStepsRowIsForGoodOnceItsFiveSecondsAreUpOnTheNotesOwnTimer()
+    {
+        // The strip is under the note when Del is pressed on a step's row, so the note's own tick closes
+        // the undo window: nothing is deleted before the five seconds are up, and it is deleted after.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var time = new Detection.ManualTime(new DateTimeOffset(2026, 11, 12, 9, 0, 0, TimeSpan.Zero));
+        var frames = new RecordingFrames();
+        var session = Session(Draft("Spooler", "f2"), Frames(2));
+        var strip = new FilmstripViewModel(session, frames, time);
+        var note = new NoteEditorViewModel(session, time: time, strip: strip);
+        var chip = note.Steps.Single().Frames.Single();
+
+        await note.DeleteFrameCommand.ExecuteAsync(chip);
+        time.Advance(TimeSpan.FromSeconds(4));
+        await note.TickAsync(TestContext.Current.CancellationToken);
+        Assert.True(note.HasUndoToast);
+        Assert.Empty(frames.Deleted);
+
+        time.Advance(TimeSpan.FromSeconds(2));
+        await note.TickAsync(TestContext.Current.CancellationToken);
+
+        Assert.False(note.HasUndoToast);
+        Assert.Equal(["f2"], frames.Deleted);
+        Assert.False(chip.Present);
+
+        // Too late to take back: the undo does nothing, and says nothing was restored.
+        await note.UndoDeleteCommand.ExecuteAsync(null);
+        Assert.False(chip.Present);
+        await note.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AFrameInsideItsUndoWindowDoesNotGoOutAndAnExcludedOneStaysExcludedAfterTheUndo()
+    {
+        // The same rules as the strip's Del (S-35, T-172): what Publish reads never holds a frame inside
+        // its undo window, and a frame that was already left out is not put back in by Del then Undo.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        var frames = new RecordingFrames();
+        var review = new ReviewViewModel(Session(Draft("Spooler", "f1"), Frame("f1", 1000, excluded: true), Frame("f2", 2000)), frames);
+        var chip = review.Note.Steps.Single().Frames.Single();
+        Assert.Equal("not attached", chip.Place);
+
+        await review.Note.DeleteFrameCommand.ExecuteAsync(chip);
+        Assert.Equal(["f2"], review.Strip.IncludedFrameIds);
+        Assert.Empty(frames.Included);
+
+        await review.Note.UndoDeleteCommand.ExecuteAsync(null);
+        Assert.True(chip.Present);
+        Assert.Equal("not attached", chip.Place);
+        Assert.Equal(["f2"], review.Strip.IncludedFrameIds);
+        Assert.Empty(frames.Included);
+    }
+
+    [Fact]
     public void PressingAStepsFrameSelectsItInTheStripAndEnlargesIt()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
