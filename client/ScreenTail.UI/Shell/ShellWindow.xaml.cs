@@ -75,8 +75,9 @@ public partial class ShellWindow : Window
     /// </summary>
     private void BindRail()
     {
-        SizeChanged += (_, _) => FitRail();
-        Loaded += (_, _) => FitRail();
+        // By the width the frame is laid out at, not the window's: the harness draws a window bigger than
+        // the runner's screen by laying its content out outside it, and the rail should follow that.
+        ShellFrame.SizeChanged += (_, e) => FitRail(e.NewSize.Width);
         Rail.RowActivated += (_, _) =>
         {
             _focusPane = true;
@@ -91,11 +92,11 @@ public partial class ShellWindow : Window
         };
     }
 
-    /// <summary>The rail's width for the window's width now, from the tokens.</summary>
-    internal void FitRail()
+    /// <summary>The rail's width for a frame this wide, from the tokens.</summary>
+    private void FitRail(double frameWidth)
     {
-        var breakpoint = TryFindResource("Layout.rail-narrow-below") is double below ? below : double.MaxValue;
-        var wide = Core.History.RailLayout.IsWide(ActualWidth > 0 ? ActualWidth : Width, breakpoint);
+        var breakpoint = TryFindResource("Layout.rail-narrow-below") is double below ? below : 0;
+        var wide = Core.History.RailLayout.IsWide(frameWidth, breakpoint);
         RailFrame.SetResourceReference(WidthProperty, wide ? "Layout.rail-width" : "Layout.rail-width-narrow");
     }
 
@@ -486,16 +487,18 @@ public partial class ShellWindow : Window
 
     private static IReadOnlyList<SessionRow> SampleRows() =>
     [
-        new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1 },
-        new() { Id = "s-2", StartedAt = new DateTimeOffset(2026, 9, 15, 14, 20, 0, TimeSpan.Zero), DurationMs = 3_720_000, Status = "published", Tool = "rdp", Frames = 25, FramesPurged = 0 },
+        new() { Id = "s-1", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero), DurationMs = 61_000, Status = "draft", Tool = "screenconnect", Frames = 7, FramesPurged = 1, Title = "Printer offline after the driver update", Ticket = "48213" },
+        new() { Id = "s-2", StartedAt = new DateTimeOffset(2026, 9, 15, 14, 20, 0, TimeSpan.Zero), DurationMs = 3_720_000, Status = "published", Tool = "rdp", Frames = 25, FramesPurged = 0, Title = "Outlook keeps asking for the password", Ticket = "50117", Company = "Acme Dental" },
         new() { Id = "s-3", StartedAt = new DateTimeOffset(2026, 9, 15, 11, 5, 0, TimeSpan.Zero), DurationMs = 8_000, Status = "discarded", Tool = "screenconnect", Frames = 0, FramesPurged = 0 },
 
         // A publish that may have reached the ticket, so the screenshots and the accessibility scan see the second badge.
-        new() { Id = "s-4", StartedAt = new DateTimeOffset(2026, 9, 14, 16, 40, 0, TimeSpan.Zero), DurationMs = 540_000, Status = "draft", Tool = "screenconnect", Frames = 12, FramesPurged = 0, PublishUnconfirmed = true },
+        new() { Id = "s-4", StartedAt = new DateTimeOffset(2026, 9, 14, 16, 40, 0, TimeSpan.Zero), DurationMs = 540_000, Status = "draft", Tool = "screenconnect", Frames = 12, FramesPurged = 0, PublishUnconfirmed = true, Title = "VPN drops every hour", Ticket = "50342", Company = "Northwind Traders" },
 
         // The rail's other groups: a partial capture to check, and one published the morning of SampleNow.
+        // The partial one has nothing but its tool, as a row from a v10 service or a session not yet drafted
+        // reads; the published one has a company too long for the rail, which ends in an ellipsis.
         new() { Id = "s-5", StartedAt = new DateTimeOffset(2026, 9, 16, 9, 20, 0, TimeSpan.Zero), DurationMs = 1_260_000, Status = "partial", Tool = "rdp", Frames = 9, FramesPurged = 0 },
-        new() { Id = "s-6", StartedAt = new DateTimeOffset(2026, 9, 16, 8, 5, 0, TimeSpan.Zero), DurationMs = 720_000, Status = "published", Tool = "splashtop", Frames = 6, FramesPurged = 0 },
+        new() { Id = "s-6", StartedAt = new DateTimeOffset(2026, 9, 16, 8, 5, 0, TimeSpan.Zero), DurationMs = 720_000, Status = "published", Tool = "splashtop", Frames = 6, FramesPurged = 0, Title = "New starter laptop set up", Ticket = "50388", Company = "Contoso Community Pharmacy Group" },
     ];
 
     private async Task CaptureAsync(ShellState state)
@@ -536,6 +539,7 @@ public partial class ShellWindow : Window
         await SettingsSectionsAsync(state);
         await FocusAsync(state);
         await RailAsync(state);
+        await SmallWindowAsync(state);
         await HighDpiAsync(state);
         await DialogsAsync();
 

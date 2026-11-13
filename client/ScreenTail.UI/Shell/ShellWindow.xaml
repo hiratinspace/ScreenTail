@@ -83,7 +83,7 @@
          pane (bg.base). The window's own title bar carries the name, so there is no title band: the
          status chip heads the rail and the pane keeps the height. The rail comes first in the Tab
          order, then the pane. -->
-    <Grid Background="{DynamicResource Brush.shell.bg}">
+    <Grid x:Name="ShellFrame" Background="{DynamicResource Brush.shell.bg}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto" />
             <ColumnDefinition Width="*" />

@@ -474,6 +474,100 @@ public partial class ShellWindow
         Keyboard.ClearFocus();
     }
 
+    /// <summary>
+    /// Spec v0.6.9 §5 S4 in a small window: the shell at its 1024 by 680 minimum, where the rail is
+    /// <c>layout.rail-width-narrow</c>, with the rail's labelled rows (a long company ends in an ellipsis)
+    /// and Review beside it, then All sessions with the badges, and both again at 150%, in all four themes.
+    /// Then All sessions at the full window with a filter on, and with filters that leave nothing.
+    /// </summary>
+    private async Task SmallWindowAsync(ShellState state)
+    {
+        var earlier = _model.Rail.Groups.Single(g => g.Collapsible);
+
+        async Task EachThemeAsync(string screen, double scale = 1)
+        {
+            await ThumbnailsAsync();
+            foreach (var theme in RenderThemes.All)
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await SettleAsync();
+                UpdateLayout();
+                WindowRenderer.Save(this, Shot(screen, theme), scale: scale);
+            }
+        }
+
+        var (width, height) = (Width, Height);
+        Width = MinWidth;
+        Height = MinHeight;
+        _ = WindowRenderer.Intend(this);
+        try
+        {
+            state.Navigate(ShellView.Review);
+            state.OpenSession("s-1");
+            earlier.IsExpanded = true;
+            await SettleAsync();
+            Console.WriteLine($"  rail at the minimum: {RailFrame.ActualWidth} px");
+            await EachThemeAsync("shell-rail-narrow");
+            await EachThemeAsync("shell-rail-narrow-150pct", 1.5);
+
+            state.Navigate(ShellView.History);
+            await HistoryRowsAsync(2);
+            await EachThemeAsync("shell-history-narrow");
+            await EachThemeAsync("shell-history-narrow-150pct", 1.5);
+        }
+        finally
+        {
+            earlier.IsExpanded = false;
+            Width = width;
+            Height = height;
+            _ = WindowRenderer.Intend(this);
+            await SettleAsync();
+        }
+
+        // All sessions with one filter on (published only), then with filters that leave nothing.
+        state.Navigate(ShellView.History);
+        await HistoryRowsAsync(2);
+        if (_model.Content is not History.HistoryViewModel history)
+        {
+            throw new InvalidOperationException("All sessions has no model to filter.");
+        }
+
+        history.StatusChoice = Core.History.HistoryFilters.StatusChoices.Single(c => c.Value == "published");
+        await SettleAsync();
+        Console.WriteLine($"  filtered: {history.Status}");
+        await EachThemeAsync("shell-history-filtered");
+
+        history.ToolChoice = history.ToolChoices.Single(c => c.Value == "screenconnect");
+        await SettleAsync();
+        if (history.Status != Core.History.HistoryFilters.NoMatch)
+        {
+            throw new InvalidOperationException($"Filters that match nothing said \"{history.Status}\".");
+        }
+
+        await EachThemeAsync("shell-history-no-match");
+        history.ClearFiltersCommand.Execute(null);
+        await SettleAsync();
+        state.Navigate(ShellView.Review);
+    }
+
+    /// <summary>Waits for All sessions' table to hold at least <paramref name="rows"/> rows.</summary>
+    private async Task HistoryRowsAsync(int rows)
+    {
+        for (var waited = 0; waited < 2000; waited += 50)
+        {
+            await SettleAsync();
+            _ = WindowRenderer.Lay(this);
+            if (Find(this, e => e is DataGrid) is DataGrid { Items.Count: var count } && count >= rows)
+            {
+                return;
+            }
+
+            await Task.Delay(50).ConfigureAwait(true);
+        }
+
+        throw new InvalidOperationException("All sessions' table did not fill.");
+    }
+
     /// <summary>Review, History and Settings at 150%, in dark and light.</summary>
     private async Task HighDpiAsync(ShellState state)
     {
