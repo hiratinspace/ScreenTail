@@ -253,6 +253,8 @@ internal static class WindowRenderer
             host.Measure(size);
             host.Arrange(new Rect(size));
             host.UpdateLayout();
+            FillStarColumns(host, host, "outside the window");
+
             using var prepared = prepare?.Invoke();
             host.UpdateLayout();
             return Draw(host, size, dpi);
@@ -263,6 +265,74 @@ internal static class WindowRenderer
             window.Content = content;
             pinned?.ClearValue(FrameworkElement.DataContextProperty);
             window.UpdateLayout();
+            FillStarColumns(window, window, "back in the window");
+        }
+    }
+
+    /// <summary>
+    /// Gives every table's star columns the width the table has now, lays <paramref name="laid"/> out
+    /// again if any changed, and says so on the console when a width did not hold.
+    ///
+    /// A DataGrid shares its width among its star columns when its viewport changes, but not at once: it
+    /// posts that to the dispatcher (at Loaded priority) and does it later. <see cref="RenderDetached"/>
+    /// runs nothing on the dispatcher, on purpose, so a table drawn wider than its window kept the star
+    /// widths the window gave it, and History's columns stopped 236 px short of the table's right edge in
+    /// every picture, which the application never does. This does the sum the DataGrid would have done:
+    /// the viewport less the other columns, shared by star weight, within each column's limits. It is
+    /// written to the column the way the DataGrid writes it, as a star width with its display value.
+    /// Visibility is read, not IsVisible, which is false for everything outside a window.
+    /// </summary>
+    private static void FillStarColumns(DependencyObject root, UIElement laid, string where)
+    {
+        var changed = new List<(System.Windows.Controls.DataGridColumn Column, double Width)>();
+        foreach (var table in Descendants(root).OfType<System.Windows.Controls.DataGrid>())
+        {
+            var stars = table.Columns.Where(c => c.Visibility == Visibility.Visible && c.Width.IsStar).ToList();
+            var viewport = Descendants(table).OfType<System.Windows.Controls.ScrollContentPresenter>().FirstOrDefault();
+            if (table.Visibility != Visibility.Visible || stars.Count == 0 || viewport is null || viewport.ActualWidth <= 0)
+            {
+                continue;
+            }
+
+            var left = viewport.ActualWidth - table.Columns.Where(c => c.Visibility == Visibility.Visible && !c.Width.IsStar).Sum(c => c.ActualWidth);
+            var weight = stars.Sum(c => c.Width.Value);
+            foreach (var column in stars)
+            {
+                var share = weight > 0 ? left * column.Width.Value / weight : 0;
+                var width = Math.Floor(Math.Min(column.MaxWidth, Math.Max(column.MinWidth, share)));
+                if (Math.Abs(column.ActualWidth - width) >= 1)
+                {
+                    column.Width = new System.Windows.Controls.DataGridLength(column.Width.Value, System.Windows.Controls.DataGridLengthUnitType.Star, width, width);
+                    changed.Add((column, width));
+                }
+            }
+        }
+
+        if (changed.Count == 0)
+        {
+            return;
+        }
+
+        laid.UpdateLayout();
+        foreach (var (column, width) in changed.Where(c => Math.Abs(c.Column.ActualWidth - c.Width) >= 1))
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  a table's {column.Header} column was given {width} px {where} and is {column.ActualWidth}: the picture's columns are not the application's"));
+        }
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (var i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            yield return child;
+            foreach (var below in Descendants(child))
+            {
+                yield return below;
+            }
         }
     }
 

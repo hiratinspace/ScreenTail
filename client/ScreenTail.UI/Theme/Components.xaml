@@ -1636,16 +1636,95 @@
         </Setter>
     </Style>
 
-    <!-- Table: 36 px rows, a quiet header, a tint on hover and on the selected row. High contrast selects
-         the system way, highlight on highlight text, because its tint is the window colour. -->
-    <!-- A table's row, keyed so a table can name its rows for a screen reader on top of it (ST-084). -->
+    <!-- Table: 36 px rows, a quiet header, a tint on hover and on the selected row. The tint, the accent
+         mark at the row's leading edge and the keyboard focus outline are the row's, not its cells', so each
+         runs the whole width of the table whatever the columns add up to (v0.6.6). High contrast selects
+         the system way, highlight on highlight text, because its tint is the window colour; the mark stays
+         where the fill is not drawn. -->
+    <!-- A table's row, keyed so a table can name its rows for a screen reader on top of it (ST-084).
+         Keyboard focus in a DataGrid sits on a cell. With whole rows selected the row is what is acted on,
+         so the outline is drawn round the row (RowFocus says when focus is in it and came by keyboard):
+         2 px accent.primary, inside the row's edge, because a ring outside it is cut off by the table's
+         edge and by the rows above and below. BorderBrush is the outline's colour and nothing else. -->
     <Style x:Key="Table.Row" TargetType="DataGridRow">
         <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.accent.primary}" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="controls:RowFocus.Track" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridRow">
+                    <Grid>
+                        <Border x:Name="DGR_Border" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                            <SelectiveScrollingGrid>
+                                <SelectiveScrollingGrid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </SelectiveScrollingGrid.ColumnDefinitions>
+                                <SelectiveScrollingGrid.RowDefinitions>
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </SelectiveScrollingGrid.RowDefinitions>
+                                <DataGridCellsPresenter Grid.Column="1"
+                                                        ItemsPanel="{TemplateBinding ItemsPanel}"
+                                                        SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" />
+                                <DataGridDetailsPresenter Grid.Row="1"
+                                                          Grid.Column="1"
+                                                          SelectiveScrollingGrid.SelectiveScrollingOrientation="{Binding AreRowDetailsFrozen, ConverterParameter={x:Static SelectiveScrollingOrientation.Vertical}, Converter={x:Static DataGrid.RowDetailsScrollingConverter}, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}"
+                                                          Visibility="{TemplateBinding DetailsVisibility}" />
+                                <DataGridRowHeader Grid.RowSpan="2"
+                                                   SelectiveScrollingGrid.SelectiveScrollingOrientation="Vertical"
+                                                   Visibility="{Binding HeadersVisibility, ConverterParameter={x:Static DataGridHeadersVisibility.Row}, Converter={x:Static DataGrid.HeadersVisibilityConverter}, RelativeSource={RelativeSource AncestorType={x:Type DataGrid}}}" />
+                            </SelectiveScrollingGrid>
+                        </Border>
+                        <Rectangle x:Name="Indicator"
+                                   Width="3"
+                                   Height="{DynamicResource Icon.control}"
+                                   HorizontalAlignment="Left"
+                                   VerticalAlignment="Center"
+                                   RadiusX="1.5"
+                                   RadiusY="1.5"
+                                   Fill="{DynamicResource Brush.accent.primary}"
+                                   IsHitTestVisible="False"
+                                   Visibility="Collapsed" />
+                        <!-- Over the cells, the grid line along the row's bottom edge included. -->
+                        <Rectangle x:Name="FocusOutline"
+                                   RadiusX="4"
+                                   RadiusY="4"
+                                   SnapsToDevicePixels="True"
+                                   Stroke="{TemplateBinding BorderBrush}"
+                                   StrokeThickness="{DynamicResource Focus.width}"
+                                   IsHitTestVisible="False"
+                                   Visibility="Collapsed" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="Indicator" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="controls:RowFocus.Shown" Value="True">
+                            <Setter TargetName="FocusOutline" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Brush.bg.hover}" />
             </Trigger>
+            <!-- After hover, so a selected row under the pointer stays the selection's tint. -->
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Brush.bg.selected}" />
+            </Trigger>
+            <!-- High contrast: the system's selection, and the outline in its text colour so it shows on it. -->
+            <MultiDataTrigger>
+                <MultiDataTrigger.Conditions>
+                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
+                    <Condition Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True" />
+                </MultiDataTrigger.Conditions>
+                <Setter Property="Background" Value="{DynamicResource Brush.accent.primary}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Brush.text.on-accent}" />
+            </MultiDataTrigger>
         </Style.Triggers>
     </Style>
     <Style x:Key="Table" TargetType="DataGrid">
@@ -1724,7 +1803,9 @@
                     <Setter Property="BorderThickness" Value="0" />
                     <Setter Property="Background" Value="Transparent" />
                     <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
-                    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusRing}" />
+                    <!-- The row draws the keyboard focus outline (Table.Row); a ring round one cell said the
+                         cell was the thing acted on, and was cut off at the table's edge. -->
+                    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="DataGridCell">
@@ -1735,15 +1816,12 @@
                         </Setter.Value>
                     </Setter>
                     <Style.Triggers>
-                        <Trigger Property="IsSelected" Value="True">
-                            <Setter Property="Background" Value="{DynamicResource Brush.bg.selected}" />
-                        </Trigger>
+                        <!-- The selection's fill is the row's. In high contrast the words take its text colour. -->
                         <MultiDataTrigger>
                             <MultiDataTrigger.Conditions>
                                 <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True" />
                                 <Condition Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True" />
                             </MultiDataTrigger.Conditions>
-                            <Setter Property="Background" Value="{DynamicResource Brush.accent.primary}" />
                             <Setter Property="Foreground" Value="{DynamicResource Brush.text.on-accent}" />
                         </MultiDataTrigger>
                     </Style.Triggers>
@@ -2188,6 +2266,59 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <!-- v0.6.7 (Spec §2.0): the horizontal lockup on the frame, drawn from
+         shared/design/brand/lockup-horizontal-on-navy.svg on its own 330.4 by 96 grid, clear space
+         included, so it scales with the box it is given and is sharp at any DPI. The file's colours are the
+         tokens' (§2.0: nothing in the app uses a brand hex): the ribbon brand.signature, its underside and
+         the long note line shell.text (paper), the dots and the short line shell.accent (Ribbon 400), the
+         wordmark shell.text, all on shell.bg. The file knocks the screen's surround out of the ribbon with
+         a mask; here a shell.bg plate is drawn over the ribbon instead, which is the same picture on a flat
+         frame, and the screen is the frame's own colour. In high contrast the ribbon and the word are the
+         window text, the screen is knocked out, and the dots take the highlight colour. Decoration: the window's
+         title and the step's heading name the app, so it has no automation peer and takes no focus. -->
+    <ControlTemplate x:Key="Brand.Lockup.Frame" TargetType="Control">
+        <Viewbox Stretch="Uniform">
+            <Canvas Width="330.4" Height="96">
+                <Canvas Canvas.Left="16" Canvas.Top="16">
+                    <Path Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.brand.signature}" />
+                    <Path Clip="M16.17,19.71 L-10.04,29.05 L-8,64 L44,64 L44,19.71 Z" Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.shell.text}" />
+                    <Canvas>
+                        <Canvas.RenderTransform>
+                            <RotateTransform Angle="180" CenterX="32" CenterY="32" />
+                        </Canvas.RenderTransform>
+                        <Path Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.brand.signature}" />
+                        <Path Clip="M16.17,19.71 L-10.04,29.05 L-8,64 L44,64 L44,19.71 Z" Data="M60,4 L54,16 H21 A5,5 0 0 0 21,26 H32 V38 H21 A17,17 0 0 1 21,4 Z" Fill="{DynamicResource Brush.shell.text}" />
+                    </Canvas>
+                    <Path Fill="{DynamicResource Brush.shell.bg}">
+                        <Path.Data>
+                            <RectangleGeometry Rect="13,17,38,30" RadiusX="7" RadiusY="7" />
+                        </Path.Data>
+                    </Path>
+                    <Path Fill="{DynamicResource Brush.shell.accent}">
+                        <Path.Data>
+                            <GeometryGroup FillRule="Nonzero">
+                                <EllipseGeometry Center="21,25.5" RadiusX="1.5" RadiusY="1.5" />
+                                <EllipseGeometry Center="25.5,25.5" RadiusX="1.5" RadiusY="1.5" />
+                                <EllipseGeometry Center="30,25.5" RadiusX="1.5" RadiusY="1.5" />
+                                <RectangleGeometry Rect="20,36,14,3" RadiusX="1.5" RadiusY="1.5" />
+                            </GeometryGroup>
+                        </Path.Data>
+                    </Path>
+                    <Path Fill="{DynamicResource Brush.shell.text}">
+                        <Path.Data>
+                            <RectangleGeometry Rect="20,30,22,3" RadiusX="1.5" RadiusY="1.5" />
+                        </Path.Data>
+                    </Path>
+                </Canvas>
+                <!-- "ScreenTail" in Exo 2 ExtraBold, as outlines (SIL Open Font License 1.1): no font to install.
+                     F1 is the SVG's nonzero fill: WPF's path data fills even-odd unless told, and the glyphs'
+                     overlapping contours then cut holes in the "e", "T" and "a" (seen in the 150% render). -->
+                <Path Data="F1 M111.31 32.4Q113.61 32.41 116.4 32.67Q119.18 32.93 121.78 33.78L121.28 39.09Q119.34 39.03 116.6 39Q113.85 38.97 111.19 38.97Q110.18 38.97 109.5 39.03Q108.82 39.09 108.41 39.28Q108.01 39.47 107.84 39.85Q107.66 40.23 107.66 40.88Q107.66 41.91 108.28 42.45Q108.91 42.99 110.54 43.57L116.12 45.67Q119.81 47.1 121.26 49.2Q122.71 51.3 122.71 54.64Q122.71 57.19 122.1 58.91Q121.5 60.64 120.13 61.66Q118.76 62.68 116.51 63.14Q114.26 63.6 110.94 63.6Q109.43 63.6 106.51 63.38Q103.58 63.17 99.85 62.27L100.35 56.51Q102.95 56.56 104.99 56.63Q107.02 56.69 108.51 56.71Q109.99 56.73 110.87 56.73Q112.34 56.73 113.13 56.58Q113.91 56.44 114.22 56.01Q114.53 55.59 114.53 54.83Q114.53 54.1 114.31 53.66Q114.08 53.23 113.56 52.91Q113.03 52.6 112.09 52.29L106.07 49.92Q102.51 48.45 101.03 46.41Q99.55 44.36 99.55 41.03Q99.55 38.45 100.21 36.78Q100.86 35.11 102.24 34.15Q103.62 33.19 105.87 32.8Q108.12 32.4 111.31 32.4ZM135.9 40.8Q137.16 40.8 138.67 40.92Q140.18 41.04 141.7 41.36Q143.23 41.67 144.48 42.27L143.66 47.18Q141.72 47.15 140.15 47.14Q138.58 47.12 137.25 47.12Q135.6 47.12 134.64 47.55Q133.68 47.98 133.28 49.06Q132.88 50.15 132.88 52.16Q132.88 54.17 133.28 55.28Q133.68 56.38 134.64 56.81Q135.6 57.23 137.25 57.23Q137.97 57.23 139.06 57.21Q140.15 57.18 141.47 57.11Q142.78 57.04 144.07 56.9L144.8 61.87Q142.95 62.77 140.57 63.15Q138.19 63.53 135.82 63.53Q131.69 63.53 129.22 62.43Q126.75 61.32 125.67 58.82Q124.59 56.31 124.59 52.16Q124.59 47.97 125.69 45.48Q126.8 43 129.28 41.9Q131.77 40.8 135.9 40.8ZM153.28 41.39 154.26 45.73 155.01 46.29V63.01H147.11V41.39ZM163.81 40.8 163.1 48.04H161.04Q159.71 48.04 158.16 48.3Q156.61 48.56 154.18 49.18L153.71 44.85Q155.89 42.84 158.18 41.82Q160.46 40.8 162.62 40.8ZM176.3 40.8Q182.13 40.8 184.6 42.7Q187.07 44.61 187.11 48.35Q187.15 51.35 185.44 52.75Q183.74 54.15 179.44 54.15H167.59V50.17H177.23Q178.7 50.17 179.1 49.73Q179.51 49.29 179.51 48.18Q179.5 46.91 178.83 46.48Q178.16 46.05 176.54 46.05Q175.04 46.01 174.24 46.4Q173.43 46.79 173.12 47.96Q172.82 49.13 172.82 51.49Q172.82 53.81 173.19 55.09Q173.56 56.37 174.53 56.89Q175.51 57.4 177.3 57.4Q178.7 57.4 180.99 57.3Q183.28 57.2 185.8 56.91L186.53 61.72Q185.12 62.41 183.45 62.81Q181.77 63.2 179.99 63.37Q178.21 63.53 176.42 63.53Q172.09 63.53 169.47 62.3Q166.85 61.08 165.69 58.58Q164.54 56.09 164.54 52.32Q164.54 48.04 165.71 45.52Q166.88 43.01 169.47 41.9Q172.06 40.8 176.3 40.8ZM200.57 40.8Q206.4 40.8 208.87 42.7Q211.35 44.61 211.38 48.35Q211.42 51.35 209.72 52.75Q208.01 54.15 203.71 54.15H191.86V50.17H201.51Q202.98 50.17 203.38 49.73Q203.78 49.29 203.78 48.18Q203.77 46.91 203.1 46.48Q202.43 46.05 200.81 46.05Q199.32 46.01 198.51 46.4Q197.7 46.79 197.4 47.96Q197.09 49.13 197.09 51.49Q197.09 53.81 197.46 55.09Q197.83 56.37 198.81 56.89Q199.78 57.4 201.58 57.4Q202.97 57.4 205.26 57.3Q207.55 57.2 210.07 56.91L210.8 61.72Q209.4 62.41 207.72 62.81Q206.04 63.2 204.26 63.37Q202.48 63.53 200.69 63.53Q196.37 63.53 193.75 62.3Q191.12 61.08 189.97 58.58Q188.81 56.09 188.81 52.32Q188.81 48.04 189.98 45.52Q191.16 43.01 193.75 41.9Q196.34 40.8 200.57 40.8ZM229.96 40.8Q236.24 40.8 236.24 46.83V63.01H228.34V49.32Q228.34 48.26 227.91 47.86Q227.49 47.46 226.44 47.46Q225.36 47.46 224.12 47.78Q222.89 48.1 221 48.91L220.62 44.84Q222.87 42.83 225.27 41.81Q227.67 40.8 229.96 40.8ZM220.19 41.39 221.13 45.73 221.83 46.29V63.01H213.92V41.39Z" Fill="{DynamicResource Brush.shell.text}" />
+                <Path Data="F1 M254.88 32.99V63.01H246.72V32.99ZM263.57 32.99V39.21H238.03V32.99ZM277.5 40.8Q280.42 40.8 282.42 41.56Q284.42 42.33 285.46 44.16Q286.51 45.99 286.51 49.2V63.01H280.23L279.13 58.36L278.6 57.58V49.16Q278.56 47.85 277.94 47.25Q277.32 46.65 275.64 46.65Q273.95 46.65 271.48 46.73Q269.01 46.8 266.31 46.95L265.59 41.85Q267.2 41.56 269.37 41.33Q271.54 41.09 273.7 40.94Q275.86 40.8 277.5 40.8ZM283.39 49.72 283.35 53.75 274.09 53.76Q273.1 53.77 272.64 54.23Q272.19 54.69 272.19 55.46V56.31Q272.19 57.12 272.72 57.59Q273.25 58.07 274.35 58.07Q275.43 58.07 276.66 57.58Q277.88 57.09 279.04 56.27Q280.21 55.44 281.07 54.47V57.24Q280.73 57.95 280.02 59.01Q279.32 60.07 278.18 61.12Q277.04 62.16 275.44 62.87Q273.84 63.57 271.69 63.57Q269.72 63.57 268.07 62.88Q266.41 62.19 265.44 60.82Q264.47 59.46 264.47 57.45V55.24Q264.47 52.66 266.31 51.19Q268.16 49.72 271.35 49.72ZM297.91 41.39V63.01H290.05V41.39ZM295.67 31.64Q297.98 31.64 297.98 33.98V36.26Q297.98 38.6 295.67 38.6H292.28Q289.98 38.6 289.98 36.26V33.98Q289.98 31.64 292.28 31.64ZM309.57 32.56V55.56Q309.57 56.52 310.16 56.97Q310.75 57.42 311.91 57.42H313.52L314.39 62.56Q313.8 62.91 312.71 63.12Q311.62 63.34 310.49 63.45Q309.36 63.57 308.57 63.57Q305.38 63.57 303.54 62.01Q301.71 60.45 301.71 57.63V32.56Z" Fill="{DynamicResource Brush.shell.text}" />
+            </Canvas>
+        </Viewbox>
+    </ControlTemplate>
 
     <!-- Window chrome defaults -->
     <Style x:Key="Window.Base" TargetType="Window">
