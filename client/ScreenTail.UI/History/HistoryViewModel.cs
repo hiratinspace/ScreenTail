@@ -360,7 +360,7 @@ public sealed partial class HistoryViewModel : ObservableObject
 
     private Task MarkSelectedAsync() =>
         _markPublished is { } mark && MarkableSelection() is { } row
-            ? MarkAsync(mark, row.Id, Described(_selected[0]))
+            ? MarkAsync(mark, row.Id, Described(row))
             : Task.CompletedTask;
 
     private async Task MarkAsync(Func<string, string, CancellationToken, Task<ConfirmedResult>> mark, string id, string described)
@@ -394,7 +394,14 @@ public sealed partial class HistoryViewModel : ObservableObject
     }
 
     /// <summary>The row in the words it already shows, so the question names the session without anything new.</summary>
-    internal static string Described(HistoryRow row) => $"{row.Started}, {row.Duration}, {row.Tool}";
+    /// <summary>
+    /// The session in words for the Mark as published question: "ScreenConnect session, started Mon 14 Sep
+    /// 16:40, 9 min". Not the table's "9:00", which beside a time of day reads as another time.
+    /// </summary>
+    internal static string Described(SessionRow row) =>
+        string.Create(
+            CultureInfo.CurrentCulture,
+            $"{ToolNames.Display(row.Tool)} session, started {row.StartedAt.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture)}, {InboxRail.Duration(row.DurationMs)}");
 
     private bool CanMarkPublished() => !_marking.Busy && _markPublished is not null && MarkableSelection() is not null;
 

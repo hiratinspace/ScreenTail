@@ -84,17 +84,17 @@ public static class ConfirmCopy
     }
 
     /// <summary>
-    /// Spec §5 S4 Mark as published (v0.5.3): the session named as its row names it, Cancel the default so
-    /// Enter does not vouch for a ticket by reflex.
+    /// Spec §5 S4 Mark as published (v0.5.3, worded v0.6.11): a short question, then the session in words,
+    /// then what follows. "Not yet" is the default, so Enter does not vouch for a ticket by reflex.
     /// </summary>
     public static ConfirmWords MarkAsPublished(string session)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(session);
         return new ConfirmWords(
-            $"Mark the session started {session} as published?",
-            Shell.MarkAsPublished.Question,
+            Shell.MarkAsPublished.Heading,
+            $"{session}.\n\n{Shell.MarkAsPublished.Question}",
             Shell.MarkAsPublished.Action,
-            "Cancel",
+            "Not yet",
             ConfirmTone.Primary);
     }
 

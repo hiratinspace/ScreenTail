@@ -20,7 +20,7 @@ public sealed class ConfirmCopyTests
         ["bulk-1"] = ConfirmCopy.DiscardSessions(1),
         ["bulk-3"] = ConfirmCopy.DiscardSessions(3),
         ["erase"] = ConfirmCopy.DeleteEverything,
-        ["mark"] = ConfirmCopy.MarkAsPublished("Tue 10 Nov 14:02, 9:00, ScreenConnect"),
+        ["mark"] = ConfirmCopy.MarkAsPublished("ScreenConnect session, started Tue 10 Nov 14:02, 9 min"),
         ["quit"] = ConfirmCopy.QuitWhileCapturing,
         ["remove"] = ConfirmCopy.RemoveIntegration("ConnectWise Manage"),
         ["not-discarded"] = ConfirmCopy.NotDiscarded("The capture service did not answer. Check that it is running, then try again."),
@@ -76,7 +76,7 @@ public sealed class ConfirmCopyTests
         Assert.Equal(ConfirmTone.Danger, ConfirmCopy.RemoveIntegration("Hudu").Tone);
 
         // Vouching for a ticket and quitting destroy nothing: the filled button is the ordinary one.
-        Assert.Equal(ConfirmTone.Primary, ConfirmCopy.MarkAsPublished("Tue 10 Nov 14:02, 9:00, ScreenConnect").Tone);
+        Assert.Equal(ConfirmTone.Primary, ConfirmCopy.MarkAsPublished("ScreenConnect session, started Tue 10 Nov 14:02, 9 min").Tone);
         Assert.Equal(ConfirmTone.Primary, ConfirmCopy.QuitWhileCapturing.Tone);
     }
 
@@ -94,11 +94,14 @@ public sealed class ConfirmCopyTests
     [Fact]
     public void MarkAsPublishedAsksInTheWordsOnTheRow()
     {
-        // Spec §5 S4 (v0.5.3): the question names the session as its row does, then says what follows.
-        var words = ConfirmCopy.MarkAsPublished("Tue 10 Nov 14:02, 9:00, ScreenConnect");
+        // Spec §5 S4 (v0.5.3, worded v0.6.11): a short question, then the session in words (tool, start,
+        // how long, never a bare "9:00" beside a time of day), then what follows. The way out says what
+        // it means: "Not yet", since the technician may mark it once the ticket is checked.
+        var words = ConfirmCopy.MarkAsPublished("ScreenConnect session, started Tue 10 Nov 14:02, 9 min");
 
-        Assert.Equal("Mark the session started Tue 10 Nov 14:02, 9:00, ScreenConnect as published?", words.Heading);
-        Assert.Equal(MarkAsPublished.Question, words.Consequence);
+        Assert.Equal("Mark this session as published?", words.Heading);
+        Assert.Equal("ScreenConnect session, started Tue 10 Nov 14:02, 9 min.\n\n" + MarkAsPublished.Question, words.Consequence);
+        Assert.Equal("Not yet", words.Cancel);
         Assert.Equal(MarkAsPublished.Action, words.Action);
         Assert.True(words.CancelIsDefault, "Enter must not vouch for a ticket by reflex.");
     }
