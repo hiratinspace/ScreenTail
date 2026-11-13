@@ -863,7 +863,7 @@ public partial class ShellWindow
             ("dialog-discard-session", () => new ConfirmWindow(ConfirmCopy.DiscardSession, TypedConfirmation.ForDiscard())),
             ("dialog-bulk-discard", () => new ConfirmWindow(ConfirmCopy.DiscardSessions(3), TypedConfirmation.ForCount(3))),
             ("dialog-bulk-discard-typed", () => Typed(new ConfirmWindow(ConfirmCopy.DiscardSessions(3), TypedConfirmation.ForCount(3)), "3")),
-            ("dialog-mark-published", () => new ConfirmWindow(ConfirmCopy.MarkAsPublished("Mon 14 Sep 16:40, 9:00, ScreenConnect"))),
+            ("dialog-mark-published", () => new ConfirmWindow(ConfirmCopy.MarkAsPublished("ScreenConnect session, started Mon 14 Sep 16:40, 9 min"))),
             ("dialog-quit-capturing", () => new ConfirmWindow(ConfirmCopy.QuitWhileCapturing)),
             ("dialog-not-discarded", () => new ConfirmWindow(ConfirmCopy.NotDiscarded(ConfirmedAction.NotConnected))),
             ("shortcut-sheet", () => new ShortcutSheet()),
