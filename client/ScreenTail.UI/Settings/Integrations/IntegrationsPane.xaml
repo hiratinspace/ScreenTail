@@ -125,10 +125,34 @@
                         <Button Margin="8,0,0,0"
                                 Style="{StaticResource Button.Ghost}"
                                 Content="Remove"
-                                Command="{Binding RemoveCommand}"
+                                Command="{Binding AskRemoveCommand}"
                                 AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"
                                 Visibility="{Binding ConnectedBadgeVisibility}" />
                     </StackPanel>
+
+                    <!-- Remove asks first, here on the card and never in a dialog, so it can be asked while a
+                         session is being captured (v0.6.11, Spec §4). The question and its two buttons are
+                         next in the Tab order after Remove, and the question is read out when it appears. -->
+                    <Border Margin="0,12,0,0" Style="{StaticResource Banner.Error}" Visibility="{Binding RemoveQuestionVisibility}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Text.Body}"
+                                       FontWeight="{DynamicResource Weight.semibold}"
+                                       Text="{Binding RemoveWords.Heading}"
+                                       controls:LiveRegion.Setting="Assertive" />
+                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Body}" Text="{Binding RemoveWords.Consequence}" />
+                            <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
+                                <Button Style="{StaticResource Button.Secondary}"
+                                        Content="{Binding RemoveWords.Cancel}"
+                                        Command="{Binding KeepConnectionCommand}"
+                                        AutomationProperties.Name="{Binding Title, StringFormat='Keep it, keep {0} connected'}" />
+                                <Button Margin="8,0,0,0"
+                                        Style="{StaticResource Button.Danger}"
+                                        Content="{Binding RemoveWords.Action}"
+                                        Command="{Binding RemoveCommand}"
+                                        AutomationProperties.Name="{Binding RemoveWords.Action}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                     <StackPanel Margin="0,6,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
                         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CheckMark}" />
                         <TextBlock Margin="6,0,0,0"

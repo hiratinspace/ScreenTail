@@ -340,7 +340,7 @@ public sealed class LiveShell : IAsyncDisposable
                 () => new HistoryViewModel(
                     _state,
                     ListSessionsAsync,
-                    confirm: (confirmation, count) => OnUiThread(() => ConfirmTypedDialog.AskToDiscardSessions(_window, confirmation, count)),
+                    confirm: (confirmation, count) => OnUiThread(() => ConfirmWindow.AskToDiscardSessions(_window, confirmation, count)),
                     discard: _discards.BulkAsync,
                     discardBlocked: _discards.BulkBlockedBecause,
                     markPublished: (sessionId, described, ct) => _marks.RunAsync(sessionId, () => OnUiThread(() => ConfirmMarkAsPublished(described)), ct)),
@@ -517,7 +517,7 @@ public sealed class LiveShell : IAsyncDisposable
                     throw new IOException("The capture service did not save the note.");
                 }
             },
-            confirm: confirmation => ConfirmTypedDialog.AskToDiscard(_window, confirmation),
+            confirm: confirmation => ConfirmWindow.AskToDiscard(_window, confirmation),
             publish: publish,
             timelineExpanded: _preferences.Load().TimelineExpanded,
             timelineToggled: expanded => _ = _preferences.Save(_preferences.Load() with { TimelineExpanded = expanded }),
@@ -578,16 +578,10 @@ public sealed class LiveShell : IAsyncDisposable
             () => _connection.SendAsync(id => new StopCommand { RequestId = id }, CancellationToken.None),
             () => ConfirmAndSendAsync(
                 "discard_session",
-                "Discard this session?",
-                "Everything captured in it goes: the screenshots, what was said, and the note. This cannot be undone.",
+                ConfirmCopy.DiscardSession,
+                ConfirmCopy.NotDiscarded,
                 token => new DiscardCommand { RequestId = 0, Confirmation = token }));
     }
-
-    /// <summary>The Delete everything confirmation's words, shared with the render harness so its render is this dialog.</summary>
-    internal const string EraseHeading = "Delete everything on this device?";
-
-    /// <inheritdoc cref="EraseHeading"/>
-    internal const string EraseConsequence = "Every session, draft, screenshot and transcript, your settings, and this device's tokens go. ScreenTail will need to be set up again. It cannot be undone.";
 
     /// <summary>
     /// Spec §5 S6 "Delete everything": the service issues the token, the technician types the phrase, and
@@ -596,7 +590,7 @@ public sealed class LiveShell : IAsyncDisposable
     /// says it beside the button: a message box would be a modal too.
     /// </summary>
     private Task<ConfirmedResult> EraseEverythingAsync() => _erase.RunAsync(
-        phrase => OnUiThread(() => ConfirmWindow.Asks(_window, EraseHeading, EraseConsequence, phrase)));
+        phrase => OnUiThread(() => ConfirmWindow.Asks(_window, ConfirmCopy.DeleteEverything, new TypedConfirmation(phrase))));
 
     /// <summary>Where the technician wants the audit log. The service writes it and the panel copies it there.</summary>
     private string? ChooseAuditFile()
@@ -619,20 +613,23 @@ public sealed class LiveShell : IAsyncDisposable
     /// happened (2026-10-12 review, S-46, T-158). Not connected is said too: a click that did nothing and
     /// said nothing is the same mistake.
     /// </summary>
-    private async Task ConfirmAndSendAsync(string action, string heading, string consequence, Func<string, IpcCommand> build)
+    private async Task ConfirmAndSendAsync(string action, ConfirmWords words, Func<string, ConfirmWords> notDone, Func<string, IpcCommand> build)
     {
         var result = await ConfirmedAction.RunAsync(
             (asked, ct) => _connection.RequestAsync<ConfirmationIssued>(id => new RequestConfirmationCommand { RequestId = id, Action = asked }, ct),
             action,
-            phrase => OnUiThread(() => ConfirmWindow.Asks(_window, heading, consequence, phrase)),
+            phrase => OnUiThread(() => ConfirmWindow.Asks(_window, words, new TypedConfirmation(phrase))),
             token => id => build(token) with { RequestId = id },
             (command, ct) => _connection.SendAsync(command, ct)).ConfigureAwait(false);
 
         if (result.Outcome is ConfirmedOutcome.Refused or ConfirmedOutcome.NotAvailable)
         {
-            _ = await OnUiThread(() => _window is { IsLoaded: true } owner
-                ? MessageBox.Show(owner, result.Error, heading, MessageBoxButton.OK, MessageBoxImage.Warning)
-                : MessageBox.Show(result.Error, heading, MessageBoxButton.OK, MessageBoxImage.Warning)).ConfigureAwait(false);
+            // In the one dialog, as a notice with one button: from the tray there is no pane to say it in.
+            _ = await OnUiThread(() =>
+            {
+                ConfirmWindow.Tells(_window, notDone(result.Error ?? ConfirmedAction.NotConnected));
+                return true;
+            }).ConfigureAwait(false);
         }
     }
 
@@ -641,10 +638,7 @@ public sealed class LiveShell : IAsyncDisposable
     /// technician is asked, and Cancel is the default so Enter does not vouch for anything by reflex.
     /// Never shown while a session is being captured; <see cref="MarkAsPublished"/> sees to that.
     /// </summary>
-    private bool ConfirmMarkAsPublished(string described) =>
-        (_window is { } owner
-            ? MessageBox.Show(owner, MarkAsPublished.QuestionFor(described), MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)
-            : MessageBox.Show(MarkAsPublished.QuestionFor(described), MarkAsPublished.Action, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel)) == MessageBoxResult.OK;
+    private bool ConfirmMarkAsPublished(string described) => ConfirmWindow.Asks(_window, ConfirmCopy.MarkAsPublished(described));
 
     /// <summary>Runs <paramref name="body"/> on the UI thread, from whichever thread a pipe answer arrived on.</summary>
     private Task<T> OnUiThread<T>(Func<T> body) =>
@@ -675,17 +669,7 @@ public sealed class LiveShell : IAsyncDisposable
         // A finished session rests in draft_ready or draft_failed, which is nothing being captured (S-39).
         if (_state.Snapshot.KnownCapture is { } capture && !HudState.KnownIdle(capture))
         {
-            var stop = MessageBox.Show(
-                "A session is being captured. Quitting closes the recording indicator, so ScreenTail will "
-                    + "stop capturing and finish the note."
-                    + Environment.NewLine
-                    + Environment.NewLine
-                    + "Quit and finish the session?",
-                "ScreenTail",
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Warning);
-
-            if (stop != MessageBoxResult.OK)
+            if (!ConfirmWindow.Asks(_window, ConfirmCopy.QuitWhileCapturing))
             {
                 return;
             }

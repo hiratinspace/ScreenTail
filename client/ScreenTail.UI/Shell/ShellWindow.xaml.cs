@@ -508,6 +508,7 @@ public partial class ShellWindow : Window
     private async Task CaptureAsync(ShellState state)
     {
         Directory.CreateDirectory(_screenshotDirectory!);
+        RestTheMouse();
 
         // Both states worth looking at: working normally, and telling the technician the service is gone.
         foreach (var (name, arrange) in new (string, Action)[]
@@ -545,37 +546,15 @@ public partial class ShellWindow : Window
         await RailAsync(state);
         await SmallWindowAsync(state);
         await HighDpiAsync(state);
-        await DialogsAsync();
-
         await OnboardingAsync();
 
-        // ST-071's panel renders in the same pass. It is a separate window, so it needs its own render
-        // rather than appearing inside the shell's. Answered, and with the service not answering, which
-        // is the panel that says unknown on every row rather than zeros (T-152). The two typed
-        // confirmations are built and rendered by DialogsAsync, in every theme: the tray's dialog carried a
-        // TextBlock style on its TextBox from #86 to #228, which WPF refuses as the window is built, and
-        // nothing ever built it to find out (#281).
-        foreach (var (name, build) in new (string, Func<Window>)[]
-        {
+        // The windows of their own: the one dialog's questions, the shortcut sheet and ST-071's panel,
+        // answered and with the service not answering, which says unknown on every row rather than zeros
+        // (T-152). Each is built, not only drawn: the tray's dialog carried a TextBlock style on its TextBox
+        // from #86 to #228, which WPF refuses as the window is built, and nothing built it to find out (#281).
+        await DialogsAsync(
             ("panel", () => new Diagnostics.DiagnosticsWindow()),
-            ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)),
-        })
-        {
-            foreach (var theme in Render.RenderThemes.All)
-            {
-                Render.RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                var panel = Render.WindowRenderer.Intend(build());
-                panel.ShowInTaskbar = false;
-                panel.WindowStartupLocation = WindowStartupLocation.Manual;
-                panel.Left = -4000;
-                panel.Top = -4000;
-                panel.Show();
-                await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Render);
-                panel.UpdateLayout();
-                Save(panel, Path.Combine(_screenshotDirectory!, Render.RenderThemes.FileName(name, theme)));
-                panel.Close();
-            }
-        }
+            ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)));
 
         // Read by CI, which fails the step on anything but zero.
         var errors = Render.BindingErrors.Collected;

@@ -52,6 +52,9 @@ public partial class DiagnosticsWindow : Window
         DataContext = new DiagnosticsViewModel(panel);
     }
 
+    /// <summary>Close, which Esc presses too (IsCancel), as on the shortcut sheet and in the dialog.</summary>
+    private void OnClose(object sender, RoutedEventArgs e) => Close();
+
     /// <summary>
     /// What the panel shows before anything has connected, and what the CI render draws. Every value is
     /// the shape of a real one so the screenshot shows the panel doing its job — a blank one would pass

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using ScreenTail.Core.Shell;
 
 namespace ScreenTail.UI.Shell;
 
@@ -19,8 +20,24 @@ public partial class ShortcutSheet : Window
         InitializeComponent();
     }
 
-    /// <summary>One line of the sheet: the keys, and what they do.</summary>
-    public sealed record Chord(string Keys, string Action);
+    /// <summary>One line of the sheet: the keys, and what they do. Only keys go in <paramref name="Keys"/>; where they work goes in the words.</summary>
+    public sealed record Chord(string Keys, string Action)
+    {
+        /// <summary>The line's key caps (<see cref="KeyCaps"/>), each with the comma drawn after it, if any.</summary>
+        public IReadOnlyList<Cap> Caps { get; } = CapsOf(Keys);
+
+        /// <summary>The keys as a screen reader hears the line's caps: "Alt+1, Alt+2 or Alt+3".</summary>
+        public string Spoken => KeyCaps.Spoken(Keys);
+
+        private static Cap[] CapsOf(string keys)
+        {
+            var caps = KeyCaps.Of(keys);
+            return [.. caps.Select((key, i) => new Cap(key, i < caps.Count - 1 ? "," : string.Empty))];
+        }
+    }
+
+    /// <summary>One key cap and what is drawn after it: a comma between alternatives, or nothing.</summary>
+    public sealed record Cap(string Key, string After);
 
     /// <summary>A heading and its chords.</summary>
     public sealed record Group(string Name, IReadOnlyList<Chord> Chords);
@@ -32,7 +49,7 @@ public partial class ShortcutSheet : Window
             new("?", "This sheet, when the cursor is not in a text box"),
             new("Tab, Shift+Tab", "Move to the next or previous control"),
             new("Ctrl+F", "Search the sessions in the rail"),
-            new("Enter on a session", "Open it, from the rail or All sessions"),
+            new("Enter", "On a session in the rail or All sessions: open it"),
             new("Esc", "Close a dialog, this sheet or an enlarged screenshot"),
         ]),
         new("During a session (change these in Settings, under Capture)", [
@@ -43,15 +60,17 @@ public partial class ShortcutSheet : Window
         ]),
         new("Review", [
             new("Ctrl+Enter", "Publish"),
+            new("Ctrl+T", "Change the ticket"),
             new("Ctrl+S", "Save the note now"),
-            new("Alt+1, Alt+2, Alt+3", "Go to the note, the screenshots or the publish pane"),
+            new("Alt+1, Alt+2, Alt+3", "Go to the note, the screenshots or where the note goes (To, As, Time)"),
             new("Alt+T", "Open or close the timeline and transcript"),
+            new("Enter", "On the receipt: open the next session to check"),
         ]),
         new("In a step of the note", [
             new("Alt+C", "Confirm a step marked as inferred"),
             new("Alt+Up, Alt+Down", "Move the step up or down"),
-            new("Enter at the end", "Start a new step"),
-            new("Backspace when empty", "Delete the step"),
+            new("Enter", "At the end of a step: start a new step"),
+            new("Backspace", "In an empty step: delete the step"),
             new("Space, Enter, Del", "On its screenshot: include or exclude, enlarge, delete"),
         ]),
         new("In the screenshots", [
@@ -69,18 +88,19 @@ public partial class ShortcutSheet : Window
         new("Settings", [
             new("Ctrl+S", "Save every change on the page"),
             new("Up, Down", "Move through the sections"),
-            new("Esc on the Save bar", "Undo the changes"),
+            new("Esc", "On the Save bar: undo the changes"),
         ]),
     ];
 
     /// <summary>
-    /// The sheet's left column: anywhere, during a session, in Review and inside a step. The step's group
-    /// sits here so neither column grows the sheet past a 768 px screen.
+    /// The sheet's left column: anywhere, during a session, inside a step and in Settings, seventeen lines.
+    /// The columns are balanced by lines (v0.6.11, when Review gained Ctrl+T and the receipt's Enter) so
+    /// neither grows the sheet past a 768 px screen; the step's group stays here, as v0.6.8 put it.
     /// </summary>
-    public static IReadOnlyList<Group> LeftColumn { get; } = [.. Groups.Take(4)];
+    public static IReadOnlyList<Group> LeftColumn { get; } = [.. Groups.Where(g => g.Name is not ("Review" or "In the screenshots"))];
 
-    /// <summary>The right column: in the screenshots and in Settings.</summary>
-    public static IReadOnlyList<Group> RightColumn { get; } = [.. Groups.Skip(4)];
+    /// <summary>The right column: Review and the screenshots, sixteen lines (v0.6.9 added Enter on a session to the left).</summary>
+    public static IReadOnlyList<Group> RightColumn { get; } = [.. Groups.Where(g => g.Name is "Review" or "In the screenshots")];
 
     /// <summary>
     /// Whether <c>?</c> typed with focus on <paramref name="focused"/> means the sheet. In a text box, a

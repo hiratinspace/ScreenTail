@@ -305,14 +305,19 @@ public sealed class KeyboardShortcutTests(TheApplication app)
     }
 
     /// <summary>
-    /// The typed confirmations (Spec §3): the caret is in the box when they open, and Esc keeps the data
-    /// and closes them. The shortcut sheet closes on Esc too.
+    /// The one dialog (Spec §3, v0.6.11): a typed question opens with the caret in the box, a plain one
+    /// with focus on the button that changes nothing, so Enter does not act by reflex; Esc keeps the data
+    /// and closes it. The shortcut sheet and the diagnostics panel close on Esc too.
     /// </summary>
     [Theory]
     [InlineData("confirm-discard")]
     [InlineData("confirm-bulk-discard")]
     [InlineData("confirm-erase")]
+    [InlineData("confirm-mark-published")]
+    [InlineData("confirm-quit")]
+    [InlineData("confirm-not-discarded")]
     [InlineData("shortcut-sheet")]
+    [InlineData("diagnostics")]
     public async Task EscClosesTheDialog(string screen)
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
@@ -321,9 +326,15 @@ public sealed class KeyboardShortcutTests(TheApplication app)
             var dialog = await Screens.OpenAsync(screen);
             try
             {
-                if (screen != "shortcut-sheet")
+                if (screen is "confirm-discard" or "confirm-bulk-discard" or "confirm-erase")
                 {
                     Assert.True(Keyboard.FocusedElement is TextBox, $"{screen} opened with focus on {Keyboard.FocusedElement?.GetType().Name ?? "nothing"}, not in the box to type into.");
+                }
+                else if (screen.StartsWith("confirm-", StringComparison.Ordinal))
+                {
+                    var cancel = Keyboard.FocusedElement as Button;
+                    Assert.True(cancel is { IsCancel: true }, $"{screen} opened with focus on {Keyboard.FocusedElement?.GetType().Name ?? "nothing"}, not on the button that changes nothing.");
+                    Assert.True(cancel!.IsDefault, $"Enter on {screen} would not press the button that changes nothing.");
                 }
 
                 _ = Keys.Press(dialog, Key.Escape);

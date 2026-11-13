@@ -12,19 +12,58 @@
         FocusManager.FocusedElement="{Binding ElementName=CloseButton}"
         Style="{StaticResource Window.Base}">
     <Window.Resources>
-        <!-- One group: its heading, then a line per chord, the keys in the mono face. -->
+        <!-- A group's heading: the label style, as Settings' field names are, so the keys and their words
+             stay the sheet's content. -->
+        <Style x:Key="Sheet.GroupHeading" BasedOn="{StaticResource Text.Label}" TargetType="TextBlock">
+            <Setter Property="Margin" Value="0,16,0,4" />
+        </Style>
+
+        <!-- A key cap on the sheet (v0.6.11): the raised fill and the strong edge of a secondary button at
+             rest, with the key in body colour, since here the keys are what is being read. No taller than a
+             line of body text, so a line with caps is no taller than one without. -->
+        <Style x:Key="KeyCap.Sheet" BasedOn="{StaticResource KeyCap}" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Brush.bg.raised}" />
+            <Setter Property="Padding" Value="4,0" />
+            <Setter Property="MinWidth" Value="24" />
+            <Setter Property="TextElement.Foreground" Value="{DynamicResource Brush.text.primary}" />
+        </Style>
+
+        <!-- One group: its heading, then a line per chord, each key in its cap. -->
         <DataTemplate x:Key="Sheet.Group">
             <StackPanel>
-                <TextBlock Margin="0,16,0,6" Style="{StaticResource Text.Label}" Text="{Binding Name}" />
+                <TextBlock Style="{StaticResource Sheet.GroupHeading}" Text="{Binding Name}" />
                 <controls:Repeater ItemsSource="{Binding Chords}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,2">
+                            <Grid Margin="0,0,0,4">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="140" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Style="{StaticResource Text.Mono}" Foreground="{DynamicResource Brush.text.primary}" Text="{Binding Keys}" />
+                                <controls:KeyCapList Grid.Column="0" VerticalAlignment="Top" ItemsSource="{Binding Caps}" AutomationProperties.Name="{Binding Spoken}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Border Style="{StaticResource KeyCap.Sheet}">
+                                                    <TextBlock HorizontalAlignment="Center"
+                                                               Style="{StaticResource Text.KeyHint}"
+                                                               FontSize="{DynamicResource Size.sm}"
+                                                               Text="{Binding Key}" />
+                                                </Border>
+                                                <!-- Drawn, not read: the line is read as one text, its keys joined with "or" (KeyCapList). -->
+                                                <controls:Glyph Margin="0,0,4,0"
+                                                                VerticalAlignment="Bottom"
+                                                                Style="{StaticResource Text.Muted}"
+                                                                Text="{Binding After}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </controls:KeyCapList>
                                 <TextBlock Grid.Column="1" Style="{StaticResource Text.Body}" Text="{Binding Action}" />
                             </Grid>
                         </DataTemplate>
@@ -41,7 +80,7 @@
          one line each: at 780 the step's Del line (v0.6.8) pushed Close off the bottom again. -->
     <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="{DynamicResource Padding.pane}">
         <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Keyboard shortcuts" />
-        <Grid Margin="0,4,0,0">
+        <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="24" />
@@ -53,11 +92,11 @@
 
         <Button x:Name="CloseButton"
                 Margin="0,24,0,0"
-                MinWidth="96"
                 HorizontalAlignment="Right"
                 Style="{StaticResource Button.Primary}"
                 Content="Close"
                 IsDefault="True"
+                IsCancel="True"
                 Click="OnClose"
                 AutomationProperties.Name="Close the shortcut sheet" />
     </StackPanel>

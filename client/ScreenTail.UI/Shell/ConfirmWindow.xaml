@@ -1,68 +1,66 @@
 <Window x:Class="ScreenTail.UI.Shell.ConfirmWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
+        Title="{Binding Heading}"
         Width="420"
         SizeToContent="Height"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         ShowInTaskbar="False"
-        FocusManager.FocusedElement="{Binding ElementName=Typed}"
         Style="{StaticResource Window.Base}">
-    <!-- The caret is in the box when it opens, as in the typed dialog: it was opened to type (ST-084). -->
-    <Grid Background="{DynamicResource Brush.bg.base}" Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <TextBlock x:Name="Heading"
-                   Grid.Row="0"
-                   Style="{StaticResource Text.SectionHeading}"
-                   TextWrapping="Wrap" />
+    <!-- The app's one dialog (Spec §3 Modal, v0.6.11): the question, what follows, the phrase box when
+         something irreversible is asked, and two buttons that say what each does. Esc presses the one that
+         changes nothing. Where focus starts is set as it loads: in the phrase box when there is one (it
+         was opened to type, ST-084), otherwise on Cancel when Enter must not act by reflex. -->
+    <StackPanel Background="{DynamicResource Brush.bg.base}" Margin="{DynamicResource Padding.pane}">
+        <!-- The question with its kind's glyph beside it, never colour alone (Spec §1.1): a warning in
+             state.danger for what destroys something, in state.paused for a notice that something did not
+             happen, the info glyph in accent.primary for any other question. Set as it loads. -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <controls:Glyph x:Name="Mark"
+                            Grid.Column="0"
+                            Margin="0,4,12,0"
+                            VerticalAlignment="Top"
+                            Style="{StaticResource Icon}" />
+            <TextBlock Grid.Column="1" Style="{StaticResource Text.SectionHeading}" Text="{Binding Heading}" />
+        </Grid>
 
         <!-- What is actually lost, in the words a technician would use. A dialog that says "are you
              sure?" asks a question nobody can answer; this one says what disappears. -->
-        <TextBlock x:Name="Consequence"
-                   Grid.Row="1"
-                   Margin="0,10,0,0"
-                   Style="{StaticResource Text.Body}"
-                   TextWrapping="Wrap" />
+        <!-- A notice's reason sits on the warning banner, as the app's other "this did not happen" lines
+             do (§3 Banner); a question's consequence is plain text. -->
+        <Border x:Name="ConsequenceBox" Margin="0,8,0,0">
+            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Consequence}" />
+        </Border>
 
-        <TextBlock x:Name="Instruction"
-                   Grid.Row="2"
-                   Margin="0,16,0,6"
-                   Style="{StaticResource Text.Secondary}"
-                   TextWrapping="Wrap" />
-
-        <!-- Typed rather than clicked (Spec §3). The point is that agreeing takes an act rather than a
-             reflex, and a button next to "Stop and draft" is a reflex. Input.Mono, not Text.Mono: that is a
-             TextBlock style, and WPF refuses a style for another type the moment the window is built. -->
-        <TextBox x:Name="Typed"
-                 Grid.Row="3"
-                 Style="{StaticResource Input.Mono}"
-                 TextChanged="OnTyped"
-                 AutomationProperties.Name="Type the phrase to confirm" />
-
-        <StackPanel Grid.Row="4"
-                    Margin="0,24,0,0"
-                    HorizontalAlignment="Right"
-                    Orientation="Horizontal">
-            <Button x:Name="Cancel"
-                    Content="Keep it"
-                    IsCancel="True"
-                    MinWidth="96"
-                    Style="{StaticResource Button.Secondary}"
-                    Click="OnCancel" />
-            <Button x:Name="Confirm"
-                    Margin="10,0,0,0"
-                    MinWidth="96"
-                    IsEnabled="False"
-                    Style="{StaticResource Button.Danger}"
-                    Click="OnConfirm"
-                    AutomationProperties.Name="Confirm" />
+        <!-- Typed rather than clicked (Spec §3) for irreversible data loss. Input.Mono, not Text.Mono: that
+             is a TextBlock style, and WPF refuses a style for another type the moment the window is built. -->
+        <StackPanel x:Name="TypedPart" Margin="0,16,0,0" Visibility="Collapsed">
+            <TextBlock x:Name="Instruction" Margin="0,0,0,8" Style="{StaticResource Text.Label}" />
+            <TextBox x:Name="Typed"
+                     Style="{StaticResource Input.Mono}"
+                     TextChanged="OnTyped"
+                     AutomationProperties.Name="{Binding Text, ElementName=Instruction}" />
         </StackPanel>
-    </Grid>
+
+        <StackPanel Margin="0,24,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
+            <Button x:Name="Cancel"
+                    Style="{StaticResource Button.Secondary}"
+                    Content="{Binding Cancel}"
+                    IsCancel="True"
+                    Click="OnCancel"
+                    AutomationProperties.Name="{Binding Cancel}" />
+            <Button x:Name="Confirm"
+                    Margin="8,0,0,0"
+                    Style="{StaticResource Button.Danger}"
+                    Content="{Binding Action}"
+                    Click="OnConfirm"
+                    AutomationProperties.Name="{Binding Action, TargetNullValue=''}" />
+        </StackPanel>
+    </StackPanel>
 </Window>

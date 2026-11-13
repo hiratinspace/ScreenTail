@@ -14,7 +14,7 @@ namespace ScreenTail.Tests.Windows.Accessibility;
 /// Every screen a technician reaches (Spec §5 S1 to S8), opened with the screenshot harness's sample data
 /// so the suite sees what the gallery job renders: Review in each publish state and with the timeline
 /// open, a frame enlarged, or the blur box out over it, History, Settings with its sections, the service-down banner, each of the
-/// seven onboarding steps, the diagnostics panel answered and unanswered, the typed confirmations and the
+/// seven onboarding steps, the diagnostics panel answered and unanswered, each question of the one dialog and the
 /// shortcut sheet. The pill and the tray menu have their own tests: neither takes keyboard focus.
 ///
 /// Windows are shown at the shell's minimum size (1024 x 680) at the top left, which fits the hosted
@@ -28,7 +28,7 @@ internal static class Screens
         "review-blur-box", "review-note-inferred", "review-note-masked", "review-strip", "review-step-enlarged", "rail-not-confirmed", "history", "settings", "settings-pending", "service-down",
         "onboarding-welcome", "onboarding-activate", "onboarding-permissions", "onboarding-tools", "onboarding-connect", "onboarding-tryit", "onboarding-done",
         "diagnostics", "diagnostics-unanswered",
-        "confirm-discard", "confirm-bulk-discard", "confirm-erase", "shortcut-sheet",
+        "confirm-discard", "confirm-bulk-discard", "confirm-erase", "confirm-mark-published", "confirm-quit", "confirm-not-discarded", "shortcut-sheet",
     ];
 
     /// <summary>Opens <paramref name="screen"/> on the application's thread and waits until it has drawn.</summary>
@@ -106,23 +106,22 @@ internal static class Screens
                 window = await ShowAsync(new UI.Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered));
                 break;
             case "confirm-discard":
-                window = await ShowModalAsync(new ConfirmTypedDialog(
-                    TypedConfirmation.ForDiscard(),
-                    "Discard this session?",
-                    "The screenshots, transcript and timeline are deleted from this device straight away, and the note goes with them. This cannot be undone."));
+                window = await ShowModalAsync(new ConfirmWindow(ConfirmCopy.DiscardSession, TypedConfirmation.ForDiscard()));
                 break;
             case "confirm-bulk-discard":
-                window = await ShowModalAsync(new ConfirmTypedDialog(
-                    TypedConfirmation.ForCount(3),
-                    "Discard 3 sessions?",
-                    "Their screenshots, transcripts and timelines are deleted from this device straight away, and their notes go with them. This cannot be undone.",
-                    "Discard 3 sessions"));
+                window = await ShowModalAsync(new ConfirmWindow(ConfirmCopy.DiscardSessions(3), TypedConfirmation.ForCount(3)));
                 break;
             case "confirm-erase":
-                window = await ShowModalAsync(new ConfirmWindow(
-                    "Delete everything on this device",
-                    "Every session, draft, screenshot and transcript, your settings and this device's tokens are removed. This cannot be undone.",
-                    "DELETE EVERYTHING"));
+                window = await ShowModalAsync(new ConfirmWindow(ConfirmCopy.DeleteEverything, "DELETE EVERYTHING"));
+                break;
+            case "confirm-mark-published":
+                window = await ShowModalAsync(new ConfirmWindow(ConfirmCopy.MarkAsPublished("Mon 14 Sep 16:40, 9:00, ScreenConnect")));
+                break;
+            case "confirm-quit":
+                window = await ShowModalAsync(new ConfirmWindow(ConfirmCopy.QuitWhileCapturing));
+                break;
+            case "confirm-not-discarded":
+                window = await ShowModalAsync(new ConfirmWindow(ConfirmCopy.NotDiscarded(ConfirmedAction.NotConnected)));
                 break;
             case "shortcut-sheet":
                 window = await ShowAsync(new ShortcutSheet());
