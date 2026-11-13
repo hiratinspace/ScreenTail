@@ -253,10 +253,7 @@ internal static class WindowRenderer
             host.Measure(size);
             host.Arrange(new Rect(size));
             host.UpdateLayout();
-            if (FillStarColumns(host))
-            {
-                host.UpdateLayout();
-            }
+            FillStarColumns(host, host, "outside the window");
 
             using var prepared = prepare?.Invoke();
             host.UpdateLayout();
@@ -268,15 +265,13 @@ internal static class WindowRenderer
             window.Content = content;
             pinned?.ClearValue(FrameworkElement.DataContextProperty);
             window.UpdateLayout();
-            if (FillStarColumns(window))
-            {
-                window.UpdateLayout();
-            }
+            FillStarColumns(window, window, "back in the window");
         }
     }
 
     /// <summary>
-    /// Gives every table's star columns the width the table has now, and says whether any changed.
+    /// Gives every table's star columns the width the table has now, lays <paramref name="laid"/> out
+    /// again if any changed, and says so on the console when a width did not hold.
     ///
     /// A DataGrid shares its width among its star columns when its viewport changes, but not at once: it
     /// posts that to the dispatcher (at Loaded priority) and does it later. <see cref="RenderDetached"/>
@@ -285,15 +280,16 @@ internal static class WindowRenderer
     /// every picture, which the application never does. This does the sum the DataGrid would have done:
     /// the viewport less the other columns, shared by star weight, within each column's limits. It is
     /// written to the column the way the DataGrid writes it, as a star width with its display value.
+    /// Visibility is read, not IsVisible, which is false for everything outside a window.
     /// </summary>
-    private static bool FillStarColumns(DependencyObject root)
+    private static void FillStarColumns(DependencyObject root, UIElement laid, string where)
     {
-        var changed = false;
+        var changed = new List<(System.Windows.Controls.DataGridColumn Column, double Width)>();
         foreach (var table in Descendants(root).OfType<System.Windows.Controls.DataGrid>())
         {
             var stars = table.Columns.Where(c => c.Visibility == Visibility.Visible && c.Width.IsStar).ToList();
             var viewport = Descendants(table).OfType<System.Windows.Controls.ScrollContentPresenter>().FirstOrDefault();
-            if (!table.IsVisible || stars.Count == 0 || viewport is null || viewport.ActualWidth <= 0)
+            if (table.Visibility != Visibility.Visible || stars.Count == 0 || viewport is null || viewport.ActualWidth <= 0)
             {
                 continue;
             }
@@ -307,12 +303,23 @@ internal static class WindowRenderer
                 if (Math.Abs(column.ActualWidth - width) >= 1)
                 {
                     column.Width = new System.Windows.Controls.DataGridLength(column.Width.Value, System.Windows.Controls.DataGridLengthUnitType.Star, width, width);
-                    changed = true;
+                    changed.Add((column, width));
                 }
             }
         }
 
-        return changed;
+        if (changed.Count == 0)
+        {
+            return;
+        }
+
+        laid.UpdateLayout();
+        foreach (var (column, width) in changed.Where(c => Math.Abs(c.Column.ActualWidth - c.Width) >= 1))
+        {
+            Console.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  a table's {column.Header} column was given {width} px {where} and is {column.ActualWidth}: the picture's columns are not the application's"));
+        }
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

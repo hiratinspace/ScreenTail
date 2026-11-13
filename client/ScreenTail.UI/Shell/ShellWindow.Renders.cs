@@ -407,6 +407,22 @@ public partial class ShellWindow
         state.Navigate(ShellView.Review);
         state.OpenSession("preview");
         await EachThemeAsync("shell-rail-empty");
+
+        // All sessions with none: the sentence as the screen's content, in place of the table.
+        state.Navigate(ShellView.History);
+        for (var waited = 0; waited < 2000 && _model.Content is not History.HistoryViewModel { Rows.Count: 0, Status: Core.History.SessionHistory.Empty }; waited += 50)
+        {
+            await SettleAsync();
+            await Task.Delay(50).ConfigureAwait(true);
+        }
+
+        if (_model.Content is not History.HistoryViewModel { Rows.Count: 0, Status: Core.History.SessionHistory.Empty })
+        {
+            throw new InvalidOperationException("All sessions did not come up empty.");
+        }
+
+        await EachThemeAsync("shell-history-empty");
+        state.Navigate(ShellView.Review);
         _sampleRows = rows;
         await _model.Rail.RefreshAsync();
 
