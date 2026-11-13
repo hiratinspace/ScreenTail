@@ -38,6 +38,19 @@ public sealed class TrayGlyphTests
     public void OnlySystemUsesLightThemeOneIsALightTaskbar(object? value, bool light) =>
         Assert.Equal(light, TrayGlyph.IsLightTaskbar(value));
 
+    [Theory]
+    [InlineData(1, false, false, true)]
+    [InlineData(0, false, true, false)]
+    [InlineData(1, true, false, false)]
+    [InlineData(0, true, true, true)]
+    [InlineData(null, true, true, true)]
+    public void InHighContrastTheTaskbarIsTheWindowColour(object? systemUsesLightTheme, bool highContrast, bool windowIsLight, bool light)
+    {
+        // A high contrast theme draws the taskbar in its window colour (black in Night Sky, white in
+        // Desert) whatever SystemUsesLightTheme says, so the glyph is picked by that colour (v0.6.10).
+        Assert.Equal(light, TrayGlyph.IsLightTaskbar(systemUsesLightTheme, highContrast, windowIsLight));
+    }
+
     [Fact]
     public void EachTrayStateShipsADistinctIconWithEveryScale()
     {

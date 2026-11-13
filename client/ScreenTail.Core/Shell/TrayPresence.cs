@@ -40,11 +40,10 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
 
         if (snapshot.Connection != ServiceConnection.Connected || snapshot.Capture is not { } capture)
         {
-            return new TrayPresence(
-                TrayIcon.Offline,
-                "ScreenTail · not connected to the capture service",
-                "Capture service not running",
-                0);
+            // The icon is up before the first connection finishes, so starting up says so rather than
+            // "not running" every morning. The tooltip and the menu's row use the same words.
+            var line = snapshot.Connection == ServiceConnection.Connecting ? Connecting : NotRunning;
+            return new TrayPresence(TrayIcon.Offline, $"ScreenTail · {line}", line, 0);
         }
 
         var drafts = capture.DraftsReady;
@@ -84,18 +83,55 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
         // nothing else (INV-4, Spec §7's calm density). The menu's row always has room. The tooltip
         // carries it only when the whole of it fits in what Windows shows, never cut short.
         var resting = capture.State is CaptureStates.Idle or CaptureStates.DraftPending or CaptureStates.DraftReady or CaptureStates.DraftFailed;
-        if (!resting || NotConfirmed(capture.PublishesUnconfirmed) is not { } doubt)
+        if (!resting)
         {
             return new TrayPresence(icon, $"ScreenTail · {detail}", detail, drafts);
         }
 
-        var line = $"{detail} · {doubt}";
-        var tooltip = $"ScreenTail · {line}";
-        return new TrayPresence(icon, tooltip.Length <= TooltipLimit ? tooltip : $"ScreenTail · {detail}", line, drafts);
+        // Between sessions, how many drafts wait, in words: the badge glyph has no number in it (Spec §5 S1,
+        // as built v0.6.10). "Draft ready" already says one. Then the publishes not confirmed. The menu's
+        // row says all of it; the tooltip says as much as fits whole, dropping from the end.
+        var parts = new List<string> { detail };
+        if (DraftsCount(capture.State == CaptureStates.DraftReady && drafts == 1 ? 0 : drafts) is { } waiting)
+        {
+            parts.Add(waiting);
+        }
+
+        if (NotConfirmed(capture.PublishesUnconfirmed) is { } doubt)
+        {
+            parts.Add(doubt);
+        }
+
+        var tooltip = $"ScreenTail · {detail}";
+        for (var count = parts.Count; count > 0; count--)
+        {
+            var candidate = $"ScreenTail · {string.Join(" · ", parts.Take(count))}";
+            if (candidate.Length <= TooltipLimit)
+            {
+                tooltip = candidate;
+                break;
+            }
+        }
+
+        return new TrayPresence(icon, tooltip, string.Join(" · ", parts), drafts);
     }
 
     /// <summary>The longest tooltip Windows shows whole for a tray icon.</summary>
     public const int TooltipLimit = 63;
+
+    /// <summary>The first row while the UI is still making its first connection to the service.</summary>
+    public const string Connecting = "Connecting to the capture service";
+
+    /// <summary>The first row when the service has stopped answering, or never did.</summary>
+    public const string NotRunning = "Capture service not running";
+
+    /// <summary>"1 draft ready", "3 drafts ready", or null when there is none.</summary>
+    public static string? DraftsCount(int drafts) => drafts switch
+    {
+        <= 0 => null,
+        1 => "1 draft ready",
+        _ => string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{drafts} drafts ready"),
+    };
 
     /// <summary>"1 publish not confirmed", "3 publishes not confirmed", or null when there is none.</summary>
     public static string? NotConfirmed(int sessions) => sessions switch
