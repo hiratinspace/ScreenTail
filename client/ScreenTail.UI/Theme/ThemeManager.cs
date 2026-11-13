@@ -90,7 +90,14 @@ public static class ThemeManager
         resources.MergedDictionaries.Insert(0, next);
         _colors = next;
         Current = theme;
+        Applied?.Invoke(null, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// After a theme's colours are in place: what the dictionaries cannot reach listens here, such as the
+    /// title bar's tint, which DWM draws outside WPF (<see cref="TitleBar"/>, v0.6.12).
+    /// </summary>
+    public static event EventHandler? Applied;
 
     public static Duration Motion(Duration requested) => ReduceMotion ? new Duration(TimeSpan.Zero) : requested;
 }

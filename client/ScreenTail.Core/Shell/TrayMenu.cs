@@ -146,6 +146,14 @@ public static class TrayMenu
                 rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Discard, DiscardText, null, Enabled: true));
             }
         }
+        else if (Unreachable(snapshot.Connection) is { } why)
+        {
+            // Nothing can be sent, so every row that sends is disabled and says why in its own words
+            // (v0.6.12), as the pill's row does; greyed with no reason, it read as a menu that was broken.
+            rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Pause, $"&Pause ({why})", HudControls.Pause.Hotkey, Enabled: false));
+            rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Stop, $"&Stop and draft ({why})", HudControls.Stop.Hotkey, Enabled: false));
+            rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Discard, $"&Discard session ({why})", null, Enabled: false));
+        }
         else
         {
             var offered = HudControls.For(capture);
@@ -155,8 +163,7 @@ public static class TrayMenu
                 : new TrayRow(TrayRowKind.Item, TrayCommand.Pause, "&Pause", HudControls.Pause.Hotkey, offered.Contains(HudControls.Pause)));
             rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Stop, "&Stop and draft", HudControls.Stop.Hotkey, offered.Contains(HudControls.Stop)));
 
-            // The service discards from any state with a session, finishing up included, and the UI can only
-            // ask while it is connected.
+            // The service discards from any state with a session, finishing up included.
             rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Discard, DiscardText, null, capture is not null && capture.State != CaptureStates.Idle));
         }
 
@@ -171,7 +178,7 @@ public static class TrayMenu
         var knownIdle = connected && HudState.KnownIdle(snapshot.KnownCapture);
         rows.Add(knownIdle && pillHidden
             ? new TrayRow(TrayRowKind.Item, TrayCommand.ShowPill, ShowPillText, null, Enabled: true)
-            : new TrayRow(TrayRowKind.Item, TrayCommand.HidePill, knownIdle ? HidePillText : HidePillNotNowText, null, knownIdle));
+            : new TrayRow(TrayRowKind.Item, TrayCommand.HidePill, HidePillWords(knownIdle, snapshot.Connection), null, knownIdle));
 
         rows.Add(TrayRow.Separator);
         rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Settings, SettingsText, null, Enabled: true));
@@ -206,6 +213,25 @@ public static class TrayMenu
 
         await ask().ConfigureAwait(true);
     }
+
+    /// <summary>The reason a row cannot be chosen while the service is not answering (the state line says "Capture service not running").</summary>
+    public const string NotRunning = "capture service not running";
+
+    /// <summary>The reason while the first connection is still being made (the state line says "Connecting to the capture service").</summary>
+    public const string StillConnecting = "still connecting to the capture service";
+
+    /// <summary>Why nothing can be sent now, in the words a disabled row gives, or null while the service answers.</summary>
+    public static string? Unreachable(ServiceConnection connection) => connection switch
+    {
+        ServiceConnection.Connected => null,
+        ServiceConnection.Connecting => StillConnecting,
+        _ => NotRunning,
+    };
+
+    private static string HidePillWords(bool knownIdle, ServiceConnection connection) =>
+        knownIdle ? HidePillText
+        : Unreachable(connection) is { } why ? $"Hide the recording pi&ll ({why})"
+        : HidePillNotNowText;
 
     private static string Chord(HotkeyAction action) => HotkeyBindings.Defaults[action].ToString();
 }

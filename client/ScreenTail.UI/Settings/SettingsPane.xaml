@@ -11,7 +11,7 @@
     <UserControl.Resources>
         <!-- A group of cards: more space above than below, so the heading belongs to what follows. -->
         <Style x:Key="Settings.Group" BasedOn="{StaticResource Text.SectionHeading}" TargetType="TextBlock">
-            <Setter Property="Margin" Value="0,28,0,12" />
+            <Setter Property="Margin" Value="0,24,0,12" />
         </Style>
     </UserControl.Resources>
     <!-- Ctrl+S saves every changed section (Spec, Settings layout). Esc undoes only from the bar itself
@@ -38,7 +38,7 @@
         <!-- What the last Save did, once it wrote everything: a word, a check and the published colour. -->
         <StackPanel Grid.Row="0" Grid.Column="1" Margin="24,0,0,0" VerticalAlignment="Center" Orientation="Horizontal" Visibility="{Binding SavedVisibility}">
             <controls:Glyph Style="{StaticResource Icon}" Foreground="{DynamicResource Brush.state.published}" Text="&#xE73E;" />
-            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="{Binding SavedNote}" controls:LiveRegion.Setting="Polite" />
+            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="{Binding SavedNote}" controls:LiveRegion.Setting="Polite" />
         </StackPanel>
 
         <!-- The nav: the arrows move through it and bring each section into view; Tab leaves it for the page. -->
@@ -150,7 +150,7 @@
                                    TextWrapping="NoWrap"
                                    Text="{Binding Summary}"
                                    controls:LiveRegion.Setting="Polite" />
-                        <Button Margin="6,0,0,0"
+                        <Button Margin="8,0,0,0"
                                 VerticalAlignment="Center"
                                 Style="{StaticResource Button.Link}"
                                 Content="{Binding LinkSection}"

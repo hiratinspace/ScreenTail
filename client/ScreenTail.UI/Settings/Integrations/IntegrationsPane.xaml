@@ -27,7 +27,7 @@
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" />
 
                     <!-- Saved: the site in full, the secret as its last four, and Change. -->
-                    <Grid Margin="0,10,0,0" Visibility="{Binding SummaryVisibility}">
+                    <Grid Margin="0,12,0,0" Visibility="{Binding SummaryVisibility}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -35,7 +35,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
                             <TextBlock Style="{StaticResource Text.Label}" Text="Site" />
-                            <TextBlock Margin="0,14,0,0" Style="{StaticResource Text.Label}" Text="Credential" />
+                            <TextBlock Margin="0,16,0,0" Style="{StaticResource Text.Label}" Text="Credential" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Margin="16,0,0,0">
                             <TextBlock Style="{StaticResource Text.Body}" Text="{Binding SiteUrl}" />
@@ -50,7 +50,7 @@
                     </Grid>
 
                     <!-- Nothing saved, or Change pressed: the fields. -->
-                    <StackPanel Margin="0,10,0,0" Visibility="{Binding FieldsVisibility}">
+                    <StackPanel Margin="0,12,0,0" Visibility="{Binding FieldsVisibility}">
                         <TextBlock Style="{StaticResource Text.Label}" Text="Site" />
                         <TextBox Margin="0,4,0,0"
                                  Style="{StaticResource Input.Default}"
@@ -59,17 +59,17 @@
                                  AutomationProperties.HelpText="{Binding SitePlaceholder}" />
 
                         <StackPanel Visibility="{Binding ConnectWiseVisibility}">
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="Company ID" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="Company ID" />
                             <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding CompanyId, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Company ID" />
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="Public key" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="Public key" />
                             <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding PublicKey, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Public key" />
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="Private key" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="Private key" />
                             <PasswordBox Margin="0,4,0,0"
                                          Tag="private"
                                          PasswordChanged="OnSecretChanged"
                                          IsVisibleChanged="OnSecretBoxVisibility"
                                          AutomationProperties.Name="Private key" />
-                            <TextBlock Margin="0,6,0,0"
+                            <TextBlock Margin="0,8,0,0"
                                        Style="{StaticResource Text.Muted}"
                                        FontSize="{DynamicResource Size.xs}"
                                        TextWrapping="Wrap"
@@ -77,13 +77,13 @@
                         </StackPanel>
 
                         <StackPanel Visibility="{Binding HuduVisibility}">
-                            <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Label}" Text="API key" />
+                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="API key" />
                             <PasswordBox Margin="0,4,0,0"
                                          Tag="api"
                                          PasswordChanged="OnSecretChanged"
                                          IsVisibleChanged="OnSecretBoxVisibility"
                                          AutomationProperties.Name="API key" />
-                            <TextBlock Margin="0,6,0,0"
+                            <TextBlock Margin="0,8,0,0"
                                        Style="{StaticResource Text.Muted}"
                                        FontSize="{DynamicResource Size.xs}"
                                        TextWrapping="Wrap"
@@ -100,7 +100,7 @@
                         <!-- In Settings the page's one Save bar stores the connection (Spec, Settings layout) and
                              this button is hidden; onboarding's Connect step has no bar and keeps it. Test
                              connection checks what is stored and never saves what is typed. -->
-                        <Button Margin="0,10,0,0"
+                        <Button Margin="0,12,0,0"
                                 HorizontalAlignment="Left"
                                 Style="{StaticResource Button.Primary}"
                                 Content="Save"
@@ -153,9 +153,9 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
-                    <StackPanel Margin="0,6,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
+                    <StackPanel Margin="0,8,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
                         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CheckMark}" />
-                        <TextBlock Margin="6,0,0,0"
+                        <TextBlock Margin="8,0,0,0"
                                    Style="{StaticResource Text.Body}"
                                    TextWrapping="Wrap"
                                    MaxWidth="520"
@@ -168,7 +168,7 @@
     </UserControl.Resources>
 
     <!-- No scroller of its own: the Settings page scrolls, and a second scroller inside it held the wheel. -->
-    <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
+    <StackPanel MaxWidth="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Stretch">
         <Border Style="{StaticResource Banner.Warning}" Margin="0,0,0,12" Visibility="{Binding NoticeVisibility}">
             <TextBlock Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding Notice}" controls:LiveRegion.Setting="Polite" />
         </Border>
@@ -207,11 +207,11 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
-                <TextBlock Margin="0,10,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
-                <controls:Repeater Margin="0,10,0,0" ItemsSource="{Binding Mappings}">
+                <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
+                <controls:Repeater Margin="0,12,0,0" ItemsSource="{Binding Mappings}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="0,0,0,6">
+                            <Grid Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="2*" />
                                     <ColumnDefinition Width="2*" />
@@ -233,9 +233,9 @@
                     </ItemsControl.ItemTemplate>
                 </controls:Repeater>
 
-                <Border Margin="0,10,0,10" Height="1" Background="{DynamicResource Brush.border.subtle}" />
+                <Border Margin="0,12,0,12" Height="1" Background="{DynamicResource Brush.border.subtle}" />
                 <TextBlock Style="{StaticResource Text.Label}" Text="Map a company by hand" />
-                <Grid Margin="0,6,0,0">
+                <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="2*" />
                         <ColumnDefinition Width="2*" />
@@ -265,7 +265,7 @@
                             Command="{Binding AddMappingCommand}"
                             IsEnabled="{Binding CanAddMapping}" />
                 </Grid>
-                <TextBlock Margin="0,6,0,0"
+                <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Error}"
                            TextWrapping="Wrap"
                            Text="{Binding MappingProblem}"

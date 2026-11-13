@@ -25,7 +25,7 @@
                     <Grid>
                         <controls:Glyph HorizontalAlignment="Center"
                                    Style="{StaticResource Icon}"
-                                   FontSize="20"
+                                   FontSize="{DynamicResource Icon.nav}"
                                    Foreground="{DynamicResource Brush.text.muted}"
                                    Text="&#xEB9F;" />
                         <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" AutomationProperties.Name="{Binding Label}" />
@@ -40,7 +40,7 @@
                         </Style>
                     </Border.Style>
                 </Border>
-                <StackPanel Orientation="Horizontal" Margin="2,6,0,0">
+                <StackPanel Orientation="Horizontal" Margin="4,8,0,0">
                     <TextBlock Style="{StaticResource Text.Muted}" Foreground="{DynamicResource Brush.text.secondary}" Text="{Binding Label}" />
                     <TextBlock Style="{StaticResource Text.Muted}" Text=" · " />
                     <TextBlock Style="{StaticResource Text.Muted}" Text="{Binding StateLabel}" />
@@ -95,7 +95,7 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <StackPanel x:Name="StripHeader" Grid.Row="0" Margin="0,0,6,0">
+        <StackPanel x:Name="StripHeader" Grid.Row="0" Margin="0,0,8,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -111,7 +111,7 @@
 
             <!-- An exclusion or a delete the service did not record (S-35, T-136). Said in words with a
                  glyph, never colour alone (Spec §7), because the frame may be back next time. -->
-            <TextBlock Margin="0,6,0,0"
+            <TextBlock Margin="0,8,0,0"
                        Style="{StaticResource Text.Body}"
                        Foreground="{DynamicResource Brush.state.danger}"
                        TextWrapping="Wrap"
@@ -136,7 +136,7 @@
                  AutomationProperties.Name="Screenshots" />
 
         <!-- The chords that apply to this pane, on screen where they are used (Spec §5 S3). -->
-        <Grid x:Name="StripFooter" Grid.Row="2" Margin="0,8,6,12">
+        <Grid x:Name="StripFooter" Grid.Row="2" Margin="0,8,8,12">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -209,7 +209,7 @@
                             Command="{Binding CloseEnlargedCommand}" />
                 </Grid>
 
-                <Grid Grid.Row="1" Margin="0,10,0,0">
+                <Grid Grid.Row="1" Margin="0,12,0,0">
                     <!-- TargetNullValue: the picture is bytes, dropped to null when the view lets go of it,
                          and without it WPF tries to convert that null and logs a binding error each time. -->
                     <Image x:Name="EnlargedImage"
@@ -309,7 +309,7 @@
                      has a margin above or below. Both styles had the height as a minimum only and the row's
                      8 px bottom margin was on the first button alone, so the row stretched the toggle 8 px
                      taller than its neighbour. The gap over the hint, when it wraps under them, is the hint's. -->
-                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,12">
+                <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,12,0,12">
                     <Button Margin="0,0,8,0"
                             Height="{DynamicResource Layout.control-height}"
                             Style="{StaticResource Button.Secondary}"

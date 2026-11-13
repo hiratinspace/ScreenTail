@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              AutomationProperties.Name="Capture">
-    <StackPanel MaxWidth="760" HorizontalAlignment="Stretch">
+    <StackPanel MaxWidth="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Stretch">
 
         <!-- Remote tools: a toggle per tool the registry knows. -->
         <Border Style="{StaticResource Card}" Margin="0,0,0,12">
@@ -49,9 +49,9 @@
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[StartingAndStopping]}" />
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Start a session by itself when a remote tool takes focus" IsChecked="{Binding AutoStart}" />
-                <TextBlock Margin="0,14,0,4" Style="{StaticResource Text.Label}" Text="Stop after the remote tool has been gone for" />
+                <TextBlock Margin="0,16,0,4" Style="{StaticResource Text.Label}" Text="Stop after the remote tool has been gone for" />
                 <StackPanel Orientation="Horizontal">
-                    <Slider Width="280" Minimum="30" Maximum="300" TickFrequency="10" IsSnapToTickEnabled="True" Value="{Binding GraceSeconds}" AutomationProperties.Name="Grace period in seconds" />
+                    <Slider Width="{DynamicResource Layout.slider-width}" Minimum="30" Maximum="300" TickFrequency="10" IsSnapToTickEnabled="True" Value="{Binding GraceSeconds}" AutomationProperties.Name="Grace period in seconds" />
                     <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding GraceSeconds}" />
                     <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="seconds" />
                 </StackPanel>
@@ -109,7 +109,7 @@
                         <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Microphone" />
                         <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Microphone]}" />
                     </StackPanel>
-                    <TextBlock Margin="0,8,0,6" Style="{StaticResource Text.Label}" Text="Device" />
+                    <TextBlock Margin="0,8,0,4" Style="{StaticResource Text.Label}" Text="Device" />
                     <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding MicrophoneOptions}" SelectedItem="{Binding SelectedMicrophone}" DisplayMemberPath="Label" AutomationProperties.Name="Microphone">
                         <ComboBox.ItemContainerStyle>
                             <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
@@ -117,15 +117,15 @@
                             </Style>
                         </ComboBox.ItemContainerStyle>
                     </ComboBox>
-                    <TextBlock Margin="0,6,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding MicrophoneNote}" Visibility="{Binding MicrophoneNoteVisibility}" controls:LiveRegion.Setting="Polite" />
-                    <StackPanel Margin="0,10,0,0" Orientation="Horizontal">
+                    <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Body}" TextWrapping="Wrap" Text="{Binding MicrophoneNote}" Visibility="{Binding MicrophoneNoteVisibility}" controls:LiveRegion.Setting="Polite" />
+                    <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
                         <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Level" />
                         <ProgressBar Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Meter.Level}" Value="{Binding MicrophoneLevel, Mode=OneWay}" AutomationProperties.Name="Microphone level" AutomationProperties.HelpText="{Binding MicrophoneLevelStatus}" />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneLevelStatus}" />
-                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneApplies, Mode=OneWay}" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding MicrophoneApplies, Mode=OneWay}" />
                 </StackPanel>
-                <StackPanel Margin="0,14,0,6" Orientation="Horizontal">
+                <StackPanel Margin="0,16,0,8" Orientation="Horizontal">
                     <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Speech model" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[SpeechModel]}" />
                 </StackPanel>

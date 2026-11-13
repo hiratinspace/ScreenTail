@@ -107,6 +107,55 @@ public sealed class ConfirmCopyTests
     }
 
     [Fact]
+    public void DiscardSaysTheNoteGoesAndNothingIsSent()
+    {
+        // Spec v0.6.12 §4: the words say what happens. "The note goes with them" left the technician to
+        // work out whether a note had gone to the ticket; nothing is sent, and the words now say so.
+        foreach (var words in new[] { ConfirmCopy.DiscardSession, ConfirmCopy.DiscardSessions(1), ConfirmCopy.DiscardSessions(3) })
+        {
+            Assert.Contains("deleted from this device", words.Consequence, StringComparison.Ordinal);
+            Assert.Contains("Nothing is sent to a ticket.", words.Consequence, StringComparison.Ordinal);
+            Assert.DoesNotContain("goes with", words.Consequence, StringComparison.Ordinal);
+        }
+
+        Assert.Contains("draft note", ConfirmCopy.DiscardSession.Consequence, StringComparison.Ordinal);
+        Assert.Contains("draft notes", ConfirmCopy.DiscardSessions(3).Consequence, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeleteEverythingSaysWhatGoesAndWhatStaysInPlainWords()
+    {
+        // "This device's tokens go" was jargon and did not say what happens to what is already on tickets.
+        var words = ConfirmCopy.DeleteEverything.Consequence;
+
+        Assert.DoesNotContain("token", words, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("is deleted", words, StringComparison.Ordinal);
+        Assert.Contains("this device's sign-in", words, StringComparison.Ordinal);
+        Assert.Contains("Notes already published stay on their tickets.", words, StringComparison.Ordinal);
+        Assert.Contains("set up again", words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void QuitSaysTheSessionStopsAndItsNoteIsStillDrafted()
+    {
+        // "Quitting closes the recording indicator" was the reason inside the app, not what happens to the
+        // technician's work: the session stops, and the capture service still drafts its note.
+        var words = ConfirmCopy.QuitWhileCapturing.Consequence;
+
+        Assert.DoesNotContain("indicator", words, StringComparison.Ordinal);
+        Assert.Contains("stops it before quitting", words, StringComparison.Ordinal);
+        Assert.Contains("its note is still drafted", words, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ARefusedDiscardSaysTheSessionIsStillThere()
+    {
+        var words = ConfirmCopy.NotDiscarded("Not connected to the capture service, so nothing was changed.");
+
+        Assert.Equal("Not connected to the capture service, so nothing was changed. The session is still on this device.", words.Consequence);
+    }
+
+    [Fact]
     public void RemovingAnIntegrationNamesItAndWhatStopsWorking()
     {
         var words = ConfirmCopy.RemoveIntegration("ConnectWise Manage");
@@ -126,7 +175,7 @@ public sealed class ConfirmCopyTests
         Assert.Null(words.Action);
         Assert.Equal("Close", words.Cancel);
         Assert.Equal("The session was not discarded", words.Heading);
-        Assert.Equal("The capture service did not answer.", words.Consequence);
+        Assert.StartsWith("The capture service did not answer.", words.Consequence, StringComparison.Ordinal);
     }
 
     [Fact]

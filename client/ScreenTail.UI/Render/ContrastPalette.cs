@@ -77,7 +77,7 @@ internal sealed class ContrastPalette
         ["bg.warning"] = "Window",
         ["bg.danger"] = "Window",
         ["bg.success"] = "Window",
-        ["border.subtle"] = "ActiveBorder",
+        ["border.subtle"] = "GrayText",
         ["border.strong"] = "WindowFrame",
         ["border.control"] = "WindowFrame",
         ["text.primary"] = "WindowText",

@@ -99,6 +99,41 @@ public sealed class TrayMenuTests
     }
 
     [Theory]
+    [InlineData(ServiceConnection.Unavailable, "capture service not running")]
+    [InlineData(ServiceConnection.Connecting, "still connecting to the capture service")]
+    public void WithNoServiceEachDisabledRowSaysWhy(ServiceConnection connection, string why)
+    {
+        // Spec v0.6.12 §5 S1: a disabled row says why in its own words, as the pill's row already did
+        // ("only between sessions"). Pause, Stop and draft and Discard were greyed with no reason, so a
+        // technician could not tell a dead menu from a service that was down.
+        var rows = TrayMenu.For(new ShellSnapshot(connection, null, ShellView.Review, null), pillHidden: false);
+
+        Assert.Equal($"Pause ({why})", Row(rows, TrayCommand.Pause).Name);
+        Assert.Equal($"Stop and draft ({why})", Row(rows, TrayCommand.Stop).Name);
+        Assert.Equal($"Discard session ({why})", Row(rows, TrayCommand.Discard).Name);
+        Assert.Equal($"Hide the recording pill ({why})", Row(rows, TrayCommand.HidePill).Name);
+        Assert.All(
+            rows.Where(r => r.Command is TrayCommand.Pause or TrayCommand.Stop or TrayCommand.Discard or TrayCommand.HidePill),
+            r => Assert.False(r.Enabled));
+
+        // Each keeps its access key and the hotkey it would take, so the row is still recognisably itself.
+        Assert.Equal('P', Row(rows, TrayCommand.Pause).AccessKey);
+        Assert.Equal('S', Row(rows, TrayCommand.Stop).AccessKey);
+        Assert.Equal('D', Row(rows, TrayCommand.Discard).AccessKey);
+        Assert.Equal("Ctrl+Alt+P", Row(rows, TrayCommand.Pause).Hotkey);
+    }
+
+    [Fact]
+    public void WithTheServiceAnsweringTheRowsKeepTheirPlainWords()
+    {
+        var rows = Rows(Capture(CaptureStates.Recording));
+
+        Assert.Equal("Pause", Row(rows, TrayCommand.Pause).Name);
+        Assert.Equal("Discard session…", Row(rows, TrayCommand.Discard).Name);
+        Assert.DoesNotContain(rows, r => r.Name.Contains("capture service", StringComparison.Ordinal) && r.Kind == TrayRowKind.Item);
+    }
+
+    [Theory]
     [InlineData(CaptureStates.Recording)]
     [InlineData(CaptureStates.Paused)]
     [InlineData(CaptureStates.Suppressed)]

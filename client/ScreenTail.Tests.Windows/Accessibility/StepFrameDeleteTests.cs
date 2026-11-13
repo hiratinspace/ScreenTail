@@ -75,6 +75,13 @@ public sealed class StepFrameDeleteTests(TheApplication app)
                 await Screens.UntilAsync(() => Keyboard.FocusedElement is TextBox);
                 Assert.True(Keyboard.FocusedElement is TextBox box && Screens.Within(box, note), $"After Del focus is on {Keyboard.FocusedElement?.GetType().Name ?? "nothing"}, not in the step's text.");
 
+                // The step's own text, not another field of the note (Problem sits above it), with the caret
+                // at its end, where a second Del has nothing to delete (v0.6.12: the render showed a caret
+                // above step 1).
+                var text = Assert.IsType<TextBox>(Keyboard.FocusedElement);
+                Assert.True(text.DataContext is StepRow row && row.Frames.Contains(chip), $"After Del focus is in a text box whose data is {text.DataContext?.GetType().Name ?? "nothing"}, not the deleted screenshot's step.");
+                Assert.Equal(text.Text.Length, text.CaretIndex);
+
                 // Ctrl+Z there, with nothing typed since, is the delete's undo, not the text box's.
                 Assert.True(Keys.Press(shell, Key.Z, ModifierKeys.Control), "Ctrl+Z after Del was not handled.");
                 await Screens.UntilAsync(() => chip.Present && Keyboard.FocusedElement is Button);
