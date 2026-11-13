@@ -154,7 +154,8 @@ public partial class ShellWindow : Window
             // (Spec §4): the reason is said beside the button and nothing is asked. Nothing is ever sent.
             history: () => new HistoryViewModel(
                 state,
-                _ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()),
+                // The rail's rows, so a render that empties them empties the table too.
+                _ => Task.FromResult<IReadOnlyList<SessionRow>?>(_sampleRows),
                 confirm: (_, _) => Task.FromResult(false),
                 discard: (_, _, _) => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)),
                 discardBlocked: _ => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording } ? SessionDiscard.WhileCapturing : null),
