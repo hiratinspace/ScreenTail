@@ -14,7 +14,7 @@ The app's `.ico` and the tray icons are built from these files; see "Building th
 |---|---|
 | `mark-primary-on-navy.svg` | Full-colour mark on the frame (installer, website, About), 56 px and up |
 | `mark-primary-on-white.svg` | Full-colour mark on white or paper, 56 px and up |
-| `mark-primary-transparent-light.svg` | Full-colour mark with no plate, for light surfaces inside the app (the receipt) |
+| `mark-primary-transparent-light.svg` | Full-colour mark with no plate, for light surfaces inside the app at 56 px and up |
 | `mark-flat-on-navy.svg` | Flat mark on the frame, where the full mark's detail would be lost |
 | `mark-flat-on-white.svg` | Flat mark on white |
 | `mark-mono-black.svg` | One colour, black, for print; the screen stays knocked out |
@@ -24,7 +24,7 @@ The app's `.ico` and the tray icons are built from these files; see "Building th
 
 | File | Use |
 |---|---|
-| `glyph-mid-on-navy.svg` | Mid glyph, 28 to 48 px, two note lines, on the frame |
+| `glyph-mid-on-navy.svg` | Mid glyph, 28 to 48 px, two note lines, on the frame (the receipt's 40 px mark, drawn in the tokens since v0.6.12) |
 | `glyph-small-light.svg` | Small glyph, 16 to 24 px, ribbon and solid screen only, on light grounds |
 | `glyph-small-dark.svg` | Small glyph, 16 to 24 px, Ribbon 400, on dark grounds and the frame (the title bar glyph) |
 
