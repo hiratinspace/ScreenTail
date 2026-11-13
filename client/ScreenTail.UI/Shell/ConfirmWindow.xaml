@@ -32,7 +32,11 @@
 
         <!-- What is actually lost, in the words a technician would use. A dialog that says "are you
              sure?" asks a question nobody can answer; this one says what disappears. -->
-        <TextBlock Margin="0,8,0,0" Style="{StaticResource Text.Body}" Text="{Binding Consequence}" />
+        <!-- A notice's reason sits on the warning banner, as the app's other "this did not happen" lines
+             do (§3 Banner); a question's consequence is plain text. -->
+        <Border x:Name="ConsequenceBox" Margin="0,8,0,0">
+            <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Consequence}" />
+        </Border>
 
         <!-- Typed rather than clicked (Spec §3) for irreversible data loss. Input.Mono, not Text.Mono: that
              is a TextBlock style, and WPF refuses a style for another type the moment the window is built. -->
