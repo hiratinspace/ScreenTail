@@ -42,6 +42,12 @@ public partial class ConfirmWindow : Window
             Confirm.Style = style;
         }
 
+        // Warning (E7BA) for danger and for a notice, info (E946) for any other question.
+        Mark.Text = words.Action is null || words.Tone == ConfirmTone.Danger ? "" : "";
+        Mark.SetResourceReference(
+            System.Windows.Controls.TextBlock.ForegroundProperty,
+            words.Action is null ? "Brush.state.paused" : words.Tone == ConfirmTone.Danger ? "Brush.state.danger" : "Brush.accent.primary");
+
         if (words.Action is null)
         {
             // A notice: one button, which Enter and Esc both press, filled since it is the only way on.
