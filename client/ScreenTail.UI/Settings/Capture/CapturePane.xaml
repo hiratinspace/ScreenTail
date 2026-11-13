@@ -91,8 +91,16 @@
                     <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Screenshots" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Screenshots]}" />
                 </StackPanel>
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="How much the screen has to change for a screenshot between clicks" />
-                <ComboBox Margin="0,8,0,0" Width="180" HorizontalAlignment="Left" ItemsSource="{Binding Sensitivities}" SelectedItem="{Binding Sensitivity}" AutomationProperties.Name="Scene-change sensitivity" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="How readily a screenshot is taken when the screen changes between clicks." />
+
+                <!-- Each choice by its name, "High: more screenshots" (v0.6.8); the stored value, "high", is not shown. -->
+                <ComboBox Margin="0,8,0,0" Width="240" HorizontalAlignment="Left" ItemsSource="{Binding Sensitivities}" SelectedItem="{Binding SelectedSensitivity}" DisplayMemberPath="Label" AutomationProperties.Name="Scene-change sensitivity">
+                    <ComboBox.ItemContainerStyle>
+                        <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
+                            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+                        </Style>
+                    </ComboBox.ItemContainerStyle>
+                </ComboBox>
 
                 <!-- ST-080 AC3: the device and its live level. The level is read only while this card is
                      on screen with the window in front (the code-behind says when); nothing is recorded. -->
@@ -121,13 +129,16 @@
                     <TextBlock VerticalAlignment="Center" Style="{StaticResource Text.Label}" Text="Speech model" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[SpeechModel]}" />
                 </StackPanel>
-                <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding Models}" SelectedItem="{Binding Model}" AutomationProperties.Name="Speech model">
+
+                <!-- Never empty (v0.6.8): the default, "Automatic", is a line of its own and is what a new
+                     installation shows. -->
+                <ComboBox Width="360" HorizontalAlignment="Left" ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel}" AutomationProperties.Name="Speech model">
                     <ComboBox.ItemContainerStyle>
                         <Style TargetType="ComboBoxItem" BasedOn="{StaticResource {x:Type ComboBoxItem}}">
                             <Setter Property="AutomationProperties.Name">
                                 <Setter.Value>
                                     <MultiBinding StringFormat="{}{0}, {1}">
-                                        <Binding Path="Name" />
+                                        <Binding Path="Label" />
                                         <Binding Path="Hint" />
                                     </MultiBinding>
                                 </Setter.Value>
@@ -137,7 +148,7 @@
                     <ComboBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Text.Mono}" Text="{Binding Name}" />
+                                <TextBlock Style="{StaticResource Text.Body}" Text="{Binding Label}" />
                                 <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Hint}" />
                             </StackPanel>
                         </DataTemplate>

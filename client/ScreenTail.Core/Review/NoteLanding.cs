@@ -25,6 +25,26 @@ public static class NoteLanding
     public const string EmptySection = "Empty, so it is left off the ticket.";
 
     /// <summary>
+    /// What a step's screenshot takes from the keyboard, for a screen reader (Spec v0.6.8 §5 S3): Del
+    /// works on a step's row as it does in the strip, with the same five-second undo.
+    /// </summary>
+    public const string FrameHelp = "Enter enlarges it. Space includes or excludes it. Del deletes it, with 5 seconds to undo (Ctrl+Z).";
+
+    /// <summary>The same, as the screenshot's tooltip, with the pointer's way in and where the blur is.</summary>
+    public const string FrameTip = "Enter or click to enlarge, B there to blur. Space includes or excludes it. Del deletes it, with 5 seconds to undo (Ctrl+Z).";
+
+    /// <summary>
+    /// Whether Ctrl+Z in the note takes back a screenshot's delete, rather than being the focused text
+    /// box's own undo. It does while a delete is inside its five seconds, unless the technician has typed
+    /// since Del and focus is in a text box: Ctrl+Z undoes the last thing they did, and then that is the typing.
+    /// </summary>
+    /// <param name="deletePending">A deleted screenshot is still inside its undo window.</param>
+    /// <param name="inTextBox">Keyboard focus is in one of the note's text boxes.</param>
+    /// <param name="typedSinceDelete">The note's text has changed since Del was pressed.</param>
+    public static bool UndoIsTheDelete(bool deletePending, bool inTextBox, bool typedSinceDelete) =>
+        deletePending && !(inTextBox && typedSinceDelete);
+
+    /// <summary>
     /// When the step happened, as the session's own clock read it ("14:04"): its first screenshot's time,
     /// else its first transcript line's, else null (a step the technician added has neither).
     /// </summary>

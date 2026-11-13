@@ -117,9 +117,39 @@ public sealed partial class CaptureViewModel : ObservableObject
 
     public ObservableCollection<HotkeyRowViewModel> Hotkeys { get; } = [];
 
-    public IReadOnlyList<string> Sensitivities { get; } = ["low", "medium", "high"];
+    /// <summary>The sensitivity dropdown's lines, each by a name that says what it does (Spec v0.6.8); it used to show the stored values.</summary>
+    public IReadOnlyList<SensitivityChoice> Sensitivities { get; } = CapturePanel.SensitivityChoices;
 
+    /// <summary>The line the sensitivity dropdown shows: the stored value's, however it is cased. Choosing it writes <see cref="Sensitivity"/>.</summary>
+    public SensitivityChoice SelectedSensitivity
+    {
+        get => _panel.SelectedSensitivity;
+        set
+        {
+            if (value is not null && !string.Equals(value.Value, _panel.SelectedSensitivity.Value, StringComparison.Ordinal))
+            {
+                Sensitivity = value.Value;
+            }
+        }
+    }
+
+    /// <summary>The speech model dropdown's lines: the default first, then each model.</summary>
     public IReadOnlyList<ModelChoice> Models => _panel.Models;
+
+    /// <summary>
+    /// The line the speech model dropdown shows, never none (Spec v0.6.8): with no model named, which is
+    /// how every installation starts, the dropdown was empty. A dropdown that is cleared goes back to the default.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public ModelChoice SelectedModel
+    {
+        get => _panel.SelectedModel;
+        set
+        {
+            Field(() => _panel.SelectedModel = value);
+            OnPropertyChanged();
+        }
+    }
 
     [ObservableProperty]
     public partial bool RemoteToolsOnly { get; set; } = true;
@@ -142,11 +172,10 @@ public sealed partial class CaptureViewModel : ObservableObject
     [ObservableProperty]
     public partial int GraceSeconds { get; set; } = 120;
 
+    /// <summary>The sensitivity as it is stored: "low", "medium" or "high". The dropdown shows <see cref="SelectedSensitivity"/>.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedSensitivity))]
     public partial string Sensitivity { get; set; } = "medium";
-
-    [ObservableProperty]
-    public partial ModelChoice? Model { get; set; }
 
     [ObservableProperty]
     public partial string AppliesAtNextStart { get; set; } = string.Empty;
@@ -200,8 +229,6 @@ public sealed partial class CaptureViewModel : ObservableObject
     partial void OnGraceSecondsChanged(int value) => Field(() => _panel.GraceSeconds = value);
 
     partial void OnSensitivityChanged(string value) => Field(() => _panel.Sensitivity = value);
-
-    partial void OnModelChanged(ModelChoice? value) => Field(() => _panel.Model = value?.Name);
 
     partial void OnStartUiAtLoginChanged(bool value) => Field(() => _panel.StartUiAtLogin = value);
 
@@ -309,7 +336,8 @@ public sealed partial class CaptureViewModel : ObservableObject
         }
 
         ShowMicrophoneNote();
-        Model = _panel.Models.FirstOrDefault(m => string.Equals(m.Name, _panel.Model, StringComparison.OrdinalIgnoreCase));
+        OnPropertyChanged(nameof(SelectedSensitivity));
+        OnPropertyChanged(nameof(SelectedModel));
         AppliesAtNextStart = _panel.AppliesAtNextStart;
         StartUiAtLogin = _panel.StartUiAtLogin;
         Field(() => { });

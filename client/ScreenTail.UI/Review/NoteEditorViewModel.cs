@@ -330,6 +330,44 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         }
     }
 
+    /// <summary>What a step's frame takes from the keyboard, for a screen reader: Enter, Space and Del (Spec v0.6.8 §5 S3).</summary>
+    public string FrameHelp { get; } = NoteLanding.FrameHelp;
+
+    /// <summary>The same, as the frame's tooltip.</summary>
+    public string FrameTip { get; } = NoteLanding.FrameTip;
+
+    /// <summary>
+    /// `Del` on a step's frame (Spec v0.6.8 §5 S3): the strip's own Del, through the strip's own command,
+    /// so every rule it has holds here too. The frame is gone at once from the step and from what goes
+    /// out, the exclusion is written now, and the row is only deleted once the five seconds are up.
+    /// </summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task DeleteFrameAsync(FrameChip? chip)
+    {
+        if (_strip is { } strip && chip?.Item is { } item && strip.Items.Contains(item))
+        {
+            await strip.DeleteCommand.ExecuteAsync(item).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>`Ctrl+Z` and the note's Undo: the strip's own undo, whichever of the two the delete was made in.</summary>
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task UndoDeleteAsync()
+    {
+        if (_strip is { } strip)
+        {
+            await strip.UndoCommand.ExecuteAsync(null).ConfigureAwait(true);
+        }
+    }
+
+    /// <summary>
+    /// The strip's five-second toast, "Deleted frame 2", shown on the note as well: a delete made on a
+    /// step's row needs its undo where the technician is looking, and the strip is under the note then.
+    /// </summary>
+    public string? UndoToast => _strip?.UndoToast;
+
+    public bool HasUndoToast => UndoToast is not null;
+
     /// <summary>
     /// A transcript line picked in the timeline: the step that frame is on is marked, since the strip that
     /// used to show the selection is no longer beside the note.
@@ -347,6 +385,12 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         if (e.PropertyName is nameof(FilmstripViewModel.Header) or nameof(FilmstripViewModel.PublishHeldBecause))
         {
             RefreshFrames();
+        }
+
+        // The strip's toast is the note's too.
+        if (e.PropertyName is nameof(FilmstripViewModel.UndoToast) or nameof(FilmstripViewModel.HasUndoToast))
+        {
+            OnPropertyChanged(e.PropertyName);
         }
     }
 
@@ -462,6 +506,10 @@ public sealed partial class NoteEditorViewModel : ObservableObject, IAsyncDispos
         {
             return;
         }
+
+        // A delete made on a step's row has its five seconds counted here too: the strip's own view may
+        // not be ticking while it is under the note. Ticking it twice closes nothing sooner.
+        _strip?.Tick();
 
         await _save.TickAsync(ct).ConfigureAwait(true);
         OnPropertyChanged(nameof(SaveLabel));
