@@ -68,6 +68,9 @@ internal static class HudPreview
             window.Close();
         }
 
+        // The tray's quick menu beside the pill: the two indicators INV-4 rests on (Spec §5 S1, v0.6.10).
+        Tray.TrayMenuPreview.Capture(directory);
+
         var errors = BindingErrors.Collected;
         foreach (var error in errors)
         {

@@ -145,12 +145,17 @@ public sealed class LiveShell : IAsyncDisposable
         };
 
         _tray.Pause += () => Send(id => new PauseCommand { RequestId = id });
+        _tray.Resume += () => Send(id => new ResumeCommand { RequestId = id });
         _tray.Stop += () => Send(id => new StopCommand { RequestId = id });
         _tray.Discard += DiscardWithConfirmation;
         _tray.Open += ShowWindow;
+        _tray.OpenLastDraft += OpenLastDraft;
+        _tray.History += () => ShowView(ShellView.History);
+        _tray.Settings += () => ShowView(ShellView.Settings);
         _tray.Setup += ShowOnboarding;
         _tray.ShowDiagnostics += ShowDiagnostics;
         _tray.HidePill += HidePillForThisSession;
+        _tray.ShowPill += ShowPillAgain;
         NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
         _tray.NotificationClicked += _ => ShowWindow();
         _tray.Quit += QuitWithoutLeavingCaptureRunning;
@@ -216,6 +221,56 @@ public sealed class LiveShell : IAsyncDisposable
 
         _hudHidden = true;
         ShowOrHideHud(_state.Snapshot);
+    }
+
+    /// <summary>The tray's "Show the recording pill": the wish to hide it, withdrawn before the next session would.</summary>
+    private void ShowPillAgain()
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(ShowPillAgain);
+            return;
+        }
+
+        _hudHidden = false;
+        ShowOrHideHud(_state.Snapshot);
+    }
+
+    /// <summary>
+    /// The tray's "Open last draft (N ready)": Review of the draft the service last said was ready or
+    /// failed, and otherwise Review as it was left, whose rail lists what is to check (Spec §5 S1, S4).
+    /// </summary>
+    private void OpenLastDraft()
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(OpenLastDraft);
+            return;
+        }
+
+        if (_state.Snapshot.KnownCapture is { State: CaptureStates.DraftReady or CaptureStates.DraftFailed, SessionId: { Length: > 0 } session })
+        {
+            _state.OpenSession(session);
+        }
+        else
+        {
+            _state.Navigate(ShellView.Review);
+        }
+
+        ShowWindow();
+    }
+
+    /// <summary>The tray's "Session history" and "Settings": the shell, on that view.</summary>
+    private void ShowView(ShellView view)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(() => ShowView(view));
+            return;
+        }
+
+        _state.Navigate(view);
+        ShowWindow();
     }
 
     /// <summary>
@@ -515,11 +570,17 @@ public sealed class LiveShell : IAsyncDisposable
             return;
         }
 
-        _ = ConfirmAndSendAsync(
-            "discard_session",
-            ConfirmCopy.DiscardSession,
-            ConfirmCopy.NotDiscarded,
-            token => new DiscardCommand { RequestId = 0, Confirmation = token });
+        // Spec v0.4.1 Q3 and §4: while a session is being captured, capture stops first (the session moves
+        // to finishing up) and the typed confirmation is shown only once the service has answered, so no
+        // modal is ever on screen over a recording.
+        _ = TrayMenu.DiscardAsync(
+            _state.Snapshot.KnownCapture,
+            () => _connection.SendAsync(id => new StopCommand { RequestId = id }, CancellationToken.None),
+            () => ConfirmAndSendAsync(
+                "discard_session",
+                ConfirmCopy.DiscardSession,
+                ConfirmCopy.NotDiscarded,
+                token => new DiscardCommand { RequestId = 0, Confirmation = token }));
     }
 
     /// <summary>
@@ -701,6 +762,9 @@ public sealed class LiveShell : IAsyncDisposable
         }
 
         _hud.Apply(HudState.For(capture, hidden: _hudHidden));
+
+        // The tray offers to bring the pill back while it is put away (Spec §5 S1, as built v0.6.10).
+        _tray.SetPillHidden(_hudHidden);
     }
 
     /// <summary>The pill's double-click (Spec §5 S2): the shell, on Review of the session the service last named.</summary>

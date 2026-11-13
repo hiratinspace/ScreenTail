@@ -114,6 +114,58 @@ public sealed class TrayAndDiagnosticsTests
         Assert.Equal(TrayIcon.DraftReady, presence.Icon);
     }
 
+    [Theory]
+    [InlineData(CaptureStates.Idle, 1, "Not capturing · 1 draft ready")]
+    [InlineData(CaptureStates.Idle, 3, "Not capturing · 3 drafts ready")]
+    [InlineData(CaptureStates.DraftReady, 1, "Draft ready")]
+    [InlineData(CaptureStates.DraftReady, 2, "Draft ready · 2 drafts ready")]
+    [InlineData(CaptureStates.DraftFailed, 1, "Draft failed · 1 draft ready")]
+    [InlineData(CaptureStates.DraftPending, 0, "Not capturing: drafting the note")]
+    public void BetweenSessionsTheCountOfDraftsReadyIsInWords(string state, int drafts, string line)
+    {
+        // Spec §5 S1: draft ready is a badge count. The badge glyph has no number in it, so the count was
+        // nowhere: "Not capturing" over a badge said a draft was waiting and not how many (v0.6.10).
+        var presence = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, new CaptureStateSnapshot { State = state, DraftsReady = drafts }, ShellView.Review, null));
+
+        Assert.Equal(line, presence.StateLine);
+        Assert.Equal($"ScreenTail · {line}", presence.Tooltip);
+    }
+
+    [Fact]
+    public void TheDraftsCountGoesBeforeTheDoubtAndTheTooltipDropsOnlyWhatDoesNotFit()
+    {
+        var presence = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, new CaptureStateSnapshot { State = CaptureStates.Idle, DraftsReady = 2, PublishesUnconfirmed = 3 }, ShellView.Review, null));
+
+        Assert.Equal("Not capturing · 2 drafts ready · 3 publishes not confirmed", presence.StateLine);
+        Assert.Equal("ScreenTail · Not capturing · 2 drafts ready", presence.Tooltip);
+    }
+
+    [Fact]
+    public void WhileASessionIsCapturedTheDraftsCountIsNotSaid()
+    {
+        // INV-4: while capturing, the always-on indicator is about the capture alone.
+        var presence = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, Recording() with { DraftsReady = 2 }, ShellView.Review, null));
+
+        Assert.Equal("Recording: ScreenConnect (12:41)", presence.StateLine);
+    }
+
+    [Fact]
+    public void StartingUpSaysConnectingRatherThanNotRunning()
+    {
+        // The icon is shown before the first connection finishes (LiveShell), and "not running" at every
+        // start of the day was an alarm about nothing.
+        var connecting = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connecting, null, ShellView.Review, null));
+        var lost = TrayPresence.From(new ShellSnapshot(ServiceConnection.Unavailable, null, ShellView.Review, null));
+
+        Assert.Equal(TrayIcon.Offline, connecting.Icon);
+        Assert.Equal("Connecting to the capture service", connecting.StateLine);
+        Assert.Equal("ScreenTail · Connecting to the capture service", connecting.Tooltip);
+        Assert.Equal("Capture service not running", lost.StateLine);
+
+        // The tooltip and the menu's first row say the same thing in the same words.
+        Assert.Equal($"ScreenTail · {lost.StateLine}", lost.Tooltip);
+    }
+
     [Fact]
     public void TheTooltipNeverCarriesAWindowTitle()
     {
