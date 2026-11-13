@@ -6,6 +6,22 @@ namespace ScreenTail.Core.Shell;
 /// <param name="Label">The left column. Fixed wording, never derived from anything captured.</param>
 public sealed record DiagnosticsLine(string Label, string Value);
 
+/// <summary>What the diagnostics panel's headline says about capture, drawn with a glyph beside its words.</summary>
+public enum DiagnosticsState
+{
+    /// <summary>The service did not answer: nothing is known.</summary>
+    Unknown,
+
+    /// <summary>A remote session is in front and being captured.</summary>
+    Capturing,
+
+    /// <summary>Capture is suppressed (a password field, an excluded app, an elevated window).</summary>
+    Paused,
+
+    /// <summary>Nothing is being captured: no session in front, or the window is out of scope.</summary>
+    NotCapturing,
+}
+
 /// <summary>
 /// What the "What's being captured right now?" panel says, row by row (ST-071, Spec §5 S1), including
 /// when the service cannot be asked.
@@ -58,6 +74,25 @@ public sealed class DiagnosticsPanel
     public string Headline => _diagnostics?.Headline ?? NotConnected;
 
     public IReadOnlyList<DiagnosticsLine> Rows { get; }
+
+    /// <summary>
+    /// The headline as a state, so the panel draws it with its glyph and colour beside the words (Spec
+    /// §1.1, §7). Paused when capture is suppressed; not capturing when the scope decision says so (its
+    /// words begin "Not capturing", as ScopePolicy and ServiceDiagnostics write them); unknown unanswered.
+    /// </summary>
+    public DiagnosticsState State => _diagnostics switch
+    {
+        null => DiagnosticsState.Unknown,
+        { Suppression: not null } => DiagnosticsState.Paused,
+        { Scope: var scope } when scope.StartsWith("Not capturing", StringComparison.Ordinal) => DiagnosticsState.NotCapturing,
+        _ => DiagnosticsState.Capturing,
+    };
+
+    /// <summary>Whether local-only mode is on (Spec §5 S1's badge), or null when the service did not answer.</summary>
+    public bool? LocalOnly => _diagnostics?.LocalOnly;
+
+    /// <summary>Said beside Copy diagnostics once it has run.</summary>
+    public const string Copied = "Copied to the clipboard: states and counts only, no screen text.";
 
     /// <summary>
     /// The clipboard text. The service's own when it answered; when it did not, a note saying so and

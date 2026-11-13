@@ -3,15 +3,19 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
         Title="What's being captured right now?"
-        Width="360"
-        Height="420"
+        Width="420"
+        SizeToContent="Height"
         ResizeMode="NoResize"
         Style="{StaticResource Window.Base}">
-    <Grid Background="{DynamicResource Brush.bg.base}" Margin="16">
+    <!-- Spec §5 S1's panel, opened from the tray and from the rail's foot (Diagnostics). As tall as its rows
+         (v0.6.11): at the spec's fixed 420 the last rows sat under a scroll bar that nothing in the panel
+         could scroll from the keyboard, since nothing in it takes focus. -->
+    <Grid Background="{DynamicResource Brush.bg.base}" Margin="{DynamicResource Padding.pane}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -19,24 +23,75 @@
                    Style="{StaticResource Text.SectionHeading}"
                    Text="What's being captured right now?" />
 
-        <!-- The one line a customer standing behind the technician needs to be able to read. -->
-        <Border Grid.Row="1" Margin="0,10,0,12" Style="{StaticResource Banner.Info}">
-            <TextBlock TextWrapping="Wrap"
-                       Style="{StaticResource Text.Body}"
-                       FontWeight="{DynamicResource Weight.semibold}"
-                       Text="{Binding Headline}"
-                       AutomationProperties.Name="Capture status"
-                       controls:LiveRegion.Setting="Polite" />
+        <!-- The one line a customer standing behind the technician needs to be able to read: the state in
+             words, with its glyph and colour (Spec §1.1), and the Local-only badge (Spec §5 S1). With the
+             service not answering it is a warning, since nothing below is known. -->
+        <Border Grid.Row="1" Margin="0,12,0,0">
+            <Border.Style>
+                <Style BasedOn="{StaticResource Banner.Info}" TargetType="Border">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding State}" Value="Unknown">
+                            <Setter Property="Background" Value="{DynamicResource Brush.bg.warning}" />
+                            <Setter Property="BorderBrush" Value="{DynamicResource Brush.state.paused}" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <controls:Glyph Grid.Column="0" Margin="0,0,12,0" VerticalAlignment="Top">
+                    <controls:Glyph.Style>
+                        <Style BasedOn="{StaticResource Icon}" TargetType="controls:Glyph">
+                            <!-- Capturing: the filled dot. Paused: two bars. Not capturing: eye-off. Unknown: warning. -->
+                            <Setter Property="FontFamily" Value="{DynamicResource Font.ui}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Brush.state.recording}" />
+                            <Setter Property="Text" Value="●" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Paused">
+                                    <Setter Property="FontFamily" Value="{DynamicResource Font.icon}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
+                                    <Setter Property="Text" Value="&#xE769;" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="NotCapturing">
+                                    <Setter Property="FontFamily" Value="{DynamicResource Font.icon}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.state.scope}" />
+                                    <Setter Property="Text" Value="&#xED1A;" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="Unknown">
+                                    <Setter Property="FontFamily" Value="{DynamicResource Font.icon}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource Brush.state.paused}" />
+                                    <Setter Property="Text" Value="&#xE7BA;" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </controls:Glyph.Style>
+                </controls:Glyph>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Style="{StaticResource Text.Body}"
+                               FontWeight="{DynamicResource Weight.semibold}"
+                               Text="{Binding Headline}"
+                               AutomationProperties.Name="Capture status"
+                               controls:LiveRegion.Setting="Polite" />
+                    <ContentControl Margin="0,4,0,0"
+                                    HorizontalAlignment="Left"
+                                    Style="{StaticResource Badge}"
+                                    Content="Local-only"
+                                    Visibility="{Binding LocalOnlyVisibility}"
+                                    AutomationProperties.Name="Local-only: nothing leaves this device but what you publish" />
+                </StackPanel>
+            </Grid>
         </Border>
 
-        <!-- Spec §5 S1 fixes the panel at 360x420 and there are thirteen rows, so it has to scroll: without
-             this the last two were drawn behind the Copy button and the technician simply never saw the
-             client version. -->
+        <!-- States only, never content (INV-10). The scroll viewer stays for a window made shorter than its
+             rows by a large text setting; at 100% and 150% the panel is as tall as they are. -->
         <Border Grid.Row="2"
-                Margin="0,0,0,12"
+                Margin="0,12,0,0"
                 Style="{StaticResource Card}"
                 Padding="0">
-            <ScrollViewer Padding="14,8,6,8"
+            <ScrollViewer Padding="16,8,8,8"
                           VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
                 <controls:Repeater ItemsSource="{Binding Rows}">
@@ -44,14 +99,13 @@
                         <DataTemplate>
                             <Grid Margin="0,4,8,4">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="112" />
+                                    <ColumnDefinition Width="128" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Style="{StaticResource Text.Secondary}" FontSize="{DynamicResource Size.sm}" Text="{Binding Label}" />
+                                <TextBlock Grid.Column="0" Style="{StaticResource Text.Label}" Text="{Binding Label}" />
                                 <TextBlock Grid.Column="1"
-                                           TextWrapping="Wrap"
-                                           Style="{StaticResource Text.Mono}"
-                                           Foreground="{DynamicResource Brush.text.primary}"
+                                           Style="{StaticResource Text.Body}"
+                                           FontSize="{DynamicResource Size.sm}"
                                            Text="{Binding Value}" />
                             </Grid>
                         </DataTemplate>
@@ -60,12 +114,33 @@
             </ScrollViewer>
         </Border>
 
-        <!-- States only, never content. The clipboard text is built from the diagnostics record alone. -->
-        <Button Grid.Row="3"
-                HorizontalAlignment="Left"
-                Style="{StaticResource Button.Secondary}"
-                Content="Copy diagnostics"
-                Command="{Binding CopyCommand}"
-                AutomationProperties.Name="Copy diagnostics to the clipboard" />
+        <!-- Said once Copy has run, where the technician is looking, and read out. -->
+        <TextBlock Grid.Row="3"
+                   Margin="0,12,0,0"
+                   Style="{StaticResource Text.Muted}"
+                   Text="{Binding Copied}"
+                   controls:LiveRegion.Setting="Polite" />
+
+        <!-- The clipboard text is built from the diagnostics record alone. Close is the panel's one filled
+             button, as on the shortcut sheet, and Esc presses it. -->
+        <Grid Grid.Row="4" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0"
+                    Style="{StaticResource Button.Secondary}"
+                    Content="Copy diagnostics"
+                    Command="{Binding CopyCommand}"
+                    AutomationProperties.Name="Copy diagnostics to the clipboard" />
+            <Button x:Name="CloseButton"
+                    Grid.Column="2"
+                    Style="{StaticResource Button.Primary}"
+                    Content="Close"
+                    IsCancel="True"
+                    Click="OnClose"
+                    AutomationProperties.Name="Close diagnostics" />
+        </Grid>
     </Grid>
 </Window>

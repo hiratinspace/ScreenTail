@@ -11,6 +11,9 @@ public sealed class ConfirmCopyTests
 {
     public static TheoryData<string> Names => [.. Every().Keys];
 
+    /// <summary>Words that say nothing about what happens.</summary>
+    private static readonly string[] Empty = ["OK", "Ok", "Yes", "No", "Confirm"];
+
     private static Dictionary<string, ConfirmWords> Every() => new(StringComparer.Ordinal)
     {
         ["discard"] = ConfirmCopy.DiscardSession,
@@ -30,7 +33,7 @@ public sealed class ConfirmCopyTests
         var words = Every()[name];
         foreach (var button in new[] { words.Action, words.Cancel }.OfType<string>())
         {
-            Assert.DoesNotContain(button, new[] { "OK", "Ok", "Yes", "No", "Confirm" });
+            Assert.DoesNotContain(button, Empty);
             Assert.DoesNotContain('?', button);
             Assert.False(string.IsNullOrWhiteSpace(button));
         }

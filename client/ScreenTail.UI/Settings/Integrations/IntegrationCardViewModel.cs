@@ -118,7 +118,29 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
         Refresh();
     }
 
-    /// <summary>One removal at a time (<see cref="OneAtATime"/>): a second invoke under the first sent the removal again.</summary>
+    /// <summary>
+    /// Remove's question, asked on the card itself (v0.6.11): the keys go from this device and the
+    /// technician may not have them to hand again, so Remove asks first. Inline, never a dialog, so it can
+    /// be asked while a session is being captured (Spec §4). The words are <see cref="ConfirmCopy"/>'s.
+    /// </summary>
+    public ConfirmWords RemoveWords => ConfirmCopy.RemoveIntegration(Title);
+
+    /// <summary>Whether Remove's question is showing under the card's buttons.</summary>
+    [ObservableProperty]
+    public partial Visibility RemoveQuestionVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>The card's Remove button: asks, and removes nothing yet.</summary>
+    [RelayCommand]
+    private void AskRemove() => RemoveQuestionVisibility = Visibility.Visible;
+
+    /// <summary>Keep it: puts the question away, with the connection as it was.</summary>
+    [RelayCommand]
+    private void KeepConnection() => RemoveQuestionVisibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// The question's danger button. One removal at a time (<see cref="OneAtATime"/>): a second invoke
+    /// under the first sent the removal again.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRemove))]
     private Task RemoveAsync() => _removing.RunAsync(RemoveOnceAsync, RemoveCommand.NotifyCanExecuteChanged);
 
@@ -127,6 +149,7 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
     private async Task RemoveOnceAsync()
     {
         _ = await _card.RemoveAsync().ConfigureAwait(true);
+        RemoveQuestionVisibility = Visibility.Collapsed;
         Refresh();
         await _changed().ConfigureAwait(true);
     }

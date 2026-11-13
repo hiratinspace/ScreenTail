@@ -100,6 +100,12 @@ public partial class ShellWindow
             throw new InvalidOperationException("Settings has no view model to change.");
         }
 
+        // Remove's question on the ConnectWise card (v0.6.11), asked on the card, then put away.
+        settings.Integrations.ConnectWise.AskRemoveCommand.Execute(null);
+        await SettleAsync();
+        await SettingsSectionsAsync("settings-remove-question", only: "integrations");
+        settings.Integrations.ConnectWise.KeepConnectionCommand.Execute(null);
+
         Pend(settings);
         await SettleAsync();
         if (settings.BarVisibility != Visibility.Visible)
@@ -151,13 +157,13 @@ public partial class ShellWindow
         }
     }
 
-    private async Task SettingsSectionsAsync(string prefix)
+    private async Task SettingsSectionsAsync(string prefix, string? only = null)
     {
         foreach (var theme in RenderThemes.All)
         {
             RenderThemeApplier.Apply(theme, Application.Current.Resources);
             await SettleAsync();
-            foreach (var (name, type) in SettingsSections)
+            foreach (var (name, type) in SettingsSections.Where(s => only is null || s.Name == only))
             {
                 var natural = WindowRenderer.Lay(this);
                 var pane = Find(this, element => type.IsInstanceOfType(element)) as FrameworkElement;
@@ -748,30 +754,82 @@ public partial class ShellWindow
         return null;
     }
 
-    /// <summary>Both typed confirmations: the shell's (Delete everything) and Review's (Discard).</summary>
-    private async Task DialogsAsync()
+    /// <summary>
+    /// Every question the app's one dialog asks (v0.6.11): the typed ones (Delete everything, Discard,
+    /// bulk discard, before and after the count is typed), the plain ones (Mark as published, Quit while
+    /// capturing) and the notice; then the shortcut sheet and <paramref name="others"/> (the diagnostics
+    /// panel, whose sample only ShellWindow.xaml.cs may build: ReleaseSurfaceTests). Each in all four
+    /// themes, and in dark and light at 150%.
+    /// </summary>
+    private async Task DialogsAsync(params (string Name, Func<Window> Build)[] others)
     {
         foreach (var (name, build) in new (string, Func<Window>)[]
         {
-            ("dialog-delete-everything", () => new ConfirmWindow(LiveShell.EraseHeading, LiveShell.EraseConsequence, "DELETE EVERYTHING")),
-            ("dialog-discard-session", () => ConfirmTypedDialog.ForDiscard(TypedConfirmation.ForDiscard())),
-        })
+            ("dialog-delete-everything", () => new ConfirmWindow(ConfirmCopy.DeleteEverything, "DELETE EVERYTHING")),
+            ("dialog-discard-session", () => new ConfirmWindow(ConfirmCopy.DiscardSession, TypedConfirmation.ForDiscard())),
+            ("dialog-bulk-discard", () => new ConfirmWindow(ConfirmCopy.DiscardSessions(3), TypedConfirmation.ForCount(3))),
+            ("dialog-bulk-discard-typed", () => Typed(new ConfirmWindow(ConfirmCopy.DiscardSessions(3), TypedConfirmation.ForCount(3)), "3")),
+            ("dialog-mark-published", () => new ConfirmWindow(ConfirmCopy.MarkAsPublished("Mon 14 Sep 16:40, 9:00, ScreenConnect"))),
+            ("dialog-quit-capturing", () => new ConfirmWindow(ConfirmCopy.QuitWhileCapturing)),
+            ("dialog-not-discarded", () => new ConfirmWindow(ConfirmCopy.NotDiscarded(ConfirmedAction.NotConnected))),
+            ("shortcut-sheet", () => new ShortcutSheet()),
+        }.Concat(others))
         {
             foreach (var theme in RenderThemes.All)
             {
                 RenderThemeApplier.Apply(theme, Application.Current.Resources);
-                var dialog = WindowRenderer.Intend(build());
-                dialog.ShowInTaskbar = false;
-                dialog.WindowStartupLocation = WindowStartupLocation.Manual;
-                dialog.Left = -4000;
-                dialog.Top = -4000;
-                dialog.Show();
-                await SettleAsync();
-                dialog.UpdateLayout();
-                Save(dialog, Shot(name, theme));
-                dialog.Close();
+                await ShotOfAsync(build(), Shot(name, theme), scale: 1);
+            }
+
+            foreach (var theme in new[] { RenderTheme.Dark, RenderTheme.Light })
+            {
+                RenderThemeApplier.Apply(theme, Application.Current.Resources);
+                await ShotOfAsync(build(), Shot($"{name}-150pct", theme), scale: 1.5);
             }
         }
+
+        static ConfirmWindow Typed(ConfirmWindow dialog, string text)
+        {
+            dialog.Typed.Text = text;
+            return dialog;
+        }
+    }
+
+    /// <summary>A window of its own, shown off the screen, drawn at <paramref name="scale"/> and closed.</summary>
+    private static async Task ShotOfAsync(Window window, string path, double scale)
+    {
+        var shown = WindowRenderer.Intend(window);
+        shown.ShowInTaskbar = false;
+        shown.WindowStartupLocation = WindowStartupLocation.Manual;
+        shown.Left = -4000;
+        shown.Top = -4000;
+        shown.Show();
+        await SettleAsync();
+        shown.UpdateLayout();
+        WindowRenderer.Save(shown, path, scale: scale);
+        shown.Close();
+    }
+
+    /// <summary>
+    /// Takes the mouse off the shell before the renders, so they show every control at rest. On the hosted
+    /// runner the pointer sits where the desktop put it, over the middle of the window, and Settings drew
+    /// its Integrations nav item hovered in every render. Where it was, and over what kind of element, is
+    /// written to the log first (types and names only, never text: INV-10), so a hover that is a real
+    /// defect rather than the pointer's place can still be told apart.
+    /// </summary>
+    private void RestTheMouse()
+    {
+        var at = Mouse.GetPosition(this);
+        var over = Mouse.DirectlyOver is FrameworkElement element
+            ? $"{element.GetType().Name} '{element.Name}'" + (Ancestor<ListBoxItem>(element) is { } item ? $" in a {item.GetType().Name}" : string.Empty)
+            : Mouse.DirectlyOver?.GetType().Name ?? "nothing";
+        Console.WriteLine($"  the mouse was at {at.X:F0},{at.Y:F0} in the shell, over {over}; renders draw controls at rest");
+        if (Content is UIElement root)
+        {
+            root.IsHitTestVisible = false;
+        }
+
+        Mouse.Synchronize();
     }
 
     private static DependencyObject? Find(DependencyObject root, Func<DependencyObject, bool> match)

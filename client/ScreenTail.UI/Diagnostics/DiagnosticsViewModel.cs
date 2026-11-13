@@ -41,6 +41,20 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
 
     public IReadOnlyList<DiagnosticsRow> Rows { get; }
 
+    /// <summary>The headline's state, which picks its glyph and colour (Spec §1.1): Capturing, Paused, NotCapturing or Unknown.</summary>
+    public CoreShell.DiagnosticsState State => _panel.State;
+
+    /// <summary>Spec §5 S1's Local-only badge: shown when the service says local-only mode is on.</summary>
+    public System.Windows.Visibility LocalOnlyVisibility => _panel.LocalOnly == true ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    /// <summary>Said beside Copy diagnostics once it has run; empty, and so not shown, before.</summary>
+    [ObservableProperty]
+    public partial string Copied { get; set; } = string.Empty;
+
     [RelayCommand]
-    private void Copy() => _copy(_panel.ToClipboardText(_time.GetUtcNow()));
+    private void Copy()
+    {
+        _copy(_panel.ToClipboardText(_time.GetUtcNow()));
+        Copied = CoreShell.DiagnosticsPanel.Copied;
+    }
 }

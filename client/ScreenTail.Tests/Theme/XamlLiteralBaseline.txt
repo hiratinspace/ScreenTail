@@ -1,8 +1,6 @@
 // Literal colours and sizes in ScreenTail.UI's XAML where a design token belongs (ST-016).
 // Read by XamlLiteralRatchetTests, which fails if any count goes up or down. Do not edit by hand;
 // rewrite it with SCREENTAIL_XAML_BASELINE=update (see the test's doc comment). file, kind, value, count.
-Diagnostics/DiagnosticsWindow.xaml	Margin	0,10,0,12	1
-Diagnostics/DiagnosticsWindow.xaml	Padding	14,8,6,8	1
 Gallery/GalleryWindow.xaml	Margin	0,6,0,10	1
 Gallery/GalleryWindow.xaml	Margin	0,6,0,14	6
 Gallery/GalleryWindow.xaml	Margin	16,0,6,0	3
@@ -61,15 +59,10 @@ Settings/Privacy/PrivacyPane.xaml	MaxWidth	760	1
 Settings/Privacy/PrivacyPane.xaml	Width	280	1
 Settings/SettingsPane.xaml	Margin	0,28,0,12	1
 Settings/SettingsPane.xaml	Margin	6,0,0,0	2
-Shell/ConfirmWindow.xaml	Margin	0,10,0,0	1
-Shell/ConfirmWindow.xaml	Margin	0,16,0,6	1
-Shell/ConfirmWindow.xaml	Margin	10,0,0,0	1
 Shell/ShellWindow.xaml	CornerRadius	28	1
 Shell/ShellWindow.xaml	Margin	0,0,0,48	1
 Shell/ShellWindow.xaml	Margin	0,0,10,0	1
 Shell/ShellWindow.xaml	Padding	32,28	1
-Shell/ShortcutSheet.xaml	Margin	0,16,0,6	1
-Shell/ShortcutSheet.xaml	Margin	0,2	1
 Theme/Components.xaml	BorderThickness	2	6
 Theme/Components.xaml	BorderThickness	3	2
 Theme/Components.xaml	CornerRadius	1	1
