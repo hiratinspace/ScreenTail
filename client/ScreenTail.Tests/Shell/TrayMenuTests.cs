@@ -183,6 +183,39 @@ public sealed class TrayMenuTests
         Assert.Equal(stopsFirst, TrayMenu.DiscardStopsFirst(Capture(state)));
     }
 
+    [Theory]
+    [InlineData(CaptureStates.Recording, "stop,ask")]
+    [InlineData(CaptureStates.Paused, "stop,ask")]
+    [InlineData(CaptureStates.DraftReady, "ask")]
+    public async Task TheConfirmationIsAskedOnlyOnceTheStopIsAnswered(string state, string order)
+    {
+        var said = new List<string>();
+        var stopped = new TaskCompletionSource();
+
+        var discard = TrayMenu.DiscardAsync(
+            Capture(state),
+            async () =>
+            {
+                said.Add("stop");
+                await stopped.Task;
+            },
+            () =>
+            {
+                said.Add("ask");
+                return Task.CompletedTask;
+            });
+
+        // While the stop is unanswered, nothing is asked: the session may still be recording.
+        if (order.StartsWith("stop", StringComparison.Ordinal))
+        {
+            Assert.Equal(["stop"], said);
+        }
+        stopped.SetResult();
+        await discard;
+
+        Assert.Equal(order, string.Join(',', said));
+    }
+
     private static IReadOnlyList<TrayRow> Rows(CaptureStateSnapshot capture, bool pillHidden = false) =>
         TrayMenu.For(new ShellSnapshot(ServiceConnection.Connected, capture, ShellView.Review, null), pillHidden);
 

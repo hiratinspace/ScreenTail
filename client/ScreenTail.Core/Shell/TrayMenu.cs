@@ -187,5 +187,25 @@ public static class TrayMenu
     /// </summary>
     public static bool DiscardStopsFirst(CaptureStateSnapshot? capture) => HudState.SessionUnderWay(capture) is not null;
 
+    /// <summary>
+    /// The tray's Discard: stop first while a session is being captured, and only once the service has
+    /// answered, ask. The question is asked whatever the stop's answer: the service discards from any state
+    /// with a session, and a refused stop means the session is no longer recording anyway.
+    /// </summary>
+    /// <param name="capture">What capture is doing as the item is chosen.</param>
+    /// <param name="stop">Sends <c>stop</c> and waits for the service's answer.</param>
+    /// <param name="ask">The typed confirmation and, when it is typed, the discard.</param>
+    public static async Task DiscardAsync(CaptureStateSnapshot? capture, Func<Task> stop, Func<Task> ask)
+    {
+        ArgumentNullException.ThrowIfNull(stop);
+        ArgumentNullException.ThrowIfNull(ask);
+        if (DiscardStopsFirst(capture))
+        {
+            await stop().ConfigureAwait(true);
+        }
+
+        await ask().ConfigureAwait(true);
+    }
+
     private static string Chord(HotkeyAction action) => HotkeyBindings.Defaults[action].ToString();
 }

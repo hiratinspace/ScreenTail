@@ -35,5 +35,12 @@ public static class TrayGlyph
     /// </summary>
     public static bool IsLightTaskbar(object? systemUsesLightTheme) => systemUsesLightTheme is int value && value == 1;
 
-    public static bool IsLightTaskbar(object? systemUsesLightTheme, bool highContrast, bool windowIsLight) => IsLightTaskbar(systemUsesLightTheme);
+    /// <summary>
+    /// The same, with high contrast: a high contrast theme draws the taskbar in its window colour (black
+    /// in Night Sky and Aquatic, white in Desert) whatever <c>SystemUsesLightTheme</c> was left at, so the
+    /// glyph follows that colour (Spec §5 S1, as built v0.6.10).
+    /// </summary>
+    /// <param name="windowIsLight">Whether the system window colour is light; read only in high contrast.</param>
+    public static bool IsLightTaskbar(object? systemUsesLightTheme, bool highContrast, bool windowIsLight) =>
+        highContrast ? windowIsLight : IsLightTaskbar(systemUsesLightTheme);
 }

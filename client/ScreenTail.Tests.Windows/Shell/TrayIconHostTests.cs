@@ -95,6 +95,86 @@ public sealed class TrayIconHostTests
         });
     }
 
+    /// <summary>
+    /// Spec §5 S1, as built v0.6.10: the menu is <see cref="TrayMenu"/>'s rows, in order, with their words,
+    /// hotkeys and disabled states, as the state changes under it.
+    /// </summary>
+    [Fact]
+    public void TheMenuIsTheRowsTheModelDecides()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        StaThread.Run(() =>
+        {
+            using var tray = new TrayIconHost(() => true);
+            foreach (var snapshot in new[]
+            {
+                Snapshot(CaptureStates.Recording),
+                Snapshot(CaptureStates.Paused),
+                Snapshot(CaptureStates.Idle),
+                Snapshot(CaptureStates.DraftReady),
+                new ShellSnapshot(ServiceConnection.Unavailable, null, ShellView.Review, null),
+            })
+            {
+                tray.Update(snapshot);
+                var rows = TrayMenu.For(snapshot, pillHidden: false);
+                var items = tray.Menu.Items.Cast<System.Windows.Forms.ToolStripItem>().ToList();
+                Assert.Equal(rows.Count, items.Count);
+                for (var i = 0; i < rows.Count; i++)
+                {
+                    if (rows[i].Kind == TrayRowKind.Separator)
+                    {
+                        Assert.IsType<System.Windows.Forms.ToolStripSeparator>(items[i]);
+                        continue;
+                    }
+
+                    var item = Assert.IsType<System.Windows.Forms.ToolStripMenuItem>(items[i]);
+                    Assert.Equal(rows[i].Name, item.AccessibleName);
+                    Assert.Equal(rows[i].Enabled, item.Enabled);
+                    Assert.Equal(rows[i].Hotkey, item.ShowShortcutKeys ? item.ShortcutKeyDisplayString : null);
+                }
+
+                Assert.Equal(TrayPresence.From(snapshot).StateLine, tray.StateLine);
+
+                // The state line carries the tray's own glyph for the state.
+                Assert.NotNull(((System.Windows.Forms.ToolStripMenuItem)items[0]).Image);
+            }
+
+            return Task.CompletedTask;
+        });
+    }
+
+    [Fact]
+    public void ChoosingAnItemRaisesWhatItSays()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        StaThread.Run(() =>
+        {
+            using var tray = new TrayIconHost(() => true);
+            var said = new List<string>();
+            tray.Pause += () => said.Add("pause");
+            tray.Resume += () => said.Add("resume");
+            tray.History += () => said.Add("history");
+            tray.Settings += () => said.Add("settings");
+            tray.ShowPill += () => said.Add("show pill");
+
+            // Paused: the first control resumes. The tray used to send pause whatever the state.
+            tray.Show(Snapshot(CaptureStates.Paused));
+            Item(tray, "Resume").PerformClick();
+            Item(tray, "Session history").PerformClick();
+            Item(tray, "Settings").PerformClick();
+
+            tray.Update(Snapshot(CaptureStates.Idle));
+            tray.SetPillHidden(true);
+            Item(tray, "Show the recording pill").PerformClick();
+
+            Assert.Equal(["resume", "history", "settings", "show pill"], said);
+            return Task.CompletedTask;
+        });
+    }
+
+    private static System.Windows.Forms.ToolStripMenuItem Item(TrayIconHost tray, string name) =>
+        tray.Menu.Items.OfType<System.Windows.Forms.ToolStripMenuItem>().Single(i => i.AccessibleName == name);
+
     private static string Pixels(System.Drawing.Bitmap bitmap)
     {
         var text = new System.Text.StringBuilder();
