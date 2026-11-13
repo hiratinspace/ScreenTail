@@ -1214,4 +1214,29 @@ public sealed record SessionRow
     /// </summary>
     [JsonPropertyName("publish_unconfirmed")]
     public bool PublishUnconfirmed { get; init; }
+
+    /// <summary>
+    /// The drafted note's title, as the technician last saved it (contract v11): the note's own words,
+    /// never a window title. Absent before there is a draft, and for a discarded session.
+    /// </summary>
+    [JsonPropertyName("title")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Title { get; init; }
+
+    /// <summary>
+    /// The ticket the session was published to, or before any publish the digits read off the window at
+    /// start (ST-077) (contract v11). Absent when neither is known, and for a discarded session.
+    /// </summary>
+    [JsonPropertyName("ticket")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Ticket { get; init; }
+
+    /// <summary>
+    /// The PSA's name for the company of the ticket a publish may have reached (contract v11). Absent until
+    /// then: the device learns a company only from the ticket search, and keeps it only once the note may
+    /// be on that ticket. Shown on screen; never logged (INV-10).
+    /// </summary>
+    [JsonPropertyName("company")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Company { get; init; }
 }

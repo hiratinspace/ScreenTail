@@ -670,7 +670,20 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 9, Token = IpcToken.Encode(_token), ClientName = "v9-ui" });
 
-        Assert.Equal(10, IpcContract.Version);
+        Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
+    public async Task AVersionTenUiIsTurnedAwayByAVersionElevenService()
+    {
+        // Contract v11 (spec v0.6.9 S4) adds title, ticket and company to a sessions row, optional and
+        // left off when unknown. A v10 UI would still fail on a row that has them, so the pair is refused
+        // at the handshake rather than the rail failing to read.
+        await StartServerAsync();
+
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 10, Token = IpcToken.Encode(_token), ClientName = "v10-ui" });
+
+        Assert.Equal(11, IpcContract.Version);
         Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
     }
 
