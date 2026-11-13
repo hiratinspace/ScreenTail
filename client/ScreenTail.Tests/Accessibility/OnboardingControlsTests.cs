@@ -82,6 +82,12 @@ public sealed class OnboardingControlsTests
         var hook = (string?)paths.First(p => (string?)p.Attribute("Fill") == "{DynamicResource Brush.brand.signature}").Attribute("Data");
         Assert.Contains("d=\"" + Spaced(hook!) + "\" fill=\"#6A43C4\"", svg, StringComparison.Ordinal);
 
+        // The wordmark's glyphs overlap, so it must fill nonzero as the SVG does. WPF's path data fills
+        // even-odd unless it starts with F1, and the first render showed holes through the "e" and "a".
+        var words = paths.Where(p => (string?)p.Attribute("Data") is { Length: > 1000 }).ToList();
+        Assert.Equal(2, words.Count);
+        Assert.All(words, p => Assert.StartsWith("F1 M", (string?)p.Attribute("Data"), StringComparison.Ordinal));
+
         var underside = (string?)paths.First(p => p.Attribute("Clip") is not null).Attribute("Clip");
         Assert.Contains("<path d=\"" + Spaced(underside!) + "\"/></clipPath>", svg, StringComparison.Ordinal);
     }
