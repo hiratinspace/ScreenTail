@@ -32,7 +32,7 @@ public sealed class EnvelopeFitsTests(TheApplication app)
 
                 var envelope = Audit.Descendants(shell).OfType<EnvelopeView>().Single();
                 var discussion = Audit.Descendants(envelope).OfType<RadioButton>().Single(r => AutomationProperties.GetName(r) == PublishPanel.DiscussionLabel);
-                var holder = (FrameworkElement)Audit.Descendants(envelope).OfType<WrapPanel>().Single(w => w.Name == "AsAndTime").Children[0];
+                var holder = (FrameworkElement)Audit.Descendants(envelope).OfType<Panel>().Single(w => w.Name == "AsAndTime").Children[0];
 
                 // Every pixel of the choice is inside what holds it, and inside the envelope.
                 var right = discussion.TranslatePoint(new Point(discussion.ActualWidth, 0), holder).X;
@@ -51,6 +51,12 @@ public sealed class EnvelopeFitsTests(TheApplication app)
                 Assert.True(
                     minutesAt.Y >= discussionAt.Y + discussion.ActualHeight - 0.5 || minutesAt.X >= inEnvelope,
                     "The minutes box overlaps the Discussion choice.");
+
+                // And it stays on As's line: a second row there pushed the note's foot out of the pane at this
+                // size, with the panes' floor below the envelope (v0.6.12).
+                Assert.True(
+                    minutesAt.Y < discussionAt.Y + discussion.ActualHeight,
+                    "The minutes box moved under As, which makes the envelope a row taller.");
             }
             finally
             {

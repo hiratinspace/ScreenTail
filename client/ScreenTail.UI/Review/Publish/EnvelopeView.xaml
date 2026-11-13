@@ -130,16 +130,22 @@
 
         <!-- As and Time share a line, as in the reference: two short values side by side under one
              hairline that runs the envelope's width. A rule per value broke it in two at the gap.
-             v0.6.12: they wrap rather than split the line in halves. Two equal columns gave As half the pane,
-             and at the 1024 minimum its second choice read "Discussion: the custo"; now each takes the width
-             it needs, and where both do not fit Time moves under As, its label in the same column. The
-             envelope keeps its 2 px vertical gaps (off the 4 px scale, kept in the literal baseline on purpose):
-             at the 1024 by 680 minimum, 4 px gaps pushed the note's foot and scroll bar out of the pane. -->
+             v0.6.12: As and Time take the width their controls need, and what the minutes were before rounding
+             takes the rest of the line and wraps inside it. Two equal columns gave As half the pane, and at the
+             1024 minimum its second choice read "Discussion: the custo". Time moving under As fixed that but
+             added a row, and with the panes' floor below it the note's foot and scroll bar went out of the pane
+             at 1024 by 680; so the line stays one control tall and only the muted note wraps. The envelope
+             keeps its 2 px vertical gaps for the same reason (off the 4 px scale, kept in the baseline). -->
         <Border Style="{StaticResource Envelope.Line}">
-            <WrapPanel x:Name="AsAndTime" Orientation="Horizontal">
+            <Grid x:Name="AsAndTime">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
 
                 <!-- As: a visible two-way choice, Internal note by default (v0.4.1 Q2). Never behind Options. -->
-                <Border Margin="0,2,24,2">
+                <Border Grid.Column="0" Margin="0,2,24,2">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Envelope.Label}" Text="As" />
                         <Border Style="{StaticResource Segment.Group}" VerticalAlignment="Center">
@@ -167,7 +173,7 @@
                 </Border>
 
                 <!-- Time: the entry in minutes, and what it was before rounding, so the number is not taken for the time worked. -->
-                <Border Margin="0,2,0,2">
+                <Border Grid.Column="1" Margin="0,2,0,2">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Style="{StaticResource Envelope.Label}" Text="Time" />
                         <TextBox Width="{DynamicResource Layout.field-narrow}"
@@ -177,10 +183,15 @@
                                  AutomationProperties.Name="Minutes"
                                  AutomationProperties.HelpText="{Binding TimeNote}" />
                         <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Secondary}" Text="min" />
-                        <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Muted}" Text="{Binding TimeNote}" />
                     </StackPanel>
                 </Border>
-            </WrapPanel>
+                <TextBlock Grid.Column="2"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Style="{StaticResource Text.Muted}"
+                           TextWrapping="Wrap"
+                           Text="{Binding TimeNote}" />
+            </Grid>
         </Border>
 
         <!-- Also: every destination as a chip. Each label says what an earlier publish left (O3); the name
