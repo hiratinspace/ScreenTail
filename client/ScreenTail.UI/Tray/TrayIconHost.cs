@@ -1,8 +1,8 @@
 using System.Drawing;
 using System.Runtime.Versioning;
-using System.Windows;
 using ScreenTail.Core.Notifications;
 using ScreenTail.Core.Shell;
+using ScreenTail.Shared.Ipc;
 using Forms = System.Windows.Forms;
 
 namespace ScreenTail.UI.Tray;
@@ -25,7 +25,10 @@ namespace ScreenTail.UI.Tray;
 /// cannot), which is why the grey "unknown" state is its own icon rather than falling back to idle.
 ///
 /// The glyph follows the taskbar: Iris on a light one, Ribbon 400 on a dark one, re-read whenever Windows
-/// says a user preference changed.
+/// says a user preference changed; in high contrast, the taskbar's window colour picks it.
+///
+/// The quick menu is <see cref="TrayMenu"/>'s rows (Spec §5 S1, as built v0.6.10), drawn in the app's
+/// tokens by <see cref="TrayMenuRenderer"/>, with the state line carrying the same glyph as the icon.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class TrayIconHost : IDisposable
@@ -35,11 +38,19 @@ public sealed class TrayIconHost : IDisposable
     private readonly Forms.NotifyIcon _icon = new() { Visible = false };
     private readonly Dictionary<(TrayIcon State, bool Light), Icon> _icons = [];
     private readonly Func<bool> _readLightTaskbar;
-    private readonly Forms.ToolStripMenuItem _stateLine;
-    private readonly Dictionary<Forms.ToolStripMenuItem, Forms.Padding> _padding = [];
+    private readonly Forms.ContextMenuStrip _menu;
+
+    /// <summary>The padding every menu item is made with, which <see cref="FitItems(Forms.ContextMenuStrip, int)"/> adds to.</summary>
+    private readonly Forms.Padding _padding;
+    private IReadOnlyList<TrayRow> _rows = [];
+    private ShellSnapshot _snapshot = new(ServiceConnection.Connecting, null, ShellView.Review, null);
     private TrayPresence? _shown;
     private NotificationAction? _pending;
     private bool _lightTaskbar;
+    private bool _pillHidden;
+    private Bitmap? _stateGlyph;
+    private Font? _menuFont;
+    private Font? _stateFont;
 
     public TrayIconHost()
         : this(ReadLightTaskbar)
@@ -52,32 +63,27 @@ public sealed class TrayIconHost : IDisposable
         _readLightTaskbar = readLightTaskbar;
         _lightTaskbar = readLightTaskbar();
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
-        _stateLine = new Forms.ToolStripMenuItem("Connecting…") { Enabled = false };
-        var menu = new Forms.ContextMenuStrip();
-        menu.Items.Add(_stateLine);
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(Item("Pause capture", () => Pause?.Invoke()));
-        menu.Items.Add(Item("Stop and draft", () => Stop?.Invoke()));
-        menu.Items.Add(Item("Discard session", () => Discard?.Invoke()));
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(Item("What's being captured?", () => ShowDiagnostics?.Invoke()));
-        menu.Items.Add(Item("Open ScreenTail", () => Open?.Invoke()));
-        menu.Items.Add(Item("Set up ScreenTail…", () => Setup?.Invoke()));
-        menu.Items.Add(Item("Hide the recording pill (this session)", () => HidePill?.Invoke()));
-        menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add(Item("Quit", () => Quit?.Invoke()));
+
+        // Spec §5 S1 drawn in the app's tokens (TrayMenuRenderer), with the rows TrayMenu decides.
+        _menu = new Forms.ContextMenuStrip { Renderer = new TrayMenuRenderer(), ShowItemToolTips = false };
+        using (var probe = new Forms.ToolStripMenuItem())
+        {
+            _padding = probe.Padding;
+        }
+
+        ApplyRows(TrayMenu.For(_snapshot, _pillHidden), TrayPresence.From(_snapshot));
 
         // Spec §7's 28 px target, at whatever scale the menu is drawn: fitted when the menu gets its window
         // and every time it opens, since only then is its DPI known (ST-084: a fixed padding worked out at
-        // construction came to 25.6 px on the laptop's scaled screen).
-        foreach (var item in menu.Items.OfType<Forms.ToolStripMenuItem>())
+        // construction came to 25.6 px on the laptop's scaled screen). The font and the state line's glyph
+        // are taken again on opening too, so a theme changed since the last time is the one drawn.
+        _menu.HandleCreated += (_, _) => FitItems(_menu);
+        _menu.Opening += (_, _) =>
         {
-            _padding[item] = item.Padding;
-        }
-
-        menu.HandleCreated += (_, _) => FitItems(menu);
-        menu.Opening += (_, _) => FitItems(menu);
-        _icon.ContextMenuStrip = menu;
+            Restyle();
+            FitItems(_menu);
+        };
+        _icon.ContextMenuStrip = _menu;
         _icon.DoubleClick += (_, _) => Open?.Invoke();
         _icon.BalloonTipClicked += (_, _) =>
         {
@@ -91,7 +97,10 @@ public sealed class TrayIconHost : IDisposable
     }
 
     /// <summary>The quick menu (Spec §5 S1), for the accessibility suite's checks of its names and sizes (ST-084).</summary>
-    internal Forms.ContextMenuStrip Menu => _icon.ContextMenuStrip!;
+    internal Forms.ContextMenuStrip Menu => _menu;
+
+    /// <summary>The rows on show, for the tests that hold the menu to them.</summary>
+    internal IReadOnlyList<TrayRow> Rows => _rows;
 
     /// <summary>The icon's tooltip as Windows holds it, for the tests that watch the clock move (ST-072).</summary>
     internal string Tooltip => _icon.Text;
@@ -100,9 +109,11 @@ public sealed class TrayIconHost : IDisposable
     internal string? ShownIcon { get; private set; }
 
     /// <summary>The menu's first row as drawn, for the same tests.</summary>
-    internal string StateLine => _stateLine.Text ?? string.Empty;
+    internal string StateLine => _menu.Items.Count > 0 ? _menu.Items[0].Text ?? string.Empty : string.Empty;
 
     public event Action? Pause;
+
+    public event Action? Resume;
 
     public event Action? Stop;
 
@@ -110,21 +121,57 @@ public sealed class TrayIconHost : IDisposable
 
     public event Action? ShowDiagnostics;
 
+    /// <summary>The icon double-clicked: the shell, as it was left.</summary>
     public event Action? Open;
+
+    /// <summary>"Open last draft (N ready)": the shell, on Review of the newest draft.</summary>
+    public event Action? OpenLastDraft;
+
+    /// <summary>"Session history": the shell, on All sessions.</summary>
+    public event Action? History;
+
+    public event Action? Settings;
 
     /// <summary>Spec §5 S8: the onboarding wizard, re-runnable from here (ST-083).</summary>
     public event Action? Setup;
 
     /// <summary>
-    /// The technician asking for a tray-only session. INV-4 permits it only as an explicit choice, and
-    /// only for this session — which is why it is a menu item here and not a setting.
+    /// The technician asking for a tray-only stretch between sessions. INV-4 permits it only as an
+    /// explicit choice, only while capture is known to be off, and only until the next session starts,
+    /// which is why it is a menu item here and not a setting, and why <see cref="TrayMenu"/> disables it
+    /// while a session may be under way.
     /// </summary>
     public event Action? HidePill;
+
+    /// <summary>The pill brought back before the next session would have brought it.</summary>
+    public event Action? ShowPill;
 
     public event Action? Quit;
 
     /// <summary>The technician pressed the notification. Carries what it was about.</summary>
     public event Action<NotificationAction>? NotificationClicked;
+
+    /// <summary>
+    /// Whether the technician has put the pill away, so the menu offers to bring it back. The shell says
+    /// so each time it changes; the menu is redrawn from the last snapshot.
+    /// </summary>
+    public void SetPillHidden(bool hidden)
+    {
+        if (!_dispatcher.CheckAccess())
+        {
+            _ = _dispatcher.BeginInvoke(() => SetPillHidden(hidden));
+            return;
+        }
+
+        if (Disposed || hidden == _pillHidden)
+        {
+            return;
+        }
+
+        _pillHidden = hidden;
+        _shown = null;
+        Update(_snapshot);
+    }
 
     /// <summary>Shows the icon. Until this is called nothing appears, which is only right before startup finishes.</summary>
     public void Show(ShellSnapshot snapshot)
@@ -157,17 +204,24 @@ public sealed class TrayIconHost : IDisposable
         }
 
         var presence = TrayPresence.From(snapshot);
-        if (presence == _shown)
+        var rows = TrayMenu.For(snapshot, _pillHidden);
+        _snapshot = snapshot;
+        if (presence == _shown && rows.SequenceEqual(_rows))
         {
             return;
         }
 
+        var iconChanged = _shown?.Icon != presence.Icon;
         _shown = presence;
         ShowIcon(presence.Icon);
 
         // Windows truncates a tooltip past 63 characters, and a truncated state is a misread state.
         _icon.Text = presence.Tooltip.Length <= 63 ? presence.Tooltip : presence.Tooltip[..60] + "...";
-        _stateLine.Text = presence.StateLine;
+        ApplyRows(rows, presence);
+        if (iconChanged)
+        {
+            SetStateGlyph(presence.Icon);
+        }
     }
 
     /// <summary>
@@ -223,6 +277,11 @@ public sealed class TrayIconHost : IDisposable
         }
 
         _icons.Clear();
+        _menu.Dispose();
+        _stateGlyph?.Dispose();
+        _stateGlyph = null;
+        _menuFont?.Dispose();
+        _stateFont?.Dispose();
     }
 
     /// <summary>
@@ -278,7 +337,10 @@ public sealed class TrayIconHost : IDisposable
         try
         {
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
-            return TrayGlyph.IsLightTaskbar(key?.GetValue("SystemUsesLightTheme"));
+            return TrayGlyph.IsLightTaskbar(
+                key?.GetValue("SystemUsesLightTheme"),
+                Forms.SystemInformation.HighContrast,
+                SystemColors.Window.GetBrightness() > 0.5f);
         }
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or System.IO.IOException)
         {
@@ -288,7 +350,8 @@ public sealed class TrayIconHost : IDisposable
 
     private void OnUserPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
     {
-        if (e.Category is Microsoft.Win32.UserPreferenceCategory.General or Microsoft.Win32.UserPreferenceCategory.VisualStyle or Microsoft.Win32.UserPreferenceCategory.Color)
+        // Accessibility is the category high contrast turning on or off arrives in.
+        if (e.Category is Microsoft.Win32.UserPreferenceCategory.General or Microsoft.Win32.UserPreferenceCategory.VisualStyle or Microsoft.Win32.UserPreferenceCategory.Color or Microsoft.Win32.UserPreferenceCategory.Accessibility)
         {
             RefreshTheme();
         }
@@ -300,32 +363,206 @@ public sealed class TrayIconHost : IDisposable
     /// </summary>
     private void FitItems(Forms.ContextMenuStrip menu) => FitItems(menu, menu.DeviceDpi);
 
+    /// <summary>What opening the menu does before it is drawn, for the render harness, which draws it unopened.</summary>
+    internal void PrepareToDraw()
+    {
+        _ = _menu.Handle;
+        Restyle();
+        FitItems(_menu);
+    }
+
     /// <param name="deviceDpi">The DPI the menu is drawn at; a test passes a scaled one the hosted runner's screen does not have.</param>
     internal void FitItems(Forms.ContextMenuStrip menu, int deviceDpi)
     {
         ArgumentNullException.ThrowIfNull(menu);
         var floor = (int)Math.Ceiling(28 * deviceDpi / 96.0);
-        foreach (var (item, padding) in _padding)
+        var items = menu.Items.OfType<Forms.ToolStripMenuItem>().ToList();
+        foreach (var item in items)
         {
-            item.Padding = padding;
+            item.Padding = _padding;
         }
 
         menu.PerformLayout();
-        foreach (var (item, padding) in _padding)
+        foreach (var item in items)
         {
             var lacking = Math.Max(0, floor - item.Height);
             var above = lacking / 2;
-            item.Padding = new Forms.Padding(padding.Left, padding.Top + above, padding.Right, padding.Bottom + lacking - above);
+            item.Padding = new Forms.Padding(_padding.Left, _padding.Top + above, _padding.Right, _padding.Bottom + lacking - above);
         }
 
         menu.PerformLayout();
     }
 
-    private static Forms.ToolStripMenuItem Item(string text, Action invoke)
+    /// <summary>
+    /// Puts the rows on the menu. The same rows in the same places, which is every tick of the recording
+    /// clock, change their words in place, so an open menu does not jump; a different set is built again.
+    /// </summary>
+    private void ApplyRows(IReadOnlyList<TrayRow> rows, TrayPresence presence)
     {
-        var item = new Forms.ToolStripMenuItem(text);
-        item.Click += (_, _) => invoke();
+        var same = rows.Count == _rows.Count && rows.Zip(_rows).All(pair => pair.First.Kind == pair.Second.Kind && pair.First.Command == pair.Second.Command);
+        if (!same)
+        {
+            var old = _menu.Items.Cast<Forms.ToolStripItem>().ToList();
+            _menu.Items.Clear();
+            foreach (var item in old)
+            {
+                if (item.Image is not null && ReferenceEquals(item.Image, _stateGlyph))
+                {
+                    item.Image = null;
+                }
+
+                item.Dispose();
+            }
+
+            foreach (var row in rows)
+            {
+                _menu.Items.Add(Build(row));
+            }
+
+            Restyle();
+            if (_menu.IsHandleCreated)
+            {
+                FitItems(_menu);
+            }
+        }
+
+        for (var i = 0; i < rows.Count; i++)
+        {
+            if (_menu.Items[i] is Forms.ToolStripMenuItem item)
+            {
+                Fill(item, rows[i]);
+            }
+        }
+
+        _rows = rows;
+        if (!same)
+        {
+            SetStateGlyph((_shown ?? presence).Icon);
+        }
+    }
+
+    private Forms.ToolStripItem Build(TrayRow row)
+    {
+        if (row.Kind == TrayRowKind.Separator)
+        {
+            return new Forms.ToolStripSeparator { Tag = new TrayRowTag(row.Kind, row.Command), AccessibleRole = Forms.AccessibleRole.Separator };
+        }
+
+        var item = new Forms.ToolStripMenuItem { Tag = new TrayRowTag(row.Kind, row.Command), ImageScaling = Forms.ToolStripItemImageScaling.None };
+        var command = row.Command;
+        item.Click += (_, _) => Invoke(command);
+        Fill(item, row);
         return item;
+    }
+
+    /// <summary>The row's words, hotkey, name for a screen reader and whether it can be chosen.</summary>
+    private static void Fill(Forms.ToolStripMenuItem item, TrayRow row)
+    {
+        // A state line or hint has no access key, and an ampersand in it (none today) is text.
+        var text = row.Kind is TrayRowKind.State or TrayRowKind.Hint ? row.Text.Replace("&", "&&", StringComparison.Ordinal) : row.Text;
+        if (item.Text != text)
+        {
+            item.Text = text;
+        }
+
+        item.ShortcutKeyDisplayString = row.Hotkey;
+        item.ShowShortcutKeys = row.Hotkey is not null;
+        item.Enabled = row.Enabled;
+
+        // Read as the words; the chord, a global hotkey rather than a menu shortcut, as its description.
+        item.AccessibleName = row.Name;
+        item.AccessibleDescription = row.Hotkey is { } chord ? $"Hotkey {chord}" : null;
+    }
+
+    /// <summary>The font from the tokens (font.ui at size.md, the state line semibold), taken again on each opening.</summary>
+    private void Restyle()
+    {
+        var app = System.Windows.Application.Current;
+        var size = app?.TryFindResource("Size.md") is double px ? px : 14d;
+        var family = FaceName(app?.TryFindResource("Font.ui") as System.Windows.Media.FontFamily);
+        var points = (float)(size * 72 / 96);
+        if (_menuFont is null || !_menuFont.FontFamily.Name.Equals(family, StringComparison.OrdinalIgnoreCase) || Math.Abs(_menuFont.SizeInPoints - points) > 0.01)
+        {
+            var font = new Font(family, points, FontStyle.Regular);
+            _menu.Font = font;
+            _menuFont?.Dispose();
+            _menuFont = font;
+            _stateFont?.Dispose();
+            _stateFont = new Font(font, FontStyle.Bold);
+        }
+
+        if (_menu.Items.Count > 0 && _menu.Items[0] is Forms.ToolStripMenuItem state && !ReferenceEquals(state.Font, _stateFont))
+        {
+            // Semibold where the face has it; GDI+ offers bold, the nearest it can draw.
+            state.Font = _stateFont;
+        }
+
+        if (_shown is { } shown)
+        {
+            SetStateGlyph(shown.Icon);
+        }
+    }
+
+    /// <summary>The faces installed on this machine, read once.</summary>
+    private static readonly Lazy<HashSet<string>> Installed = new(() =>
+    {
+        using var installed = new System.Drawing.Text.InstalledFontCollection();
+        return installed.Families.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    });
+
+    /// <summary>The first face in the token's list that is installed, else the system's menu font.</summary>
+    private static string FaceName(System.Windows.Media.FontFamily? token)
+    {
+        var names = Installed.Value;
+        foreach (var name in (token?.Source ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (names.Contains(name))
+            {
+                return name;
+            }
+        }
+
+        return Forms.SystemInformation.MenuFont.FontFamily.Name;
+    }
+
+    /// <summary>
+    /// The state line's glyph: the tray's own icon for the state, in the version drawn for a ground like
+    /// the menu's, so the line reads with the same picture the taskbar shows (Spec §5 S1, "● Recording").
+    /// </summary>
+    private void SetStateGlyph(TrayIcon state)
+    {
+        if (_menu.Items.Count == 0 || _menu.Items[0] is not Forms.ToolStripMenuItem line)
+        {
+            return;
+        }
+
+        var side = (int)Math.Round(16 * _menu.DeviceDpi / 96.0);
+        using var icon = Load(state, TrayMenuRenderer.LightGround, new System.Drawing.Size(side, side));
+        var glyph = icon.ToBitmap();
+        line.Image = glyph;
+        _stateGlyph?.Dispose();
+        _stateGlyph = glyph;
+    }
+
+    private void Invoke(TrayCommand command)
+    {
+        var handler = command switch
+        {
+            TrayCommand.Pause => Pause,
+            TrayCommand.Resume => Resume,
+            TrayCommand.Stop => Stop,
+            TrayCommand.Discard => Discard,
+            TrayCommand.OpenLastDraft => OpenLastDraft,
+            TrayCommand.History => History,
+            TrayCommand.Diagnostics => ShowDiagnostics,
+            TrayCommand.HidePill => HidePill,
+            TrayCommand.ShowPill => ShowPill,
+            TrayCommand.Settings => Settings,
+            TrayCommand.Setup => Setup,
+            TrayCommand.Quit => Quit,
+            _ => null,
+        };
+        handler?.Invoke();
     }
 
     private void ShowIcon(TrayIcon state)
