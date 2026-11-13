@@ -66,7 +66,7 @@ public sealed class ConfirmWindowTests(TheApplication app)
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         await app.RunAsync(async () =>
         {
-            var dialog = await Screens.ShowModalAsync(new ConfirmWindow(ConfirmCopy.MarkAsPublished("Mon 14 Sep 16:40, 9:00, ScreenConnect")));
+            var dialog = await Screens.ShowModalAsync(new ConfirmWindow(ConfirmCopy.MarkAsPublished("ScreenConnect session, started Mon 14 Sep 16:40, 9 min")));
             try
             {
                 Assert.DoesNotContain(Audit.Descendants(dialog).OfType<TextBox>(), b => b.IsVisible);
@@ -74,7 +74,7 @@ public sealed class ConfirmWindowTests(TheApplication app)
                 Assert.Same(dialog.FindResource("Button.Primary"), mark.Style);
                 Assert.True(mark.IsEnabled);
                 Assert.False(mark.IsDefault, "Enter vouches for the ticket by reflex.");
-                Assert.True(Screens.Named<Button>(dialog, "Cancel").IsDefault);
+                Assert.True(Screens.Named<Button>(dialog, "Not yet").IsDefault);
             }
             finally
             {

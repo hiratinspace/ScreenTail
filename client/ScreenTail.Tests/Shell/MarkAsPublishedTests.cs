@@ -158,9 +158,9 @@ public sealed class MarkAsPublishedTests
     public void TheQuestionNamesTheSessionAsHistoryShowsIt()
     {
         // Which row is being vouched for, in the words on the row: when it started, how long, the tool.
-        var question = MarkAsPublished.QuestionFor("Tue 10 Nov 14:02, 9:00, screenconnect");
+        var question = MarkAsPublished.QuestionFor("ScreenConnect session, started Tue 10 Nov 14:02, 9 min");
 
-        Assert.StartsWith("Mark the session started Tue 10 Nov 14:02, 9:00, screenconnect as published?", question, StringComparison.Ordinal);
+        Assert.StartsWith("Mark this session as published?\n\nScreenConnect session, started Tue 10 Nov 14:02, 9 min.", question, StringComparison.Ordinal);
         Assert.EndsWith(MarkAsPublished.Question, question, StringComparison.Ordinal);
         Assert.DoesNotContain('—', question);
     }
