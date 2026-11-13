@@ -74,7 +74,7 @@ public sealed class ConfirmWindowTests(TheApplication app)
                 Assert.Same(dialog.FindResource("Button.Primary"), mark.Style);
                 Assert.True(mark.IsEnabled);
                 Assert.False(mark.IsDefault, "Enter vouches for the ticket by reflex.");
-                Assert.True(Screens.Named<Button>(dialog, "Cancel").IsDefault);
+                Assert.True(Screens.Named<Button>(dialog, "Not yet").IsDefault);
             }
             finally
             {

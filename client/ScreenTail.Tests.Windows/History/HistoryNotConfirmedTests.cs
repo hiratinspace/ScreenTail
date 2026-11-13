@@ -117,7 +117,8 @@ public sealed class HistoryNotConfirmedTests
     [Fact]
     public void TheQuestionIsGivenTheRowAsTheTableShowsIt()
     {
-        // Review of #274: the dialog names the session, in the words already on its row and no others.
+        // Review of #274: the dialog names the session. Worded v0.6.11: the tool, the start as the row shows
+        // it, and how long in words ("1 min"), never the table's "1:00" beside a time of day.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         UiThread.Run(async () =>
         {
@@ -129,7 +130,8 @@ public sealed class HistoryNotConfirmedTests
 
             await model.MarkPublishedCommand.ExecuteAsync(null);
 
-            Assert.Equal([$"{row.Started}, {row.Duration}, {row.Tool}"], service.Described);
+            Assert.Equal("1:00", row.Duration);
+            Assert.Equal([$"{row.Tool} session, started {row.Started}, 1 min"], service.Described);
         });
     }
 
