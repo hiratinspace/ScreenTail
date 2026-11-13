@@ -18,14 +18,21 @@
 
     It never skips anything: a busy laptop is a failed job, not a quiet one.
 
-    When the demo is not running, it then prints a short readiness block (laptop-readiness.ps1): power
+    When the demo is not running, it then reads the power, and fails the job with one sentence saying
+    what to do when the laptop is on battery (plug it in) or on the charger with less than 30% charge
+    (let it charge), then re-run. A run on battery is slow and can die partway, and the laptop drains
+    under load even on the charger, so such a run used to die midway and leave a pull request red for
+    hours. A machine with no battery, or a power reading that fails, is never stopped. See
+    laptop-readiness.ps1 (Get-ReadinessStop) for the threshold and why.
+
+    When the power is fine, it then prints a short readiness block (laptop-readiness.ps1): power
     source and battery, power plan, power mode and energy saver, the CPU clock against its maximum, CPU
     busy over a 3 s sample, the five busiest processes, and whether Windows Update or a Defender scan is
-    busy. If the laptop is on battery, a saver is on, the clock is held below 70% of maximum or more
+    busy. If a saver is on, the clock is held below 70% of maximum or more
     than 25% of the CPU is busy before the tests start, it adds one ::warning:: naming the likely fix
     (plug in, set power mode to Best performance, wait for Windows Update to finish) and copies the
-    block to the job summary. That is a warning only: a slow laptop still runs the job, and the exit
-    code is the demo check's alone. A probe that fails prints "unknown". The block takes about 5 s.
+    block to the job summary. That is a warning only: a slow laptop still runs the job, and the block
+    never changes the exit code. A probe that fails prints "unknown". The block takes about 5 s.
     docs/dev/windows-test-loop.md ("Before a laptop run") says what to do about each warning.
 
     ASCII only: Windows PowerShell 5.1 reads a BOM-less script as ANSI.
@@ -43,13 +50,24 @@
 
 .PARAMETER NoReadiness
     Skips the readiness block. The tests pass it, so their cases stay quick; the workflow never does.
+    The battery stop still runs.
+
+.PARAMETER PowerSource
+    Battery, AC or NoBattery: the power to judge instead of reading this machine's. Only the tests pass
+    it, so the battery stop answers the same on any machine; the workflow never does.
+
+.PARAMETER BatteryPercent
+    The charge to go with -PowerSource. Left out, the charge is unknown.
 #>
 [CmdletBinding()]
 param(
     [string]$StateFile,
     [string[]]$Names = @('ScreenTail.Service', 'ScreenTail.UI'),
     [int]$SessionId = -1,
-    [switch]$NoReadiness
+    [switch]$NoReadiness,
+    [ValidateSet('Battery', 'AC', 'NoBattery')]
+    [string]$PowerSource = '',
+    [int]$BatteryPercent = -1
 )
 
 # The demo's own reading of its state file, so "still running" means here what it means to stop.cmd.
@@ -78,12 +96,34 @@ if ($running.Count -gt 0) {
 
 Write-Host 'The ScreenTail demo is not running.'
 
+try {
+    . (Join-Path $PSScriptRoot 'laptop-readiness.ps1')
+}
+catch {
+    Write-Host "Laptop readiness: unknown ($($_.Exception.Message))"
+    exit 0
+}
+
+# A laptop on battery, or too low on charge to last, would die partway through the job. Stop now, with
+# one sentence, instead. An unknown reading lets the job run.
+$power = $null
+if ($PowerSource) {
+    $power = New-ReadinessPower -Source $PowerSource -Percent $BatteryPercent
+}
+else {
+    $power = Invoke-ReadinessProbe { Get-ReadinessPower }
+}
+$stop = Invoke-LaptopPowerCheck -Power $power
+if ($stop) {
+    Write-Host "::error::$stop"
+    exit 1
+}
+
 # How fast this laptop is likely to be, so a slow run explains itself here rather than in a timeout.
 # Warn only: nothing below changes the exit code.
 if (-not $NoReadiness) {
     try {
-        . (Join-Path $PSScriptRoot 'laptop-readiness.ps1')
-        Invoke-LaptopReadiness
+        Invoke-LaptopReadiness -Power $power
     }
     catch {
         Write-Host "Laptop readiness: unknown ($($_.Exception.Message))"

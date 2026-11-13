@@ -9,10 +9,17 @@
     first run of the session (OCR median 547 to 626 ms against 240 ms, the service build 68 s against
     28 s), and nothing in the log said why. That was the machine's state (power, heat or background
     work), not the code. This prints a short block saying what the machine is doing, and a ::warning::
-    naming the likely fix when it looks slow. It never fails a job: a slow laptop still runs.
+    naming the likely fix when it looks slow. The block never fails a job: a slow laptop still runs.
+
+    One thing does fail it, before the block: the battery stop (Get-ReadinessStop). A laptop job on
+    battery runs slow and can run out partway, and the laptop drains even on the charger under load, so
+    a run that starts on battery or low on charge dies midway and leaves a pull request red for hours.
+    The job stops at its first step instead, with one sentence saying what to do, when:
+      - the laptop is on battery, whatever its charge; or
+      - it is on the charger with less than 30% charge ($script:ReadinessMinBatteryPercent).
+    A machine with no battery, or a power source or charge that cannot be read, is never stopped.
 
     The warning is raised when any of these hold:
-      - the laptop is on battery;
       - energy saver (battery saver) is on, or the power mode is Best power efficiency;
       - the CPU is held below 70% of its maximum clock (the "% Performance Limit" counter, which power
         policy and heat lower; the current clock is used only when that counter is missing, and an
@@ -24,8 +31,8 @@
         administrator.
       - Every probe runs through Invoke-ReadinessProbe, so one that fails reads "unknown" and never
         throws. The whole report takes about 4 to 5 seconds, most of it the 3 s CPU sample.
-      - The decision (Get-ReadinessWarnings) and the text (Get-ReadinessReport) take measured values
-        and touch nothing, so laptop-readiness.Tests.ps1 runs them on fake readings, on any OS.
+      - The decisions (Get-ReadinessStop, Get-ReadinessWarnings) and the text (Get-ReadinessReport)
+        take measured values and touch nothing, so laptop-readiness.Tests.ps1 runs them on fake readings, on any OS.
       - ASCII only: Windows PowerShell 5.1 reads a BOM-less script as ANSI.
 
     docs/dev/windows-test-loop.md ("Before a laptop run") says what to do about each warning.
@@ -33,6 +40,12 @@
 
 # --- Thresholds -------------------------------------------------------------------------------------
 
+# Below this charge on the charger, the job stops before it starts. Why 30: on 2026-11-12 the laptop's
+# jobs that started on the charger began at 33% to 82% and gained 7 to 9 points each, so 30 stops none
+# of them; but under load it can also lose charge on the charger, and a job that starts below 30 and
+# loses ten points over its 17 to 30 minutes reaches 20%, where Windows turns energy saver on and the
+# laptop slows to a timeout, and then lower, where it sleeps. Raise it if runs still die on the charger.
+$script:ReadinessMinBatteryPercent = 30
 $script:ReadinessMinClockPercent = 70
 $script:ReadinessMaxBusyPercent = 25
 $script:ReadinessSampleSeconds = 3
@@ -104,6 +117,30 @@ function Get-ReadinessPower {
         # BatteryStatus 1 is "discharging"; the others mean the charger is in.
         [pscustomobject]@{ OnBattery = ([int]$b.BatteryStatus -eq 1); HasBattery = $true; Percent = $b.EstimatedChargeRemaining }
     }
+}
+
+# A power reading given rather than measured, shaped as Get-ReadinessPower's: Source is Battery, AC or
+# NoBattery, Percent the charge (-1 or absent for unknown). check-demo-stopped.ps1's -PowerSource uses
+# it, so its tests never depend on the machine running them.
+function New-ReadinessPower {
+    param([string]$Source, [int]$Percent = -1)
+    $p = $null
+    if ($Percent -ge 0 -and $Source -ne 'NoBattery') { $p = $Percent }
+    switch ($Source) {
+        'Battery' { return [pscustomobject]@{ OnBattery = $true; HasBattery = $true; Percent = $p } }
+        'AC' { return [pscustomobject]@{ OnBattery = $false; HasBattery = $true; Percent = $p } }
+        'NoBattery' { return [pscustomobject]@{ OnBattery = $false; HasBattery = $false; Percent = $null } }
+    }
+    throw "Unknown power source '$Source': use Battery, AC or NoBattery."
+}
+
+# Copies a power reading (Get-ReadinessPower's or New-ReadinessPower's) into a readiness reading.
+function Set-ReadinessPower {
+    param($Reading, $Power)
+    if ($null -eq $Power) { return }
+    $Reading.OnBattery = $Power.OnBattery
+    $Reading.HasBattery = $Power.HasBattery
+    $Reading.BatteryPercent = $Power.Percent
 }
 
 function Get-ReadinessPlanName {
@@ -202,15 +239,13 @@ function Get-ReadinessCpu {
     return $result
 }
 
-# Every probe, into one reading. Windows only; each value it cannot get stays $null.
+# Every probe, into one reading. Windows only; each value it cannot get stays $null. A power reading
+# already taken (the battery stop's) is used as it is rather than read again.
 function Measure-LaptopReadiness {
+    param($Power)
     $reading = New-ReadinessReading
-    $power = Get-ReadinessPower
-    if ($null -ne $power) {
-        $reading.OnBattery = $power.OnBattery
-        $reading.HasBattery = $power.HasBattery
-        $reading.BatteryPercent = $power.Percent
-    }
+    if ($null -eq $Power) { $Power = Get-ReadinessPower }
+    Set-ReadinessPower -Reading $reading -Power $Power
     $reading.PlanName = Get-ReadinessPlanName
     $reading.PowerMode = Get-ReadinessPowerMode -OnBattery $reading.OnBattery
     $reading.SaverOn = Get-ReadinessSaver
@@ -249,6 +284,38 @@ function Get-ReadinessBusyProcess {
     return (Get-ReadinessTopProcesses -Processes $busy -Count 1)[0]
 }
 
+# The one sentence that stops the job, or $null to let it run. Plain words about the power only, never
+# anything else on the machine (INV-10). An unknown is never a stop, and neither is a machine with no
+# battery.
+function Get-ReadinessStop {
+    param($Reading)
+    if ($Reading.HasBattery -eq $false) { return $null }
+    if ($Reading.OnBattery -eq $true) {
+        $left = ''
+        if ($null -ne $Reading.BatteryPercent) { $left = " ($(Format-ReadinessPercent $Reading.BatteryPercent) left)" }
+        return "This laptop is running on battery$left, which can run out partway through this job: plug it in, then re-run this job."
+    }
+    if ($Reading.OnBattery -eq $false -and $null -ne $Reading.BatteryPercent -and [double]$Reading.BatteryPercent -lt $script:ReadinessMinBatteryPercent) {
+        return "This laptop's battery is at $(Format-ReadinessPercent $Reading.BatteryPercent), too low to be sure it lasts this job even on the charger: let it charge to at least $($script:ReadinessMinBatteryPercent)%, then re-run this job."
+    }
+    return $null
+}
+
+# Reads the power (unless it is given) and returns Get-ReadinessStop's sentence, or $null. Never throws:
+# a reading that fails is unknown, and an unknown lets the job run.
+function Invoke-LaptopPowerCheck {
+    param($Power)
+    try {
+        if ($null -eq $Power) { $Power = Get-ReadinessPower }
+        $reading = New-ReadinessReading
+        Set-ReadinessPower -Reading $reading -Power $Power
+        return (Get-ReadinessStop -Reading $reading)
+    }
+    catch {
+        return $null
+    }
+}
+
 # What looks wrong with this reading, each with its likely fix. Empty when nothing does, or when the
 # values that would say are unknown: an unknown is never a warning.
 function Get-ReadinessWarnings {
@@ -258,11 +325,7 @@ function Get-ReadinessWarnings {
     $update = Get-ReadinessBusyProcess -Processes $Reading.Processes -Names $script:ReadinessUpdateNames -Threshold $script:ReadinessUpdateBusyPercent
     $defender = Get-ReadinessBusyProcess -Processes $Reading.Processes -Names $script:ReadinessDefenderNames -Threshold $script:ReadinessDefenderBusyPercent
 
-    if ($Reading.OnBattery -eq $true) {
-        $problem = 'on battery'
-        if ($null -ne $Reading.BatteryPercent) { $problem = "on battery ($(Format-ReadinessPercent $Reading.BatteryPercent))" }
-        [void]$warnings.Add([pscustomobject]@{ Rule = 'battery'; Problem = $problem; Fix = 'plug in' })
-    }
+    # On battery is not a warning: Get-ReadinessStop stops the job before this block is printed.
 
     if ($Reading.SaverOn -eq $true) {
         [void]$warnings.Add([pscustomobject]@{ Rule = 'saver'; Problem = 'energy saver is on'; Fix = 'turn energy saver off' })
@@ -368,11 +431,12 @@ function Add-ReadinessSummary {
 }
 
 # Measures (unless a reading is given), prints the block, and when anything looks slow prints one
-# ::warning:: and adds the block to the job summary. Never throws.
+# ::warning:: and adds the block to the job summary. Never throws. Power, when given, is the battery
+# stop's reading, used rather than read again.
 function Invoke-LaptopReadiness {
-    param($Reading, [string]$SummaryPath = $env:GITHUB_STEP_SUMMARY)
+    param($Reading, $Power, [string]$SummaryPath = $env:GITHUB_STEP_SUMMARY)
     try {
-        if ($null -eq $Reading) { $Reading = Measure-LaptopReadiness }
+        if ($null -eq $Reading) { $Reading = Measure-LaptopReadiness -Power $Power }
         $report = Get-ReadinessReport -Reading $Reading
         foreach ($line in $report.Lines) { Write-Host $line }
         if ($report.Warning) {
