@@ -4,11 +4,14 @@
              xmlns:controls="clr-namespace:ScreenTail.UI.Controls"
              xmlns:review="clr-namespace:ScreenTail.UI.Review"
              Background="Transparent"
+             PreviewKeyDown="OnNoteKeyDown"
              AutomationProperties.Name="Note">
     <!-- Spec v0.6.0 §5 S3, "The note is edited in place as it will land": Problem, Steps, Result and
          Follow-ups in the ticket's plain-text form, each line edited where it is read, so there is no
          preview to drift out of sync. Each step carries its own frame, time and quote; an inferred step
-         says so with Looks right and Edit; under the note, the masking count and the save state. -->
+         says so with Looks right and Edit; under the note, the masking count and the save state.
+         PreviewKeyDown: Ctrl+Z takes back a screenshot deleted from a step's row (v0.6.8), and has to be
+         heard before the focused text box takes it for its own undo. -->
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="Visible" />
 
@@ -281,8 +284,8 @@
 
                                     <!-- The step's frame (the v0.5 screenshot column and "frame 2" chips go):
                                          its thumbnail is the button. Enter or a click enlarges it over the note,
-                                         Space includes or excludes it, as in the strip; what it is called on
-                                         the ticket is under it. -->
+                                         Space includes or excludes it and Del deletes it (v0.6.8), as in the
+                                         strip; what it is called on the ticket is under it. -->
                                     <controls:Repeater Grid.Column="4" ItemsSource="{Binding Frames}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type review:FrameChip}">
@@ -296,9 +299,9 @@
                                                             Command="{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding Id}"
                                                             PreviewKeyDown="OnFrameKeyDown"
-                                                            ToolTip="Enter or click to enlarge, B there to blur. Space includes or excludes it."
+                                                            ToolTip="{Binding DataContext.FrameTip, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             AutomationProperties.Name="{Binding SpokenName}"
-                                                            AutomationProperties.HelpText="Enter enlarges it. Space includes or excludes it.">
+                                                            AutomationProperties.HelpText="{Binding DataContext.FrameHelp, RelativeSource={RelativeSource AncestorType=UserControl}}">
                                                         <Border ClipToBounds="True" CornerRadius="{DynamicResource Radius.control}">
                                                             <Grid>
                                                                 <!-- Under the picture: shows while it loads, covered once it arrives. -->
@@ -414,6 +417,34 @@
                 </Grid>
             </StackPanel>
         </ScrollViewer>
+
+        <!-- A screenshot deleted from a step's row (v0.6.8), or in the strip a moment ago: the strip's own
+             five-second toast, here where the technician is looking, at the foot of the note and over it,
+             so nothing moves when it comes and goes. Ctrl+Z is the same undo. -->
+        <Border Grid.Row="2"
+                Margin="24,0,24,12"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Bottom"
+                Style="{StaticResource Toast}"
+                Visibility="{Binding HasUndoToast, Converter={StaticResource Visible}}">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock VerticalAlignment="Center"
+                           Style="{StaticResource Text.Body}"
+                           Text="{Binding UndoToast}"
+                           controls:LiveRegion.Setting="Assertive" />
+                <Button Margin="12,0,0,0"
+                        Style="{StaticResource Button.Secondary}"
+                        Command="{Binding UndoDeleteCommand}"
+                        Click="OnUndoClick"
+                        AutomationProperties.Name="Undo"
+                        AutomationProperties.AcceleratorKey="Ctrl+Z">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Text="Undo" />
+                        <TextBlock Margin="12,0,0,0" Style="{StaticResource Text.KeyHint}" Foreground="{DynamicResource Brush.text.muted}" Text="Ctrl+Z" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Border>
 
         <!-- Under the note (Spec v0.6.0 §5 S3): the masking count and the save state, "2 items masked, none
              left to review · Saved"; then the chords for this pane and the way to the whole strip. -->

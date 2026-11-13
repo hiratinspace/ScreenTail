@@ -51,6 +51,7 @@ public partial class ShortcutSheet : Window
             new("Alt+Up, Alt+Down", "Move the step up or down"),
             new("Enter at the end", "Start a new step"),
             new("Backspace when empty", "Delete the step"),
+            new("Space, Enter, Del", "On the step's screenshot: include or exclude, enlarge, delete (undo for 5 seconds)"),
         ]),
         new("In the screenshots", [
             new("Space", "Include or exclude the screenshot"),

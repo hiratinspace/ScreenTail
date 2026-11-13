@@ -305,8 +305,13 @@
                     </Border>
                 </Grid>
 
+                <!-- The two buttons are one height (v0.6.8): each takes the control height itself, and neither
+                     has a margin above or below. Both styles had the height as a minimum only and the row's
+                     8 px bottom margin was on the first button alone, so the row stretched the toggle 8 px
+                     taller than its neighbour. The gap over the hint, when it wraps under them, is the hint's. -->
                 <WrapPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,12">
-                    <Button Margin="0,0,0,8"
+                    <Button Margin="0,0,8,0"
+                            Height="{DynamicResource Layout.control-height}"
                             Style="{StaticResource Button.Secondary}"
                             Content="OCR text  T"
                             Command="{Binding ToggleOcrTextCommand}"
@@ -316,7 +321,7 @@
                          for a region-draw overlay and calls it destructive; the button says so before the
                          surface is even armed. -->
                     <ToggleButton x:Name="BlurMode"
-                                  Margin="8,0,0,0"
+                                  Height="{DynamicResource Layout.control-height}"
                                   Content="Blur a region  B"
                                   Checked="OnBlurModeChanged"
                                   Unchecked="OnBlurModeChanged">
@@ -332,8 +337,8 @@
                         </ToggleButton.Style>
                     </ToggleButton>
 
-                    <TextBlock Margin="12,0,0,0"
-                               VerticalAlignment="Center"
+                    <TextBlock Margin="12,8,0,0"
+                               VerticalAlignment="Top"
                                Style="{StaticResource Text.Muted}"
                                Text="Drag over what should be covered, or move the box with the arrow keys (Shift resizes) and press Enter. This cannot be undone."
                                Visibility="{Binding IsChecked, ElementName=BlurMode, Converter={StaticResource Visible}}" />

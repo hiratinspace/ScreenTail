@@ -110,7 +110,7 @@ public sealed class NoteAsItLandsTests
         // The strip is under the note when Del is pressed on a step's row, so the note's own tick closes
         // the undo window: nothing is deleted before the five seconds are up, and it is deleted after.
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
-        var time = new ManualTime(new DateTimeOffset(2026, 11, 12, 9, 0, 0, TimeSpan.Zero));
+        var time = new Detection.ManualTime(new DateTimeOffset(2026, 11, 12, 9, 0, 0, TimeSpan.Zero));
         var frames = new RecordingFrames();
         var session = Session(Draft("Spooler", "f2"), Frames(2));
         var strip = new FilmstripViewModel(session, frames, time);
