@@ -65,8 +65,12 @@ public partial class ShellWindow : Window
         BindRail();
     }
 
-    /// <summary>Keyboard focus goes into the pane once it shows the session a rail row's Enter opened.</summary>
-    private bool _focusPane;
+    /// <summary>
+    /// Until when keyboard focus goes into the pane once it shows the session a rail row's Enter opened: a
+    /// few seconds, so a pane that never arrives (the service could not hand it over) does not take focus
+    /// later, when the technician has moved on.
+    /// </summary>
+    private DateTime _focusPaneUntil;
 
     /// <summary>
     /// Spec v0.6.9 S4: the rail is <c>layout.rail-width-narrow</c> in a window under
@@ -80,12 +84,12 @@ public partial class ShellWindow : Window
         ShellFrame.SizeChanged += (_, e) => FitRail(e.NewSize.Width);
         Rail.RowActivated += (_, _) =>
         {
-            _focusPane = true;
+            _focusPaneUntil = DateTime.UtcNow.AddSeconds(5);
             FocusPaneSoon();
         };
         _model.PropertyChanged += (_, e) =>
         {
-            if (_focusPane && e.PropertyName == nameof(ShellViewModel.Content))
+            if (DateTime.UtcNow < _focusPaneUntil && e.PropertyName == nameof(ShellViewModel.Content))
             {
                 FocusPaneSoon();
             }
@@ -105,9 +109,9 @@ public partial class ShellWindow : Window
         _ = Dispatcher.InvokeAsync(
             () =>
             {
-                if (_focusPane && FirstFocusable(Pane) is { } target)
+                if (DateTime.UtcNow < _focusPaneUntil && FirstFocusable(Pane) is { } target)
                 {
-                    _focusPane = false;
+                    _focusPaneUntil = default;
                     _ = System.Windows.Input.Keyboard.Focus(target);
                 }
             },

@@ -32,6 +32,7 @@ public partial class ShortcutSheet : Window
             new("?", "This sheet, when the cursor is not in a text box"),
             new("Tab, Shift+Tab", "Move to the next or previous control"),
             new("Ctrl+F", "Search the sessions in the rail"),
+            new("Enter on a session", "Open it, from the rail or All sessions"),
             new("Esc", "Close a dialog, this sheet or an enlarged screenshot"),
         ]),
         new("During a session (change these in Settings, under Capture)", [
