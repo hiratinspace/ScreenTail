@@ -59,8 +59,83 @@ public partial class ShellWindow : Window
     /// </summary>
     public static System.Windows.Input.RoutedCommand FindCommand { get; } = new(nameof(FindCommand), typeof(ShellWindow));
 
-    private void BindFind() =>
+    private void BindFind()
+    {
         CommandBindings.Add(new System.Windows.Input.CommandBinding(FindCommand, (_, _) => Rail.FocusSearch()));
+        BindRail();
+    }
+
+    /// <summary>Keyboard focus goes into the pane once it shows the session a rail row's Enter opened.</summary>
+    private bool _focusPane;
+
+    /// <summary>
+    /// Spec v0.6.9 S4: the rail is <c>layout.rail-width-narrow</c> in a window under
+    /// <c>layout.rail-narrow-below</c> wide (<see cref="Core.History.RailLayout"/>), and <c>Enter</c> on a
+    /// rail row opens its session and puts keyboard focus in the pane, where the review is done.
+    /// </summary>
+    private void BindRail()
+    {
+        SizeChanged += (_, _) => FitRail();
+        Loaded += (_, _) => FitRail();
+        Rail.RowActivated += (_, _) =>
+        {
+            _focusPane = true;
+            FocusPaneSoon();
+        };
+        _model.PropertyChanged += (_, e) =>
+        {
+            if (_focusPane && e.PropertyName == nameof(ShellViewModel.Content))
+            {
+                FocusPaneSoon();
+            }
+        };
+    }
+
+    /// <summary>The rail's width for the window's width now, from the tokens.</summary>
+    internal void FitRail()
+    {
+        var breakpoint = TryFindResource("Layout.rail-narrow-below") is double below ? below : double.MaxValue;
+        var wide = Core.History.RailLayout.IsWide(ActualWidth > 0 ? ActualWidth : Width, breakpoint);
+        RailFrame.SetResourceReference(WidthProperty, wide ? "Layout.rail-width" : "Layout.rail-width-narrow");
+    }
+
+    /// <summary>Once the pane has drawn, focus its first control; a pane still loading waits for the next.</summary>
+    private void FocusPaneSoon() =>
+        _ = Dispatcher.InvokeAsync(
+            () =>
+            {
+                if (_focusPane && FirstFocusable(Pane) is { } target)
+                {
+                    _focusPane = false;
+                    _ = System.Windows.Input.Keyboard.Focus(target);
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+
+    /// <summary>The first visible, enabled tab stop under <paramref name="parent"/>, in the visual tree's order.</summary>
+    private static System.Windows.IInputElement? FirstFocusable(DependencyObject parent)
+    {
+        for (var i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+            if (child is UIElement { IsVisible: false })
+            {
+                continue;
+            }
+
+            if (child is UIElement { IsEnabled: true, Focusable: true } element && System.Windows.Input.KeyboardNavigation.GetIsTabStop(element))
+            {
+                return element;
+            }
+
+            if (FirstFocusable(child) is { } inner)
+            {
+                return inner;
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>
     /// The sample shell's store, so the accessibility suite (ST-084) can open the same session variants the

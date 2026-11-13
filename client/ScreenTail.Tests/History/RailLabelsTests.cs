@@ -215,16 +215,16 @@ public sealed class RailLabelsTests
         string? company = null,
         string? title = null,
         string? ticket = null) => new()
-    {
-        Id = id,
-        StartedAt = Now.AddHours(-hoursAgo),
-        DurationMs = 540_000,
-        Status = status,
-        Tool = tool,
-        Frames = 3,
-        FramesPurged = 0,
-        Company = company,
-        Title = title,
-        Ticket = ticket,
-    };
+        {
+            Id = id,
+            StartedAt = Now.AddHours(-hoursAgo),
+            DurationMs = 540_000,
+            Status = status,
+            Tool = tool,
+            Frames = 3,
+            FramesPurged = 0,
+            Company = company,
+            Title = title,
+            Ticket = ticket,
+        };
 }

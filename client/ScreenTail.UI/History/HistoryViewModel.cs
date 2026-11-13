@@ -12,8 +12,18 @@ namespace ScreenTail.UI.History;
 /// <summary>One row of the History screen, already worded (Spec §5 S4).</summary>
 /// <param name="Frames">"7", or "7 (+1 purged)" when frames were deleted unredacted, because that is a fact about coverage the technician should see before publishing.</param>
 /// <param name="NotConfirmed">A publish of the session may have reached the ticket and was never confirmed: said beside the status, never in place of it (contract v10).</param>
-public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames, bool NotConfirmed = false)
+/// <param name="Badge">The status as the rail draws it: its word, glyph and hue (spec v0.6.9 S4). Null draws the word alone.</param>
+public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames, bool NotConfirmed = false, StatusBadge? Badge = null)
 {
+    /// <summary>The status badge's glyph, beside its word.</summary>
+    public string StatusGlyph => Badge?.Glyph ?? string.Empty;
+
+    /// <summary>Which hue the status badge's glyph and edge take (<see cref="StatusBadge.Tone"/>).</summary>
+    public string StatusTone => Badge?.Tone ?? "Muted";
+
+    /// <summary>The Not confirmed badge's glyph.</summary>
+    public static string NotConfirmedGlyph => StatusBadges.NotConfirmed.Glyph;
+
     /// <summary>The row as a screen reader says it (Spec §7); it read the record itself until ST-084.</summary>
     public string Spoken => NotConfirmed
         ? $"{Status}, publish not confirmed, started {Started}, {Duration}, {Tool}, {Frames} screenshots"
@@ -48,7 +58,16 @@ public sealed partial class HistoryViewModel : ObservableObject
     private readonly Func<IReadOnlyCollection<string>, string?>? _discardBlocked;
     private readonly Func<string, string, CancellationToken, Task<ConfirmedResult>>? _markPublished;
     private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
+    private readonly TimeZoneInfo _zone;
+    private IReadOnlyList<SessionRow>? _all;
     private IReadOnlyList<HistoryRow> _selected = [];
+
+    /// <summary>
+    /// True until the first read, and while the tool list is rebuilt after one, so a filter choice set
+    /// then does not draw the table (and before the first read does not say the service did not answer).
+    /// </summary>
+    private bool _quiet = true;
 
     /// <summary>The mark's question is up or its answer is on its way (<see cref="OneAtATime"/>).</summary>
     private readonly OneAtATime _marking = new();
@@ -76,7 +95,9 @@ public sealed partial class HistoryViewModel : ObservableObject
         Func<TypedConfirmation, int, Task<bool>>? confirm = null,
         Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? discard = null,
         Func<IReadOnlyCollection<string>, string?>? discardBlocked = null,
-        Func<string, string, CancellationToken, Task<ConfirmedResult>>? markPublished = null)
+        Func<string, string, CancellationToken, Task<ConfirmedResult>>? markPublished = null,
+        TimeProvider? time = null,
+        TimeZoneInfo? zone = null)
     {
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _load = load ?? throw new ArgumentNullException(nameof(load));
@@ -84,9 +105,36 @@ public sealed partial class HistoryViewModel : ObservableObject
         _discard = discard;
         _discardBlocked = discardBlocked;
         _markPublished = markPublished;
+        _time = time ?? TimeProvider.System;
+        _zone = zone ?? TimeZoneInfo.Local;
+        ToolChoice = ToolChoices[0];
     }
 
+    /// <summary>The rows the filters keep, newest first.</summary>
     public ObservableCollection<HistoryRow> Rows { get; } = [];
+
+
+    /// <summary>The tool filter's list: every tool the sessions have.</summary>
+    public ObservableCollection<FilterChoice<string?>> ToolChoices { get; } = [.. HistoryFilters.ToolChoices([])];
+
+
+    [ObservableProperty]
+    public partial FilterChoice<string?> StatusChoice { get; set; } = HistoryFilters.StatusChoices[0];
+
+    [ObservableProperty]
+    public partial FilterChoice<string?>? ToolChoice { get; set; }
+
+    [ObservableProperty]
+    public partial FilterChoice<HistoryPeriod> PeriodChoice { get; set; } = HistoryFilters.PeriodChoices[0];
+
+    /// <summary>What the filters say now.</summary>
+    public TableFilter Filter => new(PeriodChoice?.Value ?? HistoryPeriod.AnyTime, StatusChoice?.Value, ToolChoice?.Value);
+
+    /// <summary>The filters, once there is a session to filter.</summary>
+    public System.Windows.Visibility FiltersVisibility => _all is { Count: > 0 } ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    /// <summary>Clear filters, offered while a filter leaves rows out.</summary>
+    public System.Windows.Visibility ClearFiltersVisibility => Filter.IsActive ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
     [ObservableProperty]
     public partial string Status { get; set; } = "Asking the capture service…";
@@ -133,26 +181,75 @@ public sealed partial class HistoryViewModel : ObservableObject
     public async Task RefreshAsync(CancellationToken ct = default)
     {
         var rows = await _load(ct).ConfigureAwait(true);
+        _all = rows is null ? null : [.. rows.OrderByDescending(r => r.StartedAt)];
+        _quiet = true;
+        OfferTools();
+        _quiet = false;
+        Show();
+    }
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        StatusChoice = HistoryFilters.StatusChoices[0];
+        ToolChoice = ToolChoices[0];
+        PeriodChoice = HistoryFilters.PeriodChoices[0];
+    }
+
+    partial void OnStatusChoiceChanged(FilterChoice<string?> value) => Show();
+
+    partial void OnToolChoiceChanged(FilterChoice<string?>? value) => Show();
+
+    partial void OnPeriodChoiceChanged(FilterChoice<HistoryPeriod> value) => Show();
+
+    /// <summary>The tool list as the sessions have it, keeping the chosen tool while any session has it.</summary>
+    private void OfferTools()
+    {
+        var chosen = ToolChoice?.Value;
+        var offered = HistoryFilters.ToolChoices(_all ?? []);
+        ToolChoices.Clear();
+        foreach (var choice in offered)
+        {
+            ToolChoices.Add(choice);
+        }
+
+        ToolChoice = ToolChoices.FirstOrDefault(c => string.Equals(c.Value, chosen, StringComparison.OrdinalIgnoreCase)) ?? ToolChoices[0];
+    }
+
+    /// <summary>The rows the filters keep, and the line that says how many.</summary>
+    private void Show()
+    {
+        if (_quiet)
+        {
+            return;
+        }
+
         Rows.Clear();
         _sessions.Clear();
         Select([]);
-        if (rows is null)
+        OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(FiltersVisibility));
+        OnPropertyChanged(nameof(ClearFiltersVisibility));
+        if (_all is null)
         {
             Status = "The capture service did not answer.";
             return;
         }
 
-        foreach (var row in rows.OrderByDescending(r => r.StartedAt))
+        foreach (var row in HistoryFilters.Apply(_all, Filter, _time.GetUtcNow(), _zone))
         {
             _sessions[row.Id] = row;
             Rows.Add(Format(row));
         }
 
-        Status = Rows.Count switch
+        var filtered = Filter.IsActive;
+        Status = (Rows.Count, _all.Count) switch
         {
-            0 => SessionHistory.Empty,
-            1 => "1 session",
-            var n => $"{n} sessions",
+            (_, 0) => SessionHistory.Empty,
+            (0, _) => HistoryFilters.NoMatch,
+            (var n, var all) when filtered => string.Create(CultureInfo.CurrentCulture, $"{n} of {all} sessions"),
+            (1, _) => "1 session",
+            (var n, _) => string.Create(CultureInfo.CurrentCulture, $"{n} sessions"),
         };
     }
 
@@ -295,9 +392,11 @@ public sealed partial class HistoryViewModel : ObservableObject
             row.Id,
             row.StartedAt.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture),
             duration.TotalHours >= 1 ? duration.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture) : duration.ToString(@"m\:ss", CultureInfo.InvariantCulture),
-            row.Status.Length == 0 ? row.Status : char.ToUpperInvariant(row.Status[0]) + row.Status[1..],
+            // The status in the rail's words, glyph and hue (spec v0.6.9 S4): "Partial capture", not "Partial".
+            row.Status.Length == 0 ? row.Status : StatusBadges.Of(row.Status).Word,
             ToolNames.Display(row.Tool),
             row.FramesPurged > 0 ? $"{row.Frames} (+{row.FramesPurged} purged)" : row.Frames.ToString(CultureInfo.InvariantCulture),
-            SessionHistory.MayMarkPublished(row));
+            SessionHistory.MayMarkPublished(row),
+            row.Status.Length == 0 ? null : StatusBadges.Of(row.Status));
     }
 }

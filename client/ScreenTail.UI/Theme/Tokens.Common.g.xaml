@@ -39,6 +39,8 @@
     <sys:Double x:Key="Layout.pane-min-height">300</sys:Double>
     <sys:Double x:Key="Layout.strip-min-height">416</sys:Double>
     <sys:Double x:Key="Layout.rail-width">280</sys:Double>
+    <sys:Double x:Key="Layout.rail-width-narrow">232</sys:Double>
+    <sys:Double x:Key="Layout.rail-narrow-below">1180</sys:Double>
     <Thickness x:Key="Padding.pane">24</Thickness>
     <Thickness x:Key="Padding.card">20</Thickness>
     <Thickness x:Key="Padding.control">14,5</Thickness>

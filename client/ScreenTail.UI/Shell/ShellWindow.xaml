@@ -90,7 +90,9 @@
         </Grid.ColumnDefinitions>
 
         <!-- The inbox rail (Spec §5 S4): the status chip, search and the groups, then its foot. -->
-        <Grid Grid.Column="0" Width="{DynamicResource Layout.rail-width}">
+        <!-- Narrower in a window under layout.rail-narrow-below (code-behind, spec v0.6.9 S4), so the pane
+             keeps its room at the 1024 minimum. -->
+        <Grid x:Name="RailFrame" Grid.Column="0" Width="{DynamicResource Layout.rail-width}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -231,7 +233,8 @@
                 </Grid>
             </Border>
 
-            <ContentControl Grid.Row="1"
+            <ContentControl x:Name="Pane"
+                            Grid.Row="1"
                             Margin="{DynamicResource Padding.pane}"
                             Content="{Binding Content}"
                             ContentTemplateSelector="{StaticResource Shell.Content}"
