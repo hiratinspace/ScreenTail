@@ -26,6 +26,9 @@ public sealed class MarkAsPublished(
     /// <summary>The button, the dialog's title and the confirming answer.</summary>
     public const string Action = "Mark as published";
 
+    /// <summary>The dialog's first line.</summary>
+    public const string Heading = "Mark this session as published?";
+
     /// <summary>The dialog's words under its first line. What is being claimed, and what follows from it.</summary>
     public const string Question =
         "Only do this after checking the ticket."
@@ -34,13 +37,13 @@ public sealed class MarkAsPublished(
         + "A published session is kept and can no longer be discarded.";
 
     /// <summary>
-    /// The dialog's words for one session, named as its History row shows it (when it started, how long,
-    /// the tool), so the technician sees which row they are vouching for. Shown, never logged.
+    /// The dialog's words for one session, named in words (the tool, when it started, how long), so the
+    /// technician sees which row they are vouching for. Shown, never logged.
     /// </summary>
     public static string QuestionFor(string session)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(session);
-        return $"Mark the session started {session} as published?\n\n{Question}";
+        return $"{Heading}\n\n{session}.\n\n{Question}";
     }
 
     public const string WhileCapturing = "A session is being captured. Stop it first, then mark this one as published.";
