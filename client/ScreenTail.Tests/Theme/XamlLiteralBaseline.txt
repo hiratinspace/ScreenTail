@@ -22,7 +22,6 @@ Review/NoteEditorView.xaml	BorderThickness	2,0,0,0	1
 Review/NoteEditorView.xaml	CornerRadius	1.5	1
 Review/NoteEditorView.xaml	CornerRadius	28	2
 Review/NoteEditorView.xaml	Margin	0,6,0,0	1
-Review/Publish/EnvelopeView.xaml	Margin	0,2,0,0	1
 Review/Publish/EnvelopeView.xaml	Margin	0,2,0,2	1
 Review/Publish/EnvelopeView.xaml	Margin	0,2,12,2	1
 Review/Publish/EnvelopeView.xaml	Margin	0,2,24,2	1

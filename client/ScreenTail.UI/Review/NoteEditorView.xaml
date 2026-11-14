@@ -293,7 +293,7 @@
                                                             Margin="0,4,0,4"
                                                             Visibility="{Binding Present, Converter={StaticResource Visible}}">
                                                     <Button Width="128"
-                                                            Height="72"
+                                                            Height="80"
                                                             Style="{StaticResource StepFrame}"
                                                             Tag="{Binding Id}"
                                                             Command="{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"

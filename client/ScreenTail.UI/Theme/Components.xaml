@@ -2085,7 +2085,7 @@
     <!-- A rail row. On the frame at rest; under the pointer shell.hover; the open session's row is the
          pane's tab (see the note above the frame's styles). -->
     <Style x:Key="Rail.Row" TargetType="ListBoxItem">
-        <Setter Property="Margin" Value="8,4,0,4" />
+        <Setter Property="Margin" Value="8,0,0,4" />
         <Setter Property="Padding" Value="12,8,16,8" />
         <Setter Property="MinHeight" Value="{DynamicResource Layout.hit-target-min}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.shell.text}" />
