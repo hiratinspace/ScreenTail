@@ -63,7 +63,7 @@ curl -X PUT "$BACKEND/v1/integrations/connectwise" \
 
 ## What the deployment supplies
 
-**`ConnectWise:ClientId`** — the clientId ConnectWise issues per integration vendor at
+**`ConnectWise:ClientId`**: the clientId ConnectWise issues per integration vendor at
 developer.connectwise.com. It is ours, not the tenant's, set once per deployment like the vault's master
 key. Without it every call is refused before it is sent, with a message naming the setting.
 

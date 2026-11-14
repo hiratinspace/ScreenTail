@@ -1,17 +1,17 @@
-# ScreenTail — Build Agent Execution Guide (v0.4)
+# ScreenTail: Build Agent Execution Guide (v0.4)
 
 This is the entry point for any human or AI build agent working on ScreenTail. Read this file first, then the UX Design Spec, then pick up the next open ticket from the Backlog.
 
 **Package contents**
-- `00-Build-Agent-Guide.md` — this file: how to work, non-negotiable invariants, execution order
-- `01-UX-Design-Spec.md` — tokens, screens, states, copy, shortcuts; the single source of truth for anything a user sees
-- `02-Backlog-v0.4.md` — ticketed work with IDs, dependencies, acceptance criteria and per-ticket agent briefs
+- `00-Build-Agent-Guide.md`: this file (how to work, non-negotiable invariants, execution order)
+- `01-UX-Design-Spec.md`: tokens, screens, states, copy, shortcuts; the single source of truth for anything a user sees
+- `02-Backlog-v0.4.md`: ticketed work with IDs, dependencies, acceptance criteria and per-ticket agent briefs
 
 ---
 
 ## 1. What we are building (one paragraph)
 
-ScreenTail is a Windows desktop app for MSP technicians. A background **capture service** notices when a remote-support window (ScreenConnect, RDP, Splashtop, TeamViewer, AnyDesk, or a browser-based remote client) is in focus, records clicks and click-triggered screenshots, transcribes the technician's microphone locally, redacts sensitive content on-device, and — after the session — asks a language model once to draft a ticket note (Problem → Steps → Result → Follow-ups). A **UI process** (tray icon, recording HUD, Review screen, Settings) lets the technician review the draft in about thirty seconds and publish it to ConnectWise Manage and Hudu. A small **web app** handles tenant signup, seats and admin policy.
+ScreenTail is a Windows desktop app for MSP technicians. A background **capture service** notices when a remote-support window (ScreenConnect, RDP, Splashtop, TeamViewer, AnyDesk, or a browser-based remote client) is in focus, records clicks and click-triggered screenshots, transcribes the technician's microphone locally, redacts sensitive content on-device, and, after the session, asks a language model once to draft a ticket note (Problem → Steps → Result → Follow-ups). A **UI process** (tray icon, recording HUD, Review screen, Settings) lets the technician review the draft in about thirty seconds and publish it to ConnectWise Manage and Hudu. A small **web app** handles tenant signup, seats and admin policy.
 
 ---
 
@@ -35,7 +35,7 @@ ScreenTail is a Windows desktop app for MSP technicians. A background **capture 
   /adr             architecture decision records and their evidence
   /security        threat model, data-flow, questionnaire (red-team reports arrive with ST-115)
   /review          ranked review findings (weaknesses.md)
-  /product         market scans and idea lists — reference, never tickets
+  /product         market scans and idea lists (reference, never tickets)
   /legal           consent guidance
   /dev             the Windows test loop
   /ux              wireframes and hi-fi assets
@@ -49,7 +49,7 @@ Ticket IDs are `ST-###`. Branch naming: `st-###-short-slug`. One PR per ticket u
 
 ---
 
-## 3. Invariants — never violate, never "temporarily" bypass
+## 3. Invariants: never violate, never "temporarily" bypass
 
 An agent that finds a ticket seemingly requiring one of these to be broken must stop and open an ADR/question rather than proceed.
 
@@ -109,10 +109,10 @@ Work follows the **ordered plan in `02-Backlog-v0.4.md` Part C** (phases A–E, 
 - **Agent B (infra, design, UI, integrations, release):** ST-001–ST-019, ST-050–ST-059, ST-070–ST-129
 
 Milestone gates:
-- **M1** at the end of Phase B — real Review UI shows real drafts from real sessions; eval harness reports quality
-- **M2** at the end of Phase C — publish to ConnectWise + Hudu works end-to-end behind human review
-- **M3** at the end of Phase D — signed installer, onboarding, policy, docs; pilot begins
-- **M4** — Phase E, v1.1 tickets
+- **M1** at the end of Phase B: real Review UI shows real drafts from real sessions; eval harness reports quality
+- **M2** at the end of Phase C: publish to ConnectWise + Hudu works end-to-end behind human review
+- **M3** at the end of Phase D: signed installer, onboarding, policy, docs; pilot begins
+- **M4**: Phase E, v1.1 tickets
 
 ---
 

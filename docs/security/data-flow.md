@@ -41,7 +41,7 @@ own.
 ## Captured on the device
 
 **Screenshots** are taken when the technician clicks, or when the screen changes enough to be worth
-recording — not continuously, and not on a timer.
+recording, not continuously, and not on a timer.
 
 **Which windows** is restricted by default to the remote-support tool plus an allowlist of admin tools
 (INV-5). "All windows" exists, is opt-in, and warns that it will capture other customers' data if the
@@ -50,8 +50,8 @@ either mode: the desktop's rectangle is every monitor, so a picture of it would 
 window in front of it. Neither is a shell window whose type cannot be read. File Explorer counts as an
 admin tool only in a folder window.
 
-**Keystrokes are never recorded.** The keyboard hook produces categories and counts — "a burst of 14
-characters", "a shortcut", "Enter" — and there is no field anywhere in the data format that can hold a
+**Keystrokes are never recorded.** The keyboard hook produces categories and counts ("a burst of 14
+characters", "a shortcut", "Enter"), and there is no field anywhere in the data format that can hold a
 key or a character (INV-2). This is enforced by the schema as well as by the hook, so a future change
 cannot quietly add one.
 
@@ -80,7 +80,7 @@ silent-capture mode.
 
 > **Status, 2026-09-22.** The UI is connected to the capture service (ST-085): the pill and a tray icon
 > show live state. The UI tells the service every two seconds that the pill is on screen and where, and
-> the service treats a pill it has not heard from in six seconds as absent — so a UI that has stopped
+> the service treats a pill it has not heard from in six seconds as absent, so a UI that has stopped
 > painting without closing does not count as an indicator. **While no indicator is reported, the service
 > suppresses capture** after a short grace for UI restarts, and writes the interval to the audit log; a
 > UI that crashed, was quit, or was never started cannot leave the service recording. Between 2026-09-15 and 2026-09-16 this
@@ -96,15 +96,15 @@ technician's own account.
 
 **A screenshot never reaches the store unredacted.** A captured frame waits in a small in-memory queue,
 the redaction worker takes it from there, and only the redacted, downscaled result is written
-(ADR-0006). Every read path — the review screen, the bundle builder, export — still filters on frames
+(ADR-0006). Every read path (the review screen, the bundle builder, export) still filters on frames
 that have been redacted (INV-1), as a second line and for stores an older build wrote. A frame that
 cannot be redacted, or that arrives when the queue is full, is **deleted and counted, not kept**: an
 unreadable frame retained is an unredacted frame, and the count reaches the draft so it hedges rather
 than claims to have seen everything.
 
 Redaction runs on the device. It reads the text on each screenshot with the local OCR engine and masks
-what matches — card numbers, national insurance and social security numbers, API keys and tokens,
-password fields — and then, and only then, the frame becomes readable to the rest of the product.
+what matches (card numbers, national insurance and social security numbers, API keys and tokens,
+password fields), and then, and only then, the frame becomes readable to the rest of the product.
 
 The OCR engine is given each frame at twice its captured size (2026-11-11), because it reads small
 text badly and long random strings worst: on the hosted runner's probe, of 1,200 secrets drawn at 9
@@ -278,7 +278,7 @@ verification beside it.
 
 ## What leaves the device
 
-**Only when the technician presses Publish** (INV-3). There is no automatic publishing path in v1 — not
+**Only when the technician presses Publish** (INV-3). There is no automatic publishing path in v1: not
 a scheduled one, not a "publish when confident" one. One press is one request: a refused publish is not
 sent again to learn why it was refused, and once anything has landed Publish is refused, so Retry (which
 sends only what failed) is the one way on.
@@ -295,7 +295,7 @@ For drafting, the note can be produced two ways:
   and takes the destination's purpose from the calling code rather than guessing it from the URL (INV-8).
   A tenant can lock this on for every machine.
 - **By a hosted model.** A redacted bundle is sent for one request. **The backend never writes frames to
-  storage** (INV-7) — they are held in memory for the duration of the request and are not persisted, and
+  storage** (INV-7): they are held in memory for the duration of the request and are not persisted, and
   the backend's tests assert that its storage does not grow. The model is the one the deployment's
   `Summarization:Provider` names, and no other: Anthropic's Claude (`api.anthropic.com`, under the
   operator's Anthropic account) when it is `claude`, Google's Gemini Flash when it is `gemini-flash`, the
@@ -308,12 +308,12 @@ For drafting, the note can be produced two ways:
 **Logs contain no content** (INV-10). Not window titles, not OCR text, not transcript, not note text, not
 company or ticket names. The record the diagnostics panel is built from has nowhere to put any of those,
 which is a stronger guarantee than filtering them out. The metrics system (ST-098) is built the same
-way: `shared/contracts/session-metric.v1.json` is the whole field list — the session id, counts, times,
-the edit ratio and whether it was published — and a test on each side fails if the type ever grows a
+way: `shared/contracts/session-metric.v1.json` is the whole field list (the session id, counts, times,
+the edit ratio and whether it was published), and a test on each side fails if the type ever grows a
 string field other than the id. Nothing is sent unless telemetry is on.
 
-Since ST-011 (2026-09-25) that guarantee has a belt as well as a brace. Every process — service, UI,
-backend — writes through one scrubbing log sink and no other: a value logged under a content-carrying
+Since ST-011 (2026-09-25) that guarantee has a belt as well as a brace. Every process (service, UI,
+backend) writes through one scrubbing log sink and no other: a value logged under a content-carrying
 key (`Title`, `Text`, `Transcript`, `Note`, `Company`, `Ticket`, a secret) is written as `[redacted]`,
 and every line and every exception passes through a path and address scrubber (`[path]`, `[email]`)
 before it is written. A test scans every log template in the client for a placeholder that would carry
@@ -333,7 +333,7 @@ is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backe
 unless said otherwise.
 
 **A crash leaves a stack trace and nothing else.** With `SCREENTAIL_CRASH_REPORTS=1` a crash writes the
-exception types and frames — never the message, which is where a path or a title ends up — to
+exception types and frames (never the message, which is where a path or a title ends up) to
 `%LOCALAPPDATA%\ScreenTail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
 opt-in nothing is written.
 
@@ -343,14 +343,14 @@ here from the transcript and the screenshots: one step per thing said, low confi
 No model runs, so no model is contacted; the note says what it is.
 
 **What the technician changes about drafts is learned as signals, not text** (ST-067). At publish the
-service compares the draft as written with the draft as published and keeps only structural ids —
-`past_tense`, `shorter_steps`, `no_full_stops`, `sentence_case`, `fewer_steps` — for the last ten
+service compares the draft as written with the draft as published and keeps only structural ids
+(`past_tense`, `shorter_steps`, `no_full_stops`, `sentence_case`, `fewer_steps`) for the last ten
 sessions, in `style.json` beside the store. The next drafting request carries the ids a technician has
 earned; the backend turns the ones it knows into sentences of its own and refuses any other id, so
 nothing a client sends can become a line of the prompt.
 
 **The tenant's policy is the one thing fetched in local-only mode** (ST-047). It is a handful of
-settings — retention days, local-only and whether the admin locked it, capture scope — with no content,
+settings (retention days, local-only and whether the admin locked it, capture scope) with no content,
 fetched from the configured backend host under its own egress purpose, at start and hourly. It has to
 be, because the policy that turns local-only on is the only thing that can turn it off. The last copy
 that arrived is kept on disk and applies when the backend does not answer. The speech model is not
@@ -370,7 +370,7 @@ suppressed intervals and why, redactions by kind, bytes sent and to which host, 
 frame turned away before it was captured, because redaction had fallen behind, is counted as lost and
 not as captured, so the lost count can be larger than the captured one.
 
-It is **hash-chained** — each row carries the hash of the one before it — so a row cannot be removed or
+It is **hash-chained** (each row carries the hash of the one before it), so a row cannot be removed or
 altered without breaking every row after it. That matters most for the rows recording that data was
 *destroyed*, which are the ones somebody would want gone. The export says whether the chain verified, and
 contains no content.
@@ -388,7 +388,7 @@ trust:
 - **A compromised remote-support tool.** If the tool ScreenTail is watching is itself hostile, it controls
   the screen being captured. Worth saying aloud, since watching one is the product's entire premise.
 - **A technician who opens the wrong window.** Scope defaults and suppression reduce this; they do not
-  eliminate it. The review step exists partly for this reason — the technician sees every screenshot
+  eliminate it. The review step exists partly for this reason: the technician sees every screenshot
   before it goes anywhere, and can exclude or blur any of them. A blur deletes the text read from that
   screenshot as well as the pixels.
 
@@ -456,7 +456,7 @@ This document describes what is enforced today. These are named here rather than
   written, sent or logged, and the meter has no field that could hold a sample. Windows' own
   microphone-in-use indicator lights while it runs, which the technician sees beside the card.
 - **The on-device model is not built** (ST-065). A local-only session is drafted on the device from
-  its transcript and screenshots instead — a plainer note, marked local — so nothing leaves and
+  its transcript and screenshots instead (a plainer note, marked local), so nothing leaves and
   nothing is lost.
 - **Binaries are not signed** (ST-112). The peer check falls back to the same-directory rule on
   development builds, and the spare laptop's Application Control policy has blocked fresh service

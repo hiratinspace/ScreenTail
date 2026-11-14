@@ -24,14 +24,14 @@ and written with `redaction_pending = 0`. It was then visible to Review, to the 
 publish. The comment two lines above said a frame the recogniser could not make out is where a secret is
 most likely to survive; the guard exempted precisely that case.
 
-The reasoning behind the original behaviour was that a screenshot with no text — a wallpaper, a progress
-bar — is not suspicious, it is just quiet. That is true of the frames it had in mind and false of the
+The reasoning behind the original behaviour was that a screenshot with no text (a wallpaper, a progress
+bar) is not suspicious, it is just quiet. That is true of the frames it had in mind and false of the
 ones that actually arrive, because **nothing downstream can tell the two apart.**
 `Windows.Media.Ocr` returns zero words for all of these:
 
 - a blank desktop, which is the harmless case;
 - a dark-mode terminal, or any theme whose contrast the engine cannot segment;
-- a page in a language with no pack installed — `TryCreateFromUserProfileLanguages()` falls back to
+- a page in a language with no pack installed: `TryCreateFromUserProfileLanguages()` falls back to
   `en-US`, and a Cyrillic or CJK screen then reads as nothing at all;
 - a frame it decoded and could not segment, which ADR-0001 finding 9 already records: the canonical test
   card `4111 1111 1111 1111` comes back empty, because a long run of one ambiguous glyph defeats it.
@@ -46,8 +46,8 @@ platform that ships. Two independent defences, both inert.
 
 A frame that genuinely had no text on it is lost along with the rest. We accept that cost.
 
-The two discard reasons are counted apart — `RedactionProgress.Unread` for "the engine read nothing",
-`Unreadable` for "the engine read something unusable" — because they mean opposite things and one number
+The two discard reasons are counted apart (`RedactionProgress.Unread` for "the engine read nothing",
+`Unreadable` for "the engine read something unusable") because they mean opposite things and one number
 covering both would hide whichever is happening. A count climbing on a machine that is plainly showing
 text is how a missing language pack announces itself, and there is currently nothing else that would say
 so.
@@ -63,8 +63,8 @@ could not be redacted", so the gap is visible rather than silent (Spec §5 S3).
 **There is no third option.** A frame kept "just in case" is an unredacted frame. Storing it behind a
 flag that Review honours would put the decision in every future reader instead of in one place.
 
-**Distinguishing the cases needs evidence we do not have.** An image-complexity heuristic — "this frame
-has too much structure to be genuinely blank" — is the obvious alternative and was rejected: it is a
+**Distinguishing the cases needs evidence we do not have.** An image-complexity heuristic ("this frame
+has too much structure to be genuinely blank") is the obvious alternative and was rejected: it is a
 second detector with its own false-negative rate sitting in front of INV-1, and we have no corpus to
 measure it against. ST-030's labelled captures are what would make that measurable. If the `Unread`
 count turns out to be large in real sessions, this ADR is where to revisit it, with numbers.

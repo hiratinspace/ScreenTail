@@ -1,10 +1,10 @@
-# ScreenTail — ranked weaknesses
+# ScreenTail: ranked weaknesses
 
 **Date:** 2026-09-15 · **Against:** `main` @ 35/81 tickets · **Method:** four independent adversarial
 reviews (security, invariant enforcement, performance, test quality), every headline claim re-verified by
 hand against the code before being written down here.
 
-**Status, 2026-09-24 — closed.** Every P0 and P1 finding is fixed and each section opens with what
+**Status, 2026-09-24: closed.** Every P0 and P1 finding is fixed and each section opens with what
 was done: **ST-048 (#57)** P0-1, P0-3, P0-4, P0-5, P2-1; **ST-018 (#58)** P1-4; **ST-085 (#59)** P0-2, P1-1,
 P1-2, P1-6; **#85** P1-5 (the audit chain has a head anchor, schema 7); **#128** (ADR-0006) P1-3
 (`NothingUnredactedIsEverInTheStore` reads the bytes back) and P1-9 (gone with the pending-frame query);
@@ -32,19 +32,19 @@ those three is ranked above anything that merely costs CPU, however expensive.
 
 A recurring theme runs through P0 and P1 and is worth naming once: **the enforcement points are weaker
 than the policy objects.** The decision classes in `ScreenTail.Core` are well written and well tested. The
-places that *apply* those decisions — the Windows glue, the loops, the UI process — are frequently
+places that *apply* those decisions (the Windows glue, the loops, the UI process) are frequently
 untested, unwired, or both. Every P0 below is an enforcement gap, not a policy error.
 
 ---
 
-# P0 — ship-blockers
+# P0: ship-blockers
 
 ## P0-1 · An unredacted screenshot can be stored as redacted (INV-1)
 
 > **Fixed in ST-048 (#57).** Zero words is now treated as unreadable and the frame is discarded; the two discard
 > reasons are counted apart as `Unread` and `Unreadable`. Three tests in `RedactionWorkerTests` cover it,
-> and all three fail if the check is removed. The design question this raised — whether a genuinely blank
-> frame should be kept — is decided and argued in **ADR-0004**: it is not, and the cost is accepted.
+> and all three fail if the check is removed. The design question this raised (whether a genuinely blank
+> frame should be kept) is decided and argued in **ADR-0004**: it is not, and the cost is accepted.
 
 **`client/ScreenTail.Core/Privacy/RedactionWorker.cs:235`**
 
@@ -66,12 +66,12 @@ ships. Two independent defences, both inert.
 
 **Scenario.** Windows OCR returns nothing for a dark-mode terminal, an unusual DPI, a CJK or Cyrillic page
 with no language pack (`TryCreateFromUserProfileLanguages()` falls back to `en-US`), or a frame it decoded
-but could not segment. The customer's screen is stored verbatim and marked clean. Nothing counts it —
+but could not segment. The customer's screen is stored verbatim and marked clean. Nothing counts it:
 "nothing on screen" and "read nothing" both land in the success counter.
 
 **Fix.** Treat empty OCR as unreadable: drop the `!text.IsEmpty &&`. Count the two cases separately so the
 difference is visible. Then decide whether a frame with genuinely no text (a blank desktop) should be kept
-— that is the open design question from ST-041 and it now has teeth.
+(that is the open design question from ST-041 and it now has teeth).
 
 **Effort:** one line plus a counter, plus a test that asserts a frame with empty OCR is discarded.
 
@@ -83,20 +83,20 @@ difference is visible. Then decide whether a frame with genuinely no text (a bla
 > reconnects, and keeps the shell's store fed; `LiveShell` is the startup path that was missing, and it
 > owns a real tray icon (`TrayIconHost`, five drawn glyphs that differ by shape as well as colour) and the
 > pill, shown whenever the state is anything but known-idle. The shell's live constructor is separate from
-> the screenshot one, so the harness cannot share a path with the application. **The live behaviour —
-> tray and pill following a real session — has not been seen yet**; it needs a machine with the service
+> the screenshot one, so the harness cannot share a path with the application. **The live behaviour
+> (tray and pill following a real session) has not been seen yet**; it needs a machine with the service
 > running, which is the ST-085 item left for the laptop.
 
 **No tray icon exists anywhere in the repository.** No `NotifyIcon`, no `Shell_NotifyIcon`, no taskbar
 package. `client/ScreenTail.Core/Shell/TrayPresence.cs:38` computes what a tray icon *would* display and
 has zero production callers.
 
-**The HUD is never shown by the running app.** `HudWindow` is constructed in exactly one place —
+**The HUD is never shown by the running app.** `HudWindow` is constructed in exactly one place:
 `client/ScreenTail.UI/Hud/HudPreview.cs:51`, the CI screenshot harness. The normal startup path
 (`App.xaml.cs:64-75`) opens `ShellWindow`, which at `Shell/ShellWindow.xaml.cs:25-34` injects a **literal
 fake snapshot** (`State = "recording"`, `SessionId = "preview"`).
 
-INV-4 — *capture is always visibly indicated; there is no silent-capture mode* — is the invariant that
+INV-4 (*capture is always visibly indicated; there is no silent-capture mode*) is the invariant that
 makes this product defensible. It is currently unenforced by anything.
 
 **Root cause.** The UI process does not connect to the capture service. `IpcClient` has no production
@@ -107,7 +107,7 @@ harness with real logic behind it.
 questionnaire, and gives `WindowsServerVerifier` its caller. It is the single highest-leverage piece of
 work left in the project and it is not currently a ticket.
 
-**Effort:** substantial — it is the seam between ST-070 and ST-072.
+**Effort:** substantial; it is the seam between ST-070 and ST-072.
 
 ---
 
@@ -126,13 +126,13 @@ Visible: !hidden || state.Tone is HudTone.Recording or HudTone.Paused or HudTone
 A null `capture` (the UI has not heard from the service) maps to `HudTone.Idle`. So
 `For(capture: null, hidden: true)` returns `Visible = false`.
 
-**Scenario.** The technician right-clicks the pill away between sessions — legitimate, permitted. The pipe
+**Scenario.** The technician right-clicks the pill away between sessions: legitimate, permitted. The pipe
 then drops, or the service restarts, or a session begins while the UI is reconnecting. The UI does not
-know capture stopped, deliberately says so everywhere else ("Capture state unknown — it may still be
+know capture stopped, deliberately says so everywhere else ("Capture state unknown: it may still be
 recording"), and then **hides the indicator anyway.**
 
 This is my own code, and `HudStateTests.cs:156` tests `hidden` against Recording, Paused and Suppressed
-and omits `null` — the one case where the rule matters. The test was written to prove the rule and skips
+and omits `null`, the one case where the rule matters. The test was written to prove the rule and skips
 its most important instance.
 
 **Fix.** Hidden must only take effect when the state is *known* to be idle. Treat unknown as visible.
@@ -144,7 +144,7 @@ its most important instance.
 ## P0-4 · INV-6's scope clause has no test, and deleting it leaves the suite green
 
 > **Fixed in ST-048 (#57).** The decision loop moved into `ScreenTail.Core/Capture/SessionRecorder.cs`, behind
-> `IScreenshotCapturer` and a `Func<ScopeDecision?>` — the `IForegroundWatcher` pattern this document
+> `IScreenshotCapturer` and a `Func<ScopeDecision?>`: the `IForegroundWatcher` pattern this document
 > recommended. `ScopeRecordingTests` is the store-level twin of `PausedAndSuppressedWriteNothing`:
 > six tests reading the encrypted store, and deleting the drop fails three of them (verified by doing it).
 > `ClickCaptureLoop` keeps the hook buffer, the signal reader and the logging, and no longer holds a rule.
@@ -152,17 +152,17 @@ its most important instance.
 `ScreenTail.Tests` references **Core and Shared only**. Twelve `ScreenTail.Service` files have zero test
 coverage, including all three sites that actually enforce scope:
 
-- `client/ScreenTail.Service/Capture/ClickCaptureLoop.cs:90-94` — the `!scope.MayRecord(...)` drop
-- `ClickCaptureLoop.cs:115`, `SceneSampleLoop.cs:71`, `WindowsCaptureSources.cs:56` — the frame gates
+- `client/ScreenTail.Service/Capture/ClickCaptureLoop.cs:90-94`: the `!scope.MayRecord(...)` drop
+- `ClickCaptureLoop.cs:115`, `SceneSampleLoop.cs:71`, `WindowsCaptureSources.cs:56`: the frame gates
 
 **Delete lines 90-94 and all ~721 tests still pass**, while the product records keystroke counts taken in
 a customer's password manager.
 
 The asymmetry is the tell. The `State != Recording` half of INV-6 *is* properly tested at the store
-(`StateMachineTests.PausedAndSuppressedWriteNothing`, `PasswordFieldGuardTests` — both genuinely good).
+(`StateMachineTests.PausedAndSuppressedWriteNothing`, `PasswordFieldGuardTests`, both genuinely good).
 But `CaptureStateReason.ExcludedApp` and `OutOfScope` are **never passed to `SuppressAsync` anywhere in
 production**, so those cases rely entirely on the untested loop layer.
-`ScopeEnforcementTests.cs:131-140` asserts on a `ScopeDecision` the test constructs itself — a restatement
+`ScopeEnforcementTests.cs:131-140` asserts on a `ScopeDecision` the test constructs itself: a restatement
 of the predicate, not a proof that anything is dropped.
 
 **Fix.** Lift the decision loop into Core behind an interface (the pattern `IForegroundWatcher` already
@@ -180,7 +180,7 @@ exactly one `ClickEvent`, zero typing-derived events, zero frames.
 > worse than "~20": the inclusive `eventMin`/`eventMax` swept **32,776** event types, which
 > `ForegroundEventTests` now measures. The idle CPU test is replaced by one that measures with a window
 > moving a hundred times a second, and a new Windows test asserts that a window which only moves is never
-> reported as the foreground. **The two Windows tests have not been run yet** — they need the laptop
+> reported as the foreground. **The two Windows tests have not been run yet**; they need the laptop
 > (ST-018).
 
 **`client/ScreenTail.Service/Detection/WindowsForegroundWatcher.cs:102-109`**
@@ -189,13 +189,13 @@ exactly one `ClickEvent`, zero typing-derived events, zero frames.
 hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND /* 0x0003 */, EVENT_OBJECT_NAMECHANGE /* 0x800C */, ...)
 ```
 
-Those two arguments are `eventMin` and `eventMax` — an **inclusive range**. This subscribes to everything
+Those two arguments are `eventMin` and `eventMax`, an **inclusive range**. This subscribes to everything
 from `0x0003` to `0x800C`: the entire `EVENT_OBJECT_*` block (LOCATIONCHANGE, SHOW/HIDE, REORDER, FOCUS,
 STATECHANGE), all `EVENT_SYSTEM_*` and all `EVENT_CONSOLE_*`. The comment at line 116 shows two events
 were intended.
 
 The only guard (line 164) filters `NAMECHANGE`. **Every other event falls through to
-`Publish(_filter.Offer(Read(window)))` with the event's own hwnd** — which is usually not the foreground
+`Publish(_filter.Offer(Read(window)))` with the event's own hwnd**, which is usually not the foreground
 window. `ForegroundChangeFilter.Offer` accepts any handle different from the last, so background windows
 are published as the foreground and `ScopePolicy.Decide` re-runs on each.
 
@@ -214,7 +214,7 @@ a remote-desktop control redrawing under the mouse.
 
 ---
 
-# P1 — before the pilot
+# P1: before the pilot
 
 ## P1-1 · The egress allowlist is installed on nothing (INV-8)
 
@@ -225,7 +225,7 @@ a remote-desktop control redrawing under the mouse.
 
 `EgressGuard.cs:13` claims to be *"the handler every `HttpClient` in the client is built with."* Nothing
 in the client constructs an `EgressGuard`, an `HttpClient`, or registers either in DI. The only consumer
-that exists — `ModelDownload.cs:102` — builds its request **without a purpose**, so the first time a guard
+that exists (`ModelDownload.cs:102`) builds its request **without a purpose**, so the first time a guard
 is wired in, model downloads fail closed and the tempting fix is to hand it an unguarded client.
 
 No egress occurs today because nothing makes HTTP calls. But INV-8 is enforced by convention, which is
@@ -238,11 +238,11 @@ already exists).
 ## P1-2 · The diagnostics panel shows fabricated data
 
 > **Fixed in ST-085 (#59).** The panel asks the service (`get_diagnostics`) every time it opens, and shows
-> "Not connected to the capture service — capture state unknown" when it cannot, rather than zeros that
+> "Not connected to the capture service: capture state unknown" when it cannot, rather than zeros that
 > read as facts. The sample survives for the CI render and a test fails the build if anything outside the
 > window's own file reaches it.
 
-`client/ScreenTail.UI/Diagnostics/DiagnosticsWindow.xaml.cs:25-36` — the parameterless constructor (the
+`client/ScreenTail.UI/Diagnostics/DiagnosticsWindow.xaml.cs:25-36`: the parameterless constructor (the
 only one used) renders a hard-coded sample: `Local-only: true`, `Egress blocked: 0`,
 `Policy: policy-2026-09-13`, `Microphone: Headset Microphone (Realtek)`. Nothing populates it from live
 state.
@@ -252,13 +252,13 @@ The data-flow document described this as evidence a technician can show a custom
 
 ## P1-3 · INV-1 has no test that would notice the masking being removed
 
-Replace `masked.Image` with `frame.Image` at `RedactionWorker.cs:270` — a total INV-1 breach — and
+Replace `masked.Image` with `frame.Image` at `RedactionWorker.cs:270` (a total INV-1 breach) and
 **nothing fails**. No platform-neutral test reads back the redacted bytes; `FakeMasker` and
 `PassThroughMasker` both return the input essentially unchanged, and
 `AFrameWithACardNumberIsStoredWithItCoveredOver` asserts the *region metadata*, never the covering.
 
 Related vacuities in the same file: `RedactionWorkerTests.cs:87-88,100` assert `Assert.Empty(...Frames)`
-after a discard, but `LoadSessionAsync` filters pending frames — so a frame left sitting unredacted passes
+after a discard, but `LoadSessionAsync` filters pending frames, so a frame left sitting unredacted passes
 the same assertion.
 
 **Fix.** A masker fake that actually mutates, and an assertion that the stored bytes differ from the
@@ -279,9 +279,9 @@ Of 46 hardware facts, **18 always skip on the hosted runner and up to 29 can ski
 when everything skips, and the `client` job has no skip gate.
 
 Worse: `hardware-checks.yml` is behind `if: vars.HW_RUNNER == 'true'` and is **not in `ci-ok`'s `needs`**
-— it is not a required check at all. Its `paths:` filter omits `Store/**` and `Ipc/**`.
+(it is not a required check at all). Its `paths:` filter omits `Store/**` and `Ipc/**`.
 
-**`TypingAPasswordRecordsOnlyHowManyKeys` — INV-2's only end-to-end proof — runs in exactly one place: an
+**`TypingAPasswordRecordsOnlyHowManyKeys`, INV-2's only end-to-end proof, runs in exactly one place: an
 optional, unrequired job.**
 
 The `NO-DESKTOP` canary added on 2026-09-13 is blind to the ten tests most at risk:
@@ -294,7 +294,7 @@ is worth less while the suite can disappear silently.
 ## P1-5 · The audit log can be truncated from the tail undetectably
 
 `SqliteSessionStore.cs:693-719` walks rows in `id` order checking each `prev_hash`. Removing the **last N
-rows** leaves a chain that verifies perfectly — there is no head anchor, no row count, no high-water mark.
+rows** leaves a chain that verifies perfectly: there is no head anchor, no row count, no high-water mark.
 `AuditChain.cs:18` claims the chain detects "a log truncated to hide a purge"; it detects truncation from
 the front, not from the back, which is the direction anyone hiding recent activity would cut. The row `Id`
 is also not in the hash input, so ids can be renumbered freely.
@@ -310,7 +310,7 @@ T11 (repudiation) rests on this.
 > the exact symptom described here.
 
 `IpcServer.cs:175-181` caps in-flight handshakes with one global counter, no per-peer accounting and no
-fairness. A same-user process — explicitly in scope — opens 16+ connections, sends nothing, and refills
+fairness. A same-user process (explicitly in scope) opens 16+ connections, sends nothing, and refills
 every slot as the 5 s timeout reaps them. The real UI sees the pipe closed during handshake. No token and
 no signed binary required.
 
@@ -321,7 +321,7 @@ authenticated clients.
 ## P1-7 · The SQLCipher key survives in immortal managed strings
 
 `SqliteSessionStore.cs:898-912` builds `PRAGMA key = "x'{hex}'"` by interpolation. `OpenAsync:77` and
-`DpapiKeyProvider:61` both carefully `Array.Clear` their byte copies — but `hex` and the `CommandText` are
+`DpapiKeyProvider:61` both carefully `Array.Clear` their byte copies, but `hex` and the `CommandText` are
 immutable strings that live until GC, and beyond that in a crash dump or page file. Two full-fidelity
 copies of the store key outlive the hygiene written to prevent exactly that. T4 (laptop theft) is the
 store's headline threat.
@@ -329,47 +329,47 @@ store's headline threat.
 ## P1-8 · Threat-model claims contradicted by the code
 
 - **T8** says the IPC token is *"never written to disk."* `CaptureHost.cs:56` writes it to
-  `%LOCALAPPDATA%\ScreenTail\ipc.token`. It is ACL'd to the user — defensible, and necessary for the UI to
-  read it — but the document asserts a stronger control than exists.
+  `%LOCALAPPDATA%\ScreenTail\ipc.token`. It is ACL'd to the user (defensible, and necessary for the UI to
+  read it), but the document asserts a stronger control than exists.
 - **T12** says *"one client at a time."* `IpcServer` documents itself as accepting any number.
 - **T10** lists `EgressPolicy`/`EgressGuard` as the shipping mitigation with no "not yet wired" caveat,
   unlike T1 which is correctly caveated.
 
 ## P1-9 · `_givenUp` grows without bound and is expanded into SQL on every poll
 
-`RedactionWorker.cs:80,120,154` — never cleared for the life of the service, unioned into the skip set on
+`RedactionWorker.cs:80,120,154`, never cleared for the life of the service, unioned into the skip set on
 every `ProcessOneAsync` (10×/second across two workers), and handed to `SqliteSessionStore.cs:166-184`
 which builds `AND id NOT IN (@skip0, …)` with one parameter each.
 
-A persistent failure cause — an invalid tenant regex (`PatternLibrary.cs:93` catches
-`RegexMatchTimeoutException` but not the `ArgumentException` from a bad pattern) — puts every frame in the
+A persistent failure cause (an invalid tenant regex: `PatternLibrary.cs:93` catches
+`RegexMatchTimeoutException` but not the `ArgumentException` from a bad pattern) puts every frame in the
 set. The statement grows until `SQLITE_LIMIT_VARIABLE_NUMBER`, then throws on every call,
 `StepAsync:206-215` swallows it into `_failed++`, and **redaction is silently dead for the rest of the
 service's life while frames keep being staged raw.**
 
 ---
 
-# P2 — real cost, schedule deliberately
+# P2: real cost, schedule deliberately
 
 | # | Finding | Where | Cost |
 |---|---|---|---|
-| P2-1 | ~~**The pattern library runs twice per frame.**~~ **Fixed in ST-048 (#57):** `RedactFrame` resolves once and the stored text is written from the same matches that placed the mask boxes. `PatternEngineTests` counts the passes and asserts one. The throughput test's cadence assertion, which shrank to nothing as redaction got faster, now measures over a fixed four-second window. | `RedactionEngine.cs` | Was a straight 2× on a path measured at 2012 ms worst case against a 700 ms budget. **The new median is not yet measured — it needs the laptop.** |
+| P2-1 | ~~**The pattern library runs twice per frame.**~~ **Fixed in ST-048 (#57):** `RedactFrame` resolves once and the stored text is written from the same matches that placed the mask boxes. `PatternEngineTests` counts the passes and asserts one. The throughput test's cadence assertion, which shrank to nothing as redaction got faster, now measures over a fixed four-second window. | `RedactionEngine.cs` | Was a straight 2× on a path measured at 2012 ms worst case against a 700 ms budget. **The new median is not yet measured; it needs the laptop.** |
 | P2-2 | *Scheduled: Windows.Graphics.Capture when a 4K pilot machine exists; `docs/STATUS.md` §6 names it until then.* **4K frame staging is 2.5× over budget and unasserted.** The test asserts a 1.37 MP window (62 ms, passes); the 4K extrapolation of **309 ms against 120 ms** is recorded and never asserted. | `ScreenshotTests.cs:78-93` | Every frame on a 4K monitor blows the budget; nothing fails. |
 | P2-3 | **Fixed in ST-049's last PR:** thumbnails decode at 320 px and the full image is fetched only while a frame is enlarged; a Windows test loads 150 frames and asserts the working set grew by less than 150 MB. Virtualising the strip was not needed to meet the number. **The filmstrip decodes ~230 MB to draw 40 thumbnails.** `byte[]` binding decodes at native size (no `DecodePixelWidth`), the panel is a bare non-virtualizing `WrapPanel`, and every frame is loaded up front with no eviction. | `FilmstripView.xaml:22`, `Components.xaml:416`, `FilmstripViewModel.cs:135` | ~5.76 MB per 160×90 thumbnail. 150 frames ≈ 860 MB and an OOM. Plus 200-600 ms of UI-thread jank. |
 | P2-4 | **Fixed in #120 and ST-049 (#136):** a third of the file free, nobody recording, and at most once a day. **Hourly `VACUUM` of the whole encrypted store, on the connection capture writes through.** | `RetentionJob.cs:31-34`, `SqliteSessionStore.cs:521` | Multi-GB rebuild, every page decrypted and re-encrypted, with capture blocked behind `_gate`. Fires mid-working-day on a 7-day retention. |
 | P2-5 | *Scheduled with the single-decode decision ADR-0006 deferred: same files, same memory trade, one decision.* **Each frame is decoded twice and its bytes copied four times.** `ToArray()` on parameters that are already `byte[]`. | `WindowsOcrRecogniser.cs:61,65`, `WindowsFrameMasker.cs:32,33,86` | ~80 MB transient per 4K frame × 2 concurrent. Explains much of the gap between 185 ms median and 2012 ms tail. |
 | P2-6 | **Fixed in #120:** two statements, one per shape, each on its index. Growth is bounded by retention's window in practice and is not yet trimmed; scheduled with ST-081's settings. **Audit log: N+1 writes, an index-defeating filter, unbounded growth.** `WHERE (@session IS NULL OR session_id = @session)` cannot use the index; nothing ever deletes an audit row. | `SqliteSessionStore.cs:641,663` | Full scan of the lifetime log to read one session. Largest table in the store over time. |
-| P2-7 | *Closed 2026-09-28: `CachedCapabilityProbe` in front of the Windows probe, five seconds, since the onboarding wizard's Permissions step (ST-083) made this live.* **Capabilities fully re-probed per IPC request** — including installing and removing a **global low-level mouse hook**. | `CaptureController.cs:15`, `WindowsCapabilityProbe.cs:161` | Latent: becomes periodic global-hook churn the moment anything polls it. |
+| P2-7 | *Closed 2026-09-28: `CachedCapabilityProbe` in front of the Windows probe, five seconds, since the onboarding wizard's Permissions step (ST-083) made this live.* **Capabilities fully re-probed per IPC request**, including installing and removing a **global low-level mouse hook**. | `CaptureController.cs:15`, `WindowsCapabilityProbe.cs:161` | Latent: becomes periodic global-hook churn the moment anything polls it. |
 | P2-8 | **Fixed by ADR-0006 (#128):** a bounded in-memory queue of four; a frame that finds it full is dropped and counted. **No backpressure on frame staging.** Frames are staged at native resolution (4K ≈ 3-6 MB each); the only bound is disk. | `SessionMachine.cs:265` | At the redaction tail, two workers manage ~1 frame/s against ~2.5/s of clicking. Backlog is multi-megabyte rows. |
 | P2-9 | **Closed with the Review wiring (ST-085 remainder):** `FrameBlurrer` is deleted. The service paints the blur with the masker redaction uses, JPEG in and JPEG out, off the UI thread by being on the other side of the pipe. **`FrameBlurrer` re-encodes a JPEG frame as PNG, synchronously, on the UI thread.** | `FrameBlurrer.cs:48` | 5-15× blob growth per blurred frame, and the stored name `frames/{id}.jpg` becomes a lie. ~100-200 ms frozen UI. |
 | P2-10 | *Left: over the pipe the loads are one request each and no longer take the store's gate from the UI process; the serial order is deliberate so the strip fills left to right.* **Filmstrip image loading is a serial N+1** against the store, each taking `_gate`. | `FilmstripViewModel.cs:135` | 40 round trips serialized against live capture writes. |
-| P2-11 | **Fixed:** the index in #109 (schema 8); the budget test seeds 25 frames per session as of ST-049's closing PR, so it does the lookups it exists to time. **Missing index, and the budget test that guards it seeds one frame per session.** `ListSessionsAsync`'s correlated count has no `(session_id, redaction_pending)` index. | `SqliteSessionStore.cs:597`, `SessionHistoryTests.cs:114` | The 200-session/500 ms test does 200 lookups instead of ~30,000 — it cannot fail for the reason it exists. |
+| P2-11 | **Fixed:** the index in #109 (schema 8); the budget test seeds 25 frames per session as of ST-049's closing PR, so it does the lookups it exists to time. **Missing index, and the budget test that guards it seeds one frame per session.** `ListSessionsAsync`'s correlated count has no `(session_id, redaction_pending)` index. | `SqliteSessionStore.cs:597`, `SessionHistoryTests.cs:114` | The 200-session/500 ms test does 200 lookups instead of ~30,000, so it cannot fail for the reason it exists. |
 | P2-12 | **Closed in ST-049 (#136), and the finding was wrong:** SQLCipher builds with `secure_delete` on. It is now set explicitly at open and pinned by a test. **Deleted frames leave recoverable ciphertext.** No `PRAGMA secure_delete`, no vacuum on discard. | `SqliteSessionStore.cs:291,489` | `ISessionStore` says "deletes for good"; freed pages keep the old blobs until reused. Matters in the T4 laptop-theft case. |
 | P2-13 | **Half fixed in ST-049's closing PR:** the second copy says on stderr why it is exiting and with what code. The squat itself is a same-user process, which the threat model places inside the trust boundary; a random name would defeat single-instance. **A same-user process can permanently prevent the service starting** by squatting the deterministic `Local\` mutex name; the service exits code 3 silently. | `SingleInstance.cs:16` | Capture never runs, nothing says why. |
 
 ---
 
-# P3 — correct when convenient
+# P3: correct when convenient
 
 **Status, 2026-09-24 (ST-049 closing PR).** Gone since this was written: the six `Assert.True(true)` in
 `ModelDownloadTests`; the throughput test that disarmed itself (a fixed four-second window, ST-048); the
@@ -377,28 +377,28 @@ distinct-colours gate's `SaveExpecting` fix is on the HUD and the note pane. Fix
 `ContrastTests` now refuses a `minimum` below 4.5:1, so lowering the token cannot pass a failing colour;
 the history budget test seeds 25 frames per session; `CaptureForegroundWindow` loses the `maxEdge` it
 never used, so no caller can believe it downscales. Still open, each with a home: the four private
-`ManualTime` copies (fold into `Tests/ManualTime.cs` when each file is next touched — the shared one
+`ManualTime` copies (fold into `Tests/ManualTime.cs` when each file is next touched; the shared one
 overrides `GetTimestamp`, which two of the copies do not); `SpeechGateTests`' hysteresis band (with
 ST-027's WER work, when the recording exists); the 2 KB blank-capture floor and the single-pixel OCR
 check (Windows tests; with ST-030's real captures); the handle-leak tolerance (`growth < 50` over 50
-captures is a leak of one handle per capture — tighten to `< 5` on the laptop with ST-030). The
+captures is a leak of one handle per capture; tighten to `< 5` on the laptop with ST-030). The
 "dead on arrival" namespaces all have callers now except the Review views, which are the point of the
 ST-085 remainder.
 
 **Vacuous or weak tests** (full list in the review transcript; the ones with teeth removed):
-`IpcFramingTests.cs:47` (oversize refusal — the same exception is thrown by the next guard),
+`IpcFramingTests.cs:47` (oversize refusal: the same exception is thrown by the next guard),
 `IpcServerTests.cs:81`, `EgressGuardTests.cs:181` (asserts on an exception the test itself constructed),
-`ModelDownloadTests.cs:33-115` (six `Assert.True(true)` — `EnsureAsync` has no `false` path),
-`SpeechGateTests.cs:66` (**set `LeaveAt = EnterAt` and the suite still passes** — the hysteresis band is
+`ModelDownloadTests.cs:33-115` (six `Assert.True(true)`; `EnsureAsync` has no `false` path),
+`SpeechGateTests.cs:66` (**set `LeaveAt = EnterAt` and the suite still passes**; the hysteresis band is
 never exercised), `SceneSamplerTests.cs:170`, `TrayAndDiagnosticsTests.cs:78` (restates the constructor),
 `DpapiKeyProviderTests.cs:22,46`, `ScreenshotTests.cs:36,58` (**a fully black 1080p capture passes the
-"not blank" check — 33 KB against a 2 KB floor**; this is the exact check already replaced in `ci.yml`),
-`OcrTests.cs:218` (single centre pixel — passes for shrink-then-paint, the ordering bug the masker's
+"not blank" check: 33 KB against a 2 KB floor**; this is the exact check already replaced in `ci.yml`),
+`OcrTests.cs:218` (single centre pixel: passes for shrink-then-paint, the ordering bug the masker's
 comment calls "the whole correctness argument"), `test_fixtures.py:130` (guard can never fire).
 
 **Tolerance bands that cannot fail:** `ScreenshotTests.cs:175` tolerates 0.98 leaked handles per capture
 (disaster is 1.0); `SessionStoreTests.cs:249` would pass a store keeping the unredacted original alongside
-the redacted copy — an INV-1 regression the disk-budget test cannot see; `RedactionThroughputTests.cs:118`
+the redacted copy, an INV-1 regression the disk-budget test cannot see; `RedactionThroughputTests.cs:118`
 **self-disarms as it gets faster**; `ContrastTests.cs:45` reads its own thresholds from the artifact under
 test, so lowering `minimum` to 2.0 makes every failing colour pass.
 
@@ -408,7 +408,7 @@ bug already caught once on the HUD; the `SaveExpecting` fix was applied there an
 binding-error gate beside it is genuinely strong.
 
 **`ManualTime` does not override `CreateTimer`.** `SessionMachine.cs:369` awaits `Task.Delay(..., _time,
-ct)`, which routes through it — so a future test injecting `ManualTime` into `SessionMachine` will wait
+ct)`, which routes through it, so a future test injecting `ManualTime` into `SessionMachine` will wait
 real wall-clock while `Advance()` does nothing. Exactly the class of bug the shared file was written to
 prevent. Three byte-identical private copies of `ManualTime` also still exist.
 
@@ -419,7 +419,7 @@ believing it downscales.
 
 **Dead on arrival.** Entire namespaces are written, tested, documented as shipping, and called by nothing:
 `Core/Net` (all of it), `Core/Speech` (all of it), `Core/History`, `Core/Timeline`, `Core/Intel`,
-`Core/Audit`'s export half, `TrayPresence`, `LocalDataEraser` ("delete everything" is unreachable — no
+`Core/Audit`'s export half, `TrayPresence`, `LocalDataEraser` ("delete everything" is unreachable: no
 Settings screen, no IPC command), `ReviewSession`, `IpcClient`, `WindowsServerVerifier`, and seven
 `ISessionStore` read methods. Most of this resolves with P0-2.
 
@@ -433,7 +433,7 @@ Worth recording so it does not get "fixed":
   `WindowsInputHooks.Classify` reduces the VK inside the callback and lets it go out of scope. The schema
   independently forbids it. This is the strongest guarantee in the codebase.
 - **INV-1's read-path filtering is thorough.** Every `frames` read filters `redaction_pending = 0`; the
-  one unfiltered read has a single caller; no error path returns raw bytes. (P0-1 is a *write*-path bug —
+  one unfiltered read has a single caller; no error path returns raw bytes. (P0-1 is a *write*-path bug:
   the filter is correct, the flag is set too early.)
 - **No SQL injection anywhere.** Every statement is a hard-coded literal with bound parameters; the two
   dynamic fragments build only placeholders from loop indices.
@@ -451,12 +451,12 @@ Worth recording so it does not get "fixed":
 
 # Suggested order of work
 
-1. **P0-1** (one line) and **P0-3** (one clause) — both are small, both are invariant breaches.
-2. **P0-5** (~5 lines) — correctness and a CPU firehose, then re-measure on a busy desktop.
-3. **P2-1** (~10 lines) — halves the redaction budget you are already over.
-4. **P1-4** — the skip gate. Until this exists, none of the hardware evidence means anything.
-5. **P0-4** — the scope-enforcement test, with the refactor it needs.
-6. **P0-2** — wire the UI to the service. Large, and it closes P0-2, P1-1, P1-2, P1-6 and three ⚠ answers.
+1. **P0-1** (one line) and **P0-3** (one clause): both are small, both are invariant breaches.
+2. **P0-5** (~5 lines): correctness and a CPU firehose, then re-measure on a busy desktop.
+3. **P2-1** (~10 lines): halves the redaction budget you are already over.
+4. **P1-4**: the skip gate. Until this exists, none of the hardware evidence means anything.
+5. **P0-4**: the scope-enforcement test, with the refactor it needs.
+6. **P0-2**: wire the UI to the service. Large, and it closes P0-2, P1-1, P1-2, P1-6 and three ⚠ answers.
 7. Everything else, in band order.
 
 Items 1-3 are roughly twenty lines of production code between them and address two invariant breaches and

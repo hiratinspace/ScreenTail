@@ -1,4 +1,4 @@
-# Security questionnaire — pre-filled answers
+# Security questionnaire: pre-filled answers
 
 For procurement and vendor-review forms. Every answer names what enforces it, so a reviewer can check
 rather than take our word for it.
@@ -21,7 +21,7 @@ Screenshots of the technician's screen during a remote-support session, a timeli
 (not keys), the technician's spoken narration as text, and a drafted ticket note.
 
 **1.2 Does it record keystrokes?**
-No. The keyboard hook emits categories and counts — a typing burst of *n* characters, a shortcut, Enter —
+No. The keyboard hook emits categories and counts (a typing burst of *n* characters, a shortcut, Enter),
 and no field in the data format can hold a key or character. Enforced by the hook and independently by the
 schema (`additionalProperties: false`), so a future change cannot add one quietly. *(INV-2)*
 
@@ -55,7 +55,7 @@ No. The indicator sets `WDA_EXCLUDEFROMCAPTURE`, verified on the hosted runner a
 (ADR-0001 AC3), so a screen-share viewer does not see it while the technician does.
 
 **1.9 What happens when a password field has focus?**
-Capture stops. No screenshot and no typing event is recorded for that interval — the data is dropped, not
+Capture stops. No screenshot and no typing event is recorded for that interval: the data is dropped, not
 hidden. Detection is by UI Automation, verified on real hardware. *(INV-6)*
 
 **1.10 What other conditions stop capture?**
@@ -149,7 +149,7 @@ the web admin exists (ST-099).
 **3.5 ⚠ Does the backend store screenshots?**
 No. There is no table that could hold a frame, a transcript or a note; a bundle is held in memory for one
 request and let go, and the backend's tests count every row in every table before and after a draft.
-*(INV-7. The backend is built and runs locally; it is not yet deployed — ST-007.)*
+*(INV-7. The backend is built and runs locally; it is not yet deployed: ST-007.)*
 
 **3.6 What is the hosted model provider?**
 Whichever one the deployment is configured with, and only that one: `Summarization:Provider` names it, and
@@ -173,14 +173,14 @@ rather than uploaded, so none is left in the provider's file storage, and the ba
 interface. *(ST-063; Claude added 2026-10-28.)*
 
 **3.7 Do logs contain customer data?**
-No. Logs and metrics have no content-carrying fields — no window titles, OCR text, transcript, note text,
+No. Logs and metrics have no content-carrying fields: no window titles, OCR text, transcript, note text,
 company or ticket names. The diagnostics record has nowhere to put them, which is stronger than scrubbing
 them out. *(INV-10)*
 
 **3.8 What does telemetry send?**
 Nothing unless the technician switches it on in Settings → Privacy & Redaction, where the exact field
 list is shown. One metric per session: `session_id`, `started_at`, `duration_ms`, `frames`,
-`transcript_segments`, `frames_purged_unredacted`, `edit_ratio`, `published` — the contract is
+`transcript_segments`, `frames_purged_unredacted`, `edit_ratio`, `published`; the contract is
 `shared/contracts/session-metric.v1.json`, and a test on each side fails if the type ever gains a string
 field other than the id. No note text, ticket, company, transcript or window title can be sent, because
 there is nowhere in the shape to put one. *(INV-10; ST-098.)*
@@ -195,7 +195,7 @@ own to show, and `Local-only` is read from the same object the egress guard enfo
 
 **4.1 How do the product's components talk to each other?**
 A per-user Windows named pipe between the capture service and the UI. No network socket is used, and no
-component listens on a TCP port — asserted by a test that fails the build if a listener type appears in
+component listens on a TCP port, asserted by a test that fails the build if a listener type appears in
 client source.
 
 **4.2 How is that channel authenticated?**
@@ -213,7 +213,7 @@ that checks the pipe server's executable before the token is written. An unsigne
 falls back to the same-directory rule on both sides. *(ST-012; wired in ST-085.)*
 
 **4.5 Are debug or diagnostic endpoints present in release builds?**
-No. There is no build-conditional code in the client at all, asserted by test — release and debug contain
+No. There is no build-conditional code in the client at all, asserted by test: release and debug contain
 the same code.
 
 **4.6 ⚠ Are binaries code-signed?**
@@ -270,8 +270,8 @@ This is treated as a prompt-injection surface. Directives, URLs and command line
 field of the draft, not only in the steps.
 
 **6.4 Is the transcript trustworthy?**
-Speech recognition can produce fluent text for silence. Segments that look invented — boilerplate phrases
-on short or low-confidence audio, or text too long for the audio that carried it — are dropped before
+Speech recognition can produce fluent text for silence. Segments that look invented (boilerplate phrases
+on short or low-confidence audio, or text too long for the audio that carried it) are dropped before
 storage, because a hallucinated line would otherwise make a fabricated quotation verifiable.
 
 **6.5 What happens if the machine cannot capture?**
@@ -289,7 +289,7 @@ No. Not yet pursued.
 To be answered by the MSP deploying ScreenTail.
 
 **7.3 Is there a documented threat model?**
-Yes — [threat-model.md](threat-model.md), STRIDE, with each threat mapped to the invariant it protects and
+Yes: [threat-model.md](threat-model.md), STRIDE, with each threat mapped to the invariant it protects and
 the ticket that mitigates it, plus an explicit list of what is *not* mitigated.
 
 **7.4 Has this pack been reviewed by a security professional?**

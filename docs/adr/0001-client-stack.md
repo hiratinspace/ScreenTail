@@ -39,7 +39,7 @@ Filled in from the Windows runs. Raw reports go in `docs/adr/evidence/0001/`.
 | AC | Criterion | Result | Evidence |
 |---|---|---|---|
 | 1 | Hooks + UIA + whisper.net active, 5 min of typing → added input latency < 5 ms; no hook removed by the OS | **PASS on real hardware.** Unattended 5-minute run under full load: 4,986 callbacks, worst **0.445 ms**, nothing ≥ 5 ms, no hook removed, 2,337 characters typed and 51 clicks. The two human runs agree at lower volume (worst 0.88 ms and 0.55 ms). | [Laptop results](#laptop-results-2026-09-11) |
-| 2 | RDP window focused → FlaUI reports an opaque subtree | **NOT EXERCISED** — no RDP target available yet | — |
+| 2 | RDP window focused → FlaUI reports an opaque subtree | **NOT EXERCISED**: no RDP target available yet | n/a |
 | 3 | Overlay with `WDA_EXCLUDEFROMCAPTURE` absent from the service's capture | **PASS** on the hosted runner and on the laptop | Hosted: [excluded](evidence/0001/hosted-runner/overlay/overlay-check-excluded.png) 0.00% marker pixels, [control](evidence/0001/hosted-runner/overlay/overlay-check-visible.png) 86.31%. Laptop: [excluded](evidence/0001/overlay/overlay-check-excluded.png) has no pill anywhere on screen, [control](evidence/0001/overlay/overlay-check-visible.png) shows it at 84.97%. The unattended re-run measured the right rectangle (450×55): 0.00% excluded, 84.98% control, plus 51 captured frames overlapping the pill at 0.00% |
 | 4 | 4K frame downscaled to ≤ 1600 px JPEG < 400 KB with legible 9-pt UI text | **Size: PASS. Legibility: FAIL below 200% scaling** (hosted runner and laptop agree, synthetic), resolved by decision: OCR runs on the native frame (finding 2a). | [Hosted-runner results](#hosted-runner-results-2026-09-11) |
 | 5 | This ADR records the decision and a Python fallback assessment | Drafted | this file |
@@ -52,13 +52,13 @@ Two 5-minute runs with a person typing: one with hooks only, one with everything
 
 | Metric | Hooks only | Everything on | Budget |
 |---|---|---|---|
-| Hook callbacks timed | 612 | 417 | — |
+| Hook callbacks timed | 612 | 417 | n/a |
 | Callback time p50 / p99 / **max** (ms) | 0.001 / 0.018 / **0.88** | 0.001 / 0.009 / **0.55** | < 5 ms |
 | Callbacks ≥ 5 ms | 0 | 0 | 0 |
 | Hook silently removed | no | no | no |
 | Process CPU p50 / max (% of all cores) | 0.2 / 4.1 | 49 / 62 | < 15% recording (ST-031) |
 | Working set max | 44 MB | 505 MB | < 600 MB (ST-031) |
-| GC pause, total | 0.6 ms | 6.6 ms | — |
+| GC pause, total | 0.6 ms | 6.6 ms | n/a |
 
 - **The hooks are not the problem.** Managed hook callbacks cost about a microsecond, and the worst single callback across both runs was 0.88 ms, with GC pauses of a few milliseconds spread over five minutes. The fallback plan (a native hook shim) isn't needed.
 - **Typing volume was short:** 49 and 39 characters, against the 300 the report asks for before it calls AC1 met. The unattended synthetic-typing run on this same laptop supplies a full five minutes of input.
@@ -74,20 +74,20 @@ Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTail/action
 
 | Metric | Value | Budget |
 |---|---|---|
-| Hook callbacks timed | 4,986 | — |
+| Hook callbacks timed | 4,986 | n/a |
 | Callback time p50 / p95 / p99 / **max** (ms) | 0.001 / 0.002 / 0.008 / **0.445** | < 5 ms |
 | Callbacks ≥ 5 ms | 0 | 0 |
 | Hook silently removed | no (0 watchdog strikes) | no |
 | Input samples dropped | 0 | 0 |
 | Characters typed / bursts / enters / clicks | 2,337 / 32 / 31 / 51 | ≥ 300 chars |
-| Screenshots taken | 51 | — |
-| Whisper 5 s chunks: median / worst | 2.69 s / 6.25 s (59 chunks, 527 words) | — |
+| Screenshots taken | 51 | n/a |
+| Whisper 5 s chunks: median / worst | 2.69 s / 6.25 s (59 chunks, 527 words) | n/a |
 | OCR: frames, median, mean confidence | 51, 1.19 s, 0.92 | 700 ms (ST-041) |
 | Screenshot capture + encode p95 / max | 178 ms / 200 ms | 120 ms (ST-025) |
-| UIA polls / p95 / max | 1,118 / 21 ms / 56 ms | — |
+| UIA polls / p95 / max | 1,118 / 21 ms / 56 ms | n/a |
 | Process CPU p50 / max (% of all cores) | 41 / 66 | < 15% recording (ST-031) |
 | Working set max | 529 MB | < 600 MB (ST-031) |
-| GC pause, total | 6.9 ms over 5 min | — |
+| GC pause, total | 6.9 ms over 5 min | n/a |
 
 - **AC1 is met.** Under a full five minutes of sustained input with every subsystem running, the worst single hook callback was 0.445 ms, eleven times inside the budget, and the OS never removed a hook.
 - **AC3 is clean here too:** both overlay checks measured the correct 450×55 rectangle, and every one of the 51 frames that overlapped the pill contained none of it.
@@ -139,7 +139,7 @@ These came up while building the spike and hold regardless of how the Windows ru
     **Gate written and its duty cycle measured in ST-027 (2026-09-13).** `SpeechGate` applies hysteresis
     (open at 0.6, close at 0.35), a 700 ms hangover, a 250 ms preroll, a 400 ms minimum and a 20 s
     maximum. Played a synthetic ten-minute session with about 3.5 s of speech a minute, it hands on
-    **7.0% of the audio** — 42 s of 600 s, as 10 segments. Against the 49–62% of eight threads measured
+    **7.0% of the audio**: 42 s of 600 s, as 10 segments. Against the 49–62% of eight threads measured
     above for continuous feeding, that projects to roughly 3–4%, inside ST-031's 15% for all of ScreenTail.
 
     **That is a duty cycle, not a CPU measurement.** It says how much audio reaches Whisper, not what
@@ -148,8 +148,8 @@ These came up while building the spike and hold regardless of how the Windows ru
 9. **OCR is slower than ST-041 budgets for.** On the laptop, Tesseract took a median **1.19 s per 1600×900 frame** across 51 frames (the two-frame human run measured 2.46 s, before any warm-up), against ST-041's target of a 700 ms median. Finding 2a makes it worse, since OCR will run on the native frame, which is larger. ST-041 needs one of: OCR only the regions that matter (the active window or the area around the click), several worker threads, or Windows.Media.Ocr, which is hardware-accelerated and needs no data files. Measure all three before committing.
 
     **Settled in ST-041 (2026-09-13, same laptop): Windows.Media.Ocr, and the budget is no longer close.**
-    A 1920×1080 settings dialog reads in a median of **51–64 ms** against the 700 ms budget — 18× faster
-    than the Tesseract number above — and it recognised **18 of 18** dialog labels. It also removes the ARM
+    A 1920×1080 settings dialog reads in a median of **51–64 ms** against the 700 ms budget (18× faster
+    than the Tesseract number above), and it recognised **18 of 18** dialog labels. It also removes the ARM
     constraint in finding 7 and ships no native binaries of its own. Two things it does not give us, both
     recorded rather than worked around:
 
@@ -157,12 +157,12 @@ These came up while building the spike and hold regardless of how the Windows ru
       away frames it could not read. This engine reports none, so that gate is inert on Windows and says so
       in `WindowsOcrRecogniser.UnknownConfidence`. The frame-level protections (incomplete scan → discard,
       masker failure → discard) still hold.
-    - **It will not read a long run of one ambiguous glyph.** `4111 1111 1111 1111` — the canonical Visa
-      test card — comes back as nothing at all, twice, in two different places on the page, while every word
+    - **It will not read a long run of one ambiguous glyph.** `4111 1111 1111 1111` (the canonical Visa
+      test card) comes back as nothing at all, twice, in two different places on the page, while every word
       beside it reads. A probe sheet (`TheEngineReadsDigitsAndNotOnlyWords`) narrowed it down: a different
       sixteen-digit card at the same size and rendering hint reads whole, as do digits with words around
       them, greyscale-rendered digits, larger digits and a short phone number. So it is not digits, not
-      isolation, not ClearType and not small text — sixteen `1`s in Segoe UI are apparently ambiguous enough
+      isolation, not ClearType and not small text: sixteen `1`s in Segoe UI are apparently ambiguous enough
       with `l` and `I` to lose the line. Real card numbers are not sixteen repeated ones, so this does not
       change the design, but it is the concrete reminder that **OCR is a best-effort input to redaction, not
       a guarantee**: INV-1 cannot rest on the engine reading everything, which is why ST-060's manual review
@@ -173,7 +173,7 @@ These came up while building the spike and hold regardless of how the Windows ru
     frame costs **14.6 ms fixed + 24.1 ms per megapixel**: 16.8 ms for a 420×220 window, 47.5 ms for
     1552×880, about **214 ms extrapolated for 4K** against the 120 ms budget. The split matters more than
     the total: the encode this finding suggested replacing with WIC is **0.9–9.3 ms** and was never the
-    problem — the grab is. Downscaling during the copy with `StretchBlt` brings a 4K frame to about 48 ms,
+    problem; the grab is. Downscaling during the copy with `StretchBlt` brings a 4K frame to about 48 ms,
     but it was reverted, because finding 2a keeps frames native until the redaction worker has read them
     and capturing them already-shrunk would hand OCR the pixels this ADR measured as illegible.
     **Windows.Graphics.Capture remains the fix**, now on evidence rather than expectation. 1080p is
@@ -190,7 +190,7 @@ These came up while building the spike and hold regardless of how the Windows ru
 | OCR | Tesseract or Windows.Media.Ocr | PaddleOCR: better on UI text, but a much larger install | Mixed |
 | UI process | WPF, with native UIA automation names (Spec §7) and first-class MVVM | PySide6/Qt. Accessibility exists but takes more work to get right. | Medium |
 | Packaging and signing | Single-file or MSIX, signs cleanly | PyInstaller bundles often trigger antivirus false positives, which conflicts with ST-112's "no SmartScreen/AV warning" | **High** |
-| Team fit | Guide §5, backend (ASP.NET Core) and tests (xUnit) are all .NET | `/research` is already Python and stays that way | — |
+| Team fit | Guide §5, backend (ASP.NET Core) and tests (xUnit) are all .NET | `/research` is already Python and stays that way | n/a |
 
 **Conclusion:** Python stays the language for `/research` (prompts, eval harness), not for the client. If faster-whisper's speed advantage turns out to matter, ST-027 can benchmark it against Whisper.net at the model level. If AC1 fails, the answer is a native hook shim, not a move to Python.
 
@@ -207,4 +207,4 @@ These came up while building the spike and hold regardless of how the Windows ru
 1. Run the steps in `spike/README.md` on a Windows x64 machine.
 2. Fill in the Evidence table and the test machine line, and attach the reports under `docs/adr/evidence/0001/`.
 3. Resolve finding 1 (the .NET version) and, if AC4 fails, choose among the options in finding 2.
-4. Change Status to **Accepted**, or record the amendment. — **Done 2026-09-15**; steps 1–3 were done by 2026-09-12.
+4. Change Status to **Accepted**, or record the amendment. **Done 2026-09-15**; steps 1–3 were done by 2026-09-12.

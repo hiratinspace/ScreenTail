@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Regenerates contrast.md for the Review hi-fi (ST-015).
 
-Reads shared/design/tokens.json — the same file the WPF dictionaries and the web CSS are generated from,
-and the same file client/ScreenTail.Tests/Theme/ContrastTests.cs checks — so this report can never be
+Reads shared/design/tokens.json (the same file the WPF dictionaries and the web CSS are generated from,
+and the same file client/ScreenTail.Tests/Theme/ContrastTests.cs checks), so this report can never be
 about different colours from the ones that ship.
 
 Text is held to AA (4.5:1). State colours are held to the non-text 3:1, because Spec v0.4.2 restricts
@@ -73,13 +73,13 @@ def main() -> int:
     indicator_rows = measure(INDICATOR_PAIRS, 3.0)
     failures = [r for r in text_rows + indicator_rows if not r[4]]
 
-    (HERE / "contrast.md").write_text(f"""# Contrast report — Review hi-fi (ST-015)
+    (HERE / "contrast.md").write_text(f"""# Contrast report: Review hi-fi (ST-015)
 
 Measured from `shared/design/tokens.json` with the WCAG 2.1 relative-luminance formula, for every
 foreground/background pair `review.css` actually uses. Regenerate with `python3 contrast.py`.
 
 **Every pair passes.** Text is held to AA ({minimum}:1); state colours are held to the non-text 3:1,
-because Spec v0.4.2 restricts them to indicators — a rule, a border, a dot, a glyph — and never to
+because Spec v0.4.2 restricts them to indicators (a rule, a border, a dot, a glyph) and never to
 body-size text.
 
 That rule is not decorative. The first version of this design used `confidence.low` for the warning
@@ -88,11 +88,11 @@ and **3.30:1**. The colour now carries the border and the glyph; the words are `
 in the design depends on colour alone to be understood (Spec §7): a low-confidence step also has the ⚠
 glyph, the word "Inferred", and a left rule.
 
-## Text — AA, {minimum}:1
+## Text: AA, {minimum}:1
 
 {table(text_rows, minimum)}
 
-## State colours — indicators only, 3:1
+## State colours: indicators only, 3:1
 
 {table(indicator_rows, 3.0)}
 """)

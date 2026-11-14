@@ -13,7 +13,7 @@ These are low-fidelity, clickable wireframes of every v1 client screen (S1–S8)
 | `s5-s7-settings.html` | §5 S5–S7, §3 locked toggle | Capture, Privacy & Redaction, Privacy with admin policy, Integrations |
 | `s8-onboarding.html` | §5 S8 | the 7 steps |
 | `flows.html` | Scope §6.4 | happy path, sensitive moment, bad draft, missed start, discard |
-| `screens/` | — | PNG exports of each screen and key state at 1920×1080 (headless Chrome) |
+| `screens/` | n/a | PNG exports of each screen and key state at 1920×1080 (headless Chrome) |
 
 ## Technician session: "accept this note" (ST-014 AC2)
 
@@ -33,7 +33,7 @@ The ticket requires two technicians to complete this task on the Review wirefram
 | T1 |  |  |  |  |  |  |
 | T2 |  |  |  |  |  |  |
 
-**These two sessions have not happened yet** — they need two technicians (ST-014's remaining criterion; see `docs/STATUS.md` §5). When they do, save the filled sheet as `docs/ux/wireframes/review-sessions.md`, link it here, and update ST-014's status line in the backlog.
+**These two sessions have not happened yet**: they need two technicians (ST-014's remaining criterion; see `docs/STATUS.md` §5). When they do, save the filled sheet as `docs/ux/wireframes/review-sessions.md`, link it here, and update ST-014's status line in the backlog.
 
 ## Open questions for the spec
 
@@ -45,7 +45,7 @@ The ticket requires Q1 and Q2 to be answered and written into the spec. Q3–Q6 
 | Q2 | Default ConnectWise note type: Internal or Discussion? | S3, S7 | **Internal.** Discussion notes are customer-visible in ConnectWise, and a first draft shouldn't default to customer-facing. Configurable per tenant in S7. |
 | Q3 | The tray's "Discard session…" during a recording conflicts with "no modal while recording" (§4) and with "typed confirmation for irreversible deletes" (§3 Modal). | S1, flow 5 | Selecting it **stops capture first** (the session goes to finalizing, so it's no longer recording), then shows the typed DISCARD dialog. That satisfies both rules. |
 | Q4 | After "draft failed", can the technician write the note by hand and publish it? | S3 | **Yes, in v1.1.** For v1, Publish stays disabled with the reason "There is no note to publish yet. Retry the draft first." A manual-note path means an empty editor plus the transcript, which is extra scope. |
-| Q5 | The elevated-window wording differs: Spec S2 says "Paused: elevated window"; ST-021 says "Elevated window — screen not captured". | S2 | Use **"Paused: elevated window"** in the HUD (it matches its siblings), and keep ST-021's longer text for the tooltip. |
+| Q5 | The elevated-window wording differs: Spec S2 says "Paused: elevated window"; ST-021 says "Elevated window: screen not captured". | S2 | Use **"Paused: elevated window"** in the HUD (it matches its siblings), and keep ST-021's longer text for the tooltip. |
 | Q6 | What does the technician type to confirm a bulk discard ("typed confirmation with count")? | S4 | **The number of sessions**, e.g. `3`. It's shorter than DISCARD and proves they read the count. |
 
 ## What this doesn't decide

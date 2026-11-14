@@ -1,6 +1,6 @@
 # Rotating the vault's master key
 
-**What the vault is.** Integration credentials — a tenant's ConnectWise key, a Hudu key — are stored in
+**What the vault is.** Integration credentials (a tenant's ConnectWise key, a Hudu key) are stored in
 the backend's `integrations` table as ciphertext (ST-009). Each row's secret is sealed with its own data
 key, and that data key is sealed with the deployment's master key, `Vault:MasterKey`. Only the process
 that holds the master key can open a row, and only a provider worker ever asks it to; the API shows the
@@ -24,7 +24,7 @@ Every step is reversible until step 5, and a second run of step 4 is the check t
    openssl rand -base64 32
    ```
 2. **Configure both keys.** The one in use becomes the previous key; the new one becomes current.
-   Where the deployment reads configuration — user secrets in development, environment variables in a
+   Where the deployment reads configuration (user secrets in development, environment variables in a
    container:
    ```bash
    dotnet user-secrets set "Vault:PreviousMasterKey" "<the key in use until now>"
@@ -44,7 +44,7 @@ Every step is reversible until step 5, and a second run of step 4 is the check t
    `Jwt:SigningKey`: the host checks it before any command runs, so without it the rewrap stops with a
    message naming the setting. Run it again: it should print
    `rotated 0`. If it does not, something wrote a row under the previous key between the two runs, which
-   means a process is still holding the old configuration — find it before going on.
+   means a process is still holding the old configuration; find it before going on.
 5. **Drop the previous key.** Remove `Vault:PreviousMasterKey` and restart. Rows are now readable only
    under the new key; the old one can be destroyed.
 

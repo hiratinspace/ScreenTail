@@ -37,7 +37,7 @@ The token does not defend against another process running as the same user readi
 
 **How far the executable check actually goes (corrected 2026-09-20).** This document used to say it defends against same-user processes, full stop. It does not, and the review of 2026-09-19 said so; what it does is narrower and worth stating exactly.
 
-- It asks the kernel which file the peer was started from, and holds the process open while it checks. It used to read that path out of the peer's own loader data, which a same-user process can rewrite to name our real signed executable — so the check would verify a genuine file on disk while talking to an impostor.
+- It asks the kernel which file the peer was started from, and holds the process open while it checks. It used to read that path out of the peer's own loader data, which a same-user process can rewrite to name our real signed executable, so the check would verify a genuine file on disk while talking to an impostor.
 - It cannot tell whether a genuine executable is running genuine code. .NET loads another assembly into a signed process when `DOTNET_STARTUP_HOOKS` or the profiler variables ask it to, so an attacker needs no forged binary: launch our real UI with a hook set and it passes for the same reason the real one does. **This is not closed (corrected 2026-10-25).** Both processes refuse to start when those variables are present, unless the build is unsigned, but that check runs at the top of `Main`, after the runtime has already acted on those variables, so it cannot be what keeps their code out. Since 2026-10-25 both projects build with `StartupHookSupport` set to false, so the runtime does not load startup hooks whatever the environment says, and the check at the top of `Main` stays as a second line. Two gaps remain. The builds are framework-dependent, so that switch is carried in the runtime configuration file beside the executable rather than in the executable, and it is only as well protected as the install folder. And the runtime reads the profiler settings before any managed code, so no check in our code can refuse a profiler. Closing both needs a self-contained single-file build with the runtime's diagnostics off, which is packaging, and belongs with ST-112.
 - **It still does not cover a DLL planted beside a signed executable.** Only the launcher is signed; the managed assemblies beside it are not, so a copy of our signed `.exe` next to somebody else's `.dll` passes. Closing that needs single-file publishing and signing, which is packaging, and belongs with ST-112.
 
@@ -45,7 +45,7 @@ The honest summary is that the check raises the cost of impersonation and does n
 
 ### Reattach
 
-The service keeps all session state. A client that disconnects for any reason is forgotten; a client that connects gets the current state in `hello_ack`. The UI reconnects with backoff (100 ms, doubling to 2 s) and shows "Capture service not running — Start" (Spec, ST-070) when it can't. ST-004's requirement is a reattach within 2 s; the transport achieves it in milliseconds.
+The service keeps all session state. A client that disconnects for any reason is forgotten; a client that connects gets the current state in `hello_ack`. The UI reconnects with backoff (100 ms, doubling to 2 s) and shows "Capture service not running: Start" (Spec, ST-070) when it can't. ST-004's requirement is a reattach within 2 s; the transport achieves it in milliseconds.
 
 ## Consequences
 

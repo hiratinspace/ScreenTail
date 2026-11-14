@@ -49,7 +49,7 @@
   <div>
     <p class="frame-label">On the desktop: docked top-right over a remote session</p>
     <div class="frame desk">
-      <div class="remote"><div class="bar">ScreenConnect — remote session (the HUD never takes focus from this window)</div><div class="ph" style="position:absolute;inset:28px 0 0 0"></div></div>
+      <div class="remote"><div class="bar">ScreenConnect: remote session (the HUD never takes focus from this window)</div><div class="ph" style="position:absolute;inset:28px 0 0 0"></div></div>
       <div class="docked"><span class="pill" role="status" aria-label="Recording, 12 minutes 41 seconds, 3 items redacted" id="live">
         <span class="lead"><span class="rec"></span>12:41</span>
         <span class="seg">▂▄▆ mic</span>
@@ -77,14 +77,14 @@
     <p class="frame-label">Every variant (left segment changes; controls stay put)</p>
     <div class="frame gallery" style="width:640px">
       <div><div class="lbl">Recording</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg">▂▄▆ mic</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
-      <div><div class="lbl">Paused by you</div><span class="pill amber"><span class="lead">‖ Paused — press Ctrl+Alt+P to resume</span><span class="ctl txt">▶ Resume</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Paused by you</div><span class="pill amber"><span class="lead">‖ Paused: press Ctrl+Alt+P to resume</span><span class="ctl txt">▶ Resume</span><span class="ctl txt">■ Stop</span></span></div>
       <div><div class="lbl">Suppressed · auto-resumes (INV-6: nothing is kept while this shows)</div>
         <span class="pill amber"><span class="lead">⏸ Paused: sensitive field</span><span class="ctl txt">■ Stop</span></span></div>
       <div><span class="pill amber"><span class="lead">⏸ Paused: excluded app</span><span class="ctl txt">■ Stop</span></span></div>
       <div><span class="pill amber"><span class="lead">⏸ Paused: elevated window</span><span class="ctl txt">■ Stop</span></span> <span class="n">4</span></div>
-      <div><div class="lbl">Out of scope (clicks logged, no screenshots)</div><span class="pill violet"><span class="lead">Not capturing — Outlook</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Out of scope (clicks logged, no screenshots)</div><span class="pill violet"><span class="lead">Not capturing: Outlook</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
       <div><div class="lbl">Mic missing (tooltip: "No microphone. Capture continues without voice.")</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg" style="color:var(--ink-3)">✕ no mic</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
-      <div><div class="lbl">Offline (tooltip: "Offline — draft will be created when connected.")</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg" style="color:var(--ink-3)">✕ offline</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
+      <div><div class="lbl">Offline (tooltip: "Offline. Draft will be created when connected.")</div><span class="pill"><span class="lead"><span class="rec"></span>12:41</span><span class="seg" style="color:var(--ink-3)">✕ offline</span><span class="seg">⛨ 3 redacted</span><span class="ctl txt">‖ Pause</span><span class="ctl txt">■ Stop</span></span></div>
     </div>
   </div>
 
@@ -94,7 +94,7 @@
       <li><b>Pill:</b> 44 px tall, fully rounded, draggable; its position is remembered. Always on top, never takes focus, and hidden from ScreenTail's own screenshots. That hiding already passes on Windows in ST-001 (AC3). Controls are 32 × 32 (Spec §7). Screen-reader text: "Recording, 12 minutes 41 seconds, 3 items redacted".</li>
       <li><b>Click to expand:</b> shows the last 3 timeline events and Mark moment (<span class="kbd">Ctrl+Alt+M</span>). Double-click opens Review for the current session, read-only until you stop.</li>
       <li><b>Right-click:</b> hides the HUD for this session only. The tray still shows recording, so capture is never silent (INV-4).</li>
-      <li><b>Wording:</b> Spec S2 says "Paused: elevated window", but ST-021 says "Elevated window — screen not captured". Open question Q5.</li>
+      <li><b>Wording:</b> Spec S2 says "Paused: elevated window", but ST-021 says "Elevated window: screen not captured". Open question Q5.</li>
     </ol>
     <h3>State cues in low-fi</h3>
     <ul>

@@ -1,18 +1,18 @@
-# ScreenTail documentation — where to look
+# ScreenTail documentation: where to look
 
 Three kinds of document live in this repository. Knowing which kind you are reading tells you how much
 to trust it and where to change it.
 
-## Intent — what we are building (`Build Plan/`)
+## Intent: what we are building (`Build Plan/`)
 
 | File | Read it for | Change it when |
 |---|---|---|
 | `00-Build-Agent-Guide.md` | Invariants INV-1…12, conventions, how a ticket is executed, milestone gates | A convention or invariant changes (rare; needs an ADR if architectural) |
-| `01-UX-Design-Spec.md` | Everything a user sees: tokens, screens, states, copy, shortcuts. Authoritative. | A UI ticket needs a deviation — amend §9 first, then build |
+| `01-UX-Design-Spec.md` | Everything a user sees: tokens, screens, states, copy, shortcuts. Authoritative. | A UI ticket needs a deviation: amend §9 first, then build |
 | `02-Backlog-v0.4.md` | The tickets. Each has a **Status** line (the source of truth for its state), dependencies, acceptance criteria and an agent brief. Part C is the ordered plan; Part D logs amendments. | In the PR that changes a ticket's state or dependencies |
-| `ScreenTail-Project-Scope.md` | The original goals, success metrics, non-goals and risks (v0.1, 2026-09-10). Superseded as the working spec; kept unedited. | Never — write a new scope version instead |
+| `ScreenTail-Project-Scope.md` | The original goals, success metrics, non-goals and risks (v0.1, 2026-09-10). Superseded as the working spec; kept unedited. | Never; write a new scope version instead |
 
-## Record — what we decided and where we are (`docs/`)
+## Record: what we decided and where we are (`docs/`)
 
 | File | Read it for |
 |---|---|
@@ -36,7 +36,7 @@ to trust it and where to change it.
 | `dev/web-admin.md` | Running the web admin locally, creating the Google OAuth client id, and the admin configuration keys (ST-099) |
 | `dev/deploy.md` | Running the backend, PostgreSQL and the web admin on one Linux host with Docker from one HTTPS origin: setup, the first tenant, updates, backups, and what not to do (ST-007) |
 
-## Evidence — what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)
+## Evidence: what was measured (`docs/adr/evidence/`, `docs/ux/`, `research/`, `shared/`)
 
 | Where | What |
 |---|---|

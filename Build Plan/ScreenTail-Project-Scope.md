@@ -1,6 +1,6 @@
-# ScreenTail — Project Scope Document
+# ScreenTail: Project Scope Document
 
-**Version:** 0.1 — the original scope statement
+**Version:** 0.1 (the original scope statement)
 **Owner:** Hirat
 **Date:** September 10, 2026
 **Status:** Superseded as the working spec by `00-Build-Agent-Guide.md`, `01-UX-Design-Spec.md` and `02-Backlog-v0.4.md` (2026-09-15). Kept unedited as the statement of goals, success metrics, non-goals and risks. Where §5.3 names libraries (Python, pywinauto, Tesseract, faster-whisper), ADR-0001 decided otherwise: .NET 10, Windows OCR, whisper.net. For where the build stands, read `docs/STATUS.md`.
@@ -9,14 +9,14 @@
 
 ## 1. Summary
 
-ScreenTail is a lightweight desktop app for MSP technicians that watches a remote-support session as it happens — what's on screen, where the cursor goes, and what the technician says — and turns it into a finished ticket note and (optionally) a knowledge-base article. The technician reviews a draft for about 30 seconds instead of writing notes for 5–10 minutes.
+ScreenTail is a lightweight desktop app for MSP technicians that watches a remote-support session as it happens (what's on screen, where the cursor goes, and what the technician says) and turns it into a finished ticket note and (optionally) a knowledge-base article. The technician reviews a draft for about 30 seconds instead of writing notes for 5–10 minutes.
 
 The project has two deliverables:
 
-1. **The Tool (capture + intelligence engine)** — a Windows tray app that detects remote-session windows, records clicks and screenshots, transcribes the technician's voice locally, redacts sensitive content, and produces a structured note with one LLM call at session end.
-2. **The UI** — the tray app, the post-session Review screen, a Settings/Privacy console, and a small web dashboard for team admins.
+1. **The Tool (capture + intelligence engine)**: a Windows tray app that detects remote-session windows, records clicks and screenshots, transcribes the technician's voice locally, redacts sensitive content, and produces a structured note with one LLM call at session end.
+2. **The UI**: the tray app, the post-session Review screen, a Settings/Privacy console, and a small web dashboard for team admins.
 
-**Positioning in one line:** "Documentation that writes itself — for any remote tool, into any PSA."
+**Positioning in one line:** "Documentation that writes itself, for any remote tool, into any PSA."
 
 ---
 
@@ -30,7 +30,7 @@ The project has two deliverables:
 ### 2.2 Why existing tools don't solve it
 | Category | Examples | Gap |
 |---|---|---|
-| Generic screen-to-guide tools | Scribe, Tango, Guidde, Kommodo | Built for SOPs, not ticket notes. Capture clicks in the local browser/desktop only — they can't see inside a remote-session window. No PSA integration. |
+| Generic screen-to-guide tools | Scribe, Tango, Guidde, Kommodo | Built for SOPs, not ticket notes. Capture clicks in the local browser/desktop only; they can't see inside a remote-session window. No PSA integration. |
 | RMM/PSA-native AI | Atera Copilot, Mizo, SuperOps Monica, ConnectWise Sidekick | Atera summarizes only Splashtop sessions inside Atera. The rest summarize *ticket text*, not the live session. All are locked to one vendor's stack. |
 | Direct early mover | Vight (2025, ~2 people) | Same concept; very early. Validates demand; means speed and differentiation matter. |
 
@@ -66,15 +66,15 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 
 ---
 
-## 5. Product Scope — The Tool
+## 5. Product Scope: The Tool
 
 ### 5.1 Session lifecycle (how it works, step by step)
-1. **Detect** — ScreenTail watches the foreground window. When a known remote-session process gains focus (`mstsc.exe`, `ScreenConnect.WindowsClient.exe`, Splashtop/TeamViewer/AnyDesk clients), it starts a session automatically. A visible indicator appears; a hotkey pauses or stops.
-2. **Capture** — Low-level mouse/keyboard hooks log clicks and key events with timestamps. A screenshot of the active window is taken on each click (debounced) plus when the screen changes significantly. The technician's microphone is transcribed locally in real time.
-3. **Redact (on device)** — Capture is suppressed while a password field is focused (UI Automation `IsPassword`). OCR scans each frame for patterns (passwords, SSNs, card numbers, API keys) and masks them before anything is stored. User-defined "never capture" apps and windows are honored.
-4. **Summarize** — At session end, one LLM call receives the click log, OCR'd text from selected frames, and the transcript, and returns a structured note: **Problem → Steps taken → Result → Follow-ups**, plus a suggested time entry and 3–6 key screenshots.
-5. **Review & Publish** — The technician sees the draft, edits inline, picks the ticket, and pushes it. Nothing is published without a human click (v1).
-6. **Learn** — Edits the tech makes are stored as style hints so future drafts match how this MSP writes notes.
+1. **Detect**: ScreenTail watches the foreground window. When a known remote-session process gains focus (`mstsc.exe`, `ScreenConnect.WindowsClient.exe`, Splashtop/TeamViewer/AnyDesk clients), it starts a session automatically. A visible indicator appears; a hotkey pauses or stops.
+2. **Capture**: Low-level mouse/keyboard hooks log clicks and key events with timestamps. A screenshot of the active window is taken on each click (debounced) plus when the screen changes significantly. The technician's microphone is transcribed locally in real time.
+3. **Redact (on device)**: Capture is suppressed while a password field is focused (UI Automation `IsPassword`). OCR scans each frame for patterns (passwords, SSNs, card numbers, API keys) and masks them before anything is stored. User-defined "never capture" apps and windows are honored.
+4. **Summarize**: At session end, one LLM call receives the click log, OCR'd text from selected frames, and the transcript, and returns a structured note: **Problem → Steps taken → Result → Follow-ups**, plus a suggested time entry and 3–6 key screenshots.
+5. **Review & Publish**: The technician sees the draft, edits inline, picks the ticket, and pushes it. Nothing is published without a human click (v1).
+6. **Learn**: Edits the tech makes are stored as style hints so future drafts match how this MSP writes notes.
 
 ### 5.2 Functional requirements
 
@@ -97,7 +97,7 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 - FR-14 Team dashboard (web): coverage %, time saved, edit rate, notes pending review.
 - FR-15 Note templates per client/ticket type; per-MSP writing-style profile.
 - FR-16 End-user call audio with explicit consent workflow (all-party consent by default).
-- FR-17 Duplicate-fix detection: "this looks like KB article #123 — link it instead of writing a new one."
+- FR-17 Duplicate-fix detection: "this looks like KB article #123: link it instead of writing a new one."
 
 **Could have (later)**
 - macOS client; endpoint-side agent for command/registry logs; ScreenConnect extension for start/stop hooks; multilingual transcription.
@@ -110,10 +110,10 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 
 ---
 
-## 6. Product Scope — The UI
+## 6. Product Scope: The UI
 
 ### 6.1 Design principles
-1. **Invisible until useful.** The tech should forget it's running — until the draft appears.
+1. **Invisible until useful.** The tech should forget it's running, until the draft appears.
 2. **Trust through transparency.** Always show what was captured, what was redacted, and where it's going. No hidden capture, ever.
 3. **Review in 30 seconds.** The Review screen is the product. Every pixel serves fast scan → tweak → publish.
 4. **Feels like MSP software, not a consumer app.** Dense, keyboard-friendly, dark-mode first, no marketing gloss.
@@ -125,7 +125,7 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 - **Typography:** a clean sans-serif for UI (e.g., Inter), monospace for transcript/command text.
 - **Density:** compact; tables and lists over cards; keyboard shortcuts on everything in Review.
 - **Iconography:** simple line icons; a recognizable tray icon with three states (idle / recording / draft ready).
-- **Accessibility:** WCAG 2.1 AA contrast, full keyboard navigation, screen-reader labels — techs may run this all day.
+- **Accessibility:** WCAG 2.1 AA contrast, full keyboard navigation, screen-reader labels; techs may run this all day.
 
 ### 6.3 Key screens
 
@@ -135,9 +135,9 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 | S2 | **Recording HUD (overlay)** | Make capture state obvious | Small pill on screen edge: timer, mic level, redaction count, pause/stop. Draggable; can be minimized to tray only by explicit choice. |
 | S3 | **Review & Publish** | The core workflow | Left: generated note (Problem/Steps/Result/Follow-ups) with inline editing and confidence markers. Center: screenshot strip with select/discard/blur. Right: ticket picker (search PSA), time entry, destination toggles (Ticket note / KB article), Publish button. Bottom: collapsible timeline + transcript with jump-to-moment. |
 | S4 | **Session history** | Find and re-open past sessions | Filter by date/client/status (Draft, Published, Discarded); coverage % banner; bulk discard. |
-| S5 | **Settings — Capture** | Control what triggers recording | Remote tools to watch (toggle each), hotkeys, screenshot frequency, mic device, auto-start on/off. |
-| S6 | **Settings — Privacy & Redaction** | Build trust | Exclusion list (apps/windows/URLs), redaction pattern toggles + custom regex, retention period, Local-only mode switch, "Export my data / Delete everything." |
-| S7 | **Settings — Integrations** | Connect once | ConnectWise (company ID, keys, clientId), Hudu (URL, API key); connection test; default note type and time-rounding rule. |
+| S5 | **Settings: Capture** | Control what triggers recording | Remote tools to watch (toggle each), hotkeys, screenshot frequency, mic device, auto-start on/off. |
+| S6 | **Settings: Privacy & Redaction** | Build trust | Exclusion list (apps/windows/URLs), redaction pattern toggles + custom regex, retention period, Local-only mode switch, "Export my data / Delete everything." |
+| S7 | **Settings: Integrations** | Connect once | ConnectWise (company ID, keys, clientId), Hudu (URL, API key); connection test; default note type and time-rounding rule. |
 | S8 | **Onboarding wizard** | First-run in < 5 minutes | Permissions explanation (mic, screen), choose remote tools, connect PSA, run a 60-second test session, see a sample draft. |
 | S9 | **Admin dashboard (web, v1.1)** | Show ROI to owners | Sessions captured, minutes saved, edit rate, pending drafts by tech, redaction stats; per-tech seat management. |
 | S10 | **Consent prompt (v1.2)** | Legal safety for call audio | Clear "record the call?" step with state-law hint and a one-line script the tech can read to the end user. |
@@ -154,7 +154,7 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 
 ### 7.1 Technical
 - **Windows-only for v1** (technician machines); macOS deferred.
-- **Remote canvases are opaque.** Inside RDP/ScreenConnect windows there's no accessibility tree, so element names can't be read — OCR and vision must fill in. Expect lower fidelity than local-app capture; design the note generator to lean on voice + click timing.
+- **Remote canvases are opaque.** Inside RDP/ScreenConnect windows there's no accessibility tree, so element names can't be read; OCR and vision must fill in. Expect lower fidelity than local-app capture; design the note generator to lean on voice + click timing.
 - **Window detection relies on process names** for most tools (only RDP has a stable window class); each vendor's client update must be re-tested.
 - **Compressed remote streams degrade OCR.** Screenshot at native resolution; retry OCR on stabilized frames.
 - **Low-level hooks** must respect Windows timeout rules and 32/64-bit requirements; the app must never add perceptible input lag.
@@ -166,8 +166,8 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 - **Code signing** and clear privacy documentation are release blockers.
 
 ### 7.3 Business and resourcing
-- **Team:** solo builder initially, with access to one MSP for testing. Scope is sized accordingly — one PSA, one doc platform, one OS.
-- **Budget:** minimal — LLM/API spend, code-signing certificate, hosting, domain. Target model cost < $0.10/session.
+- **Team:** solo builder initially, with access to one MSP for testing. Scope is sized accordingly: one PSA, one doc platform, one OS.
+- **Budget:** minimal (LLM/API spend, code-signing certificate, hosting, domain). Target model cost < $0.10/session.
 - **Timeline (part-time, indicative):** Stage 0 validation 2 weeks → Stage 1 draft-quality prototype 1–3 months → Stage 2 integrations + redaction 1–2 months → Stage 3 external pilots ongoing.
 - **Competitive window:** incumbents (ConnectWise, Atera) could ship native equivalents within 1–2 years; Vight is already in market. Speed and tool-agnosticism are the defense.
 
@@ -207,17 +207,17 @@ A **remote-tool-agnostic** and **PSA-agnostic** tool that combines **screen + cu
 
 | Milestone | Deliverable | Exit criteria |
 |---|---|---|
-| M0 — Validate | Baseline measurement at pilot MSP; 5 tech interviews | Minutes/ticket on docs known; ≥ 3 techs willing to pilot |
-| M1 — Capture prototype | Tray app: detection, hooks, screenshots, local transcript; draft note as copyable text | Draft judged "better than what I'd write" by ≥ 2 techs; edit rate < 25% on 20 sessions |
-| M2 — Closed loop | Review screen, redaction, ConnectWise + Hudu push, encrypted store | 0 leak incidents in 50 reviewed sessions; ≥ 60% time reduction measured |
-| M3 — Pilot-ready | Onboarding wizard, Settings, signed installer, privacy doc, local-only mode | 2–3 external MSPs onboarded via r/msp / peer groups |
-| M4 — Team layer | Admin dashboard, second PSA, style profiles | Retention ≥ 80% weekly active techs across pilots |
+| M0: Validate | Baseline measurement at pilot MSP; 5 tech interviews | Minutes/ticket on docs known; ≥ 3 techs willing to pilot |
+| M1: Capture prototype | Tray app: detection, hooks, screenshots, local transcript; draft note as copyable text | Draft judged "better than what I'd write" by ≥ 2 techs; edit rate < 25% on 20 sessions |
+| M2: Closed loop | Review screen, redaction, ConnectWise + Hudu push, encrypted store | 0 leak incidents in 50 reviewed sessions; ≥ 60% time reduction measured |
+| M3: Pilot-ready | Onboarding wizard, Settings, signed installer, privacy doc, local-only mode | 2–3 external MSPs onboarded via r/msp / peer groups |
+| M4: Team layer | Admin dashboard, second PSA, style profiles | Retention ≥ 80% weekly active techs across pilots |
 
 ---
 
 ## 11. Open Questions
-1. Which remote tool is most common at the pilot MSP — confirms detection priority order.
+1. Which remote tool is most common at the pilot MSP: confirms detection priority order.
 2. Internal vs. discussion note type default in ConnectWise; time-rounding policy (6 vs 15 min).
 3. Do techs want the HUD visible during screen-share with end users, or auto-hidden?
 4. Local-only mode: which on-device vision model gives acceptable quality on typical tech laptops?
-5. Pricing model: flat per-technician per month vs. per-session — test both in pilot conversations.
+5. Pricing model: flat per-technician per month vs. per-session; test both in pilot conversations.

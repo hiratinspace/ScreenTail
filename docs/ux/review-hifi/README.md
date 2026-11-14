@@ -1,4 +1,4 @@
-# Review screen — hi-fi design (ST-015)
+# Review screen: hi-fi design (ST-015)
 
 The wireframes (ST-014, `../wireframes/s3-review.html`) settled layout, content and states in
 greyscale. This is the same screen with the visual design committed: real colour, type scale, spacing and
@@ -10,7 +10,7 @@ two themes, and a state can be deep-linked: `index.html?state=purged&theme=light
 ## Why it is HTML built on the shipped tokens
 
 `review.css` uses no colour of its own. Every value comes from `tokens.g.css`, which is generated from
-`shared/design/tokens.json` — the same source the WPF resource dictionaries are generated from. A
+`shared/design/tokens.json`, the same source the WPF resource dictionaries are generated from. A
 prototype with its own palette looks decided and is a lie, because the thing that ships uses different
 colours; this one cannot drift from the product without the product drifting too. Sizes, spacing and radii
 are the token scale restated as custom properties, so the stylesheet reads like the spec (`size.lg`,
@@ -24,7 +24,7 @@ same file the CI contrast test reads.
 | State | Deep link | What it settles |
 |---|---|---|
 | Default | `?state=default` | The finished note with frame chips and a transcript quote; 7 of 14 frames included; a suppressed interval shown as a gap in the strip, not a missing frame |
-| Low-confidence step | `?state=low-confidence` | Marked three ways — ⚠ glyph, the word "Inferred", a left rule — so it reads without colour (Spec §7); `Alt+C` confirms |
+| Low-confidence step | `?state=low-confidence` | Marked three ways (⚠ glyph, the word "Inferred", a left rule) so it reads without colour (Spec §7); `Alt+C` confirms |
 | Partial capture | `?state=partial` | Warning banner: "Capture started late or was interrupted. Some steps may be missing." |
 | Frames purged | `?state=purged` | Warning banner with the count; the strip header says "7 of 11 included · 3 removed" so the arithmetic is visible |
 | Offline | `?state=offline` | Info banner; Publish disabled with the reason beside it, not in a tooltip |
@@ -42,7 +42,7 @@ exact deep links.
   badge's words, and both failed AA on the light surface (3.19:1 and 3.30:1). The colour now carries a
   rule, a border or a glyph; the words are `text.secondary`. See `contrast.md`.
 - **Section headings are `size.lg` semibold in `text.secondary`**, per Spec §5 S3, which keeps the
-  technician's own words — the step text — as the darkest thing on the page.
+  technician's own words (the step text) as the darkest thing on the page.
 - **A suppressed interval is a striped, dashed gap in the filmstrip**, the same width as a frame, with
   the reason and the times on it. A technician has to be able to see that something was deliberately not
   captured; otherwise the note reads as if it simply lost eighteen seconds.
@@ -75,10 +75,10 @@ than only in a sheet.
 
 ## What this does not decide
 
-Whether the drafted words are any good — that is ST-061's prompt and ST-062's evaluation. The note text
+Whether the drafted words are any good is ST-061's prompt and ST-062's evaluation. The note text
 here is a plausible example, not a fixture, and ST-074 builds against `research/fixtures/handcrafted/`.
 
 ## Contrast
 
-`contrast.md` — 32 pairs, all passing. Regenerate after any token change with
+`contrast.md`: 32 pairs, all passing. Regenerate after any token change with
 `python3 docs/ux/review-hifi/contrast.py`; it exits non-zero on a failure, so it can sit in CI.
