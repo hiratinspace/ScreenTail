@@ -106,6 +106,6 @@
     "kb_candidate": false,
     "kb_reason": "Not a KB candidate: one-off fix on one printer",
     "source": "cloud",
-    "prompt_version": "note_v1"
+    "prompt_version": "note_v2"
   }
 }

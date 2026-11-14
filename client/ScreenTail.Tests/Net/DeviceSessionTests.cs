@@ -40,14 +40,14 @@ public sealed class DeviceSessionTests
     public async Task ARefusedCodeIsTheBackendsSentence()
     {
         var backend = new ScriptedBackend();
-        backend.Reply(new HttpResponseMessage(HttpStatusCode.Conflict) { Content = JsonContent.Create(new { error = "seat_limit", message = "Seat limit reached — contact your admin" }) });
+        backend.Reply(new HttpResponseMessage(HttpStatusCode.Conflict) { Content = JsonContent.Create(new { error = "seat_limit", message = "Seat limit reached. Contact your admin." }) });
         var credentials = new InMemoryCredentials();
         var session = new DeviceSession(Client(backend), credentials, time: new ManualTime(T0));
 
         var answer = await session.ActivateAsync("KX7PM-4R2WQ", "TECH-LAPTOP", TestContext.Current.CancellationToken);
 
         Assert.False(answer.Ok);
-        Assert.Equal("Seat limit reached — contact your admin", answer.Refusal);
+        Assert.Equal("Seat limit reached. Contact your admin.", answer.Refusal);
         Assert.Null(credentials.Load());
         Assert.False(session.Activated);
     }

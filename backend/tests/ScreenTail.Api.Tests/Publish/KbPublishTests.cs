@@ -53,7 +53,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var article = JsonDocument.Parse(hudu.Bodies[hudu.Requests.IndexOf(create)]!).RootElement.GetProperty("article");
         Assert.Equal(7, article.GetProperty("company_id").GetInt32());
         Assert.True(article.GetProperty("draft").GetBoolean());
-        Assert.Equal("Printer offline — Acme Dental", article.GetProperty("name").GetString());
+        Assert.Equal("Printer offline: Acme Dental", article.GetProperty("name").GetString());
         Assert.Contains("#48213", article.GetProperty("content").GetString(), StringComparison.Ordinal);
         Assert.Single(hudu.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/api/v1/uploads", StringComparison.Ordinal));
 
@@ -726,12 +726,12 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
             Steps = [new DraftStepJson { Text = "Checked the spooler service.", Confidence = "high" }],
             Result = "Printing works again.",
             FollowUps = [],
-            SuggestedTitle = "Printer offline — Acme Dental",
+            SuggestedTitle = "Printer offline: Acme Dental",
             SuggestedTimeMinutes = 23,
             KbCandidate = true,
             KbReason = "Recurring",
             Source = "cloud",
-            PromptVersion = "note_v1",
+            PromptVersion = "note_v2",
         },
         Frames = [],
     };

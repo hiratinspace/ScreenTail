@@ -1705,7 +1705,7 @@ public sealed class StateMachineTests : IAsyncDisposable
         KbCandidate = false,
         KbReason = "n",
         Source = DraftSource.Cloud,
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     private static TranscriptSegment Said(string id, long tsMs, string text) =>
@@ -1856,7 +1856,7 @@ public sealed class StateMachineTests : IAsyncDisposable
             KbCandidate = false,
             KbReason = "n",
             Source = DraftSource.Cloud,
-            PromptVersion = "note_v1",
+            PromptVersion = "note_v2",
         });
 
         public bool Throw { get; set; }

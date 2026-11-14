@@ -149,7 +149,7 @@ public sealed class SessionLabelsStoreTests : IAsyncDisposable
         KbCandidate = false,
         KbReason = "one-off",
         Source = DraftSource.Cloud,
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     private sealed class FixedKeyProvider(byte[] key) : IStoreKeyProvider

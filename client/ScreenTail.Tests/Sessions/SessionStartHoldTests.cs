@@ -94,7 +94,7 @@ public sealed class SessionStartHoldTests
                 KbCandidate = false,
                 KbReason = "n",
                 Source = DraftSource.Cloud,
-                PromptVersion = "note_v1",
+                PromptVersion = "note_v2",
             }),
             SessionState.DraftPending => DraftOutcome.Pending("The draft is queued for the backend."),
             _ => DraftOutcome.Failure("No drafting here."),

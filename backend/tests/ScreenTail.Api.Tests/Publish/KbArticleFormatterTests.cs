@@ -35,11 +35,11 @@ public sealed class KbArticleFormatterTests
         Steps = [new DraftStepJson { Text = "Checked the spooler service; it was stopped.", Confidence = "high" }],
         Result = "Printing works again.",
         FollowUps = [],
-        SuggestedTitle = "Printer offline — Acme Dental",
+        SuggestedTitle = "Printer offline: Acme Dental",
         SuggestedTimeMinutes = 23,
         KbCandidate = true,
         KbReason = "Recurring",
         Source = "cloud",
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 }

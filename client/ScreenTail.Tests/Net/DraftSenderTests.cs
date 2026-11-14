@@ -707,7 +707,7 @@ public sealed class DraftSenderTests : IAsyncDisposable
     private static string Ok() => """
         {"status":"ok","draft":{"problem":"Nothing printed.","steps":[],"result":"It prints.",
          "follow_ups":[],"suggested_title":"Printer offline","suggested_time_minutes":10,
-         "kb_candidate":false,"kb_reason":"n","source":"cloud","prompt_version":"note_v1"}}
+         "kb_candidate":false,"kb_reason":"n","source":"cloud","prompt_version":"note_v2"}}
         """;
 
     /// <summary>A finished session with one redacted frame and one thing said.</summary>

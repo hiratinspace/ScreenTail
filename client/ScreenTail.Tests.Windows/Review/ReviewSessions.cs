@@ -51,7 +51,7 @@ internal static class ReviewSessions
         KbCandidate = false,
         KbReason = "Not a KB candidate: one-off fix",
         Source = DraftSource.Cloud,
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     /// <summary>A 4x4 PNG, so a thumbnail can really be decoded.</summary>

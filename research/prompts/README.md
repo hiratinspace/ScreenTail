@@ -1,6 +1,8 @@
 # Prompts
 
-Versioned prompt files and their output contract. `note_v1.md` (ST-061) is the session-to-note prompt:
+Versioned prompt files and their output contract. `note_v2.md` (ST-061) is the session-to-note prompt
+(`note_v1.md` is kept as the prompt that wrote earlier notes; v2 drops its em dashes and writes titles
+as `<symptom>: <cause or fix>`):
 strict output schema, post-conditions that reject invented steps, fake quotations, dangling frame
 references and leaked secrets. Any prompt change runs the eval harness in CI (Guide §5); the harness's
 draft-quality half arrives with ST-062, on ST-030's golden sessions. `note_local_v1.md` arrives with ST-065.

@@ -193,7 +193,7 @@ public sealed class PublisherIsolationTests(ApiFixture api) : IClassFixture<ApiF
             KbCandidate = false,
             KbReason = "One-off fix",
             Source = "cloud",
-            PromptVersion = "note_v1",
+            PromptVersion = "note_v2",
         },
     };
 

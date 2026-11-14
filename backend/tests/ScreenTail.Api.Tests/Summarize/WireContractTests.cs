@@ -185,7 +185,7 @@ public sealed class WireContractTests(ApiFixture api) : IClassFixture<ApiFixture
                         "frame_refs": ["f-0001"], "transcript_refs": ["t-0001"]}],
              "result": "Printing works again.", "follow_ups": [], "suggested_title": "Printer offline",
              "suggested_time_minutes": 21, "kb_candidate": false, "kb_reason": "Routine.",
-             "source": "cloud", "prompt_version": "note_v1"}
+             "source": "cloud", "prompt_version": "note_v2"}
             """;
     }
 }

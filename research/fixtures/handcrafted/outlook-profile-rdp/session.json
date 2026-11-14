@@ -180,6 +180,6 @@
     "kb_candidate": false,
     "kb_reason": "Specific to this migration; the generic profile rebuild is already documented.",
     "source": "cloud",
-    "prompt_version": "note_v1"
+    "prompt_version": "note_v2"
   }
 }

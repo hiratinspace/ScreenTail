@@ -170,11 +170,11 @@
     "follow_ups": [
       "If the spooler stops again, check the HP driver version on this machine."
     ],
-    "suggested_title": "Printer offline \u2014 print spooler stopped",
+    "suggested_title": "Printer offline: print spooler stopped",
     "suggested_time_minutes": 10,
     "kb_candidate": true,
     "kb_reason": "Common fix, clean steps, likely to recur across this client's front-desk machines.",
     "source": "cloud",
-    "prompt_version": "note_v1"
+    "prompt_version": "note_v2"
   }
 }

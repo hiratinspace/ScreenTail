@@ -196,7 +196,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
             KbCandidate = false,
             KbReason = "n",
             Source = DraftSource.Cloud,
-            PromptVersion = "note_v1",
+            PromptVersion = "note_v2",
         });
         await store.FinalizeSessionAsync("s1", new FinalizeInfo(60_000, PartialCapture: true));
         await store.PurgePendingFramesAsync("s1");
@@ -424,7 +424,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
         KbCandidate = false,
         KbReason = "one-off",
         Source = DraftSource.Cloud,
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     [Fact]

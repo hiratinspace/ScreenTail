@@ -842,7 +842,7 @@ public sealed class SummarizationServiceTests
           "kb_candidate": true,
           "kb_reason": "A common fix worth writing down.",
           "source": "cloud",
-          "prompt_version": "note_v1"
+          "prompt_version": "note_v2"
         }
         """;
 

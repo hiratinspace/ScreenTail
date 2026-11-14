@@ -203,7 +203,7 @@ internal sealed class StandInBackend : IAsyncDisposable
             KbCandidate = true,
             KbReason = "Recurring after updates",
             Source = "cloud",
-            PromptVersion = "note_v1",
+            PromptVersion = "note_v2",
         },
         Frames = [],
     };

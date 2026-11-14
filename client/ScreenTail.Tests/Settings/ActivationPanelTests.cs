@@ -81,14 +81,14 @@ public sealed class ActivationPanelTests
     [Fact]
     public async Task ARefusalIsTheBackendsSentenceAndTheCodeStays()
     {
-        var gateway = new FakeDevice { Refusal = "Seat limit reached — contact your admin" };
+        var gateway = new FakeDevice { Refusal = "Seat limit reached. Contact your admin." };
         var panel = new ActivationPanel(gateway, "TECH-LAPTOP");
         await panel.LoadAsync();
         panel.Code = "kx7pm-4r2wq-9htce-b3nva";
 
         Assert.False(await panel.ActivateAsync());
 
-        Assert.Equal("Seat limit reached — contact your admin", panel.Problem);
+        Assert.Equal("Seat limit reached. Contact your admin.", panel.Problem);
         Assert.False(panel.Activated);
         Assert.Equal("kx7pm-4r2wq-9htce-b3nva", panel.Code);
     }

@@ -18,12 +18,12 @@ internal static class ReviewFixture
         Steps = steps.Length == 0 ? [Step("Checked the spooler service.")] : steps,
         Result = "Printing works again.",
         FollowUps = [],
-        SuggestedTitle = "Printer offline — Acme Dental",
+        SuggestedTitle = "Printer offline: Acme Dental",
         SuggestedTimeMinutes = 30,
         KbCandidate = false,
         KbReason = "Not a KB candidate: one-off fix",
         Source = DraftSource.Cloud,
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     public static Session Session(
