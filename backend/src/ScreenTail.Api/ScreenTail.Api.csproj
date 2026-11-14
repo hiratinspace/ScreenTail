@@ -15,7 +15,7 @@
   <ItemGroup>
     <!-- ST-063: the prompt ships with the service, so a deployment cannot drift from the version its
          post-conditions were written against. -->
-    <EmbeddedResource Include="..\..\..\research\prompts\note_v1.md" LogicalName="ScreenTail.Api.Prompts.note_v1.md" />
+    <EmbeddedResource Include="..\..\..\research\prompts\note_v2.md" LogicalName="ScreenTail.Api.Prompts.note_v2.md" />
     <!-- The note's JSON schema, which ClaudeProvider asks for as structured output. The same file the
          prompt and DraftValidator are written against, so the three cannot drift apart. -->
     <EmbeddedResource Include="..\..\..\research\prompts\schema.json" LogicalName="ScreenTail.Api.Prompts.schema.json" />

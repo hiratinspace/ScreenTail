@@ -93,11 +93,11 @@ public sealed class NoteFormatterTests
         ],
         Result = "Printing works again.",
         FollowUps = ["Check the driver on the second printer."],
-        SuggestedTitle = "Printer offline — Acme Dental",
+        SuggestedTitle = "Printer offline: Acme Dental",
         SuggestedTimeMinutes = 23,
         KbCandidate = false,
         KbReason = "Not a KB candidate: one-off fix",
         Source = "cloud",
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 }

@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace ScreenTail.Api.Summarize;
 
 /// <summary>
-/// What a model may not be allowed to say (ST-063, prompt <c>note_v1</c>).
+/// What a model may not be allowed to say (ST-063, prompt <c>note_v2</c>).
 ///
 /// The prompt asks for a great deal of restraint: cite only real evidence, quote only what was said,
 /// leave redactions alone, never write an instruction. A prompt is a request. <b>This is the part that
@@ -32,7 +32,7 @@ namespace ScreenTail.Api.Summarize;
 public static class DraftValidator
 {
     /// <summary>The prompt these rules were written against. A draft from another has been checked by nothing.</summary>
-    public const string PromptVersion = "note_v1";
+    public const string PromptVersion = "note_v2";
 
     private static readonly Regex Quoted = DraftRules.Compile("quoted", DraftRules.Quoted);
     private static readonly Regex Apostrophe = DraftRules.Compile("apostrophe", [DraftRules.Apostrophe]);

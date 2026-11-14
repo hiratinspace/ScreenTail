@@ -76,7 +76,7 @@ public sealed class ActivationTests(ApiFixture api) : IClassFixture<ApiFixture>
         using var refused = await client.PostAsJsonAsync(new Uri("/v1/devices/activate", UriKind.Relative), new ActivateDeviceRequest(sixth.Code, "LAPTOP-6"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
-        Assert.Contains("Seat limit reached — contact your admin", await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Contains("Seat limit reached. Contact your admin.", await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.Equal(5, await api.UseAsync(db => db.Devices.CountAsync(d => d.TenantId == tenantId)));
     }
 

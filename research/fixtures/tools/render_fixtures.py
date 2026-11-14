@@ -284,12 +284,12 @@ def spooler_bundle() -> dict[str, object]:
             ],
             "result": "Printing works again from the reception workstation.",
             "follow_ups": ["If the spooler stops again, check the HP driver version on this machine."],
-            "suggested_title": "Printer offline — print spooler stopped",
+            "suggested_title": "Printer offline: print spooler stopped",
             "suggested_time_minutes": 10,
             "kb_candidate": True,
             "kb_reason": "Common fix, clean steps, likely to recur across this client's front-desk machines.",
             "source": "cloud",
-            "prompt_version": "note_v1",
+            "prompt_version": "note_v2",
         },
     }
 
@@ -401,7 +401,7 @@ def outlook_bundle() -> dict[str, object]:
             "kb_candidate": False,
             "kb_reason": "Specific to this migration; the generic profile rebuild is already documented.",
             "source": "cloud",
-            "prompt_version": "note_v1",
+            "prompt_version": "note_v2",
         },
     }
 
@@ -520,12 +520,12 @@ def crash_bundle() -> dict[str, object]:
             "follow_ups": [
                 "Check whether a GPO is stripping the right; it may return after the next policy refresh."
             ],
-            "suggested_title": "DentalSuite crash 0x80070005 — service account lost logon right",
+            "suggested_title": "DentalSuite crash 0x80070005: service account lost logon right",
             "suggested_time_minutes": 12,
             "kb_candidate": True,
             "kb_reason": "Non-obvious diagnosis with a clean fix; likely to recur wherever that GPO applies.",
             "source": "cloud",
-            "prompt_version": "note_v1",
+            "prompt_version": "note_v2",
         },
     }
 
@@ -634,12 +634,12 @@ def billing_bundle() -> dict[str, object]:
             ],
             "result": "VPN reconnects and the server shares are reachable again.",
             "follow_ups": ["The wall port is loose; suggest a cable tidy on the next site visit."],
-            "suggested_title": "VPN down — Ethernet cable unplugged at the wall",
+            "suggested_title": "VPN down: Ethernet cable unplugged at the wall",
             "suggested_time_minutes": 6,
             "kb_candidate": False,
             "kb_reason": "Physical, site-specific cause; nothing generalisable to document.",
             "source": "local",
-            "prompt_version": "note_v1",
+            "prompt_version": "note_v2",
         },
     }
 

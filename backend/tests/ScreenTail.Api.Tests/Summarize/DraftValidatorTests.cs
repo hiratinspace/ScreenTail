@@ -256,12 +256,12 @@ public sealed class DraftValidatorTests
         Steps = [Step("Found the Print Spooler service stopped.", frames: ["f1"], transcript: ["t1"])],
         Result = "Printing works again.",
         FollowUps = ["Check the driver version if it stops again."],
-        SuggestedTitle = "Printer offline — print spooler stopped",
+        SuggestedTitle = "Printer offline: print spooler stopped",
         SuggestedTimeMinutes = 10,
         KbCandidate = true,
         KbReason = "A common fix worth writing down.",
         Source = "cloud",
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     private static DraftStepJson Step(string text, string[] frames, string[] transcript, string confidence = "high") =>

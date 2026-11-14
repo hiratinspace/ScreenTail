@@ -210,7 +210,7 @@ public sealed class CostCapTests(ApiFixture api) : IClassFixture<ApiFixture>
         private static string Draft => """
             {"problem": "p", "steps": [], "result": "r", "follow_ups": [], "suggested_title": "t",
              "suggested_time_minutes": 1, "kb_candidate": false, "kb_reason": "k", "source": "cloud",
-             "prompt_version": "note_v1"}
+             "prompt_version": "note_v2"}
             """;
     }
 }

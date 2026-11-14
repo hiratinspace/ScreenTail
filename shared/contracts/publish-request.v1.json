@@ -53,7 +53,7 @@
       "kb_candidate": false,
       "kb_reason": "Not a KB candidate: one-off fix",
       "source": "cloud",
-      "prompt_version": "note_v1"
+      "prompt_version": "note_v2"
     },
     "frames": [
       { "id": "f-0002", "media_type": "image/jpeg", "image": "/9j/4AAQSkZJRg==" }

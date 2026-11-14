@@ -15,7 +15,7 @@ public static class PromptLibrary
     public static string Note()
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var name = assembly.GetManifestResourceNames().Single(n => n.EndsWith("note_v1.md", StringComparison.Ordinal));
+        var name = assembly.GetManifestResourceNames().Single(n => n.EndsWith("note_v2.md", StringComparison.Ordinal));
         using var stream = assembly.GetManifestResourceStream(name)!;
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();

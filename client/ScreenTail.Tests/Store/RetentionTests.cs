@@ -280,7 +280,7 @@ public sealed class RetentionTests : IAsyncDisposable
             KbCandidate = false,
             KbReason = "n",
             Source = DraftSource.Cloud,
-            PromptVersion = "note_v1",
+            PromptVersion = "note_v2",
         });
         await store.FinalizeSessionAsync(id, new FinalizeInfo(10_000, false));
         await store.SetSessionStateAsync(id, Shared.Ipc.CaptureStates.DraftReady, null);
