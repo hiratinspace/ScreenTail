@@ -179,6 +179,7 @@ public sealed class ShellViewModelTests
             new CaptureViewModel(new CapturePanel(this), _ => Task.CompletedTask),
             new PrivacyViewModel(new PrivacyPanel(this), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
             new IntegrationsViewModel(new IntegrationsPanel(this)),
+            new UI.Settings.Appearance.AppearanceViewModel(new AppearanceSection(Core.Shell.ThemeChoice.System, _ => true), () => "Dark"),
             new UI.Update.UpdatesViewModel(new UpdatesPanel(new NoUpdates())));
 
         public Task<DeviceStanding?> StandingAsync(CancellationToken ct = default) => Count<DeviceStanding>("activation");

@@ -1,0 +1,32 @@
+<UserControl x:Class="ScreenTail.UI.Settings.Appearance.AppearancePane"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             AutomationProperties.Name="Appearance">
+    <!-- ST-070, in the same card, text styles and controls as the other Settings groups: the theme, held
+         for the page's Save bar. Windows' own setting first, since it is the default and the one most
+         people want; high contrast is never a choice here, because Windows' takes over from all three. -->
+    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <StackPanel>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Theme" />
+                <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Theme]}" />
+            </StackPanel>
+            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="How ScreenTail looks on this PC. It changes when you save." />
+            <RadioButton Margin="0,8,0,0" GroupName="AppearanceTheme" Content="Use my Windows setting (Recommended)" IsChecked="{Binding UseWindows}" />
+            <TextBlock Margin="24,4,0,0"
+                       Style="{StaticResource Text.Muted}"
+                       TextWrapping="Wrap"
+                       Text="{Binding WindowsNow}" />
+            <TextBlock Margin="24,0,0,0"
+                       Style="{StaticResource Text.Muted}"
+                       TextWrapping="Wrap"
+                       Text="ScreenTail follows it when it changes. It is in Windows Settings, Personalization, Colors, Choose your app mode." />
+            <RadioButton Margin="0,8,0,0" GroupName="AppearanceTheme" Content="Light" IsChecked="{Binding Light}" />
+            <RadioButton Margin="0,4,0,0" GroupName="AppearanceTheme" Content="Dark" IsChecked="{Binding Dark}" />
+            <TextBlock Margin="0,8,0,0"
+                       Style="{StaticResource Text.Muted}"
+                       TextWrapping="Wrap"
+                       Text="While Windows high contrast is on, ScreenTail uses its colours instead." />
+        </StackPanel>
+    </Border>
+</UserControl>

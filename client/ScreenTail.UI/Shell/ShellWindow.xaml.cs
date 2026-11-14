@@ -244,6 +244,8 @@ public partial class ShellWindow : Window
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
                 new PrivacyViewModel(new PrivacyPanel(new SamplePrivacy()), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined))),
                 new IntegrationsViewModel(new IntegrationsPanel(new SampleIntegrations())),
+                // Saves nothing: a render never writes the technician's shell.json, nor changes the theme it draws in.
+                new Settings.Appearance.AppearanceViewModel(new AppearanceSection(Core.Shell.ThemeChoice.System, _ => true), () => "Dark"),
                 new Update.UpdatesViewModel(new UpdatesPanel(new SampleUpdates()))),
             sessions: _ => Task.FromResult<IReadOnlyList<SessionRow>?>(_sampleRows),
             diagnostics: () => { },

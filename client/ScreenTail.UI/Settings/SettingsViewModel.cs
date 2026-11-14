@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ScreenTail.Core.Settings;
 using ScreenTail.UI.Settings.Activation;
+using ScreenTail.UI.Settings.Appearance;
 using ScreenTail.UI.Settings.Capture;
 using ScreenTail.UI.Settings.Integrations;
 using ScreenTail.UI.Settings.Privacy;
@@ -45,7 +46,8 @@ public sealed partial class SettingsNavItem(string key, string label) : Observab
 /// <summary>
 /// The Settings screen (Spec §5 S5 to S7, and the Settings layout, v0.6.0): a nav of its sections beside
 /// one scrolling page, and one Save bar for the whole page (owner decision). This device's activation
-/// (ST-010), Capture (ST-080), Privacy &amp; Redaction (ST-081), Integrations (ST-082) and Updates (ST-113).
+/// (ST-010), Capture (ST-080), Privacy &amp; Redaction (ST-081), Integrations (ST-082),
+/// Appearance (ST-070) and Updates (ST-113).
 ///
 /// The rules of the bar are <see cref="SettingsPage"/>'s; this binds them. Each section's view model says
 /// when a field changed, and the bar counts again. Save writes every changed section through its own save
@@ -54,27 +56,30 @@ public sealed partial class SettingsNavItem(string key, string label) : Observab
 /// </summary>
 public sealed partial class SettingsViewModel : ObservableObject
 {
-    public SettingsViewModel(ActivationViewModel activation, CaptureViewModel capture, PrivacyViewModel privacy, IntegrationsViewModel integrations, UpdatesViewModel updates)
+    public SettingsViewModel(ActivationViewModel activation, CaptureViewModel capture, PrivacyViewModel privacy, IntegrationsViewModel integrations, AppearanceViewModel appearance, UpdatesViewModel updates)
     {
         Activation = activation ?? throw new ArgumentNullException(nameof(activation));
         Capture = capture ?? throw new ArgumentNullException(nameof(capture));
         Privacy = privacy ?? throw new ArgumentNullException(nameof(privacy));
         Integrations = integrations ?? throw new ArgumentNullException(nameof(integrations));
+        Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
         Updates = updates ?? throw new ArgumentNullException(nameof(updates));
         integrations.UsePageSave();
-        Page = new SettingsPage([capture.Section, privacy.Section, integrations.Section, updates.Section]);
+        Page = new SettingsPage([capture.Section, privacy.Section, integrations.Section, appearance.Section, updates.Section]);
         Sections =
         [
             new SettingsNavItem("Activation", "Activation"),
             new SettingsNavItem(capture.Section.Name, "Capture"),
             new SettingsNavItem(privacy.Section.Name, "Privacy"),
             new SettingsNavItem(integrations.Section.Name, "Integrations"),
+            new SettingsNavItem(appearance.Section.Name, "Appearance"),
             new SettingsNavItem(updates.Section.Name, "Updates"),
         ];
         SelectedSection = Sections[0];
         capture.Edited += (_, _) => Show();
         privacy.Edited += (_, _) => Show();
         integrations.Edited += (_, _) => Show();
+        appearance.Edited += (_, _) => Show();
         updates.Edited += (_, _) => Show();
         Show();
     }
@@ -86,6 +91,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     public PrivacyViewModel Privacy { get; }
 
     public IntegrationsViewModel Integrations { get; }
+
+    public AppearanceViewModel Appearance { get; }
 
     public UpdatesViewModel Updates { get; }
 
@@ -199,6 +206,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         Capture.Refresh();
         Privacy.Refresh();
+        Appearance.Refresh();
         Updates.Refresh();
         await Integrations.RefreshAsync().ConfigureAwait(true);
     }
