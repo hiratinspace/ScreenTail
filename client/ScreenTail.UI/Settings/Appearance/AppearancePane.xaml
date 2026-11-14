@@ -5,10 +5,10 @@
     <!-- ST-070, in the same card, text styles and controls as the other Settings groups: the theme, held
          for the page's Save bar. Windows' own setting first, since it is the default and the one most
          people want; high contrast is never a choice here, because Windows' takes over from all three. -->
-    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+    <Border Style="{StaticResource Settings.Tile}">
         <StackPanel>
             <StackPanel Orientation="Horizontal">
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Theme" />
+                <TextBlock Style="{StaticResource Text.TileHeading}" Text="Theme" />
                 <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Theme]}" />
             </StackPanel>
             <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="How ScreenTail looks on this PC. It changes when you save." />

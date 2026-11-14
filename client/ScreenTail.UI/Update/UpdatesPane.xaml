@@ -8,9 +8,9 @@
          this installation stands with Install, offered only when an update is ready and no session is
          recording; and the channel, locked with who set it when the admin's policy chose it (INV-11). -->
     <StackPanel>
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="This installation" />
+                <TextBlock Style="{StaticResource Text.TileHeading}" Text="This installation" />
                 <TextBlock Margin="0,8,0,0"
                            Style="{StaticResource Text.Secondary}"
                            TextWrapping="Wrap"
@@ -37,10 +37,10 @@
             </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Channel" />
+                    <TextBlock Style="{StaticResource Text.TileHeading}" Text="Channel" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Channel]}" />
                 </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Which releases this installation follows." />

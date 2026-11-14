@@ -284,12 +284,14 @@ public class ContrastTests
     [Fact]
     public void TheBrandIsIris()
     {
-        // The owner's pick (Spec v0.6.0): Iris #6A43C4, hover #572FA7, dark action #B2A6EC with ink text, frame #141030.
+        // The owner's pick (Spec v0.6.0): Iris #6A43C4, hover #572FA7, dark action #B2A6EC with ink text. The light
+        // frame was indigo navy #141030 until v0.7.0, when the owner asked for light mode to be light everywhere,
+        // the rail included: the light frame is now a soft grey panel, and the brand is carried by the accent.
         Assert.Equal("#6A43C4", Hex("light", "accent.primary"));
         Assert.Equal("#572FA7", Hex("light", "accent.primary.hover"));
         Assert.Equal("#B2A6EC", Hex("dark", "accent.primary"));
         Assert.Equal("#0A071E", Hex("dark", "text.on-accent"));
-        Assert.Equal("#141030", Hex("light", "shell.bg"));
+        Assert.Equal("#ECEDF1", Hex("light", "shell.bg"));
     }
 
     [Theory]

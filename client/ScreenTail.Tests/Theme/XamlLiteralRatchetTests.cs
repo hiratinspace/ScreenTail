@@ -183,7 +183,7 @@ public sealed partial class XamlLiteralRatchetTests
         Assert.Equal("Margin", Kind("Margin", "0,6,0,0"));
         Assert.Contains("Space.*", Hint("Margin", "0,10,0,0"), StringComparison.Ordinal);
         Assert.Null(Kind("Padding", "12,0"));
-        Assert.Contains("Padding.card", Hint("Padding", "20"), StringComparison.Ordinal);
+        Assert.Contains("Padding.card", Hint("Padding", "16"), StringComparison.Ordinal);
         Assert.Contains("Padding.control", Hint("Padding", "14,5"), StringComparison.Ordinal);
         Assert.Contains("Padding.pane", Hint("Padding", "24,24,24,24"), StringComparison.Ordinal);
 
@@ -198,7 +198,7 @@ public sealed partial class XamlLiteralRatchetTests
         Assert.Null(Kind("BorderThickness", "0,1,0,0"));
         Assert.Equal("BorderThickness", Kind("BorderThickness", "2"));
 
-        Assert.Contains("Layout.row-height", Hint("Height", "36"), StringComparison.Ordinal);
+        Assert.Contains("Layout.row-height", Hint("Height", "32"), StringComparison.Ordinal);
         Assert.Contains("Icon.control", Hint("Width", "16"), StringComparison.Ordinal);
         Assert.Contains("Layout.content-max-width", Hint("MaxWidth", "760"), StringComparison.Ordinal);
         Assert.Null(Kind("Width", "160"));

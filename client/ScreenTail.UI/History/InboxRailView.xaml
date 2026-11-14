@@ -104,14 +104,15 @@
                 <controls:Repeater ItemsSource="{Binding Groups}">
                     <controls:Repeater.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,8,0,0" Visibility="{Binding Visibility}">
-                                <!-- The heading: words and the count, or for Earlier a toggle that opens it. -->
+                            <StackPanel Margin="0,16,0,0" Visibility="{Binding Visibility}">
+                                <!-- The heading: words and the count, or for Earlier a toggle that opens it. Muted, so it reads as a
+                                     label over the rows and not as one more row; groups sit 16 apart, rows 4. -->
                                 <!-- In line with the rows' words: the rail's 8 inset, then the row's 12. -->
                                 <StackPanel Margin="8,0,16,4"
                                             Orientation="Horizontal"
                                             Visibility="{Binding HeaderTextVisibility}">
                                     <TextBlock Margin="12,0,0,0"
-                                               Style="{StaticResource Text.Frame}"
+                                               Style="{StaticResource Text.FrameMuted}"
                                                FontSize="{DynamicResource Size.sm}"
                                                FontWeight="{DynamicResource Weight.semibold}"
                                                Text="{Binding Name}" />
@@ -129,7 +130,7 @@
                                                         Foreground="{DynamicResource Brush.shell.muted}"
                                                         Text="{Binding Chevron}" />
                                         <TextBlock Margin="8,0,0,0"
-                                                   Style="{StaticResource Text.Frame}"
+                                                   Style="{StaticResource Text.FrameMuted}"
                                                    FontSize="{DynamicResource Size.sm}"
                                                    FontWeight="{DynamicResource Weight.semibold}"
                                                    Text="{Binding Name}" />

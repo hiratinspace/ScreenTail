@@ -24,10 +24,10 @@
     <sys:Double x:Key="Space.6">32</sys:Double>
     <sys:Double x:Key="Space.7">40</sys:Double>
     <sys:Double x:Key="Layout.pane-padding">24</sys:Double>
-    <sys:Double x:Key="Layout.card-padding">20</sys:Double>
+    <sys:Double x:Key="Layout.card-padding">16</sys:Double>
     <sys:Double x:Key="Layout.control-padding-y">5</sys:Double>
     <sys:Double x:Key="Layout.control-padding-x">14</sys:Double>
-    <sys:Double x:Key="Layout.row-height">36</sys:Double>
+    <sys:Double x:Key="Layout.row-height">32</sys:Double>
     <sys:Double x:Key="Layout.control-height">32</sys:Double>
     <sys:Double x:Key="Layout.hud-height">44</sys:Double>
     <sys:Double x:Key="Layout.hit-target-min">28</sys:Double>
@@ -44,7 +44,7 @@
     <sys:Double x:Key="Layout.field-wide">320</sys:Double>
     <sys:Double x:Key="Layout.slider-width">264</sys:Double>
     <Thickness x:Key="Padding.pane">24</Thickness>
-    <Thickness x:Key="Padding.card">20</Thickness>
+    <Thickness x:Key="Padding.card">16</Thickness>
     <Thickness x:Key="Padding.control">14,5</Thickness>
     <CornerRadius x:Key="Radius.control">6</CornerRadius>
     <CornerRadius x:Key="Radius.card">8</CornerRadius>

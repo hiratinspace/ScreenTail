@@ -12,7 +12,7 @@
     <UserControl.Resources>
         <!-- A group of cards: more space above than below, so the heading belongs to what follows. -->
         <Style x:Key="Settings.Group" BasedOn="{StaticResource Text.SectionHeading}" TargetType="TextBlock">
-            <Setter Property="Margin" Value="0,24,0,12" />
+            <Setter Property="Margin" Value="0,24,0,8" />
         </Style>
     </UserControl.Resources>
     <!-- Ctrl+S saves every changed section (Spec, Settings layout). Esc undoes only from the bar itself
