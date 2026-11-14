@@ -32,6 +32,7 @@ public partial class ShellWindow
         ("capture", typeof(Settings.Capture.CapturePane)),
         ("privacy", typeof(Settings.Privacy.PrivacyPane)),
         ("integrations", typeof(Settings.Integrations.IntegrationsPane)),
+        ("appearance", typeof(Settings.Appearance.AppearancePane)),
         ("updates", typeof(Update.UpdatesPane)),
     ];
 
@@ -150,6 +151,7 @@ public partial class ShellWindow
         settings.Privacy.Telemetry = !settings.Privacy.Telemetry;
         settings.Integrations.Hudu.ChangeCommand.Execute(null);
         settings.Integrations.Hudu.SiteUrl = "https://docs.contosomsp.com/kb";
+        settings.Appearance.Light = true;
         if (settings.Updates.ChannelEditable)
         {
             settings.Updates.Pilot = !settings.Updates.Pilot;

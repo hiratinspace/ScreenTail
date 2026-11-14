@@ -50,9 +50,11 @@ public partial class App : Application, IDisposable
             return;
         }
 
-        // Dark by default (Scope §6.2); ST-070 persists the user's choice. High contrast always wins —
+        // Dark for the screenshot harnesses below, which set each theme they draw. The application takes
+        // the technician's Settings, Appearance choice further down (ST-070). High contrast always wins:
         // Apply substitutes it, so every caller gets that rather than only this one, and FollowSystem
-        // keeps it true if Windows switches while the app is running.
+        // keeps it true if Windows switches while the app is running, as it keeps a System choice on
+        // Windows' app mode.
         ThemeManager.Apply(AppTheme.Dark, Resources);
         ThemeManager.FollowSystem(Resources);
 
@@ -119,6 +121,10 @@ public partial class App : Application, IDisposable
             // begins by focusing a remote-support tool, not by opening us, and the pill and the tray icon
             // are the whole interface until there is a draft to review.
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            // ST-070: the theme the technician chose in Settings, Appearance; Windows' app mode until they
+            // choose. Read before any window opens, so nothing is drawn dark and then repainted.
+            ThemeManager.Follow(new Core.Shell.ShellPreferencesStore(Core.Shell.ShellPreferencesStore.DefaultPath).Load().Appearance, Resources);
 
             // ST-112, INV-6: the same check the service makes. An elevated UI (Run as administrator, or a
             // restart by Restart Manager from another program's elevated installer) opens links in an elevated

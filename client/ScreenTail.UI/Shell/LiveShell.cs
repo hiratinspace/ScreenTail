@@ -356,6 +356,18 @@ public sealed class LiveShell : IAsyncDisposable
                             responsive: ct => _dispatcher.InvokeAsync(static () => { }, DispatcherPriority.Background, ct).Task)),
                     new PrivacyViewModel(new PrivacyPanel(new PipePrivacy(_connection)), ChooseAuditFile, EraseEverythingAsync),
                     new IntegrationsViewModel(new IntegrationsPanel(new PipeIntegrations(_connection))),
+                    new Settings.Appearance.AppearanceViewModel(
+                        // Written to shell.json beside the window's size, then shown: the page saves on a
+                        // pool thread, and the theme's dictionaries belong to this dispatcher.
+                        new AppearanceSection(
+                            _preferences.Load().Appearance,
+                            choice => AppearanceSection.Persist(_preferences, choice)
+                                && _dispatcher.Invoke(() =>
+                                {
+                                    Theme.ThemeManager.Follow(choice, Application.Current.Resources);
+                                    return true;
+                                })),
+                        Theme.ThemeManager.WindowsModeName),
                     new Update.UpdatesViewModel(new UpdatesPanel(new PipeUpdates(_connection)))),
                 _clock,
 
