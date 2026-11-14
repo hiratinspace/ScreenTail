@@ -3,23 +3,23 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
     <!-- window background, the bottom layer; light theme is the iris paper -->
-    <Color x:Key="Token.bg.base">#161C2A</Color>
-    <SolidColorBrush x:Key="Brush.bg.base" Color="#161C2A" />
+    <Color x:Key="Token.bg.base">#121826</Color>
+    <SolidColorBrush x:Key="Brush.bg.base" Color="#121826" />
     <!-- panes, cards, the HUD pill: the layer content sits on -->
-    <Color x:Key="Token.bg.surface">#1B2231</Color>
-    <SolidColorBrush x:Key="Brush.bg.surface" Color="#1B2231" />
+    <Color x:Key="Token.bg.surface">#1D2536</Color>
+    <SolidColorBrush x:Key="Brush.bg.surface" Color="#1D2536" />
     <!-- inputs and secondary buttons at rest -->
-    <Color x:Key="Token.bg.raised">#222A3B</Color>
-    <SolidColorBrush x:Key="Brush.bg.raised" Color="#222A3B" />
+    <Color x:Key="Token.bg.raised">#262F43</Color>
+    <SolidColorBrush x:Key="Brush.bg.raised" Color="#262F43" />
     <!-- a hovered control, row or list item -->
-    <Color x:Key="Token.bg.hover">#2A3346</Color>
-    <SolidColorBrush x:Key="Brush.bg.hover" Color="#2A3346" />
+    <Color x:Key="Token.bg.hover">#2E384F</Color>
+    <SolidColorBrush x:Key="Brush.bg.hover" Color="#2E384F" />
     <!-- a pressed control -->
-    <Color x:Key="Token.bg.pressed">#1F2636</Color>
-    <SolidColorBrush x:Key="Brush.bg.pressed" Color="#1F2636" />
+    <Color x:Key="Token.bg.pressed">#222A3D</Color>
+    <SolidColorBrush x:Key="Brush.bg.pressed" Color="#222A3D" />
     <!-- a selected row, list item or nav tab; the info banner (iris tint) -->
-    <Color x:Key="Token.bg.selected">#343049</Color>
-    <SolidColorBrush x:Key="Brush.bg.selected" Color="#343049" />
+    <Color x:Key="Token.bg.selected">#383356</Color>
+    <SolidColorBrush x:Key="Brush.bg.selected" Color="#383356" />
     <!-- warning banner and low-confidence badge fill -->
     <Color x:Key="Token.bg.warning">#352A18</Color>
     <SolidColorBrush x:Key="Brush.bg.warning" Color="#352A18" />
@@ -30,23 +30,23 @@
     <Color x:Key="Token.bg.success">#163423</Color>
     <SolidColorBrush x:Key="Brush.bg.success" Color="#163423" />
     <!-- dividers, card outlines, a disabled input's outline -->
-    <Color x:Key="Token.border.subtle">#2A3242</Color>
-    <SolidColorBrush x:Key="Brush.border.subtle" Color="#2A3242" />
+    <Color x:Key="Token.border.subtle">#364057</Color>
+    <SolidColorBrush x:Key="Brush.border.subtle" Color="#364057" />
     <!-- button and container outlines, focused containers, the HUD outline -->
-    <Color x:Key="Token.border.strong">#39404F</Color>
-    <SolidColorBrush x:Key="Brush.border.strong" Color="#39404F" />
+    <Color x:Key="Token.border.strong">#4A546B</Color>
+    <SolidColorBrush x:Key="Brush.border.strong" Color="#4A546B" />
     <!-- the edge of a field a person types into or picks from: text box, password box, combo box (WCAG 1.4.11, 3:1) -->
     <Color x:Key="Token.border.control">#747A89</Color>
     <SolidColorBrush x:Key="Brush.border.control" Color="#747A89" />
     <!-- body -->
-    <Color x:Key="Token.text.primary">#ECEEF4</Color>
-    <SolidColorBrush x:Key="Brush.text.primary" Color="#ECEEF4" />
+    <Color x:Key="Token.text.primary">#F1F2F6</Color>
+    <SolidColorBrush x:Key="Brush.text.primary" Color="#F1F2F6" />
     <!-- labels, section headings, meta -->
-    <Color x:Key="Token.text.secondary">#BFC4CF</Color>
-    <SolidColorBrush x:Key="Brush.text.secondary" Color="#BFC4CF" />
+    <Color x:Key="Token.text.secondary">#CDD1DA</Color>
+    <SolidColorBrush x:Key="Brush.text.secondary" Color="#CDD1DA" />
     <!-- placeholders, timestamps, hints -->
-    <Color x:Key="Token.text.muted">#999EAB</Color>
-    <SolidColorBrush x:Key="Brush.text.muted" Color="#999EAB" />
+    <Color x:Key="Token.text.muted">#A9AEBA</Color>
+    <SolidColorBrush x:Key="Brush.text.muted" Color="#A9AEBA" />
     <!-- primary buttons, links (incl. "Open in Hudu"), focus ring, selection, info: Iris -->
     <Color x:Key="Token.accent.primary">#B2A6EC</Color>
     <SolidColorBrush x:Key="Brush.accent.primary" Color="#B2A6EC" />
@@ -87,11 +87,11 @@
     <Color x:Key="Token.confidence.low">#FBBF24</Color>
     <SolidColorBrush x:Key="Brush.confidence.low" Color="#FBBF24" />
     <!-- rail, title bar, pill: the frame (light: indigo navy #141030) -->
-    <Color x:Key="Token.shell.bg">#121826</Color>
-    <SolidColorBrush x:Key="Brush.shell.bg" Color="#121826" />
+    <Color x:Key="Token.shell.bg">#0D111B</Color>
+    <SolidColorBrush x:Key="Brush.shell.bg" Color="#0D111B" />
     <!-- hovered rail row, live box -->
-    <Color x:Key="Token.shell.hover">#1C2333</Color>
-    <SolidColorBrush x:Key="Brush.shell.hover" Color="#1C2333" />
+    <Color x:Key="Token.shell.hover">#1A2030</Color>
+    <SolidColorBrush x:Key="Brush.shell.hover" Color="#1A2030" />
     <!-- text on the shell -->
     <Color x:Key="Token.shell.text">#F7F5FE</Color>
     <SolidColorBrush x:Key="Brush.shell.text" Color="#F7F5FE" />
@@ -102,8 +102,8 @@
     <Color x:Key="Token.shell.accent">#B2A6EC</Color>
     <SolidColorBrush x:Key="Brush.shell.accent" Color="#B2A6EC" />
     <!-- rail dividers -->
-    <Color x:Key="Token.shell.line">#2A3242</Color>
-    <SolidColorBrush x:Key="Brush.shell.line" Color="#2A3242" />
+    <Color x:Key="Token.shell.line">#262E40</Color>
+    <SolidColorBrush x:Key="Brush.shell.line" Color="#262E40" />
     <!-- recording on the shell -->
     <Color x:Key="Token.shell.recording">#FF6B6B</Color>
     <SolidColorBrush x:Key="Brush.shell.recording" Color="#FF6B6B" />

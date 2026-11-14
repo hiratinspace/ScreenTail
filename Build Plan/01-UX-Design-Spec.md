@@ -1,8 +1,8 @@
-# ScreenTail: UX & UI Design Specification (v0.6.13)
+# ScreenTail: UX & UI Design Specification (v0.6.14)
 
 Authoritative for everything a user sees. Build agents implement exactly this; deviations require a design-spec PR first.
 
-**Targets and the current build (v0.6.0 to v0.6.13).** v0.6.0 brings in the owner-approved brand (Iris, the Ribbon direction) and layout (Concept C, "Outbox"). The tokens in §2 ship with v0.6.0. The layouts marked **Target (v0.6.0)** in §3 and §5 are what later screen PRs build, one screen at a time; until a screen's PR lands, the build keeps that screen's v0.5 layout, which stays described beside the target. Every behaviour rule in §4 and §5 (publish gating, not confirmed, no dialog while capturing, keyboard paths, copy) applies to both. **Built so far:** S3's envelope header and receipt (v0.6.1); the pill (v0.6.2); Settings (v0.6.3); the workspace frame and S4's inbox rail (v0.6.4); the note as it lands (v0.6.5), with Del on a step's row and the faint field edge (v0.6.8); the setup wizard (v0.6.7); the rail's rows by company, title and ticket, one status badge for the rail and All sessions, All sessions' filters, `Enter` to open, and the narrow rail (v0.6.9); the tray's quick menu (v0.6.10); the diagnostics panel, the one confirm dialog and the shortcut sheet (v0.6.11); the title bar's tint and glyph, the receipt's mark and the installer's icon (v0.6.12); Settings, Appearance (v0.6.13).
+**Targets and the current build (v0.6.0 to v0.6.14).** v0.6.0 brings in the owner-approved brand (Iris, the Ribbon direction) and layout (Concept C, "Outbox"). The tokens in §2 ship with v0.6.0. The layouts marked **Target (v0.6.0)** in §3 and §5 are what later screen PRs build, one screen at a time; until a screen's PR lands, the build keeps that screen's v0.5 layout, which stays described beside the target. Every behaviour rule in §4 and §5 (publish gating, not confirmed, no dialog while capturing, keyboard paths, copy) applies to both. **Built so far:** S3's envelope header and receipt (v0.6.1); the pill (v0.6.2); Settings (v0.6.3); the workspace frame and S4's inbox rail (v0.6.4); the note as it lands (v0.6.5), with Del on a step's row and the faint field edge (v0.6.8); the setup wizard (v0.6.7); the rail's rows by company, title and ticket, one status badge for the rail and All sessions, All sessions' filters, `Enter` to open, and the narrow rail (v0.6.9); the tray's quick menu (v0.6.10); the diagnostics panel, the one confirm dialog and the shortcut sheet (v0.6.11); the title bar's tint and glyph, the receipt's mark and the installer's icon (v0.6.12); Settings, Appearance (v0.6.13).
 
 ---
 
@@ -85,25 +85,25 @@ The brand is **Iris #6A43C4** (Ribbon 600, OKLCH 0.50 0.19 292) on an **indigo-n
 
 ### 2.1 Color
 
-Values as of v0.6.0. `shared/design/tokens.json` is the source of truth; this table restates it. Each token also names the system colour it takes in high contrast (`hc`), which `Tokens.HighContrast.xaml` maps by hand.
+Values as of v0.6.0, with the dark layers and text retuned in v0.6.14. `shared/design/tokens.json` is the source of truth; this table restates it. Each token also names the system colour it takes in high contrast (`hc`), which `Tokens.HighContrast.xaml` maps by hand.
 
 | Token | Dark | Light | Use |
 |---|---|---|---|
-| `bg.base` | `#161C2A` | `#F7F5FE` | window background, the bottom layer; light is paper |
-| `bg.surface` | `#1B2231` | `#FFFFFF` | panes, cards: the layer content sits on |
-| `bg.raised` | `#222A3B` | `#F5F7FA` | inputs and secondary buttons at rest |
-| `bg.hover` | `#2A3346` | `#ECEEF4` | a hovered control, row or list item |
-| `bg.pressed` | `#1F2636` | `#F0F2F7` | a pressed control |
-| `bg.selected` | `#343049` | `#F0EDFE` | a selected row, list item or nav tab; the info banner (iris tint) |
+| `bg.base` | `#121826` | `#F7F5FE` | window background, the bottom layer; light is paper |
+| `bg.surface` | `#1D2536` | `#FFFFFF` | panes, cards: the layer content sits on |
+| `bg.raised` | `#262F43` | `#F5F7FA` | inputs and secondary buttons at rest |
+| `bg.hover` | `#2E384F` | `#ECEEF4` | a hovered control, row or list item |
+| `bg.pressed` | `#222A3D` | `#F0F2F7` | a pressed control |
+| `bg.selected` | `#383356` | `#F0EDFE` | a selected row, list item or nav tab; the info banner (iris tint) |
 | `bg.warning` | `#352A18` | `#FFF3D6` | warning banner, low-confidence badge |
 | `bg.danger` | `#3A2226` | `#FDECEC` | error banner, hovered destructive button |
 | `bg.success` | `#163423` | `#E3F4E8` | published badge |
-| `border.subtle` | `#2A3242` | `#DADEE6` | dividers, card outlines, a disabled input's outline |
-| `border.strong` | `#39404F` | `#BFC4CF` | button and container outlines, focused containers |
+| `border.subtle` | `#364057` | `#DADEE6` | dividers, card outlines, a disabled input's outline |
+| `border.strong` | `#4A546B` | `#BFC4CF` | button and container outlines, focused containers |
 | `border.control` | `#747A89` | `#747A89` | the edge of a text box, password box or combo box |
-| `text.primary` | `#ECEEF4` | `#121826` | body |
-| `text.secondary` | `#BFC4CF` | `#39404F` | labels, section headings, meta |
-| `text.muted` | `#999EAB` | `#545B6A` | placeholders, timestamps, hints |
+| `text.primary` | `#F1F2F6` | `#121826` | body |
+| `text.secondary` | `#CDD1DA` | `#39404F` | labels, section headings, meta |
+| `text.muted` | `#A9AEBA` | `#545B6A` | placeholders, timestamps, hints |
 | `accent.primary` | `#B2A6EC` | `#6A43C4` | primary buttons, links (incl. "Open in Hudu"), focus ring, checked, selection, info: Iris |
 | `accent.primary.hover` | `#CBC3F5` | `#572FA7` | hovered and pressed primary |
 | `text.on-accent` | `#0A071E` | `#FFFFFF` | text on `accent.primary`; dark uses ink on the light iris tint |
@@ -117,12 +117,12 @@ Values as of v0.6.0. `shared/design/tokens.json` is the source of truth; this ta
 | `state.offline` | `#A2AAB5` | `#6A7380` | offline / pending: blue slate, unchanged |
 | `state.danger` | `#FF8F8F` | `#C42B1C` | destructive actions |
 | `confidence.low` | `#FBBF24` | `#B35900` | low-confidence step marker |
-| `shell.bg` | `#121826` | `#141030` | the frame: rail, title bar, pill |
-| `shell.hover` | `#1C2333` | `#2B1D50` | a hovered rail row, the live box |
+| `shell.bg` | `#0D111B` | `#141030` | the frame: rail, title bar, pill |
+| `shell.hover` | `#1A2030` | `#2B1D50` | a hovered rail row, the live box |
 | `shell.text` | `#F7F5FE` | `#F7F5FE` | text on the frame |
 | `shell.muted` | `#BFC4CF` | `#BFC4CF` | meta and control edges on the frame |
 | `shell.accent` | `#B2A6EC` | `#B2A6EC` | focus and links on the frame |
-| `shell.line` | `#2A3242` | `#2B2A46` | rail dividers |
+| `shell.line` | `#262E40` | `#2B2A46` | rail dividers |
 | `shell.recording` | `#FF6B6B` | `#FF6B6B` | recording on the frame |
 | `shell.paused` | `#F5A524` | `#F5A524` | paused on the frame |
 | `shell.published` | `#55DB8E` | `#55DB8E` | published on the frame |
@@ -624,3 +624,4 @@ Copy rules: sentence case; no exclamation marks; name the object (ticket, note, 
 | v0.6.11 | 2026-11-12 | ST-016, ST-084, ST-071, ST-082: the diagnostics panel, the confirm dialogs and the shortcut sheet on the Outbox design | Three surfaces with no drawn target are brought onto the tokens; "As built (v0.6.11)" under S1, §3, §4 and S7 records each choice, made for what is friendliest to the technician. **(a) One dialog** (§3): Review's typed dialog, the shell's typed dialog and the message boxes for Mark as published, Quit while capturing and a refused tray discard become one window with its words in `ConfirmCopy` and its kind's glyph beside the question; its buttons say what happens ("Discard 2 sessions", "Keep them", "Stop and quit"), never OK; the danger style on what destroys something; Esc on the button that changes nothing; Enter acts only once the phrase is typed, and presses the button that changes nothing where nothing is typed. **(b)** Remove on an integration card asks first, inline on the card rather than in a dialog, so it works while a session is being captured (S7). **(c) The diagnostics panel** (S1): 420 wide and as tall as its rows (was 360 by 420, which wrapped the values and hid the last rows under a scroll bar the keyboard could not reach); the headline with its state's glyph and colour, a warning when the service does not answer; the Local-only badge; values in the body face; Close (Esc) as its one filled button; a line saying what Copy put on the clipboard. The live microphone level is not built (the record has no level). **(d) The shortcut sheet** (§4): keys as key caps, group headings in the label style, Close filled with Esc and Enter; S3's `Ctrl+T` and the receipt's `Enter` added, Alt+3 named for what it goes to now, qualifiers moved from the keys to the words, and the columns rebalanced (seventeen and sixteen lines) so it still fits a 768 px screen. **(e) Renders:** every dialog, the sheet and the panel in all four themes and in dark and light at 150%, and Remove's question on its card; the harness takes the mouse off the shell before rendering (logging where it was) so controls render at rest. Seven literals leave the XAML ratchet's baseline; no token is added. Capture, publish gating, what is typed and what the service is sent are unchanged. Mark as published reads "Mark this session as published?" with the session in words under it ("ScreenConnect session, started Mon 14 Sep 16:40, 9 min", not the table's "9:00" beside a time of day) and "Not yet" as its way out. **Awaiting owner review.** |
 | v0.6.12 | 2026-11-13 | ST-016: the last Outbox polish | Ten findings from the v0.6.11 renders and audit, each fixed at its cause; "As built (v0.6.12)" under §2.0, §2.1, §2.3, §3, S1, S3 and Settings layout records each, with what the spec left open picked for the technician. **(a) Title bar** (§3 Frame): tinted `shell.bg` and `shell.text` through DWM in dark and light, following a theme change, the system's own colours in high contrast; the glyph is `app.ico`. **(b) Brand files:** the receipt carries the mid glyph at 40 px; the installer package and setup program carry `app.ico`. **(c)** `state.danger` held as text (4.5:1), which it already met. **(d)** High contrast `border.subtle` is `GrayText`, not Night sky's yellow `ActiveBorder`. **(e) Dialog words** (`ConfirmCopy`) say what goes, what stays and that nothing is sent; Mark as published unchanged. **(f)** 37 literals leave the XAML baseline (Settings has none); two tokens added, `layout.field-wide` 320 and `layout.slider-width` 264. **(g)** Del on a step's screenshot leaves the caret at the end of the step's text, and its render presses Del. **(h)** Settings renders are guarded to be at rest. **(i)** Offline tray rows say why they are disabled. **(j)** The envelope's As and Time wrap instead of halving the line, so "Discussion: the customer sees it" is whole at 1024 px and 150%. Capture, publish gating and what the service is sent are unchanged. The envelope keeps its 2 px vertical gaps (off the 4 px scale, kept in the literal baseline on purpose), and As and Time stay on one line with the rounding note wrapping, since a taller envelope pushed the note's foot out of the pane at the 1024 by 680 minimum. **Awaiting owner review.** |
 | v0.6.13 | 2026-11-13 | ST-070: Settings, Appearance | The app always started dark, and the theme field in its preferences was never read, so a technician could not turn dark mode off. Settings gains an **Appearance** section (Settings layout, as built v0.6.13): Use my Windows setting (Recommended), Light or Dark, saved with the page's one Save bar and kept in the shell's preferences. **Departure from Scope §6.2** ("dark mode default with a light option"), picked for the technician under the owner's rule of 2026-11-12: the default is Windows' own app mode, followed live, since a technician who set Windows to light expects the apps on it to be light, and dark stays one click away. The old always-dark field is not read, so existing installations follow Windows too. High contrast still takes over from every choice. The screenshot harnesses still draw each theme they are asked for. **Awaiting owner review.** |
+| v0.6.14 | 2026-11-13 | ST-016: dark theme readability | After the first real run the owner found the dark theme hard to read and hard to follow. Cause: its three layers were nearly one colour (`shell.bg` `#121826`, `bg.base` `#161C2A`, `bg.surface` `#1B2231`, about 1.1:1 apart), and card edges (`border.subtle` `#2A3242`) were barely darker than the cards, so the rail, the page and each card ran together. Retuned dark values only (§2.1 table): the frame darkest (`shell.bg` `#0D111B`), the page under it (`bg.base` `#121826`), cards a clear step lighter (`bg.surface` `#1D2536`), inputs and hover above that (`bg.raised` `#262F43`, `bg.hover` `#2E384F`), card edges and dividers that show (`border.subtle` `#364057`, `border.strong` `#4A546B`), and brighter secondary and muted text (`text.secondary` `#CDD1DA`, `text.muted` `#A9AEBA`, `text.primary` `#F1F2F6`). Every contrast rule in `ContrastTests` still holds. Light and high contrast are unchanged. **Awaiting owner review.** |

@@ -94,21 +94,21 @@
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg-base: #161C2A;
-  --bg-surface: #1B2231;
-  --bg-raised: #222A3B;
-  --bg-hover: #2A3346;
-  --bg-pressed: #1F2636;
-  --bg-selected: #343049;
+  --bg-base: #121826;
+  --bg-surface: #1D2536;
+  --bg-raised: #262F43;
+  --bg-hover: #2E384F;
+  --bg-pressed: #222A3D;
+  --bg-selected: #383356;
   --bg-warning: #352A18;
   --bg-danger: #3A2226;
   --bg-success: #163423;
-  --border-subtle: #2A3242;
-  --border-strong: #39404F;
+  --border-subtle: #364057;
+  --border-strong: #4A546B;
   --border-control: #747A89;
-  --text-primary: #ECEEF4;
-  --text-secondary: #BFC4CF;
-  --text-muted: #999EAB;
+  --text-primary: #F1F2F6;
+  --text-secondary: #CDD1DA;
+  --text-muted: #A9AEBA;
   --accent-primary: #B2A6EC;
   --accent-primary-hover: #CBC3F5;
   --text-on-accent: #0A071E;
@@ -122,12 +122,12 @@
   --state-offline: #A2AAB5;
   --state-danger: #FF8F8F;
   --confidence-low: #FBBF24;
-  --shell-bg: #121826;
-  --shell-hover: #1C2333;
+  --shell-bg: #0D111B;
+  --shell-hover: #1A2030;
   --shell-text: #F7F5FE;
   --shell-muted: #BFC4CF;
   --shell-accent: #B2A6EC;
-  --shell-line: #2A3242;
+  --shell-line: #262E40;
   --shell-recording: #FF6B6B;
   --shell-paused: #F5A524;
   --shell-published: #55DB8E;
@@ -139,21 +139,21 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg-base: #161C2A;
-    --bg-surface: #1B2231;
-    --bg-raised: #222A3B;
-    --bg-hover: #2A3346;
-    --bg-pressed: #1F2636;
-    --bg-selected: #343049;
+    --bg-base: #121826;
+    --bg-surface: #1D2536;
+    --bg-raised: #262F43;
+    --bg-hover: #2E384F;
+    --bg-pressed: #222A3D;
+    --bg-selected: #383356;
     --bg-warning: #352A18;
     --bg-danger: #3A2226;
     --bg-success: #163423;
-    --border-subtle: #2A3242;
-    --border-strong: #39404F;
+    --border-subtle: #364057;
+    --border-strong: #4A546B;
     --border-control: #747A89;
-    --text-primary: #ECEEF4;
-    --text-secondary: #BFC4CF;
-    --text-muted: #999EAB;
+    --text-primary: #F1F2F6;
+    --text-secondary: #CDD1DA;
+    --text-muted: #A9AEBA;
     --accent-primary: #B2A6EC;
     --accent-primary-hover: #CBC3F5;
     --text-on-accent: #0A071E;
@@ -167,12 +167,12 @@
     --state-offline: #A2AAB5;
     --state-danger: #FF8F8F;
     --confidence-low: #FBBF24;
-    --shell-bg: #121826;
-    --shell-hover: #1C2333;
+    --shell-bg: #0D111B;
+    --shell-hover: #1A2030;
     --shell-text: #F7F5FE;
     --shell-muted: #BFC4CF;
     --shell-accent: #B2A6EC;
-    --shell-line: #2A3242;
+    --shell-line: #262E40;
     --shell-recording: #FF6B6B;
     --shell-paused: #F5A524;
     --shell-published: #55DB8E;
