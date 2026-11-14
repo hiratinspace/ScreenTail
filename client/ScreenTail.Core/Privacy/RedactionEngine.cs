@@ -7,7 +7,7 @@ namespace ScreenTail.Core.Privacy;
 public sealed record OcrWord(string Text, int X, int Y, int Width, int Height);
 
 /// <param name="Text">The text with every match replaced by its label.</param>
-/// <param name="Counts">How many of each kind were found — the only thing that may be logged (INV-10).</param>
+/// <param name="Counts">How many of each kind were found: the only thing that may be logged (INV-10).</param>
 /// <param name="Complete">
 /// False when a detector ran out of its match budget, which means this text was never fully searched.
 /// A false here is not "nothing found": the caller must discard the frame or segment rather than store it.
@@ -67,8 +67,8 @@ public sealed class RedactionEngine
 
     /// <summary>
     /// Writes the replacements into the text. Separated from <see cref="ScrubText"/> so that a caller
-    /// which has already resolved the matches — <see cref="RedactFrame"/>, which needs them to place the
-    /// mask boxes — can produce the stored string without searching the same page a second time
+    /// which has already resolved the matches (<see cref="RedactFrame"/>, which needs them to place the
+    /// mask boxes) can produce the stored string without searching the same page a second time
     /// (ST-048, weaknesses P2-1).
     /// </summary>
     private static string Replace(string text, List<PatternMatch> matches)
@@ -192,7 +192,7 @@ public sealed class RedactionEngine
 
         // The same matches that placed the boxes write the stored text. Resolving twice gave two answers
         // that were identical by construction and cost the pattern library a second full pass over every
-        // frame — on the path ADR-0001 measured worst at 2012 ms against a 700 ms budget.
+        // frame, on the path ADR-0001 measured worst at 2012 ms against a 700 ms budget.
         return new FrameRedaction(Replace(text, Merge(widened)), regions, counts, complete);
     }
 
@@ -245,7 +245,7 @@ public sealed class RedactionEngine
         //
         // It used to lose only the matched span, so a value the pattern stopped short of kept its
         // tail: "P@ss.word1!" is one OCR word, the password rule's value ends at the full stop, and
-        // ".word1!" stayed in ocr_text — painted out of the frame and sent to the model in writing
+        // ".word1!" stayed in ocr_text, painted out of the frame and sent to the model in writing
         // (2026-09-19 review). Picture and text are two views of one decision and must agree. A
         // token listed in two places in the text is replaced in both.
         var ordered = masked.Order().ToArray();
@@ -329,14 +329,14 @@ public sealed class RedactionEngine
     /// Sorted, non-overlapping matches: earliest first, and the longest wins a tie.
     ///
     /// <b>Overlaps are merged, not dropped.</b> This kept a running end and skipped any match beginning
-    /// before it — the whole match, including the part that reached past. Where two rules overlap, the
+    /// before it: the whole match, including the part that reached past. Where two rules overlap, the
     /// tail of the second stayed in the text with nothing over it: the card and SSN detectors can both
     /// claim parts of one run of digits, and on a transcript there is no widening to whole words
     /// afterwards to cover the gap (2026-09-20 review).
     ///
     /// The union takes the first match's kind and marker. Two rules disagreeing about what a span is
-    /// matters far less than a span nobody masked, and the alternative — a second marker butted against
-    /// the first — would label a fragment rather than a thing.
+    /// matters far less than a span nobody masked, and the alternative (a second marker butted against
+    /// the first) would label a fragment rather than a thing.
     /// </summary>
     private (List<PatternMatch> Matches, bool Complete) Resolve(string text)
     {

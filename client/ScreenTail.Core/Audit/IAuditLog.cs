@@ -7,7 +7,7 @@ namespace ScreenTail.Core.Audit;
 public interface IAuditLog
 {
     /// <param name="detail">
-    /// A short label saying which — a mask kind, a suppression reason, a destination host. Never content;
+    /// A short label saying which: a mask kind, a suppression reason, a destination host. Never content;
     /// <see cref="AuditDetail"/> is what keeps it that way.
     /// </param>
     Task RecordAsync(string type, string? sessionId = null, long? count = null, string? detail = null, CancellationToken ct = default);

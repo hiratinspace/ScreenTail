@@ -70,7 +70,7 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
     public async Task TheIntervalIsOnTheTimelineWithItsReason()
     {
         // "Intervals audit-logged": the machine writes a capture_state event on every transition, so a hold
-        // is the pair — suppressed with reason password_field, then recording — and the timestamps bound it.
+        // is the pair (suppressed with reason password_field, then recording) and the timestamps bound it.
         var machine = await RecordingAsync();
         using var guard = new PasswordFieldGuard(machine, _probe);
 
@@ -148,7 +148,7 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
     {
         // Found in the 2026-09-19 review. "Holding" was the guard's belief and was never checked against
         // the session. Focus a password field: suppressed. Pause and resume: the session is Recording
-        // again, the field still has focus, and the guard — believing it was already holding — did
+        // again, the field still has focus, and the guard, believing it was already holding, did
         // nothing until focus moved somewhere else. SensitiveContextGuard had this same bug fixed in it
         // and the fix was never carried across.
         var machine = await RecordingAsync();
@@ -245,7 +245,7 @@ public sealed class PasswordFieldGuardTests : IAsyncDisposable
     [Fact]
     public async Task FocusMovingAroundInsideTheFieldDoesNotStartASecondHold()
     {
-        // Focus events arrive for things that are not a change of field — a caret moving, a control
+        // Focus events arrive for things that are not a change of field: a caret moving, a control
         // re-announcing itself. A hold that stopped and restarted would write a pair of transitions each
         // time and leave a gap in between where a frame could land.
         var machine = await RecordingAsync();

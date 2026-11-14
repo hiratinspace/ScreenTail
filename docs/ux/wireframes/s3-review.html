@@ -128,7 +128,7 @@
     <div class="frame review" id="review">
 
       <div class="titlebar">
-        <div class="title">Review — Printer offline · Acme Dental · 12 min · Sep 10, 14:02 <span class="n">1</span>
+        <div class="title">Review: Printer offline · Acme Dental · 12 min · Sep 10, 14:02 <span class="n">1</span>
           <span class="badge solid" data-when="published partial-fail">Published</span></div>
         <button class="btn ghost" id="discard-open">Discard</button>
         <button class="btn primary js-publish" data-unless="no-integrations">Publish ▸</button>
@@ -142,8 +142,8 @@
             <div class="banners">
               <div class="banner" data-when="partial-capture"><span class="tag">Partial</span><span class="grow">Capture started late or was interrupted. Some steps may be missing.</span></div>
               <div class="banner" data-when="frames-purged"><span class="tag">Purged</span><span class="grow">3 screenshots were removed because they could not be redacted in time.</span></div>
-              <div class="banner" data-when="local-draft"><span class="tag">Local</span><span class="grow">Drafted on this device only — quality may be lower.</span></div>
-              <div class="banner" data-when="offline"><span class="tag">Offline</span><span class="grow"><b>Draft pending — offline.</b> Your draft will be created when you're back online. Screenshots and transcript are available now.</span></div>
+              <div class="banner" data-when="local-draft"><span class="tag">Local</span><span class="grow">Drafted on this device only. Quality may be lower.</span></div>
+              <div class="banner" data-when="offline"><span class="tag">Offline</span><span class="grow"><b>Draft pending: offline.</b> Your draft will be created when you're back online. Screenshots and transcript are available now.</span></div>
             </div>
 
             <div class="failed" data-when="draft-failed">
@@ -159,10 +159,10 @@
               <div class="sec-h">Steps <span class="meta">drag, or <span class="kbd">Alt+↑/↓</span> to reorder</span> <span class="n">3</span></div>
               <ol class="steps" id="steps">
                 <li tabindex="0"><span class="grip" aria-hidden="true">⋮⋮</span>
-                  <div class="st"><div class="edit" contenteditable="true">Checked the Print Spooler service — it was stopped.</div>
+                  <div class="st"><div class="edit" contenteditable="true">Checked the Print Spooler service: it was stopped.</div>
                     <button class="chip" data-frame="2">frame 2</button></div></li>
                 <li tabindex="0" class="low" id="step-low"><span class="grip" aria-hidden="true">⋮⋮</span>
-                  <div class="st"><span class="warn" title="Inferred from screen only — please verify" aria-label="Low confidence: inferred from screen only — please verify">⚠</span>
+                  <div class="st"><span class="warn" title="Inferred from screen only. Please verify" aria-label="Low confidence: inferred from screen only. Please verify">⚠</span>
                     <div class="edit" contenteditable="true">Restarted the Print Spooler service.</div>
                     <span class="meta inferred">(inferred from screen)</span>
                     <button class="chip" data-frame="3">frame 3</button>
@@ -212,9 +212,9 @@
                 <input class="input" id="ticket" autocomplete="off" placeholder="Search tickets by #, summary or company" aria-describedby="ticket-help">
                 <div class="list" id="ticket-list" hidden>
                   <div class="h">Recent tickets</div>
-                  <button class="opt" data-ticket="#48213 · Printer offline — front desk · Acme Dental">#48213 · Printer offline — front desk · Acme Dental</button>
+                  <button class="opt" data-ticket="#48213 · Printer offline, front desk · Acme Dental">#48213 · Printer offline, front desk · Acme Dental</button>
                   <button class="opt" data-ticket="#48190 · Scanner not saving to share · Acme Dental">#48190 · Scanner not saving to share · Acme Dental</button>
-                  <button class="opt" data-ticket="#48177 · New user setup — J. Ortiz · Birch Legal">#48177 · New user setup — J. Ortiz · Birch Legal</button>
+                  <button class="opt" data-ticket="#48177 · New user setup, J. Ortiz · Birch Legal">#48177 · New user setup, J. Ortiz · Birch Legal</button>
                   <button class="opt" data-ticket="#48122 · Outlook keeps asking for password · Pine Vet">#48122 · Outlook keeps asking for password · Pine Vet</button>
                 </div>
                 <div class="row" id="ticket-help"><span class="badge" id="suggested-badge">Suggested</span><span class="help" id="suggested-why">Suggested from window title ✓</span></div>
@@ -273,7 +273,7 @@
           <button class="btn sm ghost" id="tl-toggle" aria-expanded="false">▸ Timeline &amp; transcript <span class="kbd">Alt+T</span></button>
           <div class="tl-track" aria-label="Timeline: clicks, frames, narration, suppression and scope">
             <span class="m-band hatch" style="left:38%;width:5%" title="Paused: sensitive field · 14:06:12–14:06:40"></span>
-            <span class="m-band" style="left:74%;width:6%;background:var(--hatch-dense)" title="Not capturing — Outlook · 14:10:20–14:11:05"></span>
+            <span class="m-band" style="left:74%;width:6%;background:var(--hatch-dense)" title="Not capturing: Outlook · 14:10:20–14:11:05"></span>
             <i class="m-click" style="left:4%"></i><i class="m-click" style="left:11%"></i><i class="m-click" style="left:19%"></i><i class="m-click" style="left:27%"></i>
             <i class="m-click" style="left:34%"></i><i class="m-click" style="left:50%"></i><i class="m-click" style="left:58%"></i><i class="m-click" style="left:69%"></i><i class="m-click" style="left:88%"></i>
             <i class="m-frame" style="left:9%"></i><i class="m-frame" style="left:17%"></i><i class="m-frame" style="left:26%"></i><i class="m-frame" style="left:32%"></i>
@@ -363,7 +363,7 @@ Service status: Stopped
       <li><b>Title bar:</b> the ticket summary, client, duration and start time come from the draft. The <span class="badge solid">Published</span> badge appears after publish. Discard is ghost-styled and asks for a typed confirmation. Publish ▸ mirrors the right pane.</li>
       <li><b>Note:</b> fixed sections Problem → Steps → Result → Follow-ups. Everything is inline-editable, and "Saved / Saving…" shows bottom-left. Banners stack at the top: partial capture, frames purged, local draft, offline.</li>
       <li><b>Steps:</b> the drag handle appears on hover. <span class="kbd">Alt+↑/↓</span> reorders; <span class="kbd">Enter</span> at the end adds a step; <span class="kbd">Backspace</span> on an empty step deletes it. Frame chips highlight their screenshot on hover and open it on click. Transcript snippets are in monospace.</li>
-      <li><b>Low confidence:</b> ⚠ with the tooltip "Inferred from screen only — please verify". Editing the step or pressing <span class="kbd">Alt+C</span> clears it. In the wireframe a black left bar stands in for the <code>confidence.low</code> colour.</li>
+      <li><b>Low confidence:</b> ⚠ with the tooltip "Inferred from screen only. Please verify". Editing the step or pressing <span class="kbd">Alt+C</span> clears it. In the wireframe a black left bar stands in for the <code>confidence.low</code> colour.</li>
       <li><b>Screenshots:</b> 160 × 90 thumbnails in time order. Excluded ones are dimmed. Striped rows are the suppressed and out-of-scope gaps. Blur is destructive, with one-step undo until the pane loses focus. Delete gives a 5 s undo toast, then it's permanent.</li>
       <li><b>Publish:</b> the searchable ticket picker (<code>#id · summary · company</code>) shows recent tickets on focus and the Suggested badge when the ticket was inferred. When Publish is disabled, the reason appears underneath as well as in the tooltip.</li>
       <li><b>Note type default:</b> Internal is selected here; that's open question Q2 in README.md.</li>
@@ -376,7 +376,7 @@ Service status: Stopped
     <h3>Edge states (state bar above)</h3>
     <ul>
       <li><b>Draft failed:</b> the note pane shows Retry; screenshots and the timeline stay usable. Publish is disabled (see open question Q4).</li>
-      <li><b>Offline:</b> the "Draft pending — offline" banner, and Publish disabled with a reason.</li>
+      <li><b>Offline:</b> the "Draft pending: offline" banner, and Publish disabled with a reason.</li>
       <li><b>No PSA connected:</b> Publish is replaced by "Connect a PSA to publish".</li>
       <li><b>Partial publish failure:</b> the note that went through stays; the failed time entry gets Retry; the toast follows Spec §6 wording.</li>
     </ul>
@@ -396,7 +396,7 @@ document.addEventListener('DOMContentLoaded', () => {
     [7, 'Queue empty', true], [8, 'Printer properties', false],
     ['gap', 'Paused: sensitive field · 14:06:12–14:06:40 · no screenshots or typing kept'],
     [9, 'Devices and Printers', false], [10, 'Print test page dialog', false], [11, 'Test page sent', true],
-    ['scope', 'Not capturing — Outlook · 14:10:20–14:11:05 · clicks logged, no screenshots'],
+    ['scope', 'Not capturing: Outlook · 14:10:20–14:11:05 · clicks logged, no screenshots'],
     [12, 'Event Viewer: 7031', true], [13, 'Desktop', false], [14, 'Closing session', false],
   ];
   const grid = $('#grid');
@@ -544,11 +544,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   wf.onState((s) => {
     if (s === 'no-ticket') setTicket('', false);
-    else if (!['published', 'partial-fail'].includes(s) && !ticket.value) setTicket('#48213 · Printer offline — front desk · Acme Dental', true);
+    else if (!['published', 'partial-fail'].includes(s) && !ticket.value) setTicket('#48213 · Printer offline, front desk · Acme Dental', true);
     if (s === 'partial-fail') wf.toast('Note published. Time entry failed: no work type set.', 'Retry', () => $('#retry-time').click());
     updatePublish();
   });
-  if (!ticket.value && wf.state !== 'no-ticket') setTicket('#48213 · Printer offline — front desk · Acme Dental', true);
+  if (!ticket.value && wf.state !== 'no-ticket') setTicket('#48213 · Printer offline, front desk · Acme Dental', true);
   updatePublish();
 
   // ---- Discard ------------------------------------------------------------------------------------

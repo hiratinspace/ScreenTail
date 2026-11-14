@@ -25,7 +25,7 @@ public enum HudTone
 /// <param name="Tooltip">Longer wording on hover; null when the text says everything.</param>
 public sealed record HudSegment(HudTone Tone, string Glyph, string Text, string? Tooltip = null);
 
-/// <param name="Mic">Null when a microphone is present and working — the meter is shown instead.</param>
+/// <param name="Mic">Null when a microphone is present and working; the meter is shown instead.</param>
 /// <param name="Cloud">Null when online. Spec §5 S2's grey cloud otherwise.</param>
 public sealed record HudSnapshot(
     HudSegment State,
@@ -82,7 +82,7 @@ public sealed record HudSnapshot(
 /// <summary>
 /// What the recording pill says (ST-072, Spec §5 S2).
 ///
-/// Derived from the service's own state, the capability probe and connectivity — never stored, and never
+/// Derived from the service's own state, the capability probe and connectivity: never stored, and never
 /// guessed at by the UI. INV-4 makes this the most safety-critical string in the product: it is the thing
 /// a technician looks at to know whether a customer's screen is being recorded, and the one place where
 /// being out of date is indistinguishable from lying.
@@ -111,7 +111,7 @@ public static class HudState
             online ? null : new HudSegment(HudTone.Idle, "☁", "Offline", "Offline: draft will be created when connected."),
             capture?.PendingRedactions ?? 0,
 
-            // Hidden only ever hides the pill, and only while capture is known to be off — Spec v0.4.1 Q1
+            // Hidden only ever hides the pill, and only while capture is known to be off. Spec v0.4.1 Q1
             // settled that the HUD stays up during screen sharing, because an auto-hiding indicator is a
             // silent-capture path wearing a convenience's clothes. The tray icon remains either way.
             Visible: !hidden || !KnownIdle(capture))
@@ -209,7 +209,7 @@ public static class HudState
         if (capture is null)
         {
             // The UI has not heard from the service. It cannot say capture is off, because it does not
-            // know — and "unknown" is the honest word for the state INV-4 cares most about.
+            // know, and "unknown" is the honest word for the state INV-4 cares most about.
             return new HudSegment(
                 HudTone.Idle,
                 "?",

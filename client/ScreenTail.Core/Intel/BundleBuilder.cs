@@ -74,7 +74,7 @@ public sealed record SessionBundle
     public required IReadOnlyList<string> StyleHints { get; init; }
 
     // The three below never cross the wire: they are what the service logs and what a cost cap reads,
-    // and they are not part of what the model is told. Deliberately not `required` — System.Text.Json
+    // and they are not part of what the model is told. Deliberately not `required`: System.Text.Json
     // refuses a required property it has been told to ignore, and only BundleBuilder.Build sets them.
 
     /// <summary>How many frames the session had before selection. A count, for the log (INV-10).</summary>
@@ -97,13 +97,13 @@ public sealed record SessionBundle
 /// appear, and each is a separate rule with its own test:
 ///
 /// <list type="bullet">
-/// <item><b>Pending</b> — nobody has read it, so nobody can say what is on it (INV-1).</item>
-/// <item><b>Sensitive context</b> — it looked like a sign-in screen. Redaction masked what it found, and
+/// <item><b>Pending</b>: nobody has read it, so nobody can say what is on it (INV-1).</item>
+/// <item><b>Sensitive context</b>: it looked like a sign-in screen. Redaction masked what it found, and
 /// what it found is not the same as what was there.</item>
-/// <item><b>Captured while paused or suppressed</b> — INV-6 says such a frame should not exist. If one
+/// <item><b>Captured while paused or suppressed</b>: INV-6 says such a frame should not exist. If one
 /// does, it is the most dangerous frame in the session, because something was suppressing capture when
 /// it was taken.</item>
-/// <item><b>Excluded in Review</b> — the technician looked at it and said no (ST-075).</item>
+/// <item><b>Excluded in Review</b>: the technician looked at it and said no (ST-075).</item>
 /// </list>
 ///
 /// Selection spends a budget rather than taking the first twenty-five: a note built from the opening
@@ -283,7 +283,7 @@ public static class BundleBuilder
     /// How much a frame is worth to someone writing the note.
     ///
     /// Talked over beats readable beats clicked, in that order. Speech is the strongest signal there is
-    /// that a screenshot mattered — the technician stopped to explain it — and a frame nobody could read
+    /// that a screenshot mattered (the technician stopped to explain it), and a frame nobody could read
     /// any words on tells a drafting model almost nothing.
     /// </summary>
     private static int Score(Frame frame, IReadOnlyList<TranscriptSegment> transcript)

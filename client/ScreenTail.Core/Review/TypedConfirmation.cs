@@ -9,7 +9,7 @@ namespace ScreenTail.Core.Review;
 /// interrupt; and the word is on screen, so typing it exactly asks nothing of anyone.
 ///
 /// Separate from the dialog because it is the rule, and because §5 S4 confirms a bulk discard with the
-/// number of selected sessions instead of a word (v0.4.1 Q6) — the same rule, a different token.
+/// number of selected sessions instead of a word (v0.4.1 Q6): the same rule, a different token.
 /// </summary>
 public sealed class TypedConfirmation(string expected)
 {

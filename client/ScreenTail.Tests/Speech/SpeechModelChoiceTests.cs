@@ -7,13 +7,13 @@ namespace ScreenTail.Tests.Speech;
 /// 2026-09-20 efficiency review).
 ///
 /// The rule was <c>processors >= 8 ? small.en : base.en</c>, asked with
-/// <see cref="Environment.ProcessorCount"/> — which counts logical processors. The reference laptop is
+/// <see cref="Environment.ProcessorCount"/>, which counts logical processors. The reference laptop is
 /// four cores with hyper-threading, so it reports eight and has been running <c>small.en</c>: three
 /// times the weights and about three times the compute of the model the budget was written around.
 ///
 /// <b>Cores were the wrong question.</b> ADR-0001 measured <c>base</c> on that laptop at 505 MB
 /// resident, against ST-031's 600 MB for the whole of ScreenTail. Of that, 148 MB is the weights, so
-/// everything else — the runtime, the store, the capture loops — is about 357 MB. Swap in small.en's
+/// everything else (the runtime, the store, the capture loops) is about 357 MB. Swap in small.en's
 /// 488 MB and the total is around 845 MB whatever the machine is. No number of cores makes a model fit
 /// in memory it does not fit in.
 /// </summary>

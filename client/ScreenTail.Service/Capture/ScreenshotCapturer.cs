@@ -13,7 +13,7 @@ namespace ScreenTail.Service.Capture;
 ///
 /// The grab is a GDI <c>BitBlt</c> with <c>CAPTUREBLT</c>, which is what ST-001 proved works and, crucially,
 /// honours display affinity: the HUD sets <c>WDA_EXCLUDEFROMCAPTURE</c> on itself, so it is absent from
-/// these frames without this code knowing the HUD exists. <c>Graphics.CopyFromScreen</c> cannot be used —
+/// these frames without this code knowing the HUD exists. <c>Graphics.CopyFromScreen</c> cannot be used:
 /// it rejects <c>SRCCOPY | CAPTUREBLT</c>, which the spike found the hard way.
 ///
 /// Each stage is timed separately. ADR-0001 measured 178 ms p95 for this path against a 120 ms budget but
@@ -92,8 +92,8 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             }
 
             // Captured and staged at native resolution (ADR-0001 finding 2a). Shrinking here would be
-            // quicker — downscaling during the copy measured a 4K frame at about 48 ms against a 120 ms
-            // budget — but the redaction worker has to read this frame's text to find the secrets in it,
+            // quicker (downscaling during the copy measured a 4K frame at about 48 ms against a 120 ms
+            // budget), but the redaction worker has to read this frame's text to find the secrets in it,
             // and 1600 px was measured as illegible below 200% scaling. A cheaper capture that makes OCR
             // miss a password is not a cheaper capture. The downscale happens in the worker instead, after
             // masking, on pixels that have already been read.
@@ -288,7 +288,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
     /// <summary>
     /// Makes sure the device contexts and the bitmap exist and are the right size, reusing them when they
-    /// are. CAPTUREBLT, used in the copy, includes layered windows — which is what makes the HUD's
+    /// are. CAPTUREBLT, used in the copy, includes layered windows, which is what makes the HUD's
     /// exclusion meaningful: without it the HUD would be missing for the wrong reason (ADR-0001 finding 3).
     /// </summary>
     private bool Prepare(int width, int height)
@@ -370,7 +370,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     }
 
     /// <summary>
-    /// Draws the cursor where it was. A screenshot of a menu is ambiguous without it — "they clicked
+    /// Draws the cursor where it was. A screenshot of a menu is ambiguous without it: "they clicked
     /// something here" is the whole point of capturing on click.
     /// </summary>
     private static void DrawCursor(IntPtr target, Rect rect, double scale)
@@ -408,7 +408,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     private const int DWMWA_CLOAKED = 14;
 
-    /// <summary>Averages the source pixels into each destination pixel — a box filter, done by GDI.</summary>
+    /// <summary>Averages the source pixels into each destination pixel: a box filter, done by GDI.</summary>
     private const int STRETCH_HALFTONE = 4;
     private const int CAPTUREBLT = 0x40000000;
     private const int CURSOR_SHOWING = 0x00000001;

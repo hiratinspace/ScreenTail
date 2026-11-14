@@ -42,12 +42,12 @@ public sealed record PasswordFieldOptions
 /// Stops capture while a password field has focus (ST-040, INV-6).
 ///
 /// The suppression itself is already structural: <c>ClickCaptureLoop</c> drops every signal it drains
-/// while the session is not recording, so nothing observed during a hold is written — not a frame, not a
+/// while the session is not recording, so nothing observed during a hold is written: not a frame, not a
 /// typing burst. This class only has to decide when to hold.
 ///
 /// <b>An unknown answer keeps the last decision rather than becoming a "no".</b> Automation fails
 /// transiently and on windows we are not allowed to inspect, and suppressing on every failure would make
-/// capture useless on a machine where automation is simply broken — silently, which is worse. What makes
+/// capture useless on a machine where automation is simply broken, and silently, which is worse. What makes
 /// that acceptable is that this is not the only thing looking: ST-041 reads the screen itself, so a
 /// credential prompt whose field cannot be inspected still gets caught by the words around it. The two
 /// mechanisms cover each other's blind spots, which is why neither has to be conservative to the point of

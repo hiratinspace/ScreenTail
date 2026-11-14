@@ -90,7 +90,7 @@ public static class ThemeManager
     /// Switches to high contrast the moment Windows does, and back when it stops.
     ///
     /// Without this the substitution only happened at startup: a technician who turned high contrast on
-    /// mid-session — Left Alt+Left Shift+PrtScn, which is a shortcut people hit by accident — kept the
+    /// mid-session (Left Alt+Left Shift+PrtScn, which is a shortcut people hit by accident) kept the
     /// dark palette until they restarted the app. That is the population least able to work around it.
     ///
     /// The same for Windows' app mode while the technician's choice is System (ST-070): Windows says a

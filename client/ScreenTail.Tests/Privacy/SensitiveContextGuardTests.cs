@@ -71,7 +71,7 @@ public sealed class SensitiveContextGuardTests : IAsyncDisposable
     public async Task TheGuardDoesNotResumeASessionTheTechnicianPaused()
     {
         // Suppressed and paused are different states with different owners. If the technician pauses while
-        // a hold is running, the window ending must not hand capture back — only they can do that.
+        // a hold is running, the window ending must not hand capture back; only they can do that.
         var machine = await RecordingAsync();
         var guard = new SensitiveContextGuard(machine, _time);
 

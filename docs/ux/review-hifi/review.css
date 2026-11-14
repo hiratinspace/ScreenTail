@@ -1,6 +1,6 @@
 /* ST-015: hi-fi Review screen.
  *
- * Every colour comes from tokens.g.css, which is generated from shared/design/tokens.json — the same
+ * Every colour comes from tokens.g.css, which is generated from shared/design/tokens.json, the same
  * source the WPF dictionaries are generated from. That is deliberate: a prototype with its own palette
  * looks decided and is a lie, because the thing that ships uses different colours. Nothing here may add
  * a hex value; if a colour is missing, it belongs in tokens.json where the contrast test can see it.
@@ -181,7 +181,7 @@ body {
 
 .step .warn {
   /* The glyph carries the state colour; the sentence beside it does not. Spec v0.4.2: state colours are
-     indicators, never body-size text. Amber on the light surface measures 3.19:1 — fine for a shape,
+     indicators, never body-size text. Amber on the light surface measures 3.19:1: fine for a shape,
      under AA for anything anybody has to read, and the contrast report is what caught it. */
   color: var(--confidence-low);
   font-weight: 600;
@@ -258,7 +258,7 @@ body {
 
 .frame {
   /* A figure carries a 40px default margin either side. In a 160px grid track that is 240px of box,
-     which is why the third column was clipped two renders running — the screenshot showed frame 1
+     which is why the third column was clipped two renders running. The screenshot showed frame 1
      starting forty pixels in, and that was the tell. */
   margin: 0;
   width: 160px;

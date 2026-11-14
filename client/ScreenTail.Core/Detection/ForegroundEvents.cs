@@ -4,7 +4,7 @@ namespace ScreenTail.Core.Detection;
 /// Which WinEvents are allowed to say that the foreground window has changed (ST-022, ST-048).
 ///
 /// Two events carry that news. <c>EVENT_SYSTEM_FOREGROUND</c> is the foreground actually moving, and
-/// <c>EVENT_OBJECT_NAMECHANGE</c> is the window in front retitling itself — which matters because the
+/// <c>EVENT_OBJECT_NAMECHANGE</c> is the window in front retitling itself, which matters because the
 /// title is where a remote-session window says which machine it is connected to, and a scope decision
 /// (INV-5) turns on that answer.
 ///

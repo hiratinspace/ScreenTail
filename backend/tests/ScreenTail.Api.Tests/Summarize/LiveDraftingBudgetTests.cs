@@ -14,7 +14,7 @@ namespace ScreenTail.Api.Tests.Summarize;
 /// <b>Skipped unless somebody asks for it</b>, because it calls a paid API. Set
 /// <c>SCREENTAIL_LIVE_LLM=1</c> and it runs against the key in <c>dotnet user-secrets</c>, with the
 /// provider <c>Summarization:Provider</c> names there (Gemini unless it says <c>claude</c>); leave it
-/// unset — as CI does, and as every other developer does — and it skips. Nothing else in this suite is
+/// unset (as CI does, and as every other developer does) and it skips. Nothing else in this suite is
 /// allowed to touch a real provider, which <c>NoLiveProviderInTestsTests</c> enforces.
 ///
 /// The bundles are built from the checked-in fixtures at the ceiling <c>BundleOptions</c> actually
@@ -58,8 +58,8 @@ public sealed class LiveDraftingBudgetTests
     /// How many times a run may be re-attempted after the provider says it is unavailable.
     ///
     /// Gemini 3.6 Flash answered 503 "experiencing high demand" to roughly a third of these calls on
-    /// 2026-09-19. That is not a ScreenTail defect and it is not what this measures — it is precisely
-    /// what ST-064's outbox exists to absorb — so it is retried and counted rather than failed on. The
+    /// 2026-09-19. That is not a ScreenTail defect and it is not what this measures; it is precisely
+    /// what ST-064's outbox exists to absorb, so it is retried and counted rather than failed on. The
     /// count is printed, because a provider that is down more than it is up is its own finding.
     /// </summary>
     private const int TransientAttempts = 6;

@@ -149,7 +149,7 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     public bool CanAddProcess => NewProcessProblem is null && !_processes.Contains(NewProcess.Trim(), StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Why the settings cannot be saved as they are — the first problem, or the service's refusal — or null.</summary>
+    /// <summary>Why the settings cannot be saved as they are (the first problem, or the service's refusal), or null.</summary>
     public string? Problem => _refusal ?? Unsavable;
 
     /// <summary>Why the fields cannot be saved as they are, leaving out the service's last refusal, which a new save may not repeat.</summary>

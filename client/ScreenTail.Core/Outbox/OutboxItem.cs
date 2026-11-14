@@ -43,8 +43,8 @@ public enum OutboxState
 
 /// <param name="SessionId">Which session the work belongs to. Retention uses it (INV-12).</param>
 /// <param name="IdempotencyKey">
-/// What makes this piece of work the same piece of work. Finalize can run twice — a crash between
-/// drafting and recording it, a recovered session — and this is what stops that becoming two drafts.
+/// What makes this piece of work the same piece of work. Finalize can run twice (a crash between
+/// drafting and recording it, a recovered session), and this is what stops that becoming two drafts.
 /// </param>
 /// <param name="Payload">
 /// JSON for the sender. It never holds anything the session does not already hold, and it is deleted with

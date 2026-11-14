@@ -11,7 +11,7 @@ public enum EgressPurpose
 
     /// <summary>
     /// The technician pressed Publish. Allowed even in local-only mode, because they asked for it and
-    /// know where it is going — INV-8 draws the line at "user-initiated", not at "no network".
+    /// know where it is going. INV-8 draws the line at "user-initiated", not at "no network".
     /// </summary>
     Publish,
 
@@ -106,7 +106,7 @@ public sealed record EgressSettings
 /// to pass both, so a bug that clears one flag does not open everything.
 ///
 /// <b>Anything it has not been told about is refused.</b> A new caller with a purpose this does not know,
-/// or a host nobody listed, does not get a default of "probably fine" — the failure mode of a default-open
+/// or a host nobody listed, does not get a default of "probably fine": the failure mode of a default-open
 /// egress guard is a customer's screenshots reaching somewhere nobody chose.
 /// </summary>
 public sealed class EgressPolicy(EgressSettings? settings = null)

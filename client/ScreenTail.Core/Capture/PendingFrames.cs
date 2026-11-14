@@ -9,8 +9,8 @@ public readonly record struct QueuedFrame(string SessionId, StagedFrame Frame);
 /// Where a frame waits between being taken and being read (ADR-0006, ST-041).
 ///
 /// It used to wait in the encrypted store with <c>redaction_pending = 1</c>. That was never an INV-1
-/// breach — every read path filters the flag, and a row nothing can read is not shown, exported or
-/// transmitted — but it was a window. Anything holding the store key could read the frame while it sat
+/// breach (every read path filters the flag, and a row nothing can read is not shown, exported or
+/// transmitted), but it was a window. Anything holding the store key could read the frame while it sat
 /// there; a crash left it on disk until the next start, which may be days; and the freed page kept its
 /// ciphertext until something reused it. Not writing the bytes closes all three at once, and closes them
 /// by removing the thing to enforce against rather than by enforcing harder.
@@ -18,7 +18,7 @@ public readonly record struct QueuedFrame(string SessionId, StagedFrame Frame);
 /// <b>The store was doing one useful thing, and this has to keep doing it.</b> A pending frame was never
 /// kept for durability: recovery purges pending frames rather than resuming them, because nobody has
 /// read them (ADR-0004). What the store provided was a buffer for when capture outruns redaction, and
-/// disk could absorb a session's worth of that. Memory cannot — each frame is up to 1.5 MB and ST-031
+/// disk could absorb a session's worth of that. Memory cannot: each frame is up to 1.5 MB and ST-031
 /// budgets 600 MB for the whole application, most of which speech already claims.
 ///
 /// So the question the old design answered by accident is answered here on purpose: <b>a frame that
@@ -47,7 +47,7 @@ public sealed class PendingFrames(int depth = PendingFrames.DefaultDepth)
     /// The store used to track this by leaving the row <c>redaction_pending</c> until the redaction
     /// finished, which is also why the worker kept its own set of ids: the query could not tell
     /// "waiting" from "being worked on", so two workers took the same row. Owning both states here
-    /// answers that question once, and lets finalize ask a single thing — is anything of this session
+    /// answers that question once, and lets finalize ask a single thing: is anything of this session
     /// still unwritten?
     /// </summary>
     private readonly List<QueuedFrame> _inFlight = [];
@@ -137,7 +137,7 @@ public sealed class PendingFrames(int depth = PendingFrames.DefaultDepth)
     ///
     /// The frame moves to in-flight rather than leaving: it is still unwritten, and finalize must still
     /// wait for it. The caller says it is finished with <see cref="Done"/>, whether the frame was
-    /// written or discarded — both are outcomes, and neither leaves it owed.
+    /// written or discarded; both are outcomes, and neither leaves it owed.
     /// </summary>
     public bool TryTake(out QueuedFrame frame)
     {
@@ -189,7 +189,7 @@ public sealed class PendingFrames(int depth = PendingFrames.DefaultDepth)
     /// Throws away whatever is waiting for one session.
     ///
     /// The technician discarded it, so the frames still queued go with it. They have never been read, so
-    /// nobody can say what is on them — which is the same reason ADR-0004 gives for discarding rather
+    /// nobody can say what is on them, which is the same reason ADR-0004 gives for discarding rather
     /// than storing an unread frame.
     /// </summary>
     /// <returns>How many were thrown away, so the caller can count the loss against the session.</returns>

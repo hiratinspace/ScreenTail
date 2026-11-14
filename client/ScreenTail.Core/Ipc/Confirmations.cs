@@ -27,14 +27,14 @@ public enum DestructiveAction
 /// the store (2026-09-19 review).
 ///
 /// <b>The rule belongs here rather than in the dialog.</b> A confirmation the UI is trusted to have shown
-/// is a confirmation a process that is not the UI does not have to show — and the pipe only proves the
+/// is a confirmation a process that is not the UI does not have to show, and the pipe only proves the
 /// peer is the same user, which a compromised same-user process also is. So the service issues a token,
 /// and the command has to carry it back.
 ///
 /// Two round trips is the whole of the defence: a single crafted message can no longer do it, and a
 /// token is good once, for one action, for thirty seconds, <b>and only for the connection that asked
 /// for it</b>. That last part was missing, and without it the second round trip was not a round trip at
-/// all — the token was a bearer token, every authenticated client shared one issuer, and the impostor
+/// all: the token was a bearer token, every authenticated client shared one issuer, and the impostor
 /// this class was written against could wait for the technician to confirm something of their own and
 /// spend it (2026-09-20 review).
 ///
@@ -83,7 +83,7 @@ public sealed class Confirmations(TimeProvider? time = null)
     /// Cryptographic randomness, because a token a caller can predict is not a second round trip.
     ///
     /// Bound to <paramref name="caller"/>, the connection that asked. Nothing an attacker gains by asking
-    /// repeatedly is worth having — what they get is a pile of tokens they already had — but asking
+    /// repeatedly is worth having (what they get is a pile of tokens they already had), but asking
     /// repeatedly used to cost the service memory and lock time, so the oldest is dropped past
     /// <see cref="MostOutstanding"/>. The oldest rather than the newest: the one a technician is about
     /// to type is the one that was just issued.
@@ -123,7 +123,7 @@ public sealed class Confirmations(TimeProvider? time = null)
     /// Spends a token, if it is one and it is for this action.
     ///
     /// Single use: a token that stayed valid would let one confirmed discard authorise every later one,
-    /// which is the defence gone. Constant-time comparison is not needed — the lookup is by exact value
+    /// which is the defence gone. Constant-time comparison is not needed: the lookup is by exact value
     /// and a wrong guess is rejected whatever the timing says, because there is nothing to narrow down.
     /// </summary>
     /// <param name="sessions">
@@ -153,7 +153,7 @@ public sealed class Confirmations(TimeProvider? time = null)
             // being offered for the wrong action is one whose holder may try twice. But the holder there
             // is the window the token belongs to. Burning it for a connection that is not that window
             // hands any authenticated client a way to cancel the technician's confirmation just as they
-            // are typing the phrase — a denial of service built out of the defence. Nothing is learned by
+            // are typing the phrase, a denial of service built out of the defence. Nothing is learned by
             // trying again, because the token is 128 bits of randomness and the answer never changes.
             if (issued.Caller != caller)
             {

@@ -2,7 +2,7 @@ namespace ScreenTail.Core.Intel;
 
 public enum TimeRounding
 {
-    /// <summary>Round up to the next increment — the usual MSP billing convention.</summary>
+    /// <summary>Round up to the next increment, the usual MSP billing convention.</summary>
     Up,
 
     /// <summary>Round to the nearest increment, halves going up.</summary>

@@ -12,7 +12,7 @@ namespace ScreenTail.Tests.Store;
 /// provider both clear their byte copies, and it bought nothing: the hex string and the command text are
 /// immutable managed strings that live until the garbage collector gets to them, and after that in a
 /// crash dump or the page file. Two full-fidelity copies of the key outlived the hygiene written to
-/// prevent exactly that. T4 — a stolen laptop — is the store's headline threat, and the whole reason the
+/// prevent exactly that. T4 (a stolen laptop) is the store's headline threat, and the whole reason the
 /// key is under DPAPI is that the file alone must be useless.
 ///
 /// The key is now handed to the library as bytes in a buffer this code owns and clears. There is no
@@ -100,7 +100,7 @@ public sealed class StoreKeyTests : IAsyncDisposable
     /// <summary>
     /// Source, not behaviour: the interpolation is the bug and no test of the store's behaviour can see
     /// it, because the store works perfectly either way. This looks at the real files, the way
-    /// <see cref="ReleaseSurfaceTests"/> does, so the change cannot come back in a hurry — a
+    /// <see cref="ReleaseSurfaceTests"/> does, so the change cannot come back in a hurry: a
     /// <c>PRAGMA rekey</c> written the old way would be the same bug twice.
     /// </summary>
     [Theory]

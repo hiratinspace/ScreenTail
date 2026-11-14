@@ -6,7 +6,7 @@ namespace ScreenTail.Service.Privacy;
 /// <summary>
 /// Says when keyboard focus moves, so the password-field guard knows to look again (ST-040).
 ///
-/// A WinEvent hook only delivers to a thread that pumps messages, so this owns one — the same shape as
+/// A WinEvent hook only delivers to a thread that pumps messages, so this owns one, the same shape as
 /// ST-022's foreground watcher, and deliberately not the same thread. That watcher's hook spans
 /// <c>EVENT_SYSTEM_FOREGROUND</c> to <c>EVENT_OBJECT_NAMECHANGE</c>, a range that does include
 /// <c>EVENT_OBJECT_FOCUS</c>, so this could have ridden on it. It does not, because that would put a second
@@ -179,7 +179,7 @@ internal sealed class WindowsFocusWatcher : IAsyncDisposable
         }
 
         // Deliberately not filtered by window or object id. A WPF PasswordBox raises focus against its
-        // parent window with a child id, and a browser field raises it against nothing recognisable — the
+        // parent window with a child id, and a browser field raises it against nothing recognisable. The
         // guard asks UI Automation what has focus rather than trying to read it out of these arguments.
         FocusMoved?.Invoke();
     }

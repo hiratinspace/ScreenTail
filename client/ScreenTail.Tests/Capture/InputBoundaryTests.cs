@@ -11,8 +11,8 @@ namespace ScreenTail.Tests.Capture;
 /// instant of a session (INV-6, INV-2; 2026-09-19 review).
 ///
 /// A keystroke count was kept in a counter that nothing ever emptied except writing it down. The hooks
-/// run for the life of the service and the counter ran with them — through a pause, through a password
-/// field, through a customer's password manager — and the next click after capture came back closed the
+/// run for the life of the service and the counter ran with them (through a pause, through a password
+/// field, through a customer's password manager) and the next click after capture came back closed the
 /// burst and wrote it into the session. Fourteen characters, with the time they were typed: the length
 /// of a password, recorded by the mechanism that exists to not record it. Every rule about when typing
 /// may be recorded was applied to the finished event, which was far too late.
@@ -105,7 +105,7 @@ public sealed class InputBoundaryTests
     {
         // The click that brings a remote tool to the front is what starts the session, so it is stamped
         // a few milliseconds before the session exists and its session time is negative. The store
-        // refuses a negative time, the exception left the drain loop — which caught only cancellation —
+        // refuses a negative time, the exception left the drain loop (which caught only cancellation)
         // and click capture was dead for the life of the service while the pill went on saying
         // Recording. The most ordinary way to begin a session was the way to break it.
         await using var harness = await MachineHarness.StartAsync();

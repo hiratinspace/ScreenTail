@@ -7,7 +7,7 @@ namespace ScreenTail.Api.Publish;
 
 /// <summary>
 /// The article as it lands in the knowledge base (ST-096): the note's sections as headings, the steps
-/// as a list, the ticket named at the foot, and every piece of text escaped — text on a customer's
+/// as a list, the ticket named at the foot, and every piece of text escaped: text on a customer's
 /// screen steers the note (T7), and in a knowledge base it would also render.
 /// </summary>
 public static class KbArticleFormatter

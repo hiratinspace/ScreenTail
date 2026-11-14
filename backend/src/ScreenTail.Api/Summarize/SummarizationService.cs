@@ -231,7 +231,7 @@ public sealed class SummarizationService(
             // A rejected draft cost real money, and a cap that only counts successes is a cap a broken
             // model walks straight through. The 2026-09-19 review found the harder half: this was the
             // last statement in the method, so anything that threw after the model answered lost the
-            // cost entirely — a billed draft, no row, and a daily cap that never moved.
+            // cost entirely: a billed draft, no row, and a daily cap that never moved.
             //
             // CancellationToken.None, not the request's. The money is gone whether or not the technician
             // is still waiting for the answer, and a client that hangs up mid-request was cancelling the
@@ -288,7 +288,7 @@ public sealed class SummarizationService(
     /// Asks the primary, and the fallback only when the primary was unreachable.
     ///
     /// Only an outage falls over. A rejected payload is rejected twice, and a revoked key is not fixed by
-    /// spending money somewhere else — both would buy a second failure at the price of a second call.
+    /// spending money somewhere else. Both would buy a second failure at the price of a second call.
     ///
     /// <c>owed</c> collects what the calls that failed may have cost. Kept apart from the failure that is
     /// reported, because falling over used to replace the primary's failure with the fallback's, and with

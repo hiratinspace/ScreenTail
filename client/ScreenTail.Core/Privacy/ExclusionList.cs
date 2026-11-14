@@ -6,7 +6,7 @@ using ScreenTail.Core.Detection;
 namespace ScreenTail.Core.Privacy;
 
 /// <param name="Id">The rule that matched, for the audit row and the diagnostics panel. Never the title.</param>
-/// <param name="DisplayName">What the HUD says after "Paused: excluded app" — a rule name, not a window name.</param>
+/// <param name="DisplayName">What the HUD says after "Paused: excluded app": a rule name, not a window name.</param>
 public sealed record Exclusion(string Id, string DisplayName);
 
 /// <summary>
@@ -14,7 +14,7 @@ public sealed record Exclusion(string Id, string DisplayName);
 ///
 /// Scope (ST-023) answers "is this part of the support session"; this answers "is this something we must
 /// not look at even if it is". They are different questions and a window can fail this one while passing
-/// that one — a technician looking up a customer's password in 1Password during a ScreenConnect session is
+/// that one: a technician looking up a customer's password in 1Password during a ScreenConnect session is
 /// doing support work, and is the exact case this exists for.
 ///
 /// <b>Every ambiguity resolves towards excluding.</b> A regex that times out, a title we could not read, a
@@ -75,7 +75,7 @@ public sealed class ExclusionList
 
     public int Rules => _byProcess.Count + _titles.Count + _urls.Count;
 
-    /// <summary>How many separate applications are excluded by process name — ST-043 wants at least ten.</summary>
+    /// <summary>How many separate applications are excluded by process name. ST-043 wants at least ten.</summary>
     public int ExcludedApplications => _byProcess.Values.Select(r => r.Id).Distinct(StringComparer.Ordinal).Count();
 
     public static ExclusionList Load(string json)
@@ -129,8 +129,8 @@ public sealed class ExclusionList
     /// The rule that says this window must not be captured, or null when none does.
     ///
     /// A window with no process name and no title is excluded. That combination means Windows would tell
-    /// us nothing about what is in front — a secure desktop, a window we may not open, a process that just
-    /// died — and "we could not find out" is not a reason to photograph something.
+    /// us nothing about what is in front (a secure desktop, a window we may not open, a process that just
+    /// died), and "we could not find out" is not a reason to photograph something.
     /// </summary>
     public Exclusion? Match(ForegroundWindowInfo window)
     {
@@ -139,8 +139,8 @@ public sealed class ExclusionList
         if (window.ProcessName is { Length: > 0 } process)
         {
             // Stripped on both sides. Windows reports a process without its extension, but the name can
-            // also reach us from a tenant's own list or a policy file, where somebody wrote "1Password.exe"
-            // — and an exclusion that misses because of four characters is an exclusion that did nothing.
+            // also reach us from a tenant's own list or a policy file, where somebody wrote "1Password.exe",
+            // and an exclusion that misses because of four characters is an exclusion that did nothing.
             if (_byProcess.TryGetValue(Path.GetFileNameWithoutExtension(process), out var byProcess))
             {
                 return byProcess;

@@ -11,7 +11,7 @@ public readonly record struct DownscalePlan(int Width, int Height, double Scale)
 /// How large a stored frame should be (ST-025).
 ///
 /// The long edge is capped at 1600 pixels, which ADR-0001 measured as legible for the text a technician
-/// needs to read back — service names, error codes, dialog titles. OCR runs on the full-size capture before
+/// needs to read back: service names, error codes, dialog titles. OCR runs on the full-size capture before
 /// this (ADR-0001 finding 2a), so shrinking costs nothing in recognition and saves the disk budget, the
 /// upload, and most of the encode time.
 /// </summary>

@@ -96,7 +96,7 @@ public sealed class ScreenshotTests
         using var window = DesktopWindow.Create($"ScreenTail timing {width}x{height}");
         if (!window.TakeForeground())
         {
-            // The caller turns this into a skip, so the marker has to be left here — see
+            // The caller turns this into a skip, so the marker has to be left here. See
             // DesktopWindow.RequireForeground for why a silent skip on this runner is a defect.
             Measurements.Record(
                 $"{DesktopWindow.NoDesktopMarker}: a test window could not take the foreground, so every "

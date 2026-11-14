@@ -35,7 +35,7 @@ public sealed class NoteStep
 
     /// <summary>
     /// Identity for the editor, stable across reorder and unrelated to position. The schema has no step
-    /// id, so this is assigned on load and never persisted — two loads of the same note give different
+    /// id, so this is assigned on load and never persisted; two loads of the same note give different
     /// ids, which is fine because nothing outside one editing session refers to them.
     /// </summary>
     public string Id { get; }
@@ -54,7 +54,7 @@ public sealed class NoteStep
 
     /// <summary>
     /// Whether Review shows the ⚠ marker. Spec: it clears when the step is edited or explicitly
-    /// confirmed, so both routes set <see cref="Confirmed"/> — a technician who rewrote a sentence has
+    /// confirmed, so both routes set <see cref="Confirmed"/>: a technician who rewrote a sentence has
     /// already done the checking the marker was asking for.
     /// </summary>
     public bool NeedsVerification => Confidence == StepConfidence.Low && !Confirmed;
@@ -100,7 +100,7 @@ public sealed class NoteStep
 /// machine (ADR-0002). It owns no persistence: every mutation bumps <see cref="Revision"/> and raises
 /// <see cref="Changed"/>, and <see cref="AutoSave"/> decides when that becomes a write.
 ///
-/// Single-threaded by design — the editor is the UI thread and nothing else touches it. That is why there
+/// Single-threaded by design: the editor is the UI thread and nothing else touches it. That is why there
 /// is no lock here, unlike <c>ShellState</c>, which the pipe thread writes to.
 /// </summary>
 public sealed class NoteDraft
@@ -125,7 +125,7 @@ public sealed class NoteDraft
         }
 
         // There is always one, even when the draft had none. DeleteStep refuses to remove the last step
-        // because a Steps heading with nothing under it leaves the technician's caret nowhere — and the
+        // because a Steps heading with nothing under it leaves the technician's caret nowhere, and the
         // only way to make a step is to press Enter in one. A note that arrives with zero steps would land
         // in exactly that state and could never be written in again.
         if (_steps.Count == 0)
@@ -151,7 +151,7 @@ public sealed class NoteDraft
 
     public IReadOnlyList<string> FollowUps => _followUps;
 
-    /// <summary>Steps still showing the ⚠ marker — what the pane's footer counts.</summary>
+    /// <summary>Steps still showing the ⚠ marker: what the pane's footer counts.</summary>
     public int UnverifiedSteps => _steps.Count(step => step.NeedsVerification);
 
     public void SetProblem(string text) => Set(ref _problem, text);
@@ -202,7 +202,7 @@ public sealed class NoteDraft
 
     /// <summary>
     /// `Enter` at the end of a step. Returns the new step so the caller can put the caret in it. An id
-    /// that is not there appends, like the other four methods ignore one — the first version computed
+    /// that is not there appends, like the other four methods ignore one; the first version computed
     /// <c>IndexOf(id) + 1</c>, which is 0 for an unknown id, so a stale keystroke silently inserted the
     /// new step at the top of the note.
     /// </summary>
@@ -216,7 +216,7 @@ public sealed class NoteDraft
     }
 
     /// <summary>
-    /// `Backspace` on an empty step. Silent when the id is unknown — the caller is a keystroke, and the
+    /// `Backspace` on an empty step. Silent when the id is unknown: the caller is a keystroke, and the
     /// step may be gone between the key going down and the handler running.
     ///
     /// Refuses the last one. A note with no Steps section has no shape, and the technician would be left
@@ -263,14 +263,14 @@ public sealed class NoteDraft
 
     /// <summary>
     /// What gets written. Steps with no text are left out, because <c>session.v1.json</c> requires
-    /// <c>minLength 1</c> on a step's text and the alternative — refusing the whole save — would mean a
+    /// <c>minLength 1</c> on a step's text and the alternative (refusing the whole save) would mean a
     /// technician who pressed Enter and then went to lunch loses every other edit too. The empty step
     /// stays in the editor and is written as soon as it says something.
     ///
     /// That does mean a note can be written with no steps at all, and the client would not stop it:
     /// <c>SessionValidator</c> mirrors the schema's bounds but a bundle is only rejected on the way in.
-    /// The constructor is what closes that loop — a draft that comes back with no steps gets an empty one
-    /// — so the editor can always be typed in again.
+    /// The constructor is what closes that loop: a draft that comes back with no steps gets an empty one,
+    /// so the editor can always be typed in again.
     /// </summary>
     public DraftNote ToSchema() => _origin with
     {

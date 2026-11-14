@@ -14,7 +14,7 @@ namespace ScreenTail.Service.Privacy;
 ///
 /// Order first, because it is the whole correctness argument: the regions were found in the native image's
 /// coordinates, so they are painted there. Shrinking first would move every box by a rounding error and
-/// leave a sliver of what was meant to be covered — a strip of a card number is still a card number.
+/// leave a sliver of what was meant to be covered, and a strip of a card number is still a card number.
 ///
 /// Painted, not blurred. A blur is reversible enough to be an argument, and a technician looking at a
 /// screenshot should be able to see at a glance that something was removed.

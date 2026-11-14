@@ -82,7 +82,7 @@ public class ContrastTests
         // Spec v0.4.2 confines state colours to a rule, a border, a dot or a glyph, so WCAG's non-text
         // 3:1 is the bar rather than AA. They were checked against nothing at all before: seven colour
         // tokens sat outside every list, and the Review hi-fi was quietly using one of them for 11px
-        // text at 3.30:1 — under AA, three paragraphs below a comment saying not to.
+        // text at 3.30:1: under AA, three paragraphs below a comment saying not to.
         var minimum = Tokens.RootElement.GetProperty("contrast").GetProperty("indicator_minimum").GetDouble();
 
         var ratio = ContrastRatio(Hex(theme, indicator), Hex(theme, background));
@@ -345,7 +345,7 @@ public class ContrastTests
     public void EveryColourHasToSayWhatItIsAllowedToDo()
     {
         // The structural fix. The lists were hand-kept, so a new token was unchecked until somebody
-        // remembered to add it — and nothing said they had forgotten. Now a token that is neither text,
+        // remembered to add it, and nothing said they had forgotten. Now a token that is neither text,
         // nor a background, nor an indicator, nor structural, nor half of a pair fails here, and whoever
         // adds it has to decide which it is.
         var contrast = Tokens.RootElement.GetProperty("contrast");
@@ -359,7 +359,7 @@ public class ContrastTests
         }
 
         // Both halves. A colour that only ever meets one specific other is declared and checked by the
-        // pair itself — accent.primary.hover is never a surface for anything but text.on-accent, so
+        // pair itself: accent.primary.hover is never a surface for anything but text.on-accent, so
         // listing it as a general background would have every state dot checked against a hovered
         // button, which is not a combination that exists.
         foreach (var pair in contrast.GetProperty("pairs").EnumerateArray())

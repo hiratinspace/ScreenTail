@@ -37,7 +37,7 @@ public sealed record RedactionOptions
 /// is plainly showing text is how a missing language pack or an unsupported theme announces itself.
 /// </param>
 /// <param name="Masked">How many regions were painted over, by kind. Counts only (INV-10).</param>
-/// <param name="Spent">Time spent redacting, across all frames — the numerator of the per-frame cost.</param>
+/// <param name="Spent">Time spent redacting, across all frames: the numerator of the per-frame cost.</param>
 /// <param name="Slowest">The worst single frame, which is what a technician notices, not the average.</param>
 /// <param name="Failed">
 /// Frames whose redaction threw. Counted rather than swallowed: a rising number here means redaction is
@@ -65,7 +65,7 @@ public sealed record RedactionProgress(
 /// Turns staged frames into readable ones (ST-041).
 ///
 /// This is the only thing in the system allowed to read a pending frame, and the only thing that can clear
-/// <c>redaction_pending</c>. Everything downstream — Review, the bundle builder, export — reads through an
+/// <c>redaction_pending</c>. Everything downstream (Review, the bundle builder, export) reads through an
 /// API that returns redacted frames only, so INV-1 reduces to a single claim about this class: a frame it
 /// marks readable has had its secrets painted over first.
 ///
@@ -155,15 +155,15 @@ public sealed class RedactionWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // Given up on rather than retried. A frame whose redaction throws will throw again — the
-            // store refusing a write does not become a different store on the next pass — and retrying
+            // Given up on rather than retried. A frame whose redaction throws will throw again (the
+            // store refusing a write does not become a different store on the next pass), and retrying
             // it is a tight loop burning the CPU budget on one frame forever.
             //
             // Discarded rather than remembered. Nobody has read it, so nobody can say what is on it, and
             // ADR-0004 says such a frame goes; leaving it pending for finalize was the same answer
             // reached later. Remembering it instead cost three things, all of which showed up in review:
             // a set that grew for the life of the service, a NOT IN list on every poll that grew with
-            // it, and a backlog count that never reached zero again — so the pill showed a technician
+            // it, and a backlog count that never reached zero again, so the pill showed a technician
             // work that was never going to finish (weaknesses P1-9).
             lock (_counters)
             {
@@ -240,8 +240,8 @@ public sealed class RedactionWorker(
     /// <summary>
     /// The loop's last line of defence.
     ///
-    /// Before this, an exception from anywhere outside <see cref="RedactAsync"/>'s own try blocks — most
-    /// realistically the store refusing a write for a frame something else had already redacted — faulted
+    /// Before this, an exception from anywhere outside <see cref="RedactAsync"/>'s own try blocks (most
+    /// realistically the store refusing a write for a frame something else had already redacted) faulted
     /// the worker task and ended the loop. Both workers went the same way, and from then on every staged
     /// frame stayed pending until finalize purged it: a service that produced no screenshots at all for
     /// the rest of the day, with nothing in the log to say why.
@@ -356,7 +356,7 @@ public sealed class RedactionWorker(
         }
 
         // ST-045: what was covered over, counted by kind. The customer's question is "what did it find on
-        // my screen", and the honest answer is a number per kind — never the matches themselves (INV-10).
+        // my screen", and the honest answer is a number per kind, never the matches themselves (INV-10).
         if (store is IAuditLog audit)
         {
             foreach (var (kind, count) in redaction.Counts)
@@ -380,7 +380,7 @@ public sealed class RedactionWorker(
     /// rather than as a slow rise in unreadable frames.
     /// </param>
     /// <summary>
-    /// Removes a frame that could not be processed, or — when even that fails — remembers it briefly.
+    /// Removes a frame that could not be processed, or (when even that fails) remembers it briefly.
     ///
     /// A full disk refuses the discard as well, and then there is nowhere to record the decision, so it
     /// has to be held in memory. Bounded, and oldest-out: a frame pushed out of the set is tried again,

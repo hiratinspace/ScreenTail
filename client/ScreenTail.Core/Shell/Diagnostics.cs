@@ -9,7 +9,7 @@ namespace ScreenTail.Core.Shell;
 /// (ST-071, Spec §5 S1).
 ///
 /// <b>Every field here is a state, a count or a name the technician could have read off the registry.</b>
-/// That is not a convention to remember — it is what the type is. The panel exists to answer a customer
+/// That is not a convention to remember; it is what the type is. The panel exists to answer a customer
 /// standing behind a technician asking "what is that recording?", and the clipboard text goes into a
 /// ticket or an email, so a window title or a line of OCR reaching it would be the same leak as one in the
 /// audit log (INV-10).
@@ -75,7 +75,7 @@ public sealed record Diagnostics(
 
     /// <summary>
     /// The clipboard text. Built from this record alone, so there is no path from a frame, a transcript or
-    /// a window title into it — the same argument as <c>AuditExport</c>, and for the same reason.
+    /// a window title into it: the same argument as <c>AuditExport</c>, and for the same reason.
     /// </summary>
     public string ToClipboardText(DateTimeOffset at)
     {

@@ -13,7 +13,7 @@ namespace ScreenTail.Api.Summarize;
 /// send was Kestrel's default request size.
 ///
 /// <b>Every check here runs before the model call.</b> Two of the review's findings were the same
-/// mistake: the request was accepted, the model was paid, and the failure came afterwards — a
+/// mistake: the request was accepted, the model was paid, and the failure came afterwards: a
 /// <c>session_id</c> longer than the ledger's column, and two frames sharing an id. Both left a billed
 /// draft with no ledger row, which is a daily spending cap that never moves. A check that runs after the
 /// money is gone is not a check.
@@ -48,12 +48,12 @@ public static partial class BundleLimits
     /// added up. The ids are sent to the model too, so they are read and paid for like the text.
     ///
     /// The per-item limits never met each other: twenty-five frames of a hundred thousand characters
-    /// each is two and a half million, and four thousand segments of ten thousand is forty million —
+    /// each is two and a half million, and four thousand segments of ten thousand is forty million:
     /// each item legal, the request absurd, and bounded only by Kestrel's 16 MB (2026-09-20 review).
     ///
     /// The number comes from the longest session anybody has described rather than from the budget:
     /// three hours of a technician talking almost continuously is around 2,700 Whisper segments of a
-    /// sentence each, and twenty-five dense screens of OCR adds a hundred thousand more — call it
+    /// sentence each, and twenty-five dense screens of OCR adds a hundred thousand more. Call it
     /// 400,000, and leave half again on top so that an unusual session is drafted rather than refused.
     ///
     /// Six hundred thousand characters is roughly 150,000 tokens, or about $0.11 of input once the
@@ -182,7 +182,7 @@ public static partial class BundleLimits
             if (frame.Excluded)
             {
                 // The technician looked at this frame in Review and said no (ST-075). The client already
-                // drops these, so one arriving means a client that is out of date or is not ours — and
+                // drops these, so one arriving means a client that is out of date or is not ours, and
                 // either way its picture must not reach the provider. Refused rather than quietly
                 // dropped: a bundle that is not what it says it is should be fixed, not worked around.
                 return "A frame the technician excluded was sent anyway.";
@@ -190,7 +190,7 @@ public static partial class BundleLimits
 
             if (!ids.Add(frame.Id))
             {
-                // The draft's post-conditions index frames by id, and two of the same threw there —
+                // The draft's post-conditions index frames by id, and two of the same threw there,
                 // after the model had answered and before the cost was recorded.
                 return "The same frame id was sent twice, so a draft could not say which frame it meant.";
             }

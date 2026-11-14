@@ -29,7 +29,7 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>A plain text box inside the window, once <see cref="AddFields"/> has run.</summary>
     public IntPtr PlainField { get; private set; }
 
-    /// <summary>A text box that masks what is typed into it — a real one, with ES_PASSWORD (ST-040).</summary>
+    /// <summary>A text box that masks what is typed into it: a real one, with ES_PASSWORD (ST-040).</summary>
     public IntPtr PasswordField { get; private set; }
 
     public static DesktopWindow Create(string title) => new(title, "STATIC", IntPtr.Zero);
@@ -110,7 +110,7 @@ internal sealed class DesktopWindow : IDisposable
 
     /// <summary>
     /// Gives a child control keyboard focus. SetFocus only works on the thread that owns the window, so
-    /// this runs on the window's thread rather than the test's — calling it from here would silently do
+    /// this runs on the window's thread rather than the test's; calling it from here would silently do
     /// nothing and leave the probe reading whatever had focus before.
     /// </summary>
     public void Focus(IntPtr control)
@@ -139,7 +139,7 @@ internal sealed class DesktopWindow : IDisposable
     ///
     /// Windows refuses the foreground to a process that has received no input, which is every unattended
     /// runner, so this attaches to the current foreground thread's input queue for the moment it takes to
-    /// activate — no keystroke is injected to work around it. It retries, because the previous test's window
+    /// activate. No keystroke is injected to work around it. It retries, because the previous test's window
     /// may still be closing and leaving the desktop briefly without a foreground at all: activating once,
     /// immediately after creating the window, is what made the ST-024 tests skip on hardware that could
     /// perfectly well have run them.
@@ -147,8 +147,8 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>
     /// Takes the foreground or skips the test, saying what was in the way.
     ///
-    /// Three runs were spent guessing at this from the outside — a locked screen, then a service in
-    /// session 0 — while the capability probe insisted the machine was fine and another test in the same
+    /// Three runs were spent guessing at this from the outside (a locked screen, then a service in
+    /// session 0) while the capability probe insisted the machine was fine and another test in the same
     /// run took the foreground without trouble. A skip that reports only its own existence cannot settle
     /// that. These facts can.
     /// </summary>
@@ -179,7 +179,7 @@ internal sealed class DesktopWindow : IDisposable
         {
             return "Nothing holds the foreground on this desktop. With no window to attach to, Windows' "
                 + "foreground lock refuses a process that has had no input, which is every unattended "
-                + "runner — a shell (explorer.exe) or any persistent window would give it one.";
+                + "runner. A shell (explorer.exe) or any persistent window would give it one.";
         }
 
         var thread = GetWindowThreadProcessId(foreground, out var processId);
@@ -273,8 +273,8 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>
     /// Turns off the foreground lock for this user, once per run.
     ///
-    /// Windows refuses SetForegroundWindow to a process that has received no input — which is every
-    /// unattended runner — and refuses it silently, so the call returns and nothing happens. The
+    /// Windows refuses SetForegroundWindow to a process that has received no input (which is every
+    /// unattended runner) and refuses it silently, so the call returns and nothing happens. The
     /// diagnostic named the holder as the runner's own console (run.cmd), and minimising that turned out
     /// not to release anything: the obstacle is the lock, not the window.
     ///
@@ -437,7 +437,7 @@ internal sealed class DesktopWindow : IDisposable
 
     /// <summary>
     /// Moves and resizes the window without touching the z-order or the foreground, which is what a
-    /// window redrawing in the background does. Each call fires <c>EVENT_OBJECT_LOCATIONCHANGE</c> — one
+    /// window redrawing in the background does. Each call fires <c>EVENT_OBJECT_LOCATIONCHANGE</c>, one
     /// of the 32,776 event types the watcher used to subscribe to by accident (ST-048, weaknesses P0-5).
     /// </summary>
     public void Jiggle(int width, int height) =>

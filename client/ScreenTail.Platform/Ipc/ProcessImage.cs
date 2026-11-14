@@ -48,7 +48,7 @@ public sealed class ProcessImage : IDisposable
     /// <summary>
     /// Opens the process and reads its image path, keeping it open until this is disposed.
     ///
-    /// Null when the process is gone, or when this account may not ask — both of which are refusals
+    /// Null when the process is gone, or when this account may not ask, both of which are refusals
     /// rather than passes. "Cannot tell" is not "yes".
     /// </summary>
     public static ProcessImage? Of(uint processId)

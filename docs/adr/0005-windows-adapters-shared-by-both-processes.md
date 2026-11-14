@@ -12,7 +12,7 @@ process that needed one: the UI drew windows and read nothing from Windows that 
 it.
 
 ST-085 changed that. Before the UI writes the session token to the pipe it has to verify that the process
-answering really is the capture service — ADR-0003's rule read the other way round, and the half that
+answering really is the capture service: ADR-0003's rule read the other way round, and the half that
 `docs/review/weaknesses.md` P0-2 found unenforced. That check is Authenticode, which is Windows, and it
 lives in `WindowsServerVerifier` next to the client-side `WindowsClientVerifier` that the service uses.
 Both sit on the same `Authenticode` helper.

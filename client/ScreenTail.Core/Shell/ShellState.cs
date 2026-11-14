@@ -13,7 +13,7 @@ public enum ShellView
 /// <summary>How the shell stands in relation to the capture service.</summary>
 public enum ServiceConnection
 {
-    /// <summary>Trying, or about to. The UI shows nothing alarming yet — a service starting is normal.</summary>
+    /// <summary>Trying, or about to. The UI shows nothing alarming yet; a service starting is normal.</summary>
     Connecting,
 
     Connected,
@@ -56,13 +56,13 @@ public sealed record ShellSnapshot(
 /// <summary>
 /// What every view in the UI reads from (ST-070).
 ///
-/// One store rather than each window holding its own copy. The alternative — Review, History and the HUD
-/// each listening to the pipe — gives three views that disagree after a dropped event, and a technician
+/// One store rather than each window holding its own copy. The alternative (Review, History and the HUD
+/// each listening to the pipe) gives three views that disagree after a dropped event, and a technician
 /// who sees "recording" in one window and "idle" in another has no way to know which is true.
 ///
 /// It holds no capture state of its own: the service owns that (ADR-0003), and this is the last thing the
 /// service said. That is why <see cref="Capture"/> keeps its last value when the connection drops rather
-/// than resetting — the session did not stop because the UI lost the pipe, and showing "idle" would be a
+/// than resetting: the session did not stop because the UI lost the pipe, and showing "idle" would be a
 /// lie about someone's recording.
 ///
 /// Platform-neutral so it can be argued about without WPF and without a Windows machine. The shell binds
@@ -144,7 +144,7 @@ public sealed class ShellState
     }
 
     /// <summary>
-    /// A draft that is ready, or failed, is the session to review — over whatever was open before. The
+    /// A draft that is ready, or failed, is the session to review, over whatever was open before. The
     /// notification says "Draft ready" and opens the window, and it has to open on that draft.
     /// </summary>
     private void NoticeDraft(CaptureStateSnapshot state)

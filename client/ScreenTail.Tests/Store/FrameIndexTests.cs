@@ -10,7 +10,7 @@ namespace ScreenTail.Tests.Store;
 /// <c>frames_pending (redaction_pending, ts_ms)</c> led on a column with two values, one of which is
 /// nearly every row in the store, and the planner picked it for every query that filters a single
 /// session's frames. It searched the index for "redacted", got the whole store back, and then read each
-/// row from the table to find out which session it was in — one decrypted page per row.
+/// row from the table to find out which session it was in: one decrypted page per row.
 ///
 /// That cost grows with the store rather than with the session, so it arrives with retention: listing
 /// sessions took 5.4 seconds over 4,000 frames, with the store's single gate held for all of it and the

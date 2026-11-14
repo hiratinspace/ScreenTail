@@ -44,7 +44,7 @@ public sealed class SpeechGateTests
     public void APauseBetweenWordsDoesNotCutTheSentenceInTwo()
     {
         // People pause between clauses. Closing on the first quiet frame would hand Whisper half-sentences,
-        // which costs accuracy as well as time — it reads a whole segment for context.
+        // which costs accuracy as well as time: it reads a whole segment for context.
         var gate = new SpeechGate();
 
         var segments = Play(gate, [.. Loud(30), .. Quiet(10), .. Loud(30), .. Quiet(60)]);
@@ -97,7 +97,7 @@ public sealed class SpeechGateTests
     public void ACoughIsNotASegment()
     {
         // Short bursts are chairs, keyboards and throats. Transcribing them costs the fixed per-segment
-        // price to produce nothing — or worse, to hallucinate a word onto noise, which then reaches a note.
+        // price to produce nothing, or worse, to hallucinate a word onto noise, which then reaches a note.
         var gate = new SpeechGate();
 
         var segments = Play(gate, [.. Quiet(30), .. Loud(3), .. Quiet(60)]);
@@ -126,7 +126,7 @@ public sealed class SpeechGateTests
     public void CuttingALongSegmentDoesNotDropTheWordsAcrossTheJoin()
     {
         // The cut happens mid-speech, so the next segment has to start where the last one ended rather
-        // than waiting for speech to restart — otherwise a sentence disappears at every boundary.
+        // than waiting for speech to restart; otherwise a sentence disappears at every boundary.
         var gate = new SpeechGate();
 
         var segments = Play(gate, [.. Loud(3_000), .. Quiet(60)]);
@@ -171,8 +171,8 @@ public sealed class SpeechGateTests
     [Fact]
     public void MostOfASessionIsNeverHandedToTheTranscriber()
     {
-        // The number ADR-0001 finding 8 asks for. A realistic session — a minute of talk in ten minutes of
-        // work — should reach the transcriber as a small fraction of the audio.
+        // The number ADR-0001 finding 8 asks for. A realistic session (a minute of talk in ten minutes of
+        // work) should reach the transcriber as a small fraction of the audio.
         var gate = new SpeechGate();
         var stream = new List<double>();
         for (var minute = 0; minute < 10; minute++)

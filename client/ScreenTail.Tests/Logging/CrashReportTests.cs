@@ -4,8 +4,8 @@ namespace ScreenTail.Tests.Logging;
 
 /// <summary>
 /// ST-011 AC2: a crash becomes a report with the stack trace and nothing else, written to a local
-/// queue only when the technician opted in. An exception's message is left out on purpose — it is
-/// where a path, a title or a customer's name ends up — and the frames are type and method names,
+/// queue only when the technician opted in. An exception's message is left out on purpose (it is
+/// where a path, a title or a customer's name ends up) and the frames are type and method names,
 /// which say where it broke without saying what it was looking at.
 /// </summary>
 public sealed class CrashReportTests : IDisposable

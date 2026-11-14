@@ -20,7 +20,7 @@ public sealed class ReviewViewModel : IAsyncDisposable
 {
     private bool _disposed;
 
-    /// <param name="frames">Where the images come from and where the edits go — over the pipe in the running application.</param>
+    /// <param name="frames">Where the images come from and where the edits go: over the pipe in the running application.</param>
     /// <param name="write">Persists the note; null in the harness, which shows a note it cannot save.</param>
     /// <param name="confirm">The typed-confirmation dialog.</param>
     /// <param name="publish">The right pane's rules and its PSA delegates. Null shows the pane with no PSA to connect to.</param>

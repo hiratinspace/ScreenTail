@@ -5,8 +5,8 @@ namespace ScreenTail.Api.Tests.Summarize;
 /// <summary>
 /// ST-063. What a model may not be allowed to say.
 ///
-/// The note prompt asks for a great deal of restraint — cite only real evidence, quote only what was
-/// said, leave redactions alone, never write an instruction — and a prompt is a request. This is the
+/// The note prompt asks for a great deal of restraint (cite only real evidence, quote only what was
+/// said, leave redactions alone, never write an instruction), and a prompt is a request. This is the
 /// part that refuses. It runs on every draft before one is stored, so that a model having an off day
 /// produces a rejected draft and a queued retry rather than a confident, wrong note in a customer's
 /// ticket.
@@ -142,7 +142,7 @@ public sealed class DraftValidatorTests
     public void ACredentialThatReachedTheModelIsNotWrittenBackOut(string text)
     {
         // Redaction should have caught these upstream. If one arrives anyway, the last place it can be
-        // stopped is before it is stored — after that it is in a ticket, an email and a customer's inbox.
+        // stopped is before it is stored. After that it is in a ticket, an email and a customer's inbox.
         var draft = Draft() with { Steps = [Step(text, frames: ["f1"], transcript: ["t1"])] };
 
         Assert.NotEmpty(DraftValidator.Check(draft, Bundle()));

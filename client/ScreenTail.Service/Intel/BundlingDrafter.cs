@@ -11,7 +11,7 @@ namespace ScreenTail.Service.Intel;
 ///
 /// The bundle is assembled for real on every session: the frames are selected, the transcript is aligned
 /// to them, and the size and token estimate are logged (ST-060 AC3). Only the last step is missing, and
-/// it is missing for a reason a technician can act on — no model provider is configured — rather than
+/// it is missing for a reason a technician can act on (no model provider is configured) rather than
 /// because the code path does not exist.
 ///
 /// Doing the work now rather than waiting for ST-063 is deliberate. It means the selection rules run

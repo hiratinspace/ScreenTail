@@ -5,8 +5,8 @@
 -- reason the rest of the store is: a queued publish holds the note text until it lands.
 --
 -- state is one of 'pending', 'uncertain', 'done', 'failed'. 'uncertain' is the one that matters: the
--- request went and no answer came back, so whether it happened is unknown. Nothing retries those — a
--- second copy of a note in a customer's ticket is worse than one a technician can see is stuck — and they
+-- request went and no answer came back, so whether it happened is unknown. Nothing retries those: a
+-- second copy of a note in a customer's ticket is worse than one a technician can see is stuck, and they
 -- leave the state only by asking the provider whether the thing exists.
 CREATE TABLE outbox (
     id              TEXT PRIMARY KEY,

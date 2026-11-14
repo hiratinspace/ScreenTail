@@ -94,7 +94,7 @@ public sealed record ProviderError(ProviderErrorKind Kind, string What, string T
 /// caller is expected to handle.
 ///
 /// Exceptions are for bugs. A PSA being down, a key being wrong and a ticket being closed are all
-/// ordinary outcomes of a publish, and each has a different thing for the technician to do — so they
+/// ordinary outcomes of a publish, and each has a different thing for the technician to do, so they
 /// arrive as values that the compiler makes the caller look at.
 /// </summary>
 public readonly record struct ProviderResult<T>
@@ -121,7 +121,7 @@ public readonly record struct ProviderResult<T>
 /// Builds a <see cref="ProviderResult{T}"/>.
 ///
 /// The factories live here rather than on the generic type because a static member on a generic type has
-/// to be reached through a type argument the caller is otherwise inferring — <c>ProviderResult&lt;IReadOnlyList&lt;TicketRef&gt;&gt;.Success(x)</c>
+/// to be reached through a type argument the caller is otherwise inferring: <c>ProviderResult&lt;IReadOnlyList&lt;TicketRef&gt;&gt;.Success(x)</c>
 /// rather than <c>ProviderResult.Success(x)</c>.
 /// </summary>
 public static class ProviderResult

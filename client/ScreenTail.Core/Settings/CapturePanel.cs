@@ -243,7 +243,7 @@ public sealed class CapturePanel(ICaptureGateway gateway)
         _hotkeys[action] = (text ?? string.Empty).Trim();
     }
 
-    /// <summary>Why this action's chord cannot be saved — a shape problem, or a clash with the alternative to try — or null.</summary>
+    /// <summary>Why this action's chord cannot be saved (a shape problem, or a clash with the alternative to try), or null.</summary>
     public string? HotkeyProblem(HotkeyAction action)
     {
         if (!_hotkeys.TryGetValue(action, out var text))

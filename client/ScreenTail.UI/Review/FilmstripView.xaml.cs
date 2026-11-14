@@ -561,7 +561,7 @@ public partial class FilmstripView : UserControl
         }
     }
 
-    /// <summary>A selection made from outside — a transcript line, a frame chip — is scrolled into view.</summary>
+    /// <summary>A selection made from outside (a transcript line, a frame chip) is scrolled into view.</summary>
     private void OnStripSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (Strip.SelectedItem is { } selected)

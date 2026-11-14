@@ -9,7 +9,7 @@ namespace ScreenTail.Core.Input;
 /// A <c>WH_MOUSE_LL</c> hook makes every mouse movement on the machine switch into this process
 /// synchronously, and they were installed for the life of the service. A technician records for a
 /// fraction of their day; for the rest of it every mouse move on the desktop paid a context switch into
-/// a process that was going to throw the result away. That cost does not show up as ScreenTail's CPU —
+/// a process that was going to throw the result away. That cost does not show up as ScreenTail's CPU;
 /// it shows up as input latency in whatever the technician is actually doing (2026-09-20 review).
 ///
 /// <b>The session, not the recording state.</b> Following suppression would be the obvious reading of
@@ -18,8 +18,8 @@ namespace ScreenTail.Core.Input;
 /// because the machine already drops what the hooks see while suppressed (INV-6). What is worth acting
 /// on is that there is no session at all for most of the day.
 ///
-/// <b>Nothing is lost by starting late.</b> A session begins from a foreground change or a hotkey —
-/// neither of which is a click these hooks would have seen — and the recorder already drops the click
+/// <b>Nothing is lost by starting late.</b> A session begins from a foreground change or a hotkey
+/// (neither of which is a click these hooks would have seen), and the recorder already drops the click
 /// that starts one as pre-session.
 /// </summary>
 /// <param name="install">Installs the hooks. Throwing means the machine would not give us one.</param>
@@ -70,7 +70,7 @@ public sealed class HookLifetime(
     /// <summary>
     /// Brings the hooks into line with the session.
     ///
-    /// One at a time: transitions can arrive close together — start then suppress — and two of these
+    /// One at a time: transitions can arrive close together (start then suppress), and two of these
     /// overlapping would race to install and remove the same global hook.
     /// </summary>
     public async Task ApplyAsync(CancellationToken ct = default)

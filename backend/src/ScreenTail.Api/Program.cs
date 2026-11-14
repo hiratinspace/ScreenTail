@@ -177,7 +177,7 @@ builder.Services.AddHttpClient(nameof(ClaudeProvider), client =>
 });
 
 // The client is asked for by name. Handing this to ActivatorUtilities looked the same and was not: it
-// resolves a plain HttpClient from the container, which is the unnamed one — no base address, so the
+// resolves a plain HttpClient from the container, which is the unnamed one: no base address, so the
 // provider's relative URL threw before anything was sent, and the default timeout rather than ours.
 // Drafting could not have worked on any deployment (2026-09-20 review).
 //
@@ -253,7 +253,7 @@ builder.Services.AddCallerPolicy();
 builder.Services.AddOpenApi();
 
 // A request that has not finished in this long has stopped being a request and started being a held
-// connection. AddRequestTimeouts alone does nothing — the middleware below is what applies it, and
+// connection. AddRequestTimeouts alone does nothing; the middleware below is what applies it, and
 // without that line this was a registration with no effect (2026-09-19 review).
 builder.Services.AddRequestTimeouts(timeouts =>
 {
@@ -417,7 +417,7 @@ app.UseDraftingConcurrency();
 app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")));
 
 // Development only. The document lists every endpoint, every field of the bundle and every error shape,
-// which is a map of the service for anyone who asks — and it was served unauthenticated in every
+// which is a map of the service for anyone who asks, and it was served unauthenticated in every
 // environment, including production (2026-09-19 review). A deployment that wants it published can put it
 // behind whatever its operators already use to publish documentation.
 if (app.Environment.IsDevelopment())

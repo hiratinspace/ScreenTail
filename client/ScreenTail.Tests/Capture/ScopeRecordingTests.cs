@@ -9,11 +9,11 @@ namespace ScreenTail.Tests.Capture;
 /// <summary>
 /// INV-6's scope clause, proved at the store (ST-048, weaknesses P0-4).
 ///
-/// The state half of INV-6 — paused and suppressed write nothing — has always been proved here, by
+/// The state half of INV-6 (paused and suppressed write nothing) has always been proved here, by
 /// <see cref="StateMachineTests.PausedAndSuppressedWriteNothing"/>. The scope half was not. The drop for
 /// an excluded or out-of-scope window lived in the Windows capture loop, which no test project
 /// references, and the only test that mentioned scope asserted on a <see cref="ScopeDecision"/> it built
-/// itself — a restatement of the predicate rather than a proof that anything is dropped. Deleting the
+/// itself, a restatement of the predicate rather than a proof that anything is dropped. Deleting the
 /// drop left the whole suite green while the product wrote keystroke counts taken in a customer's
 /// password manager.
 ///
@@ -78,7 +78,7 @@ public sealed class ScopeRecordingTests
     [Fact]
     public async Task AWindowNothingIsKnownAboutWritesTheClickAndNothingElse()
     {
-        // No scope decision has arrived yet — the session began before the foreground watcher reported.
+        // No scope decision has arrived yet: the session began before the foreground watcher reported.
         // Knowing nothing about the window in front is not a reason to record a keystroke count in it.
         await using var harness = await MachineHarness.StartAsync();
         var ct = TestContext.Current.CancellationToken;

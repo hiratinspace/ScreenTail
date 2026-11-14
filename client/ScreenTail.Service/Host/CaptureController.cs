@@ -20,7 +20,7 @@ namespace ScreenTail.Service.Host;
 /// The questions matter as much as the commands. The UI process has no store, no hooks and no counters of
 /// its own, and that is deliberate: the service is the only thing that reads a frame, so INV-1's
 /// read-path filtering has one owner rather than one per window. Before this, every screen in the UI
-/// rendered a literal — a diagnostics panel that told a customer "local-only: yes" from a constant is
+/// rendered a literal. A diagnostics panel that told a customer "local-only: yes" from a constant is
 /// worse than no panel at all (weaknesses P1-2).
 /// </summary>
 /// <param name="diagnostics">

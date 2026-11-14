@@ -18,12 +18,12 @@ namespace ScreenTail.Core.Net;
 ///
 /// This is the step that had never run. The bundle has been built for real on every session since
 /// ST-060, the backend has drafted and answered since ST-063, and the outbox has queued and retried
-/// since ST-064 — and between them sat a stub returning "no summarization provider is configured yet",
+/// since ST-064, and between them sat a stub returning "no summarization provider is configured yet",
 /// so no session has ever produced a note.
 ///
 /// <b>The translation is the substance.</b> A <see cref="SessionBundle"/>'s frame carries a path, because
 /// that is what a session looks like on disk; the backend needs the bytes. Each selected frame's redacted
-/// image is read out of the store and sent base64, and the path is not sent at all — it is a filename
+/// image is read out of the store and sent base64, and the path is not sent at all: it is a filename
 /// from a technician's machine and of no use to a model (INV-10).
 ///
 /// <b>The bundle is rebuilt here rather than queued.</b> The outbox holds a marker, so a draft owed since
@@ -35,7 +35,7 @@ namespace ScreenTail.Core.Net;
 /// </summary>
 /// <param name="token">
 /// The device's bearer token, or null when the device is not enrolled. A bundle is a customer's screen,
-/// so an unenrolled device waits rather than sending it unauthenticated — and waits rather than failing,
+/// so an unenrolled device waits rather than sending it unauthenticated, and waits rather than failing,
 /// because enrolment is a thing that happens later, not a thing that has gone wrong.
 /// </param>
 /// <param name="logger">Where a failed audit write is reported, by exception type only. Null reports nothing.</param>
@@ -88,7 +88,7 @@ public sealed class DraftSender(
     /// Sends one queued draft and says what the outbox should do with it.
     ///
     /// The three answers are different promises. <c>Done</c> means the note is in the store. <c>Pending</c>
-    /// means asking again later could work — the budget resets at midnight, the model comes back, a
+    /// means asking again later could work: the budget resets at midnight, the model comes back, a
     /// device gets enrolled. <c>Failed</c> means it could not: a bundle the backend refuses is refused
     /// just as firmly in an hour, and a session retention has taken is not coming back.
     /// </summary>
@@ -140,7 +140,7 @@ public sealed class DraftSender(
             //
             // Retried rather than left uncertain, even though a request that timed out may have reached
             // the model. The backend settles a timed-out call at its estimate, so a duplicate is bounded
-            // by the same daily cap as everything else — and a missing note costs the technician the
+            // by the same daily cap as everything else, and a missing note costs the technician the
             // session, which is the larger of the two.
             return SendOutcome.Retry("The backend did not answer.");
         }
@@ -326,7 +326,7 @@ public sealed class DraftSender(
     /// path.
     ///
     /// Built by hand rather than shared as a type. The backend must not depend on a Windows-only client,
-    /// so what binds the two is the JSON, and the field names are the contract — which is why they are
+    /// so what binds the two is the JSON, and the field names are the contract, which is why they are
     /// written out here where a change to either side has to be made deliberately.
     /// </summary>
     private async Task<WireBundle> WireAsync(SessionBundle bundle, CancellationToken ct)

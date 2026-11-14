@@ -4,7 +4,7 @@ using ScreenTail.Shared.Schema;
 namespace ScreenTail.Tests.Sessions;
 
 /// <summary>
-/// ST-010 AC3: the backend being unreachable — for an hour or for a month — changes nothing about
+/// ST-010 AC3: the backend being unreachable, for an hour or for a month, changes nothing about
 /// capture. The machine has no backend to consult; only drafting and publishing do, and they queue.
 /// The grace period is a number the diagnostics can show, not a switch anything trips on.
 /// </summary>

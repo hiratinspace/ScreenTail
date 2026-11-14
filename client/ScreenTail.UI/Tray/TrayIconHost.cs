@@ -13,7 +13,7 @@ namespace ScreenTail.UI.Tray;
 ///
 /// Until this existed there was no capture indicator anywhere: <see cref="TrayPresence"/> computed what an
 /// icon would say and had no callers, and the HUD was built by a screenshot harness and never shown
-/// (weaknesses P0-2). INV-4 — capture is always visibly indicated, and there is no silent-capture mode —
+/// (weaknesses P0-2). INV-4 (capture is always visibly indicated, and there is no silent-capture mode)
 /// is the invariant that makes the product defensible, and it was enforced by nothing.
 ///
 /// The icons are the brand's tray glyphs (Spec §2.0, tray glyph tiers), built from
@@ -228,8 +228,8 @@ public sealed class TrayIconHost : IDisposable
     /// Says one thing, through Windows' own notification path (ST-073).
     ///
     /// A balloon on the tray icon rather than a window of our own, and that is the whole of "Focus Assist
-    /// respected": Windows decides whether to show it, so a technician with Do Not Disturb on — presenting,
-    /// on a call, mid-demo — is not interrupted by us, and we do not have to detect a setting that has
+    /// respected": Windows decides whether to show it, so a technician with Do Not Disturb on (presenting,
+    /// on a call, mid-demo) is not interrupted by us, and we do not have to detect a setting that has
     /// changed name twice. A custom toast window would have to ask, and would get it wrong the first time
     /// Microsoft renamed it again.
     /// </summary>

@@ -34,7 +34,7 @@ public sealed class SummarizationServiceTests
     public async Task AProviderThatIsDownFallsOverToTheOtherOne()
     {
         // ST-063 AC2. A 5xx is not a reason to lose a technician's session; it is a reason to ask
-        // somebody else. Only an outage does this — a rejected payload would be rejected twice.
+        // somebody else. Only an outage does this; a rejected payload would be rejected twice.
         var primary = new FakeLlm { Failure = new ProviderError(ProviderErrorKind.Unavailable, "The model did not answer.", "Try again shortly.") };
         var fallback = new FakeLlm { Reply = Good(), Name = "fallback" };
         var service = Service(primary, fallback);
@@ -211,7 +211,7 @@ public sealed class SummarizationServiceTests
     public void NothingInTheServiceCanHoldABundle()
     {
         // ST-063 AC4 and INV-7, asserted the way it can be. A reachability test is unreliable in a debug
-        // build — locals stay alive for the whole method — so this checks the failure mode instead: the
+        // build (locals stay alive for the whole method), so this checks the failure mode instead: the
         // cache somebody adds "just for retries". There is nowhere to put one.
         //
         // The other half is proved by SummarizationPersistsNothingTests, which counts every row in every

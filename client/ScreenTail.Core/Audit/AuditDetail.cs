@@ -5,8 +5,8 @@ namespace ScreenTail.Core.Audit;
 /// <summary>
 /// Guards the one field in an audit row that is not a number or a fixed name (ST-045, INV-10).
 ///
-/// <c>detail</c> exists so a row can say <i>which</i> — which mask kind, which suppression reason, which
-/// destination — without squeezing it into the type name. That makes it the only place in the log where
+/// <c>detail</c> exists so a row can say <i>which</i> (which mask kind, which suppression reason, which
+/// destination) without squeezing it into the type name. That makes it the only place in the log where
 /// free text could arrive, and therefore the only place a line of OCR or a customer's name could end up in
 /// a file the export promises carries no content.
 ///
@@ -44,7 +44,7 @@ public static partial class AuditDetail
 
     /// <summary>
     /// Refuses anything that is not a label. This is a guard against a mistake in our own code, not against
-    /// an attacker — someone who can call this can also write to the table — so it throws rather than
+    /// an attacker (someone who can call this can also write to the table), so it throws rather than
     /// quietly dropping the row: a silent audit row is worse than a loud bug.
     /// </summary>
     public static string Require(string detail)

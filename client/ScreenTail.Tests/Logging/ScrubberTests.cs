@@ -4,10 +4,10 @@ using ScreenTail.Shared.Logging;
 namespace ScreenTail.Tests.Logging;
 
 /// <summary>
-/// ST-011: logs carry no content (INV-10). The messages are content-free by construction — the
-/// service logs a title's length, never the title — and this is the belt to that brace: a scrubber
+/// ST-011: logs carry no content (INV-10). The messages are content-free by construction (the
+/// service logs a title's length, never the title) and this is the belt to that brace: a scrubber
 /// over every line, so a value that reaches a log by mistake reaches it as <c>[redacted]</c>, and a
-/// path — which names the user, and sometimes the customer — as <c>[path]</c>.
+/// path (which names the user, and sometimes the customer) as <c>[path]</c>.
 /// </summary>
 public sealed class ScrubberTests
 {

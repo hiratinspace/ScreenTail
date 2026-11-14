@@ -4,7 +4,7 @@ namespace ScreenTail.Core.Speech;
 /// How likely it is that a frame of microphone audio contains someone talking (ST-027).
 ///
 /// <see cref="SpeechGate"/> has always taken a probability per frame and nothing produced one. This is
-/// that half, and what it decides is how much of a support call reaches a transcriber at all — too
+/// that half, and what it decides is how much of a support call reaches a transcriber at all: too
 /// generous and every fan and keystroke is sent to Whisper, which answers non-speech with fluent invented
 /// sentences; too mean and the technician's explanation of what they just did never arrives.
 ///
@@ -14,7 +14,7 @@ namespace ScreenTail.Core.Speech;
 /// from the second. So the floor is learned, and what counts is how far above it a frame sits.
 ///
 /// <b>The floor is learned only while nobody is talking.</b> Tracking every frame would drag it up behind
-/// a speaker, and the back half of a long sentence would fall below the threshold — a technician
+/// a speaker, and the back half of a long sentence would fall below the threshold; a technician
 /// explaining a fix, transcribed for three seconds and then cut off mid-clause.
 ///
 /// <b>Digital silence is not a room.</b> A frame of exact zeros is a muted device or a stream that has not
@@ -104,13 +104,13 @@ public sealed class VoiceActivity(VoiceActivityOptions? options = null)
     /// Updates the room's level.
     ///
     /// Down at once, up at a crawl, and normally not at all while someone seems to be talking. A quieter
-    /// frame is always evidence about the room — the quietest recent moment is what a room sounds like —
+    /// frame is always evidence about the room (the quietest recent moment is what a room sounds like),
     /// so it is believed immediately even mid-sentence. A louder one might be the start of a word, so it
     /// is followed slowly and only during silence.
     ///
     /// The exception is a run of "speech" that has gone on far longer than anyone speaks. That is not a
     /// sentence, it is a machine that started making a noise, and refusing to learn from it would leave
-    /// the floor permanently below a sound that never stops — every frame forever sent to a transcriber
+    /// the floor permanently below a sound that never stops: every frame forever sent to a transcriber
     /// that answers non-speech with invented sentences.
     /// </summary>
     private void Learn(double levelDb, double probability)
@@ -175,7 +175,7 @@ public sealed record VoiceActivityOptions
 
     /// <summary>
     /// How many consecutive speech-looking frames before the room is relearned anyway. At 32 ms frames
-    /// this is thirty seconds — longer than the gate's own twenty-second ceiling on a single segment, so
+    /// this is thirty seconds, longer than the gate's own twenty-second ceiling on a single segment, so
     /// it never interrupts a person, and short enough that a machine which starts humming is learned
     /// within a minute rather than never.
     /// </summary>

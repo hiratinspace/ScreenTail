@@ -62,7 +62,7 @@ public sealed class TimeEntryCalculatorTests
     [Fact]
     public void PausedMinutesAreExcluded()
     {
-        // AC2: 32 minutes of wall clock, 9 of them paused, leaves 23 active — billed as 30, not 45.
+        // AC2: 32 minutes of wall clock, 9 of them paused, leaves 23 active, billed as 30, not 45.
         var session = new PausableSession();
 
         session.Record(TimeSpan.FromMinutes(14));
@@ -95,7 +95,7 @@ public sealed class TimeEntryCalculatorTests
         Assert.Equal(240, stored.DurationMs); // not the 490 ms of wall clock
     }
 
-    /// <summary>Mirrors the machine's accounting rule — recording time counts, paused time doesn't.</summary>
+    /// <summary>Mirrors the machine's accounting rule: recording time counts, paused time doesn't.</summary>
     private sealed class PausableSession
     {
         public TimeSpan Wall { get; private set; }

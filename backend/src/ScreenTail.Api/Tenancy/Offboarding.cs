@@ -7,7 +7,7 @@ namespace ScreenTail.Api.Tenancy;
 public sealed record Offboarded(Guid TenantId, int Rows);
 
 /// <summary>
-/// Tenant offboarding (ST-010 AC4): every row of the tenant, in every table, in one transaction — the
+/// Tenant offboarding (ST-010 AC4): every row of the tenant, in every table, in one transaction, the
 /// credentials in the vault included, since a sealed credential with no tenant is a credential nobody
 /// can rotate. Nothing is kept; a tenant that comes back starts again. The receipt email waits for a mail
 /// provider; the CLI prints the count instead.

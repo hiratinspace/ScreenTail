@@ -175,8 +175,8 @@ public sealed class WindowsMicrophone : IMicrophone
     /// <summary>
     /// Opens the endpoint, asking for the format the model wants and settling for what it is given.
     ///
-    /// A device that refuses 16 kHz mono is ordinary — plenty of endpoints only offer their configured
-    /// mix format — and the conversion is ready for it, so the refusal is retried without the request
+    /// A device that refuses 16 kHz mono is ordinary (plenty of endpoints only offer their configured
+    /// mix format), and the conversion is ready for it, so the refusal is retried without the request
     /// rather than reported as a machine with no microphone.
     /// </summary>
     private static WasapiRecorder? Open(MMDevice endpoint, bool communications)

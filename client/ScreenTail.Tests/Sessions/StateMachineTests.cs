@@ -12,7 +12,7 @@ using ScreenTail.Tests.Speech;
 
 namespace ScreenTail.Tests.Sessions;
 
-/// <summary>ST-020: every transition, INV-6 gating, the redaction grace at finalize, and crash recovery — against the real store.</summary>
+/// <summary>ST-020: every transition, INV-6 gating, the redaction grace at finalize, and crash recovery, against the real store.</summary>
 public sealed class StateMachineTests : IAsyncDisposable
 {
     private static readonly RemoteTool ScreenConnect = new() { Kind = RemoteToolKind.Screenconnect, ClientVersion = "24.1" };

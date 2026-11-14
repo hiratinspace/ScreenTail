@@ -57,8 +57,8 @@ public sealed class IpcClient : ICaptureChannel
         ArgumentNullException.ThrowIfNull(token);
 
         // Anonymous impersonation: without it a pipe server can impersonate the user who connected to it,
-        // and this client runs as the technician. The service needs nothing from our identity — it checks
-        // the executable — so there is nothing to give up by refusing.
+        // and this client runs as the technician. The service needs nothing from our identity (it checks
+        // the executable), so there is nothing to give up by refusing.
         var pipe = new NamedPipeClientStream(
             ".",
             pipeName,

@@ -6,7 +6,7 @@ namespace ScreenTail.Core.Privacy;
 /// Inside a remote session ScreenTail is blind to the UI: the remote desktop is one opaque bitmap, so UI
 /// Automation cannot tell us a password box has focus (ADR-0001 finding 2). Reading the screen is the only
 /// signal left. A frame that looks like a login prompt is marked <c>sensitive_context</c>, which suppresses
-/// capture for a short while afterwards — the technician is about to type a credential into a box we
+/// capture for a short while afterwards: the technician is about to type a credential into a box we
 /// cannot see.
 ///
 /// It errs towards suspicion. A false positive costs a few seconds of screenshots; a false negative puts a
@@ -14,7 +14,7 @@ namespace ScreenTail.Core.Privacy;
 ///
 /// The frame that triggers this is still stored. A sign-in screen shows dots, not the password, and
 /// keeping it is what lets the note say the technician reached the prompt. What is withheld is everything
-/// for the next few seconds — which is when the typing happens.
+/// for the next few seconds, which is when the typing happens.
 /// </summary>
 public static class LoginScreenHeuristic
 {
@@ -45,7 +45,7 @@ public static class LoginScreenHeuristic
     ///
     /// The spellings are deliberately redundant. OCR returns what is drawn, so "Sign-in" arrives as one
     /// token and never matches "sign in"; and Windows says "Log On" with a space in the places that matter
-    /// most — the classic logon banner an RDP session lands on, and the Services "Log On" tab, which has a
+    /// most: the classic logon banner an RDP session lands on, and the Services "Log On" tab, which has a
     /// real password field on it. A cue list that knows "logon" but not "log on" misses both.
     ///
     /// The localised verbs are the ones Windows, Microsoft 365, Google and Okta draw on their sign-in
@@ -116,7 +116,7 @@ public static class LoginScreenHeuristic
     ///
     /// Substring matching put "pin" inside "shipping" and "mapping", "ok" inside "token" and "broken",
     /// and "next", "account" and "email" are ordinary words in their own right. A customer's orders page
-    /// scored two supporting cues and a strong one and suppressed capture for ten seconds — failing safe,
+    /// scored two supporting cues and a strong one and suppressed capture for ten seconds, failing safe,
     /// but blanking the screenshots at exactly the step the technician was documenting.
     ///
     /// The cues are lower-case and may contain spaces and hyphens ("sign-in", "one-time code"), so the

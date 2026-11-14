@@ -28,7 +28,7 @@ public sealed record Notification(string Text, NotificationAction Action, string
 ///
 /// <b>Silence is the default and the most important case.</b> Spec §4 forbids interrupting a recording,
 /// and a toast over a customer's screen during a support call is the one notification that can do real
-/// damage — it is visible to the person on the other end, and it arrives at the moment the technician's
+/// damage: it is visible to the person on the other end, and it arrives at the moment the technician's
 /// attention is worth most. Nothing is said while a session is running, including about work left over
 /// from the last one.
 ///
@@ -75,7 +75,7 @@ public static class Notices
     /// What the queue has to say for itself, when there is no session to talk about.
     ///
     /// Work nobody knows the outcome of comes first. The outbox parks such an attempt rather than
-    /// repeating it — publishing twice is worse than publishing late — so it is the one state that will
+    /// repeating it (publishing twice is worse than publishing late), so it is the one state that will
     /// not resolve itself and the one that has to ask for a person.
     /// </summary>
     private static Notification? Queued(OutboxWaiting waiting)

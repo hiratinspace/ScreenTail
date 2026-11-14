@@ -1143,7 +1143,7 @@ public sealed class SessionMachine : IAsyncDisposable
         //
         // Until 2026-09-19 nothing scrubbed speech at all. ScrubText existed, was tested, and had no
         // caller, so a card number read back to a customer went into the store as spoken, and from there
-        // into the bundle and to the summarizer — under a schema field described as "already scrubbed".
+        // into the bundle and to the summarizer, under a schema field described as "already scrubbed".
         var scrubbed = _options.Scrubber.ScrubText(segment.Text);
         if (!scrubbed.Complete)
         {
@@ -1253,8 +1253,8 @@ public sealed class SessionMachine : IAsyncDisposable
         }
 
         // ST-045: suppressed intervals, recorded where every transition already passes. The two guards
-        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves
-        // — an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
+        // that cause them (ST-040's password field, ST-041's login heuristic) do not write this themselves:
+        // an interval is a pair of transitions, and only the machine sees both ends. Doing it here also
         // catches the ends the guards never see: a session stopped or discarded while still suppressed.
         if (from is SessionState.Suppressed && next is not SessionState.Suppressed && _suppressedSince is { } since)
         {

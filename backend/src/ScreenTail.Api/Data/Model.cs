@@ -294,7 +294,7 @@ public sealed class Policy
 /// <summary>
 /// One row per session, for the pilot's metrics (ST-098) and nothing else.
 ///
-/// <b>Counts and durations only.</b> No note text, no OCR, no window titles, no frames — INV-7 says the
+/// <b>Counts and durations only.</b> No note text, no OCR, no window titles, no frames. INV-7 says the
 /// backend never persists a capture, and this is the table where that would quietly stop being true. The
 /// columns are chosen so that there is nowhere to put such a thing even by accident.
 /// </summary>
@@ -329,7 +329,7 @@ public sealed class SessionMetric
 /// <summary>
 /// What one drafting call cost (ST-063).
 ///
-/// A tenant, a session id, a provider name and a number. No prompt, no draft, no frame — INV-7 holds
+/// A tenant, a session id, a provider name and a number. No prompt, no draft, no frame: INV-7 holds
 /// here as everywhere, and the daily cap is computed by summing this rather than by trusting a counter
 /// that a restart would reset.
 /// </summary>

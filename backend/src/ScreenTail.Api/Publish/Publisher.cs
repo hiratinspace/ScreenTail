@@ -179,8 +179,8 @@ public static partial class Publisher
     };
 
     /// <summary>
-    /// The article: the ticket's company mapped to the platform's — remembered, or exact and then
-    /// remembered — or a mapping asked for. A likely match is offered in the message and never assumed:
+    /// The article: the ticket's company mapped to the platform's (remembered, or exact and then
+    /// remembered), or a mapping asked for. A likely match is offered in the message and never assumed:
     /// the wrong company is a customer's runbook in another customer's knowledge base.
     ///
     /// A remembered mapping is trusted only while the platform's list still holds its id under the name

@@ -20,8 +20,8 @@ using ScreenTail.Api.Tests.Providers.Hudu;
 namespace ScreenTail.Api.Tests.Publish;
 
 /// <summary>
-/// The knowledge-base destination (ST-096, ST-097): the ticket's company is mapped to a Hudu company —
-/// exactly, and remembered — or the publish says a mapping is needed; the article is a draft under that
+/// The knowledge-base destination (ST-096, ST-097): the ticket's company is mapped to a Hudu company
+/// (exactly, and remembered) or the publish says a mapping is needed; the article is a draft under that
 /// company with the screenshots attached and the ticket named.
 /// </summary>
 public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>

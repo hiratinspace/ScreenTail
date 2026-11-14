@@ -11,8 +11,8 @@ namespace ScreenTail.Api.Summarize;
 /// realises is using somebody else's account.
 ///
 /// Set it as <c>Summarization__ApiKey</c>, and the fallback as <c>Summarization__FallbackApiKey</c>.
-/// With no key configured the service says so — a technician is told drafting is not set up, which is
-/// true and actionable — rather than failing at the first session of the day.
+/// With no key configured the service says so (a technician is told drafting is not set up, which is
+/// true and actionable) rather than failing at the first session of the day.
 ///
 /// <b>The provider decides every default that is about money or a model.</b> A setting the operator
 /// leaves alone takes the configured provider's value; one they set is kept whichever provider runs.
@@ -58,7 +58,7 @@ public sealed class SummarizationOptions
     /// The provider key.
     ///
     /// Trimmed on the way in, because a key mounted from a file or a secrets store almost always arrives
-    /// with a trailing newline — and an HTTP header value cannot contain one, so the request threw a
+    /// with a trailing newline, and an HTTP header value cannot contain one, so the request threw a
     /// FormatException that no catch here covered. Every draft came back as a 500 on a deployment whose
     /// key was perfectly correct (2026-09-19 review).
     /// </summary>
@@ -89,7 +89,7 @@ public sealed class SummarizationOptions
     ///
     /// Pinned rather than an alias such as <c>gemini-flash-latest</c>. An alias moves under a running
     /// deployment, and this one number decides what a draft costs, how long it takes and what shape it
-    /// comes back in — all three of which are tested against a specific model.
+    /// comes back in, all three of which are tested against a specific model.
     ///
     /// Unset, it is <see cref="DefaultGeminiModel"/> or <see cref="DefaultClaudeModel"/>, by provider.
     /// </summary>

@@ -9,8 +9,8 @@ namespace ScreenTail.UI.Review;
 ///
 /// Bound as bytes, WPF decoded every screenshot at its native size to draw a 160×90 thumbnail: about
 /// 5.8 MB of pixels per frame, 860 MB for a 150-frame session, and an out-of-memory before the
-/// technician had scrolled. Decoding at a fixed width makes a thumbnail a thumbnail — a few hundred
-/// kilobytes — and the full image is fetched only when a frame is enlarged, one at a time.
+/// technician had scrolled. Decoding at a fixed width makes a thumbnail a thumbnail (a few hundred
+/// kilobytes), and the full image is fetched only when a frame is enlarged, one at a time.
 /// </summary>
 internal static class Thumbnails
 {

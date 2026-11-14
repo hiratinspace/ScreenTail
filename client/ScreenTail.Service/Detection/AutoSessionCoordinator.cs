@@ -13,7 +13,7 @@ namespace ScreenTail.Service.Detection;
 /// Joins the foreground watcher to the session machine (ST-023): a remote tool takes focus and a session
 /// starts; the technician stays away from one for the grace period and it stops.
 ///
-/// The watcher raises its event on the thread pumping the WinEvent hook, and that thread must stay free —
+/// The watcher raises its event on the thread pumping the WinEvent hook, and that thread must stay free:
 /// it is the same thread ST-022 measures at 25 ms for a focus change. So the handler does nothing but drop
 /// the window into a channel, and all the work (a database write, starting a session) happens here.
 ///
@@ -193,7 +193,7 @@ internal sealed partial class AutoSessionCoordinator
         var ticking = TickAsync(timer, ct);
 
         // One window that cannot be handled costs that window. If this loop ends, the last scope decision
-        // stays in force for every window that follows — and if that decision was "remote tool", typing
+        // stays in force for every window that follows, and if that decision was "remote tool", typing
         // anywhere is recorded from then on. It used to end on the first exception of any kind.
         var windows = _windows.Reader;
         await ResilientLoop.RunAsync(
@@ -223,7 +223,7 @@ internal sealed partial class AutoSessionCoordinator
 
     /// <summary>
     /// The ticket number in front of the technician as the session starts (ST-077): the window's title
-    /// first, the clipboard only if the title says nothing, and the clipboard read here and only here —
+    /// first, the clipboard only if the title says nothing, and the clipboard read here and only here,
     /// once per start, never kept (AC3). Digits come out; nothing else does (INV-10).
     /// </summary>
     private string? Hint(ForegroundWindowInfo? window) =>
@@ -244,7 +244,7 @@ internal sealed partial class AutoSessionCoordinator
         //
         // This decision carries the window handle the screenshot capturer expects a frame to belong to,
         // and it used to be kept only when the scope or the tool id changed. Two windows of one remote
-        // tool change neither — which is what a second customer session looks like — so the old handle
+        // tool change neither (which is what a second customer session looks like), so the old handle
         // stayed, CaptureForegroundWindow(expected:) found the foreground window was not the one it had
         // been told to expect, and returned nothing. No error and no interval on the timeline: the
         // frames were simply missing from the half of the session that happened in the second window
@@ -287,7 +287,7 @@ internal sealed partial class AutoSessionCoordinator
         }
 
         // The timeline records where the technician went and whether it was in scope, even when no frame is
-        // taken — that is what makes "clicks logged, no frames" visible in Review rather than a silent gap.
+        // taken. That is what makes "clicks logged, no frames" visible in Review rather than a silent gap.
         // Still only on a real change: an entry per window switch would be noise in the one place a
         // technician goes to find out what happened.
         if (worthRecording)

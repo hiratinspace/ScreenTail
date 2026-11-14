@@ -156,7 +156,7 @@ public sealed class OnboardingWizard(
         }
     }
 
-    /// <summary>Runs the checks again — after a fix in Windows Settings, the button says "Check again" (AC3).</summary>
+    /// <summary>Runs the checks again; after a fix in Windows Settings, the button says "Check again" (AC3).</summary>
     public async Task RecheckAsync(CancellationToken ct = default)
     {
         var checks = await _capabilities.CheckAsync(ct).ConfigureAwait(false);

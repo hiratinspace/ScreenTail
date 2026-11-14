@@ -98,7 +98,7 @@ public sealed class GapItem(GapCell cell) : StripItem
 
     public override string SpokenName => Description;
 
-    /// <summary>"18 s" — drawn on the gap, so the strip says how much is missing without a hover.</summary>
+    /// <summary>"18 s", drawn on the gap, so the strip says how much is missing without a hover.</summary>
     public string Duration => Cell.DurationMs >= 1000
         ? $"{Cell.DurationMs / 1000} s"
         : $"{Cell.DurationMs} ms";
@@ -259,8 +259,8 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
     }
 
     /// <summary>
-    /// Selects the frame with this id, or clears the selection when there is no such frame — or no id,
-    /// which is what a transcript line with no screenshot hands over. Returns whether a frame was selected.
+    /// Selects the frame with this id, or clears the selection when there is no such frame (or no id,
+    /// which is what a transcript line with no screenshot hands over). Returns whether a frame was selected.
     /// </summary>
     public bool Select(string? frameId)
     {
@@ -282,7 +282,7 @@ public sealed partial class FilmstripViewModel : ObservableObject, IDisposable, 
 
     /// <summary>
     /// The pane is going away. Anything still inside an undo window becomes permanent now rather than
-    /// being abandoned half-done — a frame the technician deleted must not come back because they closed
+    /// being abandoned half-done: a frame the technician deleted must not come back because they closed
     /// the window quickly.
     /// </summary>
     public void Dispose() => _deletes.Close();

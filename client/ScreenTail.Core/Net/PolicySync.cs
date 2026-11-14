@@ -9,7 +9,7 @@ namespace ScreenTail.Core.Net;
 
 /// <summary>
 /// The tenant's policy as the backend states it (ST-047): what the admin decided about this device.
-/// <paramref name="LocalOnlyLocked"/> is INV-11's word — locked, the technician cannot change it here.
+/// <paramref name="LocalOnlyLocked"/> is INV-11's word: locked, the technician cannot change it here.
 /// The wire shape is <c>shared/contracts/tenant-policy.v1.json</c>, which the backend's response is tested against too.
 ///
 /// The four update fields (ST-113) are optional, with the product's defaults, so a backend from before

@@ -94,7 +94,7 @@ public sealed class SceneGridTests
     {
         // Why the hash walks both directions. dHash is blind along whichever axis it does not walk, and a
         // 17x16 grid of a 1080p screen is coarse enough that a dialog often changes a column's ordering
-        // without changing a row's. Across only, the smallest dialog scored 7 against noise at 3 — a gap of
+        // without changing a row's. Across only, the smallest dialog scored 7 against noise at 3, a gap of
         // four. With the downward comparison it scores 19 against the same 3.
         var threshold = new SceneSamplerOptions().Threshold;
         var smallest = Hash(Desktop()).DistanceTo(Hash(Paint(Desktop(), (Width - 300) / 2, (Height - 160) / 2, 300, 160)));
@@ -135,7 +135,7 @@ public sealed class SceneGridTests
     public void EveryCellIsMadeOfTheWholeScreen()
     {
         // A box filter, not point sampling. Point sampling 1080p down to 272 cells would read 272 pixels and
-        // miss anything that did not land on one — which is most of what appears on a screen.
+        // miss anything that did not land on one, which is most of what appears on a screen.
         var screen = new byte[Width * Height];
         var cellWidth = Width / PerceptualHash.Columns;
         var cellHeight = Height / PerceptualHash.Rows;

@@ -9,7 +9,7 @@ namespace ScreenTail.UI.Shell;
 /// The shell's window, bound to <see cref="ShellState"/> (ST-070).
 ///
 /// It holds no state of its own beyond what WPF needs to bind to: every property here is derived from the
-/// last snapshot the store handed out. That is the point of the store — Review, History and the tray all
+/// last snapshot the store handed out. That is the point of the store: Review, History and the tray all
 /// read one thing, so a technician can never see "recording" in one window and "idle" in another.
 ///
 /// It lives as long as its window, not as long as the store. The tray opens a new window after each close,
@@ -54,7 +54,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     }
 
     /// <param name="loadReview">
-    /// Builds the Review pane for a session id, over the pipe — or returns null when the service would
+    /// Builds the Review pane for a session id, over the pipe, or returns null when the service would
     /// not hand it over. Injected because this view model must not know about the pipe.
     /// </param>
     /// <param name="history">Builds the History pane, once.</param>
@@ -149,7 +149,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Starting the service is ST-071's tray work; the banner offers it here because Spec §5 S1 puts the
     /// offer where the problem is reported. Wired to nothing yet rather than silently doing nothing
-    /// forever — the command exists so the button is real when the tray can answer it.
+    /// forever. The command exists so the button is real when the tray can answer it.
     /// </summary>
     [RelayCommand]
     private static void StartService()

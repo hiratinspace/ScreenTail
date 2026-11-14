@@ -1,13 +1,13 @@
 # Getting one real session to produce one real note
 
 **What this is for.** ScreenTail has never drafted a note from a session. Every piece exists and is
-tested — capture, redaction, the bundle, the sender, the endpoint, the model call — and the whole of it
+tested (capture, redaction, the bundle, the sender, the endpoint, the model call), and the whole of it
 has never run in one go. This is the step list for the first time, and for every time after that until
 there is an installer.
 
 **What it proves, and what it does not.** At the end of this you will have a note in the store, written
-by a model, from a session you recorded. That is M1. It does not prove the note is any *good* — that is
-the eval corpus (ST-062) and a technician's judgement — and it does not prove any of it is publishable,
+by a model, from a session you recorded. That is M1. It does not prove the note is any *good* (that is
+the eval corpus (ST-062) and a technician's judgement), and it does not prove any of it is publishable,
 because there is nowhere to publish to yet (ST-077, ST-078).
 
 **The short way (2026-10-27).** `scripts\windows\demo\setup.cmd` once, then `scripts\windows\demo\start.cmd`
@@ -19,7 +19,7 @@ step is there.
 
 ## Where everything runs: the laptop
 
-**All of it runs on the laptop — the backend included.** Two facts decide that:
+**All of it runs on the laptop, the backend included.** Two facts decide that:
 
 - The client refuses to send a bundle to a backend that is not HTTPS. That is the egress guard doing its
   job (INV-8), not a setting to change.
@@ -157,7 +157,7 @@ SCREENTAIL_DEVICE_TOKEN=eyJhbGciOi...
 
 **The token lasts an hour.** Run this again when it expires; it re-uses the same device rather than
 seeding another, so it will not leave a trail of credentials behind. It refuses outright unless the API
-is in Development — a control rather than a warning.
+is in Development: a control rather than a warning.
 
 ## 6. Start the backend
 
@@ -200,7 +200,7 @@ Both values are environment variables. The backend address has no settings-scree
 purpose (it is the deployment's, not the technician's); the token is the fallback the service uses
 when no invite has activated the device. The address you set is also what names the backend host in
 the egress allowlist, so a typo here looks like a blocked request rather than a request to somewhere
-unexpected — which is the intended behaviour, not a bug to work around.
+unexpected, which is the intended behaviour, not a bug to work around.
 
 **The first start opens the setup wizard** (ST-083). With the token in the environment the device
 counts as enrolled, so on the Activate step press Skip for now; check the Permissions step's three
@@ -209,7 +209,7 @@ Finishing is remembered; the tray's "Set up ScreenTail…" runs it again.
 
 ## 8. Record something worth drafting
 
-Open a remote-desktop window — RDP, ScreenConnect, anything in the registry — so capture starts by
+Open a remote-desktop window (RDP, ScreenConnect, anything in the registry) so capture starts by
 itself, or press **Ctrl+Alt+R** with the window you want in front. Then **do a small real job**: break
 something, find it, fix it. Say out loud what you are doing, because narration is half of what the note
 is written from.
@@ -227,10 +227,10 @@ the queue drains in the background. Give it a few seconds.
 **In the UI:** the status badge in the shell window changes to *Draft ready* and a tray notification
 names the draft. Click the notification, or the tray icon's Open: the shell opens on Review with the
 note on the left and the screenshots beside it. History lists the session too, and a double-click on any
-row opens it. This is the first time these panes will have been seen over a real session — CI has only
-rendered them over a fixture — so anything odd about them is worth writing down in step 10.
+row opens it. This is the first time these panes will have been seen over a real session (CI has only
+rendered them over a fixture), so anything odd about them is worth writing down in step 10.
 
-**In the service window**, the interesting lines are the bundle report (counts and sizes only — nothing
+**In the service window**, the interesting lines are the bundle report (counts and sizes only, nothing
 that was on the screen) and whatever the outbox says about sending.
 
 **In the backend window**, one request to `/v1/sessions/summarize` and, on the first run, the model's
@@ -242,7 +242,7 @@ own timing.
 |---|---|
 | "http is not encrypted" | `SCREENTAIL_BACKEND` starts with `http://`. It must be `https://` (step 7) |
 | A certificate error in the service window | Step 1 was skipped or declined |
-| "This device is not enrolled yet" | `SCREENTAIL_DEVICE_TOKEN` is unset or expired — step 5 again |
+| "This device is not enrolled yet" | `SCREENTAIL_DEVICE_TOKEN` is unset or expired: step 5 again |
 | "No summarization provider is configured" | `SCREENTAIL_BACKEND` is unset in the shell that started the client |
 | 501 `not_configured` from the backend | The API is running without a drafting key: `Summarization:ApiKey` is not in user secrets (step 2). A key for the other company (a Gemini key with `Summarization:Provider` set to `claude`, or the reverse) is answered the same way once a draft is tried, with a 401 in the backend window. Without `ASPNETCORE_ENVIRONMENT` (step 3) the API does not get this far: it refuses to start for want of the signing key |
 | Connection refused | The backend is not running, or is not on port 5001 (step 6) |
@@ -253,7 +253,7 @@ own timing.
 ## 10. Write down what actually happened
 
 The first run is evidence, so record it: how long the model took, what it cost (the backend log says),
-how many frames went, and — the only question that matters — **whether the note describes what you
+how many frames went, and (the only question that matters) **whether the note describes what you
 did**. That answer is the first row of the eval corpus.
 
 If it does, that is M1, and the next thing is the eval corpus rather than more plumbing.

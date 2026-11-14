@@ -18,7 +18,7 @@ namespace ScreenTail.Tests.Windows.Host;
 ///
 /// Against the real encrypted store, because the claim worth testing is about what leaves it. INV-1 says
 /// nothing outside the redaction worker may see a pending frame, and the History screen counting one
-/// would be that rule broken in the least visible way — a number on a screen, with no image anywhere near
+/// would be that rule broken in the least visible way, a number on a screen, with no image anywhere near
 /// it.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
@@ -116,7 +116,7 @@ public sealed class CaptureControllerTests : IAsyncDisposable
     [Fact]
     public async Task DeleteEverythingWithNothingBehindItErasesNothing()
     {
-        // 2026-09-19 review. The command had no fields at all, so one frame on the pipe wiped the store —
+        // 2026-09-19 review. The command had no fields at all, so one frame on the pipe wiped the store,
         // and the pipe only proves the peer is the same user, which a compromised same-user process is.
         var ct = TestContext.Current.CancellationToken;
         var store = await OpenAsync(ct);

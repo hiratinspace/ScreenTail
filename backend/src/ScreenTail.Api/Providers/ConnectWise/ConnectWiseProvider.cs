@@ -263,7 +263,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
 
     /// <summary>
     /// The API's answer as a kind and two sentences. ConnectWise's own words about what it refused are
-    /// kept — they are what a technician will paste into a ticket — and nothing else from the body is:
+    /// kept (they are what a technician will paste into a ticket) and nothing else from the body is:
     /// no URLs, no stack, no token.
     /// </summary>
     private static ProviderError Failure(HttpStatusCode status, string body, TimeSpan? retryAfter) => status switch

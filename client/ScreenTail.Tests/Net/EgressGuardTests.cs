@@ -9,7 +9,7 @@ namespace ScreenTail.Tests.Net;
 /// is enforced by an allowlist rather than by convention.
 ///
 /// The distinction is the whole ticket, so the tests are written against an <c>HttpClient</c> built the
-/// way the service builds one — a caller that wants to send something has to get past the handler, and
+/// way the service builds one: a caller that wants to send something has to get past the handler, and
 /// the assertions are about whether bytes reached the far side, not about what a policy object returned.
 /// </summary>
 public sealed class EgressGuardTests
@@ -75,7 +75,7 @@ public sealed class EgressGuardTests
     public async Task PublishOnlyReachesTheTenantsOwnHosts()
     {
         // ST-046's second criterion. Local-only being off is not permission to send a customer's
-        // screenshots anywhere — the allowlist is a second, independent gate.
+        // screenshots anywhere; the allowlist is a second, independent gate.
         var far = new CountingHandler();
         using var client = Client(Tenant(), far);
 
@@ -92,7 +92,7 @@ public sealed class EgressGuardTests
     public async Task ARequestThatDoesNotSayWhatItIsForIsNotSent()
     {
         // A new caller that forgot. Defaulting to "probably fine" is how an egress guard ends up with a
-        // hole nobody chose — so the default is refusal, and adding a caller is a decision somebody makes.
+        // hole nobody chose, so the default is refusal, and adding a caller is a decision somebody makes.
         var far = new CountingHandler();
         using var client = Client(Tenant(), far);
 
@@ -245,7 +245,7 @@ public sealed class EgressGuardTests
     public async Task ARedirectToSomewhereElseIsRefusedLikeAnyOtherDestination()
     {
         // 2026-09-19 review. The guard decided on the URL it was handed, and the handler beneath it
-        // followed redirects on its own — so the allowlist covered the first hop and nothing after it.
+        // followed redirects on its own, so the allowlist covered the first hop and nothing after it.
         // An allowed host answering 302 could send a session's bundle anywhere, and the counters would
         // record it as allowed.
         var far = new RecordingHandler(new Uri("https://somewhere.else.example/collect"));
@@ -307,7 +307,7 @@ public sealed class EgressGuardTests
         // 2026-09-20 review. Every redirect was followed as a bodiless GET, which is right for a 302 and
         // wrong for a 307 or a 308: those two exist precisely to say "same method, same body, new
         // address". A published note that met one became a GET to the new URL, and a 200 from whatever
-        // answers a GET there reads as "sent" — the note is gone and the ticket never got it.
+        // answers a GET there reads as "sent": the note is gone and the ticket never got it.
         //
         // Re-posting the body to the new host is the other wrong answer and is the thing this class
         // exists to prevent. So it is handed back: the caller sees the redirect and decides.

@@ -12,7 +12,7 @@ using ScreenTail.Api.Vault;
 namespace ScreenTail.Api.Endpoints;
 
 /// <param name="SiteUrl">Where the provider lives for this tenant; not secret, shown in full.</param>
-/// <param name="Secret">The credential, as the provider wants it — for ConnectWise the Basic-auth string, for Hudu the API key. Stored sealed, shown as its last four.</param>
+/// <param name="Secret">The credential, as the provider wants it: for ConnectWise the Basic-auth string, for Hudu the API key. Stored sealed, shown as its last four.</param>
 public sealed record StoreIntegrationRequest(string SiteUrl, string Secret);
 
 /// <param name="Secret">The last four characters behind bullets. Never more.</param>

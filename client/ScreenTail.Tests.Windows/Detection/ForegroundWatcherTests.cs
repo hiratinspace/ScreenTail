@@ -10,7 +10,7 @@ namespace ScreenTail.Tests.Windows.Detection;
 
 /// <summary>
 /// ST-022 against real windows. These create actual top-level windows, put them in front, and time how long
-/// the watcher takes to notice — the only way to know whether the hook is delivering.
+/// the watcher takes to notice: the only way to know whether the hook is delivering.
 ///
 /// They need an interactive desktop, so they skip on a hosted runner (session 0) and run for real on the
 /// spare laptop. Skipping is the honest outcome there: a foreground test on a machine with no foreground
@@ -20,7 +20,7 @@ public sealed class ForegroundWatcherTests
 {
     /// <summary>
     /// Whether a timing measured here means anything. A GitHub-hosted runner is a shared cloud VM whose
-    /// numbers the test loop has never counted (docs/dev/windows-test-loop.md) — it measured 322 ms against
+    /// numbers the test loop has never counted (docs/dev/windows-test-loop.md); it measured 322 ms against
     /// the 100 ms budget on a build that the laptop passed. Correctness is still checked everywhere; only
     /// the budget is held back for hardware we can reason about.
     /// </summary>
@@ -127,7 +127,7 @@ public sealed class ForegroundWatcherTests
     public async Task AWindowThatOnlyMovesAroundIsNeverReportedAsTheForegroundWindow()
     {
         // ST-048 (weaknesses P0-5). SetWinEventHook's first two arguments are an inclusive range, and the
-        // watcher passed EVENT_SYSTEM_FOREGROUND and EVENT_OBJECT_NAMECHANGE as though they were a pair —
+        // watcher passed EVENT_SYSTEM_FOREGROUND and EVENT_OBJECT_NAMECHANGE as though they were a pair,
         // subscribing to every event type between them. Each arrived with its own window handle, and any
         // handle different from the last was published as the foreground window, so ScopePolicy re-ran
         // against windows that were never in front. This is that bug in the shape a technician creates:
@@ -172,7 +172,7 @@ public sealed class ForegroundWatcherTests
 
         // Everything the watcher reported, not what it happens to hold now. The two are different in the
         // input-injection job, where another test's keystrokes can raise the task switcher and take the
-        // foreground while this one is running — which failed the assertion for a reason that has nothing
+        // foreground while this one is running, which failed the assertion for a reason that has nothing
         // to do with what is being tested. The list is cumulative, so the real window being in it is just
         // as strong a proof that the watcher is working, and it cannot be undone by a later window.
         Assert.Contains(frontTitle, seen);
@@ -307,7 +307,7 @@ public sealed class ForegroundWatcherTests
         //
         // And it measures for long enough to mean something. Windows accounts thread CPU in scheduler
         // quanta of about 15.625 ms, so over three seconds the smallest non-zero answer possible is exactly
-        // 0.52% — which is what this reported, twice, while the true figure was somewhere between zero and
+        // 0.52%, which is what this reported, twice, while the true figure was somewhere between zero and
         // one tick. Over twenty seconds a single tick is 0.08%, so the budget is now measuring the watcher
         // rather than the clock's resolution.
         // Twenty seconds on the laptop, where the answer is enforced; a second on a hosted runner, where
@@ -329,7 +329,7 @@ public sealed class ForegroundWatcherTests
 
         var percent = used.TotalMilliseconds / elapsed.TotalMilliseconds * 100;
         var quanta = used.TotalMilliseconds / 15.625;
-        Record($"Watcher used **{percent:F3}%** of a core over {elapsed.TotalSeconds:F0}s with a window moving 100 times a second — {quanta:F0} scheduler quanta (budget 0.5%, enforced: {PerformanceCounts})");
+        Record($"Watcher used **{percent:F3}%** of a core over {elapsed.TotalSeconds:F0}s with a window moving 100 times a second: {quanta:F0} scheduler quanta (budget 0.5%, enforced: {PerformanceCounts})");
         Assert.SkipUnless(PerformanceCounts, "Timings from a shared cloud runner don't count; the laptop enforces this.");
         Assert.True(percent < 0.5, $"the watcher used {percent:F3}% of a core on a busy desktop, budget is 0.5%");
     }

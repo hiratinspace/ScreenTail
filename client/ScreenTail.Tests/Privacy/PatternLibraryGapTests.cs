@@ -14,7 +14,7 @@ public sealed class PatternLibraryGapTests
     [Fact]
     public void APrivateKeyIsMaskedAndNotJustItsHeader()
     {
-        // The worst of them. The pattern matched the header line only, so the body — the actual key —
+        // The worst of them. The pattern matched the header line only, so the body (the actual key)
         // was stored, shown in Review, put in the bundle and sent to the summarizer.
         const string Key = """
             -----BEGIN RSA PRIVATE KEY-----
@@ -48,7 +48,7 @@ public sealed class PatternLibraryGapTests
     public void AKeyIsMaskedHoweverItIsIntroduced(string line)
     {
         // A quote between the cue and the value, a two-word cue, or a few more spaces than the pattern
-        // allowed — all of them are how a real config file or Postman screenshot looks.
+        // allowed: all of them are how a real config file or Postman screenshot looks.
         Assert.DoesNotContain("A1b2C3d4E5f6G7h8I9j0K1l2M3n4", Engine.ScrubText(line).Text, StringComparison.Ordinal);
     }
 
@@ -74,7 +74,7 @@ public sealed class PatternLibraryGapTests
     [Fact]
     public void ATenantPatternThatTimesOutMeansTheTextWasNotSearched()
     {
-        // The INV-1 hole. A skipped pattern was reported as a completed scan, so the frame was stored —
+        // The INV-1 hole. A skipped pattern was reported as a completed scan, so the frame was stored,
         // with everything that pattern existed to catch still on it.
         var policy = RedactionPolicy.Default with { CustomPatterns = ["^(a+)+$"] };
 
@@ -129,8 +129,8 @@ public sealed class PatternLibraryGapTests
     public void ACardNumberIsStillACardNumberWithAnotherNumberBesideIt(string text, string expected)
     {
         // Found in the 2026-09-19 review, and the ordinary case rather than a contrived one. OCR joins a
-        // page's words with single spaces, so whatever number sits beside the card on a payment form —
-        // the CVV, the expiry, the zip code, an order number — arrived in the same run of digit groups.
+        // page's words with single spaces, so whatever number sits beside the card on a payment form
+        // (the CVV, the expiry, the zip code, an order number) arrived in the same run of digit groups.
         // The pattern took the whole run as one candidate, the checksum failed on the whole run, and
         // nothing looked inside it. The card was stored, shown in Review and sent to the summarizer with
         // its CVV next to it.
@@ -176,7 +176,7 @@ public sealed class PatternLibraryGapTests
         // (2026-09-19 review).
         //
         // The frame still has to be scanned by everything else, and the scan has to report itself as
-        // incomplete — a pattern that did not run is text that was not searched, and ADR-0004 says such
+        // incomplete: a pattern that did not run is text that was not searched, and ADR-0004 says such
         // a frame is discarded rather than stored.
         var engine = new RedactionEngine(new RedactionPolicy { CustomPatterns = [bad] });
 
@@ -204,8 +204,8 @@ public sealed class PatternLibraryGapTests
     [InlineData("hunter2;extra")]
     public void TheStoredTextHidesAsMuchAsThePictureDoes(string secret)
     {
-        // 2026-09-19 review. The image masks every word a match touches — "a partly painted number is
-        // still readable" — and the stored text masked only the matched span. So a value the pattern
+        // 2026-09-19 review. The image masks every word a match touches ("a partly painted number is
+        // still readable") and the stored text masked only the matched span. So a value the pattern
         // stopped short of kept its tail in ocr_text: painted out of the picture, and sent to the model
         // and shown in Review in writing.
         //

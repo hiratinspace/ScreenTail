@@ -11,7 +11,7 @@ public enum TrayIcon
     /// <summary>The glyph with a red dot. INV-3: this is on screen whenever capture is running.</summary>
     Recording,
 
-    /// <summary>Capture is on but paused or suppressed — still a session, still not capturing.</summary>
+    /// <summary>Capture is on but paused or suppressed: still a session, still not capturing.</summary>
     Paused,
 
     /// <summary>The idle glyph with a square badge; the tooltip and menu carry <see cref="TrayPresence.DraftsReady"/>.</summary>
@@ -30,7 +30,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
     ///
     /// INV-3 and INV-4 both land here: the icon is the one indicator that is always on screen, so
     /// "recording" has to be distinguishable from "paused" and from "we do not know" at a glance and in
-    /// one 16-pixel glyph. Offline is deliberately its own state rather than falling back to idle — a grey
+    /// one 16-pixel glyph. Offline is deliberately its own state rather than falling back to idle: a grey
     /// icon says "ask me again", an idle icon says "nothing is being captured", and only one of those is
     /// honest when the service has stopped answering.
     /// </summary>
@@ -64,7 +64,7 @@ public sealed record TrayPresence(TrayIcon Icon, string Tooltip, string StateLin
             CaptureStates.Idle => (drafts > 0 ? TrayIcon.DraftReady : TrayIcon.Idle, "Not capturing"),
 
             // A state this build has never heard of, which means a service newer than this UI. Saying
-            // "not capturing" is a guess, and it is the one guess INV-4 cannot afford to get wrong —
+            // "not capturing" is a guess, and it is the one guess INV-4 cannot afford to get wrong,
             // a newer service adding a recording-like state would show the idle ring (2026-09-19
             // review). Unknown is the honest word, and it is what the Offline glyph already means.
             _ => (TrayIcon.Offline, "Capture state unknown"),

@@ -11,7 +11,7 @@ namespace ScreenTail.Tests.Ipc;
 /// profiler pair loads a native DLL with full access to the runtime.
 ///
 /// So an attacker needs no forged binary at all: launch our real, signed UI with a hook set, and it
-/// passes the signature check for the same reason the genuine one does — while somebody else's code is
+/// passes the signature check for the same reason the genuine one does, while somebody else's code is
 /// already running inside it, holding the session token. The defence is that the code being hijacked is
 /// ours, so it can refuse.
 /// </summary>

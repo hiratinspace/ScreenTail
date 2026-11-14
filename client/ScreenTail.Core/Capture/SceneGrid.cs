@@ -3,7 +3,7 @@ namespace ScreenTail.Core.Capture;
 /// <summary>
 /// Reduces a screen to the small grid <see cref="PerceptualHash"/> works on (ST-026).
 ///
-/// A box filter — every source pixel contributes to exactly one cell — rather than point sampling. Point
+/// A box filter (every source pixel contributes to exactly one cell) rather than point sampling. Point
 /// sampling a 1920×1080 screen down to a handful of cells would read a few dozen pixels and miss anything
 /// that did not happen to land on one of them, which for this purpose means missing most dialogs. The same
 /// averaging is what <c>StretchBlt</c> with <c>HALFTONE</c> does on Windows, so the grid the service

@@ -3,8 +3,8 @@ namespace ScreenTail.Core.Hud;
 /// <summary>
 /// One screen's rectangle, in the virtual desktop's coordinates.
 ///
-/// Its own type rather than <c>System.Windows.Rect</c> so that the decision below can be made — and
-/// tested — on a machine with no windowing system at all. The UI translates; nothing here knows what a
+/// Its own type rather than <c>System.Windows.Rect</c> so that the decision below can be made (and
+/// tested) on a machine with no windowing system at all. The UI translates; nothing here knows what a
 /// monitor is beyond four numbers.
 /// </summary>
 public readonly record struct ScreenArea(double Left, double Top, double Right, double Bottom);
@@ -15,7 +15,7 @@ public readonly record struct ScreenArea(double Left, double Top, double Right, 
 /// The pill is what a customer can point at to know their screen is being recorded, and the capture
 /// service treats an attached UI as proof that something on screen says so. The window restored whatever
 /// position it last saved without asking whether that position still exists, so a technician who docked
-/// the pill on a second monitor and later unplugged it got a pill drawn into empty space — no indicator
+/// the pill on a second monitor and later unplugged it got a pill drawn into empty space: no indicator
 /// anywhere, and a service still counting itself indicated (2026-09-20 review).
 ///
 /// Nothing malicious is needed to arrive there. Unplugging a monitor is Tuesday. That the same file is

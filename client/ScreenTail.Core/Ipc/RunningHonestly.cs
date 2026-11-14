@@ -10,7 +10,7 @@ namespace ScreenTail.Core.Ipc;
 /// arbitrary code inside a signed executable.
 ///
 /// So an attacker needs no forged binary at all. Launch our real, signed UI with a hook set, and it
-/// passes the signature check for the same reason the genuine one does — while somebody else's code is
+/// passes the signature check for the same reason the genuine one does, while somebody else's code is
 /// already running inside it, holding the session token (2026-09-19 review).
 ///
 /// <b>The defence is that the code being hijacked refuses to run.</b> The hijacked process is our code,

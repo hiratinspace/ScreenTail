@@ -5,7 +5,7 @@ namespace ScreenTail.Tests.Intel;
 /// <summary>
 /// Reading a ticket number off what is in front of the technician when a session starts (ST-077). The
 /// title wins over the clipboard, a number is only a ticket when it looks like one, and what comes out is
-/// digits — never the title, never the clipboard (INV-10, AC3).
+/// digits: never the title, never the clipboard (INV-10, AC3).
 /// </summary>
 public sealed class TicketHintTests
 {
@@ -56,7 +56,7 @@ public sealed class TicketHintTests
     public void AClipboardFullOfOtherThingsIsNotATicket()
     {
         // A phone number, a card number, an IP: digits that are not a ticket. Only a bare number, or a
-        // number introduced as a ticket, counts — and nothing of the clipboard survives either way.
+        // number introduced as a ticket, counts, and nothing of the clipboard survives either way.
         Assert.Null(TicketHint.From("Remote Desktop", null, clipboard: "call 0161 496 0123"));
         Assert.Null(TicketHint.From("Remote Desktop", null, clipboard: "4111 1111 1111 1111"));
         Assert.Null(TicketHint.From("Remote Desktop", null, clipboard: "192.168.1.10"));

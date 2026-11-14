@@ -13,7 +13,7 @@ namespace ScreenTail.Api.Tests.Summarize;
 ///
 /// The review found that <c>/v1/sessions/summarize</c> read one claim and asked the database nothing. A
 /// revoked laptop already got a 401 from <c>/v1/me</c> and went on drafting here until its token
-/// expired — against the tenant's own budget, at the tenant's own expense. Both the README and the
+/// expired, against the tenant's own budget, at the tenant's own expense. Both the README and the
 /// model's comments said revocation was checked on every request.
 ///
 /// These are the three cases <c>MeEndpointTests</c> has always covered, asked of the endpoint that

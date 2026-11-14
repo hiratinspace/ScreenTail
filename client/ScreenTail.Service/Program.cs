@@ -15,7 +15,7 @@ using ScreenTail.Shared.Logging;
 
 // Before anything else, because everything after it would already be running alongside whatever was
 // loaded. The peer check verifies the file a process started from, and .NET will happily load somebody
-// else's code into a genuine signed process if the environment asks — so an attacker needs no forged
+// else's code into a genuine signed process if the environment asks, so an attacker needs no forged
 // binary, only our real one launched with a startup hook set (ST-012, 2026-09-19 review).
 //
 // This is the second line, not the first. A startup hook runs before Main, so by the time this check
@@ -95,8 +95,8 @@ if (args.Contains("--capabilities", StringComparer.Ordinal) || Array.IndexOf(arg
     // ST-027's word-error-rate criterion is measured with it: the transcript goes to research/eval/wer.py
     // against the reference text beside the recording.
     //
-    // It exists because the criterion cannot be a unit test. It needs ten minutes of real human narration —
-    // research/fixtures/audio/README.md says why a synthesised recording would measure the wrong thing — and
+    // It exists because the criterion cannot be a unit test. It needs ten minutes of real human narration
+    // (research/fixtures/audio/README.md says why a synthesised recording would measure the wrong thing), and
     // a test that skipped until somebody recorded one would be a skipped test on the one machine whose
     // answers count (ST-018).
     if (Array.IndexOf(args, "--transcribe") is var flag and >= 0)
@@ -134,8 +134,8 @@ using var instance = SingleInstance.TryAcquire(userIdentity);
 if (instance is null)
 {
     // Said, not silent. Exit code 3 with nothing on stderr read as a crash, and a same-user process
-    // holding the mutex name — the ordinary case is the last run's service still up, the rare one is
-    // something squatting it — was indistinguishable from a bug (weaknesses P2-13).
+    // holding the mutex name (the ordinary case is the last run's service still up, the rare one is
+    // something squatting it) was indistinguishable from a bug (weaknesses P2-13).
     Console.Error.WriteLine("Another ScreenTail capture service is already running for this user, or something is holding its name. Exiting with code 3.");
     return 3;
 }
@@ -147,7 +147,7 @@ if (!OperatingSystem.IsWindows())
 }
 
 // Per-monitor DPI awareness, before any window is touched. Without it Windows lies to us about window
-// rectangles on a scaled display — a 3840-wide window on a 150% monitor reports 2560 — and every screenshot
+// rectangles on a scaled display (a 3840-wide window on a 150% monitor reports 2560), and every screenshot
 // would be captured from the wrong rectangle and stored at the wrong size (ST-025).
 Dpi.MakePerMonitorAware();
 

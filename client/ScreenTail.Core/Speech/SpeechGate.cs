@@ -17,14 +17,14 @@ public sealed record SpeechGateOptions
 
     /// <summary>
     /// How long the gate stays open after the probability falls. A speaker pauses between words and
-    /// clauses, and closing on the first quiet frame would end a segment mid-sentence — which costs
+    /// clauses, and closing on the first quiet frame would end a segment mid-sentence, which costs
     /// accuracy as well as time, because Whisper reads a whole segment for context.
     /// </summary>
     public TimeSpan Hangover { get; init; } = TimeSpan.FromMilliseconds(700);
 
     /// <summary>
     /// Audio kept from before the gate opened. Voice activity is recognised a frame or two after speech
-    /// starts, so without this every segment loses its first consonant — "restart" becomes "estart".
+    /// starts, so without this every segment loses its first consonant: "restart" becomes "estart".
     /// </summary>
     public TimeSpan Preroll { get; init; } = TimeSpan.FromMilliseconds(250);
 
@@ -54,7 +54,7 @@ public sealed record SpeechSegment(long StartMs, long EndMs, bool Truncated)
 ///
 /// ADR-0001 finding 8 is why this exists: on the hosted runner, feeding Whisper every five seconds of
 /// audio used most of the CPU, and on the laptop 49–62% of eight threads. A technician talks for a
-/// fraction of a session — the rest is typing, reading and waiting — so gating on voice activity is the
+/// fraction of a session (the rest is typing, reading and waiting), so gating on voice activity is the
 /// difference between the speech pipeline being always busy and mostly idle, and ST-031 budgets 15% of the
 /// machine for all of ScreenTail together.
 ///
@@ -77,7 +77,7 @@ public sealed class SpeechGate(SpeechGateOptions? options = null)
     /// <summary>Frames offered since the last <see cref="Reset"/>. Times <see cref="SpeechGateOptions.FrameLength"/> is the audio seen.</summary>
     public long FramesSeen => _frames;
 
-    /// <summary>Frames that were inside an open segment — what the transcriber is actually asked to read.</summary>
+    /// <summary>Frames that were inside an open segment: what the transcriber is actually asked to read.</summary>
     public long FramesKept { get; private set; }
 
     /// <summary>Segments dropped for being too short to be speech. Counted, because a rising number means the thresholds are wrong.</summary>
@@ -142,7 +142,7 @@ public sealed class SpeechGate(SpeechGateOptions? options = null)
     }
 
     /// <summary>
-    /// The stream ended — the session stopped, or the microphone went away — so anything open is finished
+    /// The stream ended (the session stopped, or the microphone went away), so anything open is finished
     /// now. Without this, whatever the technician said last would be held forever and never transcribed.
     /// </summary>
     public SpeechSegment? Flush()

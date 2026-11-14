@@ -221,7 +221,7 @@ public sealed record RequestConfirmationCommand : IpcCommand
 
 /// <param name="Token">Carry it back on the destructive command. Good once, for that action, for 30 s.</param>
 /// <param name="Phrase">
-/// What the technician has to type to mean it. Spec §3: a typed confirmation, not a button — the point
+/// What the technician has to type to mean it. Spec §3: a typed confirmation, not a button. The point
 /// is that agreeing takes an act rather than a reflex.
 /// </param>
 public sealed record ConfirmationIssued : IpcEvent
@@ -494,7 +494,7 @@ public sealed record SessionPublished : IpcEvent
 // ---- The device (ST-010; 2026-09-25) --------------------------------------------------------------------
 //
 // Activation is the one step in onboarding that talks to the backend (Spec §5 S8 step 2). The code
-// crosses the pipe once; the refresh token the backend hands back never does — the service keeps it
+// crosses the pipe once; the refresh token the backend hands back never does. The service keeps it
 // under DPAPI and the UI only ever sees the tenant's name.
 
 /// <summary>The invite's code and this machine's name. Answered by a <see cref="DeviceActivated"/>, or a failed <c>result</c> with the backend's sentence.</summary>
@@ -910,7 +910,7 @@ public abstract record IpcEvent
     ///
     /// On the base type so that one rule covers every reply: the client completes the pending request
     /// whose id matches, whatever the event's type. Without it each new request/reply pair needed its own
-    /// plumbing, and <c>get_capabilities</c> — which has had a reply type since ST-021 — would have hung
+    /// plumbing, and <c>get_capabilities</c> (which has had a reply type since ST-021) would have hung
     /// the first time anything asked, because the read loop only ever completed a <see cref="CommandResult"/>.
     /// </summary>
     [JsonPropertyName("request_id")]
@@ -983,7 +983,7 @@ public sealed record CaptureStateSnapshot
 
     /// <summary>
     /// Why capture is not running, when the state alone does not say (ST-072). A wire name from
-    /// <c>CaptureStateReason</c> in session.v1.json — <c>password_field</c>, <c>excluded_app</c>,
+    /// <c>CaptureStateReason</c> in session.v1.json: <c>password_field</c>, <c>excluded_app</c>,
     /// <c>elevated_window</c>, <c>sensitive_context</c>, <c>out_of_scope</c>, <c>user</c>.
     ///
     /// The HUD needs it because Spec §5 S2 gives each one different words, and a technician being told
@@ -994,7 +994,7 @@ public sealed record CaptureStateSnapshot
     public string? Reason { get; init; }
 
     /// <summary>
-    /// The process in front when capture is out of scope, so the HUD can say "Not capturing — Outlook".
+    /// The process in front when capture is out of scope, so the HUD can say "Not capturing: Outlook".
     ///
     /// A process name, never a window title: titles are content (INV-10) and this crosses a pipe and
     /// reaches a screen a customer may be looking at. session.v1.json draws the same line in FocusEvent.

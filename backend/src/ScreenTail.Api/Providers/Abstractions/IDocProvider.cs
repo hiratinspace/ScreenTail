@@ -20,8 +20,8 @@ public sealed record PublishedArticle(string Id, Uri? Url, ProviderError? Incomp
 /// <summary>
 /// A documentation platform: Hudu in v1, IT Glue later.
 ///
-/// Separate from <see cref="IPsaProvider"/> because the two are chosen independently — an MSP may run
-/// ConnectWise with Hudu, or Autotask with IT Glue — and because the failure modes differ: a PSA refusing
+/// Separate from <see cref="IPsaProvider"/> because the two are chosen independently (an MSP may run
+/// ConnectWise with Hudu, or Autotask with IT Glue) and because the failure modes differ: a PSA refusing
 /// a note stops the billing record, a doc platform refusing an article does not.
 /// </summary>
 public interface IDocProvider

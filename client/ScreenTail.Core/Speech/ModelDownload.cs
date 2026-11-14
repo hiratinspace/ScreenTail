@@ -31,7 +31,7 @@ public sealed class ModelIntegrityException(string message) : Exception(message)
 /// and "the app is downloading something and not saying so" look identical from outside.
 ///
 /// <b>The hash is checked before the file is put in place, not after.</b> A model is executable input to a
-/// process that reads a technician's screen — a wrong file is not a broken feature, it is untrusted code
+/// process that reads a technician's screen. A wrong file is not a broken feature, it is untrusted code
 /// weights. A truncated download that happens to be a valid file would otherwise be loaded and used.
 /// </summary>
 public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
@@ -72,15 +72,15 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
         var already = File.Exists(partial) ? new FileInfo(partial).Length : 0;
         if (already > model.Bytes)
         {
-            // Longer than the model can be, so it is not a prefix of it — a changed model, or a mangled
+            // Longer than the model can be, so it is not a prefix of it: a changed model, or a mangled
             // file. Resuming from here would append to rubbish and fail the hash after another 500 MB.
             File.Delete(partial);
             already = 0;
         }
 
         // False means the server refused the range: there was nothing left to fetch. That happens when
-        // the local file is already the whole model — a download that finished and was interrupted before
-        // the move — and it used to throw before the hash was ever computed, so a complete and correct
+        // the local file is already the whole model (a download that finished and was interrupted before
+        // the move), and it used to throw before the hash was ever computed, so a complete and correct
         // file sat on disk while narration stayed broken for the life of the machine (2026-09-19 review).
         if (!await FetchAsync(model, partial, already, progress, ct).ConfigureAwait(false)
             && !await MatchesAsync(partial, model.Sha256, ct).ConfigureAwait(false))
@@ -135,7 +135,7 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
 
         // A server that ignores the Range header answers 200 with the whole file. Appending that to what
         // we already have would produce a file with the first bytes twice, which fails the hash after the
-        // whole download — so the local file is dropped and this becomes a fresh one.
+        // whole download, so the local file is dropped and this becomes a fresh one.
         var resuming = response.StatusCode == HttpStatusCode.PartialContent;
         if (from > 0 && !resuming)
         {
@@ -166,7 +166,7 @@ public sealed class ModelDownload(HttpClient client, TimeProvider? time = null)
 
             if (model.Bytes > 0 && received + read > model.Bytes)
             {
-                // The size is known and the hash would catch this anyway — but only after the whole
+                // The size is known and the hash would catch this anyway, but only after the whole
                 // thing had been written. A server that does not stop fills the disk holding the
                 // encrypted store before anybody finds out.
                 await file.DisposeAsync().ConfigureAwait(false);

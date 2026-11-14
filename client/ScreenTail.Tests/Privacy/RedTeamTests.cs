@@ -3,8 +3,8 @@ using ScreenTail.Core.Privacy;
 namespace ScreenTail.Tests.Privacy;
 
 /// <summary>
-/// ST-115, round one: adversarial inputs through the redaction engine at the text level — what OCR reads
-/// off a screen and what the transcriber hears — with the default policy. Each row is a scenario from
+/// ST-115, round one: adversarial inputs through the redaction engine at the text level (what OCR reads
+/// off a screen and what the transcriber hears) with the default policy. Each row is a scenario from
 /// <c>docs/security/redteam-01.md</c>: a secret that must not survive, or a sentence that must. The
 /// frame-level pass over real screenshots on the VM harness is round two (ST-013).
 /// </summary>

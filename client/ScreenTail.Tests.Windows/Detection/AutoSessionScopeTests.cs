@@ -18,7 +18,7 @@ namespace ScreenTail.Tests.Windows.Detection;
 ///
 /// <c>CurrentScope</c> is what the screenshot capturer asks before taking a frame, and it carries the
 /// window handle the frame is expected to belong to. It was only refreshed when the scope or the tool
-/// changed — so a technician moving between two windows of the same remote tool, which is what a second
+/// changed, so a technician moving between two windows of the same remote tool, which is what a second
 /// customer session looks like, left the old handle in place.
 ///
 /// <c>CaptureForegroundWindow(expected:)</c> then finds the foreground window is not the one it was told

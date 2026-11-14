@@ -11,13 +11,13 @@ namespace ScreenTail.Tests.Sessions;
 ///
 /// The password-field guard, the sensitive-context guard and the indicator guard all suppress the same
 /// session, and <c>UnsuppressAsync</c> was unconditional. So the first guard to see its own condition end
-/// resumed capture for all of them — including for a guard whose condition was still true, and whose
+/// resumed capture for all of them, including for a guard whose condition was still true, and whose
 /// next poll was up to a second away.
 ///
 /// Nothing exotic reaches that. OCR notices a login screen and holds for its window; the technician is
 /// still typing in the password field when the window expires; capture resumes with the credential
 /// dialog focused, and a click in that second stages a screenshot of it. INV-6 says suppression drops
-/// data, and it did — for the guard that had stopped caring.
+/// data, and it did: for the guard that had stopped caring.
 /// </summary>
 public sealed class SuppressionHoldsTests : IAsyncDisposable
 {

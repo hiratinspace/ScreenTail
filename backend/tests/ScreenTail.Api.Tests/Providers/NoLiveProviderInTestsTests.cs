@@ -7,7 +7,7 @@ namespace ScreenTail.Api.Tests.Providers;
 /// The suite never calls a real model, and never spends anyone's money.
 ///
 /// This is not hypothetical. The host under test runs as Development so that it behaves like a
-/// developer's machine, and Development is exactly where <c>dotnet user-secrets</c> is read — which is
+/// developer's machine, and Development is exactly where <c>dotnet user-secrets</c> is read, which is
 /// where ST-063 tells people to put the provider key. The day the first key was saved, this suite
 /// started calling Google on every run, on that machine and no other.
 ///

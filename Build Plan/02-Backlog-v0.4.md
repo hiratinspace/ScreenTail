@@ -1,4 +1,4 @@
-# ScreenTail — Engineering Backlog v0.4 (agent-executable)
+# ScreenTail: Engineering Backlog v0.4 (agent-executable)
 
 **Read first:** `00-Build-Agent-Guide.md` (invariants INV-1…INV-12, conventions) and `01-UX-Design-Spec.md` (referenced below as **Spec §x**).
 **Format:** every ticket has an ID, epic, priority, estimate, dependencies by ID, acceptance criteria, and an *Agent brief* (Read / Write / Verify).
@@ -9,14 +9,14 @@ Priority: `Urgent` = critical path to M1 or upstream of it · `High` = M2/M3 · 
 
 ---
 
-## Phase 0 — Foundation & Infrastructure (Epic: INFRA)
+## Phase 0: Foundation & Infrastructure (Epic: INFRA)
 
 ---
 ### **ST-001 · Spike: validate .NET client stack (hooks + UIA + WPF + whisper.net + OCR)**
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** Done 2026-09-12. AC2 (RDP opacity) still needs a second Windows machine — see `docs/STATUS.md` §5.
+- **Status:** Done 2026-09-12. AC2 (RDP opacity) still needs a second Windows machine; see `docs/STATUS.md` §5.
 
 **Description:**
 Throwaway solution proving a .NET background process can run low-level hooks, query UI Automation (FlaUI), capture/downscale screenshots and run whisper.net concurrently with no perceptible input lag, while a separate WPF process shows a tray icon and a capture-excluded overlay. Produces ADR-0001.
@@ -202,7 +202,7 @@ ASP.NET Core minimal API; Postgres via EF Core for tenants/users/devices/integra
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-009, ST-010, ST-047, ST-063, ST-090, ST-098
-- ⛓️ **Blocked By:** ST-002 (ST-007 is a deployment gate, not a build dependency — runs locally on Docker Postgres until then; Part D, D-2)
+- ⛓️ **Blocked By:** ST-002 (ST-007 is a deployment gate, not a build dependency: runs locally on Docker Postgres until then; Part D, D-2)
 
 **Acceptance Criteria:**
 - [ ] GIVEN a valid device token, WHEN `GET /v1/me`, THEN tenant/user/device info; invalid → 401
@@ -245,7 +245,7 @@ Envelope encryption (KMS key + per-record data key) for PSA/doc credentials; rea
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** **Device side done 2026-09-25.** Invites are 72-hour, one-device codes stored hashed (`invites` table), issued by the operator with `--invite <tenant-id | new:Name:seats> <email> [name]` and printed once — no mail provider yet, so the code is handed on (AC1's binding, not its email). `POST /v1/devices/activate` takes the code and a device name, counts a seat per active device and refuses the one past the limit with 409 "Seat limit reached. Contact your admin." (AC2), creates the user on first activation, and returns a refresh token (shown once, stored hashed) with an access token; `POST /v1/devices/token` exchanges the refresh token until the device is revoked or the tenant disabled. `--offboard-tenant <id>` deletes every row of the tenant in one transaction and prints the count (AC4's deletion; the receipt email waits for mail). **Client half the same day:** `DeviceSession` in the service — `activate_device` over the pipe, the refresh token under DPAPI (`device.cred`), an access token renewed every fifty minutes and dropped five minutes before expiry, the environment's token as the fallback the M1 runbook uses; a refused refresh means revoked and the standing says so; the days since the backend last answered are counted and past seven is named (AC3: `OfflineGraceKeepsCapturingTests` — the machine never consults the backend). **The card followed:** Settings → This device takes the invite code, sends it with the machine's name, shows the tenant's name or the backend's refusal, and reads the device's standing (activated with whom, days since the backend answered, revoked) — S8 step 2 here until the wizard (ST-083) exists. **Owner signup and sign-in followed 2026-10-31 with ST-099** (Google, ADR-0009): the first sign-in of an allowed Google account creates the tenant with its owner, and the owner invites, revokes and sees seats from the web admin; offboarding deletes the owner row too. **Invite-code guessing answered 2026-11-01** (ADR-0009 decision 16, "Guessing invite codes"): the old ten-character code (49.5 bits, drawn with a modulo bias) gave a guesser with 100,000 addresses, or one and a half IPv6 /48s, up to a 12 per cent chance of a hit in one code's 72 hours against 10,000 live invites, since a guess is checked against every tenant's at once. Codes are now 20 characters drawn uniformly from the same 31 (about 99 bits, `XXXXX-XXXXX-XXXXX-XXXXX`), so no lockout is needed and none exists for an attacker to use; old ten-character codes were accepted until they expired, and since 2026-11-04 are refused like any malformed code (decision 23, the owner's call: nothing was deployed). A malformed code gets the same 400 and bytes as an unknown one without a lookup (an empty code used to answer 500), no refusal names a tenant, invite or person, the activation body is capped at 16 KB, and refused codes across all addresses log one content-free warning per window (`ActivationWatch`, 50 in 10 minutes) while refusing nobody. A per-invite lockout behind a split code, a cap across addresses and a delay on failures were weighed and not built. The card takes the new code (an old one is a wrong length), counts its characters, names a look-alike and sends it grouped; no IPC change; both sides read typed codes by one table (`shared/contracts/invite-code.v1.json`). A client built before this (the #224 MSI, the demo branches) refuses a twenty-character code, so client and backend ship from one build. The same change closes a race: two activations with one code could both enrol a device, and two for the last seat could both take it; the invite is now claimed by a conditional update inside a transaction that locks the tenant's row first (`TenantLock`, which offboarding now also takes first), the tenant is read under that lock, and a seat refusal rolls the claim back (`ActivationRaceTests`, and `PostgresActivationRaceTests` on CI's Postgres). **Owed:** the mail provider (ST-007), so invites and the offboarding receipt are still handed on by hand; the owner's decisions 21 and 22 in ADR-0009 (code length, warning threshold).
+- **Status:** **Device side done 2026-09-25.** Invites are 72-hour, one-device codes stored hashed (`invites` table), issued by the operator with `--invite <tenant-id | new:Name:seats> <email> [name]` and printed once; no mail provider yet, so the code is handed on (AC1's binding, not its email). `POST /v1/devices/activate` takes the code and a device name, counts a seat per active device and refuses the one past the limit with 409 "Seat limit reached. Contact your admin." (AC2), creates the user on first activation, and returns a refresh token (shown once, stored hashed) with an access token; `POST /v1/devices/token` exchanges the refresh token until the device is revoked or the tenant disabled. `--offboard-tenant <id>` deletes every row of the tenant in one transaction and prints the count (AC4's deletion; the receipt email waits for mail). **Client half the same day:** `DeviceSession` in the service: `activate_device` over the pipe, the refresh token under DPAPI (`device.cred`), an access token renewed every fifty minutes and dropped five minutes before expiry, the environment's token as the fallback the M1 runbook uses; a refused refresh means revoked and the standing says so; the days since the backend last answered are counted and past seven is named (AC3: `OfflineGraceKeepsCapturingTests`, the machine never consults the backend). **The card followed:** Settings → This device takes the invite code, sends it with the machine's name, shows the tenant's name or the backend's refusal, and reads the device's standing (activated with whom, days since the backend answered, revoked), S8 step 2 here until the wizard (ST-083) exists. **Owner signup and sign-in followed 2026-10-31 with ST-099** (Google, ADR-0009): the first sign-in of an allowed Google account creates the tenant with its owner, and the owner invites, revokes and sees seats from the web admin; offboarding deletes the owner row too. **Invite-code guessing answered 2026-11-01** (ADR-0009 decision 16, "Guessing invite codes"): the old ten-character code (49.5 bits, drawn with a modulo bias) gave a guesser with 100,000 addresses, or one and a half IPv6 /48s, up to a 12 per cent chance of a hit in one code's 72 hours against 10,000 live invites, since a guess is checked against every tenant's at once. Codes are now 20 characters drawn uniformly from the same 31 (about 99 bits, `XXXXX-XXXXX-XXXXX-XXXXX`), so no lockout is needed and none exists for an attacker to use; old ten-character codes were accepted until they expired, and since 2026-11-04 are refused like any malformed code (decision 23, the owner's call: nothing was deployed). A malformed code gets the same 400 and bytes as an unknown one without a lookup (an empty code used to answer 500), no refusal names a tenant, invite or person, the activation body is capped at 16 KB, and refused codes across all addresses log one content-free warning per window (`ActivationWatch`, 50 in 10 minutes) while refusing nobody. A per-invite lockout behind a split code, a cap across addresses and a delay on failures were weighed and not built. The card takes the new code (an old one is a wrong length), counts its characters, names a look-alike and sends it grouped; no IPC change; both sides read typed codes by one table (`shared/contracts/invite-code.v1.json`). A client built before this (the #224 MSI, the demo branches) refuses a twenty-character code, so client and backend ship from one build. The same change closes a race: two activations with one code could both enrol a device, and two for the last seat could both take it; the invite is now claimed by a conditional update inside a transaction that locks the tenant's row first (`TenantLock`, which offboarding now also takes first), the tenant is read under that lock, and a seat refusal rolls the claim back (`ActivationRaceTests`, and `PostgresActivationRaceTests` on CI's Postgres). **Owed:** the mail provider (ST-007), so invites and the offboarding receipt are still handed on by hand; the owner's decisions 21 and 22 in ADR-0009 (code length, warning threshold).
 
 **Description:**
 Owner signup (email/password or Microsoft SSO), invites, device activation by code, seat counting, 7-day offline licence grace, tenant offboarding with full deletion.
@@ -271,7 +271,7 @@ Owner signup (email/password or Microsoft SSO), invites, device activation by co
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** **Done 2026-09-25.** One scrubbing log sink per process in place of the framework's providers (service, UI, backend): a value under a content-carrying key is `[redacted]`, paths are `[path]`, addresses `[email]`, exceptions written with type, scrubbed message and scrubbed trace (AC1); a source scan fails the build on a log template whose placeholder would carry content. A crash writes a stack-only report — types and frames, never the message — to `%LOCALAPPDATA%\ScreenTail\crashes\` when `SCREENTAIL_CRASH_REPORTS=1`, and nothing otherwise (AC2; sending is ST-098's). `SCREENTAIL_LOG_LEVEL` sets the level, Information by default (AC3). The scrubber is duplicated on the backend by hand, the way the wire contracts are. 2026-10-14 (review 2026-10-12, S-67, S-152): the backend also redacts the framework's `QueryString` and `Uri` values, so a request line or a PSA call no longer carries search text, a tenant's site or a ticket id; the HTTPS redirect's target is redacted too, and the backend now builds each line from its template, so a sensitive value is never written whatever it overlaps or however it is formatted. A request Kestrel refuses is logged without the line or header it quotes. `RequestLoggingTests` pins that in Development and Production and over Kestrel, and that the scrubbing provider is the only sink in both.
+- **Status:** **Done 2026-09-25.** One scrubbing log sink per process in place of the framework's providers (service, UI, backend): a value under a content-carrying key is `[redacted]`, paths are `[path]`, addresses `[email]`, exceptions written with type, scrubbed message and scrubbed trace (AC1); a source scan fails the build on a log template whose placeholder would carry content. A crash writes a stack-only report (types and frames, never the message) to `%LOCALAPPDATA%\ScreenTail\crashes\` when `SCREENTAIL_CRASH_REPORTS=1`, and nothing otherwise (AC2; sending is ST-098's). `SCREENTAIL_LOG_LEVEL` sets the level, Information by default (AC3). The scrubber is duplicated on the backend by hand, the way the wire contracts are. 2026-10-14 (review 2026-10-12, S-67, S-152): the backend also redacts the framework's `QueryString` and `Uri` values, so a request line or a PSA call no longer carries search text, a tenant's site or a ticket id; the HTTPS redirect's target is redacted too, and the backend now builds each line from its template, so a sensitive value is never written whatever it overlaps or however it is formatted. A request Kestrel refuses is logged without the line or header it quotes. `RequestLoggingTests` pins that in Development and Production and over Kestrel, and that the scrubbing provider is the only sink in both.
 
 **Description:**
 Structured logs across service, UI, backend with a scrubber removing paths, window titles, transcript/OCR/note text; opt-in crash reports (stack traces only).
@@ -363,7 +363,7 @@ Windows 11 VM job installing the built client, replaying golden sessions through
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** **Done 2026-09-16 (#58), with a follow-up in #61.** The bridge job ran on pushes as well as pull requests and waited for laptop jobs that a merge never creates, so three merge commits went red with nothing wrong in them; it is now pull-requests-only and fails in five minutes rather than thirty-five when a job never starts. Budgets measured, not guessed: hosted 10, laptop-capabilities 4, laptop-input 0. Proved by deliberately skipping a test — the gate failed all three jobs and named it — then removing it and watching them go green. Also fixed three things the laptop's return exposed: its execution policy blocked every step, Windows PowerShell mis-parsed a non-ASCII script, and `dotnet test` rejects the TRX option so the apps are run directly.
+- **Status:** **Done 2026-09-16 (#58), with a follow-up in #61.** The bridge job ran on pushes as well as pull requests and waited for laptop jobs that a merge never creates, so three merge commits went red with nothing wrong in them; it is now pull-requests-only and fails in five minutes rather than thirty-five when a job never starts. Budgets measured, not guessed: hosted 10, laptop-capabilities 4, laptop-input 0. Proved by deliberately skipping a test (the gate failed all three jobs and named it), then removing it and watching them go green. Also fixed three things the laptop's return exposed: its execution policy blocked every step, Windows PowerShell mis-parsed a non-ASCII script, and `dotnet test` rejects the TRX option so the apps are run directly.
 
 **Description:**
 Make hardware evidence count. Today 18 of 46 hardware facts always skip on the hosted runner and up to 29 can skip; `dotnet test` exits 0 when everything skips; `hardware-checks` is not in `ci-ok`'s required set; its `paths:` filter omits `Store/**` and `Ipc/**`; and the `NO-DESKTOP` canary misses tests that return from the capability probe before constructing a window. INV-2's only end-to-end proof (`TypingAPasswordRecordsOnlyHowManyKeys`) runs in that optional job.
@@ -385,14 +385,14 @@ Make hardware evidence count. Today 18 of 46 hardware facts always skip on the h
 - Verify: one PR that skips on purpose goes red; the baseline PR goes green with the count in the summary
 ---
 
-## Phase 1 — Design & UX (Epic: DESIGN) — parallel with Phase 2
+## Phase 1: Design & UX (Epic: DESIGN), parallel with Phase 2
 
 ---
 ### **ST-014 · Low-fidelity wireframes for all v1 screens**
 - **Epic/Feature:** DESIGN
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Partial. Wireframes and Q1–Q6 done 2026-09-11; the two technician sessions have not happened (needs technicians — owner).
+- **Status:** Partial. Wireframes and Q1–Q6 done 2026-09-11; the two technician sessions have not happened (needs technicians: owner).
 
 **Description:**
 Wireframes for S1–S8 from Spec §5 with annotated flows (happy path, sensitive moment, bad draft, missed start, discard); reviewed with two technicians.
@@ -487,7 +487,7 @@ Moderated sessions on the prototype measuring time-to-publish, errors and confus
 - Verify: report merged
 ---
 
-## Phase 2 — Capture Engine (Epic: CAPTURE)
+## Phase 2: Capture Engine (Epic: CAPTURE)
 
 ---
 ### **ST-020 · Session state machine**
@@ -531,7 +531,7 @@ Verify mic privacy permission, capture ability, hook installation, elevated-wind
 
 **Acceptance Criteria:**
 - [ ] Mic privacy off → HUD "Microphone is blocked by Windows privacy settings" with deep link
-- [ ] Elevated window focused → HUD "Elevated window — screen not captured"; interval audit-logged
+- [ ] Elevated window focused → HUD "Elevated window: screen not captured"; interval audit-logged
 - [ ] Capability report exposed via IPC
 
 **Agent brief**
@@ -581,7 +581,7 @@ JSON registry of remote-tool processes and browser title/URL patterns; auto-star
 
 **Acceptance Criteria:**
 - [ ] ScreenConnect window or AVD web tab focused → session starts within 1 s
-- [ ] Default scope: switching to Outlook logs clicks but captures no frames; HUD "Not capturing — Outlook"
+- [ ] Default scope: switching to Outlook logs clicks but captures no frames; HUD "Not capturing: Outlook"
 - [ ] PowerShell (allowlisted) → frames captured
 - [ ] Grace 90 s default; registry/allowlist editable and policy-syncable; fixtures for 5 tools + 3 browser patterns; client version logged
 
@@ -671,7 +671,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** Partial. The pipeline is complete as of 2026-09-16 (#60): microphone capture, voice-activity detection, the gate, local transcription with hash-checked models, the hallucination filter, and the whole of it wired into the capture service. **AC1 (WER) and AC4 (lag) are unmeasured** and both are one command away — `--transcribe` runs a recording through the real pipeline and prints the transcript and the real-time ratio. They need the owner's ten-minute narration (`research/fixtures/audio/README.md`). The ticket closes when that number exists. Since 2026-10-14 speech is dropped while the window in front may not be photographed. **Not built:** the pill still reads Recording then; an excluded-window suppress hold or a HUD hint needs its own ticket (2026-10-12 review, S-24). **2026-11-05, owner's decision:** a segment still with the model when the service stops is abandoned, not waited for (the stop has a four-second budget and a segment can take ten); it is dropped, never half-kept, and counted in the service log. See ST-112 (#262).
+- **Status:** Partial. The pipeline is complete as of 2026-09-16 (#60): microphone capture, voice-activity detection, the gate, local transcription with hash-checked models, the hallucination filter, and the whole of it wired into the capture service. **AC1 (WER) and AC4 (lag) are unmeasured** and both are one command away: `--transcribe` runs a recording through the real pipeline and prints the transcript and the real-time ratio. They need the owner's ten-minute narration (`research/fixtures/audio/README.md`). The ticket closes when that number exists. Since 2026-10-14 speech is dropped while the window in front may not be photographed. **Not built:** the pill still reads Recording then; an excluded-window suppress hold or a HUD hint needs its own ticket (2026-10-12 review, S-24). **2026-11-05, owner's decision:** a segment still with the model when the service stops is abandoned, not waited for (the stop has a four-second budget and a segment can take ten); it is dropped, never half-kept, and counted in the service log. See ST-112 (#262).
 
 **Description:**
 NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), timestamped `speaker: "tech"` segments (INV-9); lazy resumable model download.
@@ -697,7 +697,7 @@ NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), times
 - **Epic/Feature:** CAPTURE
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** **Done 2026-09-13** (`97e7b31`), corrected 2026-09-18 (#62): the status line said Open while all three criteria had been tested since it merged. It had no caller until ST-060, which is what made it look unfinished — `docs/review/weaknesses.md` listed `Core/Timeline` among the namespaces written, tested and called by nothing.
+- **Status:** **Done 2026-09-13** (`97e7b31`), corrected 2026-09-18 (#62): the status line said Open while all three criteria had been tested since it merged. It had no caller until ST-060, which is what made it look unfinished: `docs/review/weaknesses.md` listed `Core/Timeline` among the namespaces written, tested and called by nothing.
 
 **Description:**
 Merge transcript, click, frame and marker events; attach segments to nearest preceding frame within ±8 s else standalone narration.
@@ -792,7 +792,7 @@ Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, dis
 - Verify: nightly run report
 ---
 
-## Phase 3 — Privacy & Redaction (Epic: PRIVACY)
+## Phase 3: Privacy & Redaction (Epic: PRIVACY)
 
 ---
 ### **ST-040 · Password-field suppression via UI Automation**
@@ -976,7 +976,7 @@ Global/admin-enforceable setting routing summarization on-device and blocking al
 - **Epic/Feature:** PRIVACY
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Done 2026-09-25, for the fields the model has.** `GET /v1/policy` answers a device with its tenant's latest policy row — retention days, local-only and whether it is locked, capture scope — or the defaults; the operator sets one with `--set-policy <tenant-id> retention=3 local-only=true locked=true all-windows=false` (a new versioned row each time; since 2026-10-31 the owner also sets it from the web admin, ST-099). The service fetches at start and hourly under its own egress purpose, allowed in local-only mode so the policy that turns local-only on can turn it off; the last synced copy (`policy.json`) stands when the backend does not answer (AC2). Applied in place: the egress guard (locked local-only overrides the technician's own, AC1's "field locked" through `CanChangeLocally`), the retention job, the scope policy; every session starts with the policy's version, which the session and the diagnostics carry (AC3). **Not in the model yet:** exclusions, redaction patterns and telemetry as policy fields; the Settings screen showing "Set by your admin" waits for ST-081. **2026-10-14:** the wire shape is `shared/contracts/tenant-policy.v1.json`, tested against the backend's response and the client's reading of it; the client refuses a policy with a field missing or of the wrong type and keeps the last synced one, so a renamed field cannot unlock a locked one (INV-11). Since the 2026-10-12 review the applying is `PolicyApplier` in Core, one apply at a time with the last saved settings kept in memory, and `PolicyApplierTests` drives it from a fetch or a save to a refused request.
+- **Status:** **Done 2026-09-25, for the fields the model has.** `GET /v1/policy` answers a device with its tenant's latest policy row (retention days, local-only and whether it is locked, capture scope) or the defaults; the operator sets one with `--set-policy <tenant-id> retention=3 local-only=true locked=true all-windows=false` (a new versioned row each time; since 2026-10-31 the owner also sets it from the web admin, ST-099). The service fetches at start and hourly under its own egress purpose, allowed in local-only mode so the policy that turns local-only on can turn it off; the last synced copy (`policy.json`) stands when the backend does not answer (AC2). Applied in place: the egress guard (locked local-only overrides the technician's own, AC1's "field locked" through `CanChangeLocally`), the retention job, the scope policy; every session starts with the policy's version, which the session and the diagnostics carry (AC3). **Not in the model yet:** exclusions, redaction patterns and telemetry as policy fields; the Settings screen showing "Set by your admin" waits for ST-081. **2026-10-14:** the wire shape is `shared/contracts/tenant-policy.v1.json`, tested against the backend's response and the client's reading of it; the client refuses a policy with a field missing or of the wrong type and keeps the last synced one, so a renamed field cannot unlock a locked one (INV-11). Since the 2026-10-12 review the applying is `PolicyApplier` in Core, one apply at a time with the last saved settings kept in memory, and `PolicyApplierTests` drives it from a fetch or a save to a refused request.
 
 **Description:**
 Backend policy (retention, Local-only enforce, exclusions, patterns, scope, telemetry) fetched at start and hourly; enforced fields read-only with "Set by your admin" (INV-11).
@@ -1012,7 +1012,7 @@ The review found that the decision classes are right and the places that apply t
 
 **Acceptance Criteria:**
 - [ ] P0-1: empty OCR is treated as unreadable and the frame is discarded; "read nothing" and "nothing on screen" are counted separately; a test stages a frame whose recogniser returns no words and asserts it is not stored
-- [ ] P0-1 (design): decide and document whether a frame with genuinely no text is kept — the open question from ST-041 — in `docs/adr/0001-client-stack.md` findings or a new ADR
+- [ ] P0-1 (design): decide and document whether a frame with genuinely no text is kept (the open question from ST-041) in `docs/adr/0001-client-stack.md` findings or a new ADR
 - [ ] P0-3: `HudState.For(capture: null, hidden: true)` is visible; hidden takes effect only when the state is known idle; the test covers `null`
 - [ ] P0-5: two hooks (`EVENT_SYSTEM_FOREGROUND` and `EVENT_OBJECT_NAMECHANGE`) or an allow-list at the top of `OnWinEvent`; the CPU test measures on a busy desktop (a window redrawing at ≥ 30 fps under the cursor), not an idle one
 - [ ] P2-1: the pattern library resolves matches once per frame and `ScrubText` reuses them; `RedactionThroughputTests` asserts against a fixed budget rather than one that self-disarms
@@ -1056,7 +1056,7 @@ The P1 findings that are not resolved by wiring the UI (ST-085 closes P1-1, P1-2
 - Verify: `dotnet test client/ScreenTail.sln`; the audit tamper tests; a 150-frame session opened in Review on the laptop with memory recorded
 ---
 
-## Phase 4 — Intelligence Layer (Epic: INTEL)
+## Phase 4: Intelligence Layer (Epic: INTEL)
 
 ---
 ### **ST-060 · Session bundle builder**
@@ -1070,7 +1070,7 @@ From redacted frames only, select ≤ 25 informative frames; assemble timeline, 
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-063, ST-064, ST-065
-- ⛓️ **Blocked By:** ST-003, ST-024, ST-026, ST-028, ST-041, ST-042 (engine only — its recall gate is a release gate, Part D, D-1), ST-048
+- ⛓️ **Blocked By:** ST-003, ST-024, ST-026, ST-028, ST-041, ST-042 (engine only; its recall gate is a release gate, Part D, D-1), ST-048
 
 **Acceptance Criteria:**
 - [ ] 200 redacted frames → ≤ 25 selected; payload < 4 MB
@@ -1113,7 +1113,7 @@ System prompt and strict JSON output (`problem`, `steps[]{text,confidence,frame_
 - **Epic/Feature:** INTEL
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** **Harness built 2026-09-26, corpus owed** (`research/eval/draft_quality.py`, ten tests). Edit ratio is words changed over words drafted, from the Levenshtein alignment of the steps with case and punctuation folded — word level, because rewriting three words of a twelve-word step is not rewriting the step. A hallucination is a step whose `frame_refs` or `transcript_refs` name something the session does not contain; a step citing nothing is unsupported and counted apart, since narration without a screenshot is ordinary. `--baseline` is AC2's gate: more than 10% worse on edit ratio, or one more invented step, exits 1. Runs over any corpus directory, so **AC1 and AC3 need ST-030's ten labelled sessions with reference notes and rubric scores** — the owner's to record; today it runs over the four handcrafted fixtures, which score themselves and prove the harness rather than the model.
+- **Status:** **Harness built 2026-09-26, corpus owed** (`research/eval/draft_quality.py`, ten tests). Edit ratio is words changed over words drafted, from the Levenshtein alignment of the steps with case and punctuation folded; word level, because rewriting three words of a twelve-word step is not rewriting the step. A hallucination is a step whose `frame_refs` or `transcript_refs` name something the session does not contain; a step citing nothing is unsupported and counted apart, since narration without a screenshot is ordinary. `--baseline` is AC2's gate: more than 10% worse on edit ratio, or one more invented step, exits 1. Runs over any corpus directory, so **AC1 and AC3 need ST-030's ten labelled sessions with reference notes and rubric scores**, the owner's to record; today it runs over the four handcrafted fixtures, which score themselves and prove the harness rather than the model.
 
 **Description:**
 Human rubric (accuracy, completeness, no hallucination, tone) plus automated edit-distance proxy against reference notes; runs on prompt/model changes; regression gate.
@@ -1144,10 +1144,10 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 
   1. **The model name was a constant, and Google had retired it.** `gemini-2.0-flash` answered 404 to every draft. The name is now `Summarization__Model`, defaulting to `gemini-3.6-flash`, and a 404 says which setting to change instead of "this is a bug in ScreenTail".
   2. **Thinking tokens were not being counted.** Gemini 3.x reasons before it answers, bills that at the output rate, and reports it separately from the answer's own tokens. A one-word question was charged 92 thinking tokens against 1 token of answer, so the daily cost cap was reading a fraction of the real spend.
-  3. **The token rates were a retired model's.** $0.075/$0.30 per million against an actual $0.75/$3.75 — out by a factor of ten, in the direction that makes a cap useless. Rates are now settings, dated in the README, with the scheduled 2027-01-01 doubling noted.
+  3. **The token rates were a retired model's.** $0.075/$0.30 per million against an actual $0.75/$3.75, out by a factor of ten, in the direction that makes a cap useless. Rates are now settings, dated in the README, with the scheduled 2027-01-01 doubling noted.
   4. **Every picture was labelled JPEG** because the Windows client encodes JPEG. The frame now says what it is.
 
-  **AC1 and AC4 are now measured**, on the heaviest bundle a client may send (25 frames, `BundleOptions.MaxFrames`): **12.2 s and $0.0167** end to end through the service. That took a fifth defect to reach — at the provider's default media resolution the same bundle took **39.9 s**, missing the thirty-second budget outright. Sending pictures at `MEDIA_RESOLUTION_LOW` costs a seventh as much and is defensible because the redaction worker's OCR travels beside every frame; the picture is for layout, not for reading.
+  **AC1 and AC4 are now measured**, on the heaviest bundle a client may send (25 frames, `BundleOptions.MaxFrames`): **12.2 s and $0.0167** end to end through the service. That took a fifth defect to reach: at the provider's default media resolution the same bundle took **39.9 s**, missing the thirty-second budget outright. Sending pictures at `MEDIA_RESOLUTION_LOW` costs a seventh as much and is defensible because the redaction worker's OCR travels beside every frame; the picture is for layout, not for reading.
 
   `LiveDraftingBudgetTests` is the measurement, kept and re-runnable with `SCREENTAIL_LIVE_LLM=1`, skipped otherwise. **Sample size is thin:** the owner's key is free tier, capped at 20 requests a day for this model, so the budget figures rest on single-digit successful runs rather than a real percentile. Re-run it on a billed key before the pilot.
 
@@ -1161,10 +1161,10 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - ⛓️ **Blocked By:** ST-008, ST-060, ST-061
 
 **Acceptance Criteria:**
-- [x] Valid bundle → schema-valid draft within 30 s p95 — 12.2 s on the heaviest bundle, 6.5–7.8 s on the everyday one. Thin sample; see Status.
+- [x] Valid bundle → schema-valid draft within 30 s p95: 12.2 s on the heaviest bundle, 6.5–7.8 s on the everyday one. Thin sample; see Status.
 - [x] Primary 5xx/timeout → fallback used and logged
 - [x] Cap exceeded → `cost_cap_reached`; client produces local text-only draft
-- [x] Cost stored per request; golden average ≤ $0.10; memory profiler shows frames released — $0.0167 heaviest, $0.0092–$0.0104 everyday. Frames released is asserted structurally rather than by profiler: the service has no field able to hold a bundle.
+- [x] Cost stored per request; golden average ≤ $0.10; memory profiler shows frames released: $0.0167 heaviest, $0.0092–$0.0104 everyday. Frames released is asserted structurally rather than by profiler: the service has no field able to hold a bundle.
 
 **Agent brief**
 - Read: INV-7; Spec §6 "Cost cap reached" toast
@@ -1177,14 +1177,14 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 - **Epic/Feature:** INTEL
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Done 2026-09-18 (#65).** Durable queue in the encrypted store, backoff to an hour, and an `uncertain` state for an attempt whose outcome nobody knows — nothing retries those, and they leave only by asking the provider. 19 tests, and removing the retention deletes fails two of them. The sender is a stub until ST-063 supplies a provider; the queue is real from today, so a draft owed while offline survives a restart.
+- **Status:** **Done 2026-09-18 (#65).** Durable queue in the encrypted store, backoff to an hour, and an `uncertain` state for an attempt whose outcome nobody knows; nothing retries those, and they leave only by asking the provider. 19 tests, and removing the retention deletes fails two of them. The sender is a stub until ST-063 supplies a provider; the queue is real from today, so a draft owed while offline survives a restart.
 
-  **Follow-up left deliberately (2026-09-19):** the Gemini provider now reads Google's own retry hint out of a rate-limit body, where it is the only place the number exists — Google sends no `Retry-After` header. `ProviderError.RetryAfter` carries it and nothing reads it yet. Carrying it to the client means a field on `SummarizeResult`, a `Retry-After` header on the endpoint's 503, and this queue preferring it over its own backoff. That belongs here rather than in ST-063, because this is the only thing that would consume it, and it needs an endpoint test — which needs the LLM provider to be substitutable in DI, since the suite is now forbidden from configuring a real one. Done under ST-063 (2026-10-12 review): the 503 carries `Retry-After` in whole seconds, rounded up and capped at a day, and this queue waits for the later of its own backoff and that time.
+  **Follow-up left deliberately (2026-09-19):** the Gemini provider now reads Google's own retry hint out of a rate-limit body, where it is the only place the number exists: Google sends no `Retry-After` header. `ProviderError.RetryAfter` carries it and nothing reads it yet. Carrying it to the client means a field on `SummarizeResult`, a `Retry-After` header on the endpoint's 503, and this queue preferring it over its own backoff. That belongs here rather than in ST-063, because this is the only thing that would consume it, and it needs an endpoint test, which needs the LLM provider to be substitutable in DI, since the suite is now forbidden from configuring a real one. Done under ST-063 (2026-10-12 review): the 503 carries `Retry-After` in whole seconds, rounded up and capped at a day, and this queue waits for the later of its own backoff and that time.
 
   **Changed 2026-10-25 (ST-046 client P2 fixes, 2026-10-12 review):** a retryable item is now failed after a day from when it was queued and at least eight attempts, rather than after eight attempts (about an hour), so a draft owed through an offline afternoon or a spent daily budget is still sent. A send that never left the machine (the device is not enrolled, or drafting is held after a 402 or 501) says so (`SendOutcome.NotSent`) and is not counted as an attempt, so it never fails an item on its own; the store's retention still bounds how long it waits. The drafting hold is timed on the monotonic clock, bounded to a day when set and when read; a `Retry-After` of zero or a date already past means the default hold (UTC midnight for a 402, an hour for a 501), and the refusal that starts the hold already carries it as its retry time. Left as it was for the owner to decide: with no backend configured, the service's router answers a plain retry, so an item queued before the backend was removed is failed after a day and can be retried by hand.
 
 **Description:**
-Local outbox with idempotency keys; retry with backoff; "Draft pending — offline" state.
+Local outbox with idempotency keys; retry with backoff; "Draft pending: offline" state.
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-073
@@ -1257,7 +1257,7 @@ Active duration minus pauses with tenant rounding (6/15) and minimum increment.
 - **Epic/Feature:** INTEL
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Done 2026-09-26.** At publish the service diffs the draft as first written against the draft as published and records structural signals only — steps rewritten into the past tense, cut short, stripped of full stops, capitalised, merged — as ids in `style.json` beside the store, never a word of the note (AC2). A signal seen in five of the last ten sessions becomes a hint on the next draft (AC1): the bundle's `style_hints` carries ids from a fixed list, the backend turns the ones it knows into its own sentences after the system prompt and refuses any other, so a client steers the shape and never the prompt. Edit rate per tenant is ST-098's view (AC3).
+- **Status:** **Done 2026-09-26.** At publish the service diffs the draft as first written against the draft as published and records structural signals only (steps rewritten into the past tense, cut short, stripped of full stops, capitalised, merged) as ids in `style.json` beside the store, never a word of the note (AC2). A signal seen in five of the last ten sessions becomes a hint on the next draft (AC1): the bundle's `style_hints` carries ids from a fixed list, the backend turns the ones it knows into its own sentences after the system prompt and refuses any other, so a client steers the shape and never the prompt. Edit rate per tenant is ST-098's view (AC3).
 
 **Description:**
 Diff draft vs final on publish; store structural style signals only; inject top signals as prompt hints.
@@ -1277,7 +1277,7 @@ Diff draft vs final on publish; store structural style signals only; inject top 
 - Verify: `StyleDiffTests`, PII-absence test
 ---
 
-## Phase 5 — Client UI (Epic: UI)
+## Phase 5: Client UI (Epic: UI)
 
 ---
 ### **ST-070 · Client app shell (window manager, navigation, MVVM state, IPC client, theming)**
@@ -1295,7 +1295,7 @@ WPF host with navigation (Review, History, Settings), MVVM store fed by IPC even
 
 **Acceptance Criteria:**
 - [ ] Service state event → all open views update within 100 ms
-- [ ] Service not running → banner "Capture service not running — Start" works
+- [ ] Service not running → banner "Capture service not running: Start" works
 - [ ] Navigation, window size, theme persist; `?` opens shortcut sheet; reduce-motion honored
 
 **Agent brief**
@@ -1319,7 +1319,7 @@ Implements Spec §5 S1 exactly: five icon states, menu order and chords, diagnos
 - ⛓️ **Blocked By:** ST-020, ST-070
 
 **Acceptance Criteria:**
-- [ ] `recording` → icon within 200 ms; tooltip "Recording — <tool> · mm:ss"
+- [ ] `recording` → icon within 200 ms; tooltip "Recording: <tool> · mm:ss"
 - [ ] Draft ready → badge count; click opens Review to that draft
 - [ ] Panel shows active window + scope, mic, suppression, backlog, Local-only, policy version, CPU/RAM; Copy diagnostics contains no content
 
@@ -1380,7 +1380,7 @@ Toasts and banners per Spec §6; failure paths always expose the raw timeline.
 ---
 
 ---
-### **ST-074 · Review screen — note editor (left pane)**
+### **ST-074 · Review screen: note editor (left pane)**
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 8
@@ -1407,7 +1407,7 @@ Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence 
 ---
 
 ---
-### **ST-075 · Review screen — screenshot strip (center pane)**
+### **ST-075 · Review screen: screenshot strip (center pane)**
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
@@ -1433,11 +1433,11 @@ Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur
 ---
 
 ---
-### **ST-076 · Review screen — timeline and transcript panel**
+### **ST-076 · Review screen: timeline and transcript panel**
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Done on the Mac side 2026-09-18 (#67).** The model in Core: markers for every kind Spec §5 S3 lists, wall-clock transcript lines, click-to-frame from ST-028's alignment, and a panel state that persists. 16 tests. **The view followed on 2026-09-25:** the row below the three panes, 40 px collapsed and 220 px open, the track drawn from the model's fractions (dots, squares, a flag, bands, ticks), the monospace transcript, `Alt+T` with the choice saved in the shell's preferences (AC3), and a line's click selecting its frame in the filmstrip (AC1) — which also made a note's frame chips reach the filmstrip for the first time. Redacted speech is `[REDACTED]` as the transcript carries it (AC2). Five view-model tests run on the Windows job; the harness renders `shell-review-timeline-*`. Not yet seen on a real screen.
+- **Status:** **Done on the Mac side 2026-09-18 (#67).** The model in Core: markers for every kind Spec §5 S3 lists, wall-clock transcript lines, click-to-frame from ST-028's alignment, and a panel state that persists. 16 tests. **The view followed on 2026-09-25:** the row below the three panes, 40 px collapsed and 220 px open, the track drawn from the model's fractions (dots, squares, a flag, bands, ticks), the monospace transcript, `Alt+T` with the choice saved in the shell's preferences (AC3), and a line's click selecting its frame in the filmstrip (AC1), which also made a note's frame chips reach the filmstrip for the first time. Redacted speech is `[REDACTED]` as the transcript carries it (AC2). Five view-model tests run on the Windows job; the harness renders `shell-review-timeline-*`. Not yet seen on a real screen.
 
 **Description:**
 Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace transcript with click-to-jump.
@@ -1462,7 +1462,7 @@ Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace tr
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Done on the Mac side 2026-09-25.** `TicketHint` reads a number introduced as a ticket (`#48213`, `Ticket 48213`, `SR 48213`) off the window's title — the browser tab's first — and, only when the title says nothing, off the clipboard, which the coordinator reads once as the session starts and keeps nothing of (AC3, INV-10). The digits travel as `suggested_ticket` on the session (schema, column 0009) and Review asks the PSA for that id and pre-selects it with the Suggested badge (AC1); a number the PSA does not know, or none, leaves the picker as before (AC2 — there is no "recent tickets" list yet; the picker waits for typing). Three Windows tests on the coordinator, eleven on the extractor. Not yet seen on a real screen.
+- **Status:** **Done on the Mac side 2026-09-25.** `TicketHint` reads a number introduced as a ticket (`#48213`, `Ticket 48213`, `SR 48213`) off the window's title (the browser tab's first) and, only when the title says nothing, off the clipboard, which the coordinator reads once as the session starts and keeps nothing of (AC3, INV-10). The digits travel as `suggested_ticket` on the session (schema, column 0009) and Review asks the PSA for that id and pre-selects it with the Suggested badge (AC1); a number the PSA does not know, or none, leaves the picker as before (AC2: there is no "recent tickets" list yet; the picker waits for typing). Three Windows tests on the coordinator, eleven on the extractor. Not yet seen on a real screen.
 
 **Description:**
 Parse title and clipboard at session start for a ticket-ID pattern; pre-select in picker with "Suggested" badge.
@@ -1483,7 +1483,7 @@ Parse title and clipboard at session start for a ticket-ID pattern; pre-select i
 ---
 
 ---
-### **ST-078 · Review screen — ticket picker and publish panel (right pane)**
+### **ST-078 · Review screen: ticket picker and publish panel (right pane)**
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 5
@@ -1494,7 +1494,7 @@ Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entr
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** ST-093, ST-094, ST-096
-- ⛓️ **Blocked By:** ST-066, ST-074, ST-075, ST-085, ST-092 (ST-017 gates M3, not this ticket — Part D, D-3)
+- ⛓️ **Blocked By:** ST-066, ST-074, ST-075, ST-085, ST-092 (ST-017 gates M3, not this ticket; Part D, D-3)
 
 **Acceptance Criteria:**
 - [ ] 3+ chars → matches within 1 s showing `#id · summary · company`
@@ -1534,7 +1534,7 @@ Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discar
 ---
 
 ---
-### **ST-080 · Settings — Capture**
+### **ST-080 · Settings: Capture**
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
@@ -1559,11 +1559,11 @@ Implements Spec §5 S5 sections and copy, including scope warning and hotkey con
 ---
 
 ---
-### **ST-081 · Settings — Privacy & Redaction**
+### **ST-081 · Settings: Privacy & Redaction**
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Built 2026-09-26, not yet seen on a real screen.** The technician's settings are a document the service keeps beside the store (`settings.json`) and applies in place: local-only (read-only with "Set by your admin (policy …)" when the policy locked it, AC3), excluded apps by process name, the redaction toggles and custom patterns — checked as typed, tried in a test box, an invalid one anywhere blocking Save with the reason (AC1) — retention 1–30 days with what is deleted spelled out (locked under an admin policy), usage telemetry with the exact field list read off the metric's wire type (off means nothing is queued, AC2), export of the audit log with its verification, and Delete everything through the service's typed confirmation (AC4). The data-flow explainer matches `docs/security/data-flow.md`. **Fixed 2026-10-14:** a locked field is shown at the value in force (the admin's local-only, the admin's retention up to 365 days), not the technician's own value under "Set by your admin"; the technician's own stays on disk for when the policy lets go (IPC contract 3). Since 2026-11-11 Delete everything asks nothing while a session is being captured (Spec §4) and reads the capture state again once the phrase is typed; that refusal, and any other, is said under the buttons instead of in a message box.
+- **Status:** **Built 2026-09-26, not yet seen on a real screen.** The technician's settings are a document the service keeps beside the store (`settings.json`) and applies in place: local-only (read-only with "Set by your admin (policy …)" when the policy locked it, AC3), excluded apps by process name, the redaction toggles and custom patterns (checked as typed, tried in a test box, an invalid one anywhere blocking Save with the reason, AC1), retention 1–30 days with what is deleted spelled out (locked under an admin policy), usage telemetry with the exact field list read off the metric's wire type (off means nothing is queued, AC2), export of the audit log with its verification, and Delete everything through the service's typed confirmation (AC4). The data-flow explainer matches `docs/security/data-flow.md`. **Fixed 2026-10-14:** a locked field is shown at the value in force (the admin's local-only, the admin's retention up to 365 days), not the technician's own value under "Set by your admin"; the technician's own stays on disk for when the policy lets go (IPC contract 3). Since 2026-11-11 Delete everything asks nothing while a session is being captured (Spec §4) and reads the capture state again once the phrase is typed; that refusal, and any other, is said under the buttons instead of in a message box.
 
 **Description:**
 Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns with live regex validator and test box, retention, telemetry with field list, export/delete; admin-locked variants.
@@ -1585,11 +1585,11 @@ Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns wi
 ---
 
 ---
-### **ST-082 · Settings — Integrations**
+### **ST-082 · Settings: Integrations**
 - **Epic/Feature:** UI
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Built 2026-09-25, not yet seen on a real screen.** A card per provider: ConnectWise takes the company ID and the two keys and joins them the way its Basic auth wants (the clientId is the deployment's, and the card says so); Hudu takes the site and key. Secrets are masked as their last four once saved and Change reveals the fields (AC3); Test connection is `POST /v1/integrations/{provider}/check`, answered in words either way and recorded on the row (AC2 through the provider's own message when the clientId is missing). The company mapping table lists what the backend decided with its confidence, forgets a row, and maps one by hand. **Not built:** the member and company shown after a ConnectWise check (AC1 wants them; `system/info` does not carry them — the sandbox check decides which call does), the optional per-technician API member (the vault holds one credential per tenant), default note type and time rounding as settings.
+- **Status:** **Built 2026-09-25, not yet seen on a real screen.** A card per provider: ConnectWise takes the company ID and the two keys and joins them the way its Basic auth wants (the clientId is the deployment's, and the card says so); Hudu takes the site and key. Secrets are masked as their last four once saved and Change reveals the fields (AC3); Test connection is `POST /v1/integrations/{provider}/check`, answered in words either way and recorded on the row (AC2 through the provider's own message when the clientId is missing). The company mapping table lists what the backend decided with its confidence, forgets a row, and maps one by hand. **Not built:** the member and company shown after a ConnectWise check (AC1 wants them; `system/info` does not carry them, and the sandbox check decides which call does), the optional per-technician API member (the vault holds one credential per tenant), default note type and time rounding as settings.
 
 **Description:**
 Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech member, company mapping editor.
@@ -1614,7 +1614,7 @@ Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech memb
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 5
-- **Status:** **Built 2026-09-26, not yet seen on a real screen.** Spec §5 S8's seven steps with progress dots, composed from Settings' own panels: Welcome; Activate (the invite code, the tenant's name); Permissions (each check ✓ or a fix — a blocked microphone shows its Windows Settings deep link and "Check again" and lets setup continue with the consequence stated, blocked screen capture stops it; AC3); Your remote tools (the toggles); Connect (Integrations, skippable — drafts are produced regardless and Publish says "Connect a PSA", AC2; Activate is skippable too, since a device enrolled from the environment has no code to enter); Try it (a real sixty-second session started and stopped through the service, drafted the real way — the sample fixture does not ship, so the sample is the technician's own first draft); Done. Finishing is remembered in the shell's preferences and the wizard runs at the first start; "Set up ScreenTail…" in the tray runs it again. **AC1** (three test users in five minutes) is ST-017's usability round. **To the Outbox design 2026-11-12 (spec v0.6.7):** the dots are a step list by name on a frame with the horizontal lockup, each row spoken with its number and state; the window opens at 960 by 640 and its literals are tokens; rendered by CI for every step in four themes, at 150% and at the window's minimum; rules, steps and copy unchanged; not yet seen on a real screen.
+- **Status:** **Built 2026-09-26, not yet seen on a real screen.** Spec §5 S8's seven steps with progress dots, composed from Settings' own panels: Welcome; Activate (the invite code, the tenant's name); Permissions (each check ✓ or a fix: a blocked microphone shows its Windows Settings deep link and "Check again" and lets setup continue with the consequence stated, blocked screen capture stops it; AC3); Your remote tools (the toggles); Connect (Integrations, skippable: drafts are produced regardless and Publish says "Connect a PSA", AC2; Activate is skippable too, since a device enrolled from the environment has no code to enter); Try it (a real sixty-second session started and stopped through the service, drafted the real way; the sample fixture does not ship, so the sample is the technician's own first draft); Done. Finishing is remembered in the shell's preferences and the wizard runs at the first start; "Set up ScreenTail…" in the tray runs it again. **AC1** (three test users in five minutes) is ST-017's usability round. **To the Outbox design 2026-11-12 (spec v0.6.7):** the dots are a step list by name on a frame with the horizontal lockup, each row spoken with its number and state; the window opens at 960 by 640 and its literals are tokens; rendered by CI for every step in four themes, at 150% and at the window's minimum; rules, steps and copy unchanged; not yet seen on a real screen.
 
 **Description:**
 Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
@@ -1664,9 +1664,9 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** **Done on the Mac side 2026-09-16 (#59)** — the UI connects, a real tray icon exists, the pill follows live state, diagnostics and the session list are answered by the service, `erase_all_local_data` reaches the eraser, the egress guard is at the composition root, and the connection flood no longer locks the UI out. 771 Core tests green. ADR-0005 adds `ScreenTail.Platform` so the UI can verify the service without referencing it. **Not yet seen running:** the tray and pill following a real session on a machine with the service up, and the screenshots over a remote window. Both need the laptop, so the ticket closes when the hardware run has produced them. **Review and History are in the live shell as of 2026-09-25** (#138 the pipe messages, #140 the panes): the shell opens the draft that just became ready, History opens any session, and the note, the screenshots and the three frame edits go over the pipe. Found 2026-09-24 that until then the content area showed the pane's name and the views were rendered only by the harness. Still not seen on a real screen; M1 is that.
+- **Status:** **Done on the Mac side 2026-09-16 (#59)**: the UI connects, a real tray icon exists, the pill follows live state, diagnostics and the session list are answered by the service, `erase_all_local_data` reaches the eraser, the egress guard is at the composition root, and the connection flood no longer locks the UI out. 771 Core tests green. ADR-0005 adds `ScreenTail.Platform` so the UI can verify the service without referencing it. **Not yet seen running:** the tray and pill following a real session on a machine with the service up, and the screenshots over a remote window. Both need the laptop, so the ticket closes when the hardware run has produced them. **Review and History are in the live shell as of 2026-09-25** (#138 the pipe messages, #140 the panes): the shell opens the draft that just became ready, History opens any session, and the note, the screenshots and the three frame edits go over the pipe. Found 2026-09-24 that until then the content area showed the pane's name and the views were rendered only by the harness. Still not seen on a real screen; M1 is that.
 
-  **Corrected 2026-09-19.** The 2026-09-19 review found that the running application never reconnected. `CaptureConnection` took an optional retry schedule whose documentation said it defaulted to the built-in one; it defaulted to never, `LiveShell` passed nothing, and every test passed a schedule of its own, so no test ran the wiring that shipped. A UI that started before the service, or outlived a service restart, sat on a grey tray icon while the service went on starting sessions by itself. Beside it, the pill and the shell read the *last* capture state as the present one, so after a lost pipe a hidden pill stayed hidden and read "Not recording" through a live session — the unfinished half of weaknesses P0-3. Fixed: the default is the schedule and giving up has to be asked for by name; a rejected token is treated as a restart race up to three times, because the token is rotated on every service start; and everything that tells a technician whether they are being recorded reads `KnownCapture`, which is null whenever nobody is answering. Six tests, each failing when its fix is removed. Still owed from the same review and not in this change: capture continuing with no UI attached at all, and tray Quit leaving capture running.
+  **Corrected 2026-09-19.** The 2026-09-19 review found that the running application never reconnected. `CaptureConnection` took an optional retry schedule whose documentation said it defaulted to the built-in one; it defaulted to never, `LiveShell` passed nothing, and every test passed a schedule of its own, so no test ran the wiring that shipped. A UI that started before the service, or outlived a service restart, sat on a grey tray icon while the service went on starting sessions by itself. Beside it, the pill and the shell read the *last* capture state as the present one, so after a lost pipe a hidden pill stayed hidden and read "Not recording" through a live session, the unfinished half of weaknesses P0-3. Fixed: the default is the schedule and giving up has to be asked for by name; a rejected token is treated as a restart race up to three times, because the token is rotated on every service start; and everything that tells a technician whether they are being recorded reads `KnownCapture`, which is null whenever nobody is answering. Six tests, each failing when its fix is removed. Still owed from the same review and not in this change: capture continuing with no UI attached at all, and tray Quit leaving capture running.
 
   **Follow-up left deliberately (2026-10-14, review E-20).** A long, text-heavy session no longer drops the pipe when it opens in Review: the `session` reply leaves out every frame's OCR text, which `get_frame_text` fetches for the enlarged frame, and a reply that still would not fit in one 1 MiB message is refused with its size. That refusal is a ceiling, not a fix. At the review's sizing (600 frames, 4,000 events, 800 transcript segments come to about 0.69 MB without OCR text), a session of the same density is refused at roughly 2 to 3 hours of busy capture; that figure is reasoned, not measured. Such a session cannot be reviewed or published from the UI, and the technician sees only the generic hand-over sentence until E-17 carries the reason through. Owed: page events and transcript (and frames, if needed) into Review over several messages, so no session has a size limit.
 
@@ -1676,7 +1676,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 **Architecture (holds for every later UI ticket):**
 - The UI references `ScreenTail.Shared` and `ScreenTail.Core` only. It never references `ScreenTail.Service`; everything crosses the pipe. Store reads the UI needs go through service commands, so INV-1's read-path filtering has one owner.
 - One `CaptureConnection` object owns the pipe, reconnects with backoff, and exposes an observable `CaptureSnapshot?` where `null` means unknown. View models bind to that, never to the pipe.
-- Unknown is a first-class state: the tray, the HUD and Review all render "Capture state unknown — it may still be recording" from `null`, and nothing hides on `null` (ST-048 P0-3).
+- Unknown is a first-class state: the tray, the HUD and Review all render "Capture state unknown: it may still be recording" from `null`, and nothing hides on `null` (ST-048 P0-3).
 - All HTTP in the client is built through `EgressRequest.For(purpose)`; a `ReleaseSurfaceTests` scan bans bare `new HttpClient(` in client source.
 
 **Dependencies & Blockers:**
@@ -1701,7 +1701,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - Verify: `dotnet test client/ScreenTail.sln`; the laptop run with ST-018's gate green; the screenshots
 ---
 
-## Phase 6 — Integrations (Epic: INTEG)
+## Phase 6: Integrations (Epic: INTEG)
 
 ---
 ### **ST-090 · PSA and documentation-provider interfaces**
@@ -1754,7 +1754,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 ---
 
 ---
-### **ST-092 · ConnectWise ticket search** — **Done against recorded shapes 2026-09-25** with ST-091 (the default, the recent tickets on focus, followed the same day: open tickets by `_info/lastUpdated`, ten of them, for `GET /v1/psa/tickets` with no query; the API member is the tenant's, so the list is the tenant's recent activity, not the technician's): a number is looked up as an id first and keyword matches follow; a word searches open tickets' summaries newest first, 25 a page; `GET /v1/psa/tickets?q=` is the client's route, answering `501 no_psa` without a credential and `502 psa_<kind>` with the provider's words. The one-second figure is the sandbox's to show.
+### **ST-092 · ConnectWise ticket search**: **Done against recorded shapes 2026-09-25** with ST-091 (the default, the recent tickets on focus, followed the same day: open tickets by `_info/lastUpdated`, ten of them, for `GET /v1/psa/tickets` with no query; the API member is the tenant's, so the list is the tenant's recent activity, not the technician's): a number is looked up as an id first and keyword matches follow; a word searches open tickets' summaries newest first, 25 a page; `GET /v1/psa/tickets?q=` is the client's route, answering `501 no_psa` without a credential and `502 psa_<kind>` with the provider's words. The one-second figure is the sandbox's to show.
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
@@ -1883,7 +1883,7 @@ Note → draft article scoped to mapped company/central KB; images inline if sup
 - **Epic/Feature:** INTEG
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). Since the 2026-10-12 review (S-71) a tenant's mappings are forgotten when Hudu is removed or connected to another site, since a company id names a customer only on its own site; a new key for the same site keeps them. A remembered mapping is used only while Hudu's list still has its id under the name it was made with; otherwise it is forgotten and the publish asks again, so a mapping saved during a move cannot file an article under the new site's holder of that number. **Client half done 2026-09-25:** the publish pane acts on `needs_mapping` — the platform's companies in a picker beside the result, the choice sent with `map_company` and remembered, the article sent again on its own (AC2: unmatched → prompt once at publish). **Owed:** the Settings screen (AC3, ST-081), which reads the same endpoints.
+- **Status:** **Server half done 2026-09-25 (#148).** `CompanyMapper`: an identical name (case and spacing aside) is `exact` and remembered without asking (AC1); a name that differs only in punctuation or a legal suffix is `likely` and offered, never assumed; two candidates are none. An unmapped company fails the article with `needs_mapping` and the offer, and `PUT/GET/DELETE /v1/integrations/hudu/companies` remember, list and forget a mapping by hand (AC2's memory, AC3's data). Since the 2026-10-12 review (S-71) a tenant's mappings are forgotten when Hudu is removed or connected to another site, since a company id names a customer only on its own site; a new key for the same site keeps them. A remembered mapping is used only while Hudu's list still has its id under the name it was made with; otherwise it is forgotten and the publish asks again, so a mapping saved during a move cannot file an article under the new site's holder of that number. **Client half done 2026-09-25:** the publish pane acts on `needs_mapping`: the platform's companies in a picker beside the result, the choice sent with `map_company` and remembered, the article sent again on its own (AC2: unmatched → prompt once at publish). **Owed:** the Settings screen (AC3, ST-081), which reads the same endpoints.
 
 **Description:**
 Per-tenant mapping auto-matched by name with confidence, user-correctable in Settings.
@@ -1908,7 +1908,7 @@ Per-tenant mapping auto-matched by name with confidence, user-correctable in Set
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** **Done 2026-09-25.** `shared/contracts/session-metric.v1.json` is the field list — the session id, counts and times, the edit ratio, published — with no string but the id, checked by reflection on both sides (AC1, INV-10). The service queues one metric when a draft lands and again when a publish lands, through the outbox so an offline afternoon queues it, and only when telemetry is on (`SCREENTAIL_TELEMETRY=1` until ST-081's toggle; off means nothing is queued, AC2). The edit ratio is the share of the draft's steps changed, added or removed between the draft as first written (`original_draft_json`, store migration 0010) and as published. `POST /v1/metrics/sessions` replaces the row on a retry; the Postgres view `weekly_tenant_metrics` gives sessions, published sessions, edit rate, session minutes and minutes saved per tenant per ISO week (AC3), with "five minutes per published note" as the working assumption named in the migration until ST-110 measures it.
+- **Status:** **Done 2026-09-25.** `shared/contracts/session-metric.v1.json` is the field list (the session id, counts and times, the edit ratio, published) with no string but the id, checked by reflection on both sides (AC1, INV-10). The service queues one metric when a draft lands and again when a publish lands, through the outbox so an offline afternoon queues it, and only when telemetry is on (`SCREENTAIL_TELEMETRY=1` until ST-081's toggle; off means nothing is queued, AC2). The edit ratio is the share of the draft's steps changed, added or removed between the draft as first written (`original_draft_json`, store migration 0010) and as published. `POST /v1/metrics/sessions` replaces the row on a retry; the Postgres view `weekly_tenant_metrics` gives sessions, published sessions, edit rate, session minutes and minutes saved per tenant per ISO week (AC3), with "five minutes per published note" as the working assumption named in the migration until ST-110 measures it.
 
 **Description:**
 Anonymized per-session metrics to `session_metrics`; respects telemetry off; offline queue.
@@ -1953,7 +1953,7 @@ React + TS on shared tokens per Spec §5 S9: sign up/in, technicians and seats, 
 - Verify: `npm test`; Lighthouse report; screenshots
 ---
 
-## Phase 7 — Release, Deployment & Pilot (Epic: RELEASE)
+## Phase 7: Release, Deployment & Pilot (Epic: RELEASE)
 
 ---
 ### **ST-110 · Stage 0 baseline measurement at the pilot MSP**
@@ -2057,7 +2057,7 @@ EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall r
 - **Epic/Feature:** RELEASE
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** Partial. Three documents merged 2026-09-15 (#51, #52); AC1 security-lead review outstanding (needs an MSP security lead — owner).
+- **Status:** Partial. Three documents merged 2026-09-15 (#51, #52); AC1 security-lead review outstanding (needs an MSP security lead: owner).
 
 **Description:**
 Plain-language data-flow doc with diagram (two-stage frames, scope), technician consent guidance, ≥ 40 pre-filled questionnaire answers referencing the threat model.
@@ -2082,7 +2082,7 @@ Plain-language data-flow doc with diagram (two-stage frames, scope), technician 
 - **Epic/Feature:** RELEASE
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** **Round one done 2026-09-25** (`docs/security/redteam-01.md`): 41 adversarial inputs at the text level — the path every frame's OCR and every transcript segment take — with the default policy. Twelve findings: ten secrets that survived (dotted SSNs and cards, GitHub fine-grained tokens, Azure account keys, Google OAuth and API keys, SendGrid keys, Slack webhook URLs, PGP key blocks, `pass:`) and two ordinary sentences that lost a word to the spoken-password rule; every one fixed in the pattern library with its regression in `RedTeamTests`, and the accepted gaps written down with their reasons. **Round two** — real screenshots through the VM harness and the speech model's own output — waits for ST-013.
+- **Status:** **Round one done 2026-09-25** (`docs/security/redteam-01.md`): 41 adversarial inputs at the text level (the path every frame's OCR and every transcript segment take) with the default policy. Twelve findings: ten secrets that survived (dotted SSNs and cards, GitHub fine-grained tokens, Azure account keys, Google OAuth and API keys, SendGrid keys, Slack webhook URLs, PGP key blocks, `pass:`) and two ordinary sentences that lost a word to the spoken-password rule; every one fixed in the pattern library with its regression in `RedTeamTests`, and the accepted gaps written down with their reasons. **Round two** (real screenshots through the VM harness and the speech model's own output) waits for ST-013.
 
 **Description:**
 ≥ 30 adversarial scenarios through the VM harness; fix or document every finding.
@@ -2129,7 +2129,7 @@ Plain-language data-flow doc with diagram (two-stage frames, scope), technician 
 ---
 
 ---
-### **ST-120 · Admin dashboard (web) — v1.1**
+### **ST-120 · Admin dashboard (web), v1.1**
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 8
@@ -2154,7 +2154,7 @@ Per Spec §5 S9 dashboard section; no session content.
 ---
 
 ---
-### **ST-121 · Second PSA connector (HaloPSA) — v1.1**
+### **ST-121 · Second PSA connector (HaloPSA), v1.1**
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 5
@@ -2179,7 +2179,7 @@ HaloPSA `IPsaProvider` passing contract harness; no Review UI changes.
 ---
 
 ---
-### **ST-122 · Duplicate-fix detection and KB linking — v1.1**
+### **ST-122 · Duplicate-fix detection and KB linking, v1.1**
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 3
@@ -2204,7 +2204,7 @@ Embed redacted note; search existing Hudu articles; offer "link existing" above 
 ---
 
 ---
-### **ST-123 · End-user call-audio consent workflow — v1.2**
+### **ST-123 · End-user call-audio consent workflow, v1.2**
 - **Epic/Feature:** RELEASE
 - **Priority:** Low
 - **Estimate:** 5
@@ -2228,7 +2228,7 @@ Implements Spec §5 S10; `end_user` diarization; redaction extended; off by defa
 - Verify: `ConsentTests`
 ---
 
-## Part C — Ordered plan (replaces the sprint plan, 2026-09-15)
+## Part C: Ordered plan (replaces the sprint plan, 2026-09-15)
 
 The v0.4 sprint plan stopped describing the build once tickets were taken out of order (ST-079 in "Sprint 14"
 merged before anything in Sprints 7–13). This part replaces it. It is a **dependency order with phases and
@@ -2239,14 +2239,14 @@ unblocked tickets when the current one is waiting on the owner.
 Phase A makes it safe to run; Phase B is the thinnest thread from a real session to a real draft (M1);
 nothing else is added ahead of that.
 
-### Phase A — Safe to run against a real screen
+### Phase A: Safe to run against a real screen
 
 | Order | Ticket | Why here | Needs from owner |
 |---|---|---|---|
 | A1 | **ST-048** | Two invariant breaches and a correctness bug feeding scope the wrong window. ~20 lines for four of the five. | Nothing |
-| A2 | **ST-018** | Until the skip gate exists, no Windows evidence — including A1's — means anything. | Laptop on, `HW_RUNNER=true`, run interactively |
+| A2 | **ST-018** | Until the skip gate exists, no Windows evidence, including A1's, means anything. | Laptop on, `HW_RUNNER=true`, run interactively |
 
-### Phase B — Close the loop (exit: **M1**, a real Review shows a real draft from a real session, and the eval harness reports edit rate)
+### Phase B: Close the loop (exit: **M1**, a real Review shows a real draft from a real session, and the eval harness reports edit rate)
 
 | Order | Ticket | Why here | Needs from owner |
 |---|---|---|---|
@@ -2256,13 +2256,13 @@ nothing else is added ahead of that.
 | B4 | **ST-060** | The bundle. Blocked on ST-042's engine (merged), not its recall gate (Part D, D-1). | Nothing |
 | B5 | **ST-008** | Backend scaffold, run locally on Docker Postgres. ST-007 is a deployment gate (Part D, D-2). | Nothing |
 | B6 | **ST-090** | Provider interfaces and the fake provider; needed for ST-063's contract tests and Phase C. | Nothing |
-| B7 | **ST-063** | The one model call per session. Provider abstraction from the ticket as written; default provider is whatever the owner supplies a key for. | **Model provider, API key, monthly cap** — no workaround |
+| B7 | **ST-063** | The one model call per session. Provider abstraction from the ticket as written; default provider is whatever the owner supplies a key for. | **Model provider, API key, monthly cap** (no workaround) |
 | B8 | **ST-064**, **ST-073** | Offline outbox and the draft-failure UX; the draft path has to fail honestly before it is used. | Nothing |
 | B9 | **ST-030** | Ten golden sessions across RDP and ScreenConnect. Turns "it drafted something" into a number. | ScreenConnect trial, a second Windows machine |
 | B10 | **ST-062** | The eval harness on B9's sessions; M1's < 25% edit-rate criterion lives here. | Nothing |
 | B11 | **ST-076** | Timeline and transcript panel; the evidence-link principle from `docs/product/2026-09-15-market-scan-and-ideas.md` §4.1 #4 applies here. | Nothing |
 
-### Phase C — Publish (exit: **M2**, ticket note, time entry and Hudu article land from one review behind a human click)
+### Phase C: Publish (exit: **M2**, ticket note, time entry and Hudu article land from one review behind a human click)
 
 | Order | Ticket | Why here | Needs from owner |
 |---|---|---|---|
@@ -2275,7 +2275,7 @@ nothing else is added ahead of that.
 | C7 | **ST-049** | The P1 hardening, before anyone outside the team runs it. | Nothing |
 | C8 | **ST-042** (close) | The recall gate on ST-030's labelled frames. | Nothing |
 
-### Phase D — Pilot-ready (exit: **M3**, signed installer, onboarding, policy, docs reviewed; pilot begins)
+### Phase D: Pilot-ready (exit: **M3**, signed installer, onboarding, policy, docs reviewed; pilot begins)
 
 In dependency order: ST-007 (cloud account, hosting decision), ST-010, ST-011, ST-013, ST-031, ST-047,
 ST-080, ST-081, ST-082, ST-083, ST-084, ST-098, ST-099, ST-111, ST-112, ST-113, ST-114 (the security-lead
@@ -2283,7 +2283,7 @@ review), ST-115, ST-065, ST-067, ST-017 and ST-014's two technician sessions, ST
 Owner inputs: cloud account and hosting; pilot MSP; technicians; an MSP security lead; a lawyer's read of
 the consent guidance; a code-signing certificate (ST-112).
 
-### Phase E — v1.1 and later
+### Phase E: v1.1 and later
 
 ST-120, ST-121, ST-122, ST-123, then the ideas in `docs/product/2026-09-15-market-scan-and-ideas.md` §4,
 in the order the pilot's answer to its §6 question dictates. None becomes a ticket before M1.
@@ -2299,7 +2299,7 @@ in the order the pilot's answer to its §6 question dictates. None becomes a tic
 
 ---
 
-## Part D — Amendments to v0.4
+## Part D: Amendments to v0.4
 
 | # | Date | Change | Why |
 |---|---|---|---|

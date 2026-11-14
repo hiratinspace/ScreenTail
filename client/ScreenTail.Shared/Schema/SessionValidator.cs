@@ -6,7 +6,7 @@ namespace ScreenTail.Shared.Schema;
 /// in memory obeys them just like one read from disk. Returns problems; never throws.
 ///
 /// It also mirrors every <c>minimum</c> and <c>minLength</c> in session.v1.json. Those were left to the
-/// schema on the argument that the validator handled what the schema could not — but the C# side is the
+/// schema on the argument that the validator handled what the schema could not, but the C# side is the
 /// only gate on a session built in memory, so the two disagreed about what is valid: the client could
 /// write a frame with an empty id or a typing burst of zero characters, and ajv on the web side would
 /// then reject the file the client had just declared good. <see cref="Bounds"/> keeps the lists together

@@ -12,7 +12,7 @@ public sealed record EnrolledDevice(Guid TenantId, Guid UserId, Guid DeviceId, s
 /// flow to do it properly (ST-010, ST-063).
 ///
 /// ST-010 issues device tokens as part of signing in. It does not exist yet, and until it does a client
-/// has nothing to put in an Authorization header — so the path the client gained in #123 could be
+/// has nothing to put in an Authorization header, so the path the client gained in #123 could be
 /// tested and could not be <em>run</em>. This is the smallest thing that closes that gap, and it is
 /// meant to be deleted the day ST-010 lands.
 ///
@@ -22,7 +22,7 @@ public sealed record EnrolledDevice(Guid TenantId, Guid UserId, Guid DeviceId, s
 /// and the answer to that is an exception rather than a tenant.
 ///
 /// <b>It is not an endpoint and must never become one.</b> Reaching it needs the process, the database
-/// connection string and the signing key — everything an attacker who could use it would already have.
+/// connection string and the signing key: everything an attacker who could use it would already have.
 /// Exposed over HTTP it would be none of those things.
 /// </summary>
 public static class DevEnrolment
@@ -36,7 +36,7 @@ public static class DevEnrolment
     /// Finds or creates the development tenant, user and device, and returns a token for them.
     ///
     /// Idempotent on purpose. A token lasts an hour and the loop this exists for takes longer than that
-    /// to get working, so it will be run again — and a second device every time would leave a trail of
+    /// to get working, so it will be run again, and a second device every time would leave a trail of
     /// credentials nobody thinks to revoke.
     /// </summary>
     public static async Task<EnrolledDevice> EnrolAsync(

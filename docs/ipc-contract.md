@@ -23,36 +23,36 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 | `type` | Fields | Meaning |
 |---|---|---|
 | `hello` | `contract_version`, `token`, `client_name`, `client_version?` | Authenticate the connection |
-| `start` | — | Start a session now. Sent only by the onboarding wizard's test session; Ctrl+Alt+R is a hotkey the service registers and handles itself, and the tray has no start item. Refused while no `indicator_showing` report is current, as a start the service makes by itself is (INV-4), with a `result` error saying why and what to do. Starts under the tenant's policy as it stands now: the same local-only flag and policy version as every other start (ST-047) |
-| `pause` | — | Pause capture |
-| `resume` | — | Resume capture |
-| `stop` | — | Stop and draft |
+| `start` | none | Start a session now. Sent only by the onboarding wizard's test session; Ctrl+Alt+R is a hotkey the service registers and handles itself, and the tray has no start item. Refused while no `indicator_showing` report is current, as a start the service makes by itself is (INV-4), with a `result` error saying why and what to do. Starts under the tenant's policy as it stands now: the same local-only flag and policy version as every other start (ST-047) |
+| `pause` | none | Pause capture |
+| `resume` | none | Resume capture |
+| `stop` | none | Stop and draft |
 | `discard` | `confirmation` | The tray's Discard: stop and delete the current session and its raw data, whatever it is. Refused without a token issued for `discard_session` with no `session_ids` (below). Unchanged by v6 |
 | `discard_sessions` | `session_ids[]`, `confirmation` | Review's Discard (one id) and History's bulk discard (several), v6. Refused, and the token spent, unless the token was issued on this connection for exactly these ids, in any order. All or nothing: an unknown, already discarded or published session refuses the whole set with a sentence saying how many and why, and nothing is discarded. Otherwise, under the machine's gate and in one transaction, each session is marked `discarded`: its note, its suggested ticket and its queued outbox work go, an audit row records how many screenshots it held (no content), and from that commit nothing reads its screenshots, transcript or events and no late write adds to them. The content is then deleted outside the gate in chunks of 50, a transaction each, before the result is sent (and at service start and on the hourly retention tick for a discard left unfinished; a delete that fails is logged by kind and tried again there, and the discard still answers `ok: true`, because the sessions are discarded once marked), so the password and login guards' suppression never waits behind it. A published session is one whose publish landed at least one destination; it is kept. The machine's current session, when named, goes the way `discard` takes it: a recording one stops capturing first, the row is deleted and the state moves to `idle`. Queued behind the connection's worker, not on the read loop (below) |
-| `mark_moment` | — | Force a frame and a marker event |
-| `get_state` | — | Ask for the current state (also arrives in `hello_ack`) |
-| `get_capabilities` | — | Re-run the Windows checks (ST-021). Answered by `capabilities` |
-| `get_diagnostics` | — | What is being captured right now (ST-071). Answered by `diagnostics` |
+| `mark_moment` | none | Force a frame and a marker event |
+| `get_state` | none | Ask for the current state (also arrives in `hello_ack`) |
+| `get_capabilities` | none | Re-run the Windows checks (ST-021). Answered by `capabilities` |
+| `get_diagnostics` | none | What is being captured right now (ST-071). Answered by `diagnostics` |
 | `list_sessions` | `limit?` (default 200) | The History screen's rows (ST-079). Answered by `sessions` |
 | `request_confirmation` | `action` (`discard_session`, `discard_sessions` or `erase_everything`), `session_ids?` (v6) | Ask for a one-use token before something irreversible (ST-085). Without `session_ids`, `discard_session` is the tray's and `erase_everything` is erase. With them, `discard_session` names one session and the phrase is `DISCARD` (Review), and `discard_sessions` names one or more and the phrase is how many (History, v0.4.1 Q6); the token is good only on a `discard_sessions` naming exactly those ids. No ids, a blank or doubled id, more than 1000, or ids on erase get no token. Answered by `confirmation` |
 | `erase_all_local_data` | `confirmation` | Delete everything and stop (INV-12). Refused without a token issued for `erase_everything`. The pipe drops straight after: the store it was serving is being deleted |
 | `indicator_showing` | `x`, `y`, `width`, `height` | The UI saying the recording pill is on screen, and where (INV-4). Sent every two seconds while it is true; the service forgets a report it has not heard repeated within six seconds |
-| `get_integrations` | — | What the tenant has connected, from the backend. Answered by `integrations` |
+| `get_integrations` | none | What the tenant has connected, from the backend. Answered by `integrations` |
 | `search_tickets` | `query` | The ticket picker's search: three characters or a number. Empty, it asks for the recent tickets the picker shows on focus (Spec §5 S3). Answered by `tickets` |
 | `publish_session` | `session_id`, `ticket_id`, `ticket_company?`, `note_type`, `minutes`, `billable`, `destinations[]`, `note`, `frame_ids[]`, `publish_again?` | Publish (INV-3). The service reads the frames' bytes from the store and asks the backend. Only frames of that session that the drafting bundle may use are attached (redacted, not `sensitive_context`, not excluded in Review, not taken while capture was off), each once; any other id named is dropped (ST-078); the company is the PSA's name for the ticket's, for the knowledge-base mapping. Without `publish_again` (v9), refused when any destination named is held as landed or unknown by an earlier publish, or for any destination of a session published before that record existed; refused for a session whose earlier publish has not answered yet whatever it says, and for a destination name it does not know (below). Answered by `published` |
 | `mark_published` | `session_id` | History's "Mark as published" (v10): the technician checked the ticket and what an earlier publish may have left is there. Every destination the service holds as `unknown` for the session becomes `landed`, the unconfirmed mark is cleared, and the session is marked published by the write a landing makes. Nothing is sent to the ticket or the PSA. With telemetry on, a session nothing had landed for queues its session metric (counts and times, `published: true`) through the outbox, as a landing does; with telemetry off nothing leaves the machine. Refused, with a sentence, for a session with no destination held as `unknown` (never published, published cleanly, already settled, or published before outcomes were kept), for a discarded session (INV-12), while a publish of it has not answered yet, and for a session that is gone (below). Answered by a `result` |
-| `get_company_mappings` | — | The documentation platform's companies and what this tenant has mapped (ST-097). Answered by `company_mappings` |
+| `get_company_mappings` | none | The documentation platform's companies and what this tenant has mapped (ST-097). Answered by `company_mappings` |
 | `map_company` | `psa_company`, `doc_company_id` | The mapping prompt's answer: this PSA company is that platform company. The backend remembers it. Answered by a `result` |
 | `activate_device` | `code`, `device_name` | The invite's code and this machine's name (ST-010, Spec §5 S8 step 2). The service keeps the refresh token the backend hands back under DPAPI; the UI only ever sees the tenant's name. Answered by `device_activated`, or a failed `result` with the backend's sentence |
-| `get_device` | — | The device's standing. Answered by `device` |
-| `get_settings` | — | The technician's own settings, which fields the admin's policy locked, and the values in force (ST-081). Answered by `settings` |
+| `get_device` | none | The device's standing. Answered by `device` |
+| `get_settings` | none | The technician's own settings, which fields the admin's policy locked, and the values in force (ST-081). Answered by `settings` |
 | `set_settings` | `settings` | The whole document, every time; the service validates, writes it beside the store and applies it in place. Refused with the first problem as a failed `result` |
-| `export_audit` | — | Writes the audit log with its chain verification, as JSON, to a new file in the service's `exports` folder under its data directory, verified in the same pass (Spec §5 S6 "Export audit log"). Answered by `audit`, or a failed `result` saying why. The log itself never crosses the pipe, and the service never takes a path from it |
-| `get_capture_settings` | — | The capture settings with the registry's tools, the capture devices connected now and what the policy forces beside them (ST-080). Answered by `capture_settings` |
+| `export_audit` | none | Writes the audit log with its chain verification, as JSON, to a new file in the service's `exports` folder under its data directory, verified in the same pass (Spec §5 S6 "Export audit log"). Answered by `audit`, or a failed `result` saying why. The log itself never crosses the pipe, and the service never takes a path from it |
+| `get_capture_settings` | none | The capture settings with the registry's tools, the capture devices connected now and what the policy forces beside them (ST-080). Answered by `capture_settings` |
 | `set_capture_settings` | `settings` | The whole document, every time; validated, written beside the store, applied in place (hotkeys re-registered; the microphone used the next time it opens). Refused with the first problem as a failed `result` |
 | `get_microphone_level` | `device_id?` | Settings, Capture's live level meter (ST-080 AC3, v7). The device the picker shows, saved or not; absent is Windows' default, and one not connected falls back to it. Sent about ten times a second while the card is on screen and scrolled into view, with the window in front and the desktop unlocked and awake; each after the last was answered and after a round trip through the UI's dispatcher, so a hung window sends none. Each one is a short lease (1.5 s): the first opens the device, each one after keeps it open, and the service closes it by itself within a few seconds of the last. The device is never open for more than five minutes at a stretch: the meter then answers `timed_out` without opening anything until a `stop_microphone_level`, which the card sends when it is put away; a session starting and ending in between does not reset it. Refused without opening anything, as `state: session`, while a session is recording, paused, suppressed or finishing; a session that starts closes it. Opened as plain capture, not in communications mode, so Windows does not turn other sound down. Levels only: no audio crosses the pipe and nothing heard is kept, transcribed, sent or logged. Answered by `microphone_level` |
 | `stop_microphone_level` | (none) | The card was put away: the meter closes the device now rather than when its lease runs out, and one that reached its five minutes may open again. Always `ok` |
-| `list_integrations` | — | Settings → Integrations' list: each provider with its site, the credential's last four, when it was connected and last checked, and the last error (ST-082). Answered by `integration_details` |
+| `list_integrations` | none | Settings → Integrations' list: each provider with its site, the credential's last four, when it was connected and last checked, and the last error (ST-082). Answered by `integration_details` |
 | `store_integration` | `provider`, `site_url`, `secret` | Stores or replaces a credential. The one message a secret ever travels in; it is never read back. Answered by a `result` |
 | `remove_integration` | `provider` | Forgets a credential. Answered by a `result` |
 | `check_integration` | `provider` | "Test connection". Answered by `integration_checked` either way; a refusal (no backend, not enrolled) is a failed `result` |
@@ -100,8 +100,8 @@ Every command carries `request_id`, an integer the client chooses. `hello` is an
 
 **Every event may carry a `request_id`**, and one does whenever it answers a command. The client completes
 the pending request whose id matches, whatever the event's type; only `state_changed` is ever volunteered.
-Before ST-085 the client completed a pending request on a `result` alone, so `capabilities` — which has had
-a reply type since ST-021 — would have hung the first time anything asked.
+Before ST-085 the client completed a pending request on a `result` alone, so `capabilities` (which has had
+a reply type since ST-021) would have hung the first time anything asked.
 
 A question is answered with its own event **and then** a `result`, so a client that understands only
 results still learns the command was accepted.
@@ -137,7 +137,7 @@ revoke microphone access halfway through a working day, and a report that says o
 
 `capability` is one of `desktop_session`, `microphone`, `screen_capture`, `input_hooks`, `elevated_windows`;
 `state` is `ok`, `degraded`, `blocked` or `unknown`. `unknown` means the check itself failed and is treated as
-blocking — "we couldn't tell" must never read as "fine". `can_capture` is false when any of the desktop
+blocking: "we couldn't tell" must never read as "fine". `can_capture` is false when any of the desktop
 session, screen capture or input hooks is blocked; a blocked microphone costs narration, not the session.
 `fix_link` is a Windows Settings deep link for the HUD's "Fix" button (ST-072). Messages describe Windows
 settings only and never contain anything captured (INV-10).
@@ -154,8 +154,8 @@ ST-071's panel, answered by the service because the UI has no store, no hooks an
   "working_set_bytes": 251658240, "service_version": "0.1.0" }
 ```
 
-Every field is a state, a count or a device name. `scope` is the scope decision's own words — a process
-name and what is being done about it — never a window title, because this text goes on a clipboard and
+Every field is a state, a count or a device name. `scope` is the scope decision's own words (a process
+name and what is being done about it), never a window title, because this text goes on a clipboard and
 into tickets (INV-10). `suppression` is absent when nothing is suppressing capture. `redaction_backlog`
 is the depth of the in-memory queue (ADR-0006); `frames_dropped` counts frames lost unchecked (INV-1),
 whether deleted because they could not be read or refused because that queue was full. `frames_after_discard` (v6, optional, 0 when absent) counts frames read and masked for a session discarded meanwhile, which the store refused to keep: neither lost unchecked nor stored. `name_hook_refusals` (v8, optional) counts the times Windows refused to narrow the foreground watcher's title-change hook to the window in front, so that it listened to every window instead (ST-031): nothing is missed, but the idle service wakes for every rename on the desktop. A count only, nothing about any window (INV-10). It is absent when the service cannot know it, before the watcher has started, and the panel then says unknown rather than 0; the panel shows it as "Hook fallbacks", with what it means beside a count above 0. `local_only` and `egress_blocked` come from the same policy object the
@@ -246,7 +246,7 @@ coordinates, so the claim is specific enough to check against a screenshot, or, 
 rectangle, that the technician chose tray-only between sessions (below). It is sent while it is true
 and not once at startup, because the interesting failure is a UI that stops painting without closing: the
 socket stays open and the pill goes stale. A report expires after six seconds, and a connection is not
-an indicator — the service counts pills it has heard from, not clients it can see (INV-4, #130). While
+an indicator: the service counts pills it has heard from, not clients it can see (INV-4, #130). While
 none is reported, `IndicatorGuard` suppresses capture after a short grace for UI restarts.
 
 A report with a zero width and height means the technician chose tray-only between sessions, and the
@@ -275,8 +275,8 @@ above, on every start path: the pipe's, the hotkey's and the automatic one.
 
 ST-085's remainder (2026-09-25). The UI has no store, and until these existed the Review views were fed
 only by the screenshot harness: the shell's Review area showed the word "Review". Everything a technician
-does to a session in Review is a question or a command here, and the service — the one process that
-reads a frame — does the work.
+does to a session in Review is a question or a command here, and the service (the one process that
+reads a frame) does the work.
 
 ```json
 { "type": "get_session", "request_id": 11, "session_id": "s1" }
@@ -306,7 +306,7 @@ failed `result` that gives its size and the limit, and the connection stays up. 
 measured the same way. Like `get_frame`, a pending frame's text is refused, not answered (INV-1).
 
 `blur_frame` is painted by the service with the same masker redaction uses, written to the store, and
-only then answered — so a crash between the write and the reply leaves the disk ahead of the screen,
+only then answered, so a crash between the write and the reply leaves the disk ahead of the screen,
 never behind it. The region is recorded as `user_blur` in the frame's `masked_regions`. Destructive, and
 meant to be (Spec §5 S3). The rectangle is in the frame's own pixels (its `width` and `height`, which
 every masked region uses) and must lie wholly inside them, or it is refused and nothing is painted. The
@@ -329,7 +329,7 @@ None of this bumps the version: an older client never sends these and never sees
 ST-093 (2026-09-25). The UI never talks to the backend and never learns which PSA the tenant runs: it
 asks the service, which holds the device token and the egress guard, and the service asks the backend,
 which holds the tenant's credential in its vault. The backend's per-destination answer comes back as it
-is. A refusal — no PSA connected, a revoked device, a backend that did not answer — arrives as a failed
+is. A refusal (no PSA connected, a revoked device, a backend that did not answer) arrives as a failed
 `result` carrying the backend's own words, which the pane shows beside the button. The UI reads the
 reason off that one reply. It never sends `publish_session` again to learn it, because a second send is a
 second publish; `activate_device` and `check_integration` are read the same way (2026-10-14, S-36).
@@ -501,7 +501,7 @@ The handshake table holds 16 in flight and a peer has two seconds to say `hello`
 the **oldest silent** handshake is dropped to make room, and the newcomer is never refused. Refusing the
 newcomer was the earlier policy and it handed a same-user process a better attack than the one it fixed:
 sixteen silent connections kept the table full, every refusal fell on whoever asked next, and the real UI
-was the one turned away — unable to see or change capture state, which defeats INV-4 by making the
+was the one turned away, unable to see or change capture state, which defeats INV-4 by making the
 indicator unreachable rather than by touching capture.
 
 ## Changes

@@ -4,7 +4,7 @@ namespace ScreenTail.Tests.Shell;
 
 /// <summary>
 /// ST-070's "navigation, window size and theme persist". These are cosmetic settings, and the tests are
-/// mostly about what happens when saving or loading goes wrong — because the moment preferences are
+/// mostly about what happens when saving or loading goes wrong, because the moment preferences are
 /// written is when the app is closing, which is also when a machine is most likely to be shutting down.
 /// </summary>
 public sealed class ShellPreferencesTests : IDisposable
@@ -37,7 +37,7 @@ public sealed class ShellPreferencesTests : IDisposable
     {
         // INV-4 allows a session with no visible indicator only where "the user explicitly chose" it, and
         // Spec §5 S2 makes hiding the HUD a per-session choice. Persisting it would turn one right-click
-        // into a standing tray-only mode across reboots — a recording with no indicator that nobody opted
+        // into a standing tray-only mode across reboots: a recording with no indicator that nobody opted
         // into, which is the thing INV-4 exists to prevent. The type has nowhere to put it.
         Assert.DoesNotContain(
             typeof(ShellPreferences).GetProperties(),
@@ -82,7 +82,7 @@ public sealed class ShellPreferencesTests : IDisposable
     public void NoHalfWrittenFileIsEverLeftBehind()
     {
         // Written through a temporary file and moved over, so a reader during a save never sees a partial
-        // one — and a crash mid-save leaves the previous settings intact rather than a broken file.
+        // one, and a crash mid-save leaves the previous settings intact rather than a broken file.
         var store = Store();
         store.Save(new ShellPreferences { Appearance = ThemeChoice.Light });
 

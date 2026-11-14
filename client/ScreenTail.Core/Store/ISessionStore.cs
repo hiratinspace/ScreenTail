@@ -4,8 +4,8 @@ namespace ScreenTail.Core.Store;
 
 /// <summary>
 /// The encrypted local store (ST-005). Frames enter with <c>redaction_pending</c> set and only the
-/// redaction worker can read one back (<see cref="TakeNextPendingFrameAsync"/>). Everything else — Review,
-/// bundle builder, export — reads through <see cref="LoadSessionAsync"/> and
+/// redaction worker can read one back (<see cref="TakeNextPendingFrameAsync"/>). Everything else (Review,
+/// bundle builder, export) reads through <see cref="LoadSessionAsync"/> and
 /// <see cref="GetRedactedFrameImageAsync"/>, which return redacted frames only (INV-1).
 /// </summary>
 public interface ISessionStore : IAsyncDisposable
@@ -51,13 +51,13 @@ public interface ISessionStore : IAsyncDisposable
 
     Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default);
 
-    /// <summary>Frames waiting for redaction across every session — the backlog depth the HUD shows (ST-041).</summary>
+    /// <summary>Frames waiting for redaction across every session: the backlog depth the HUD shows (ST-041).</summary>
     /// <summary>
     /// How many bytes each redacted frame's stored image weighs, by frame id.
     ///
     /// The bundle's byte budget needs this and nothing else has it: a <c>Frame</c> carries the path
     /// "frames/abc123.jpg" rather than a picture, so measuring its Image told you about twenty-three
-    /// characters (2026-09-19 review). Lengths only — no image leaves the store here.
+    /// characters (2026-09-19 review). Lengths only; no image leaves the store here.
     /// </summary>
     Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default);
 
@@ -66,7 +66,7 @@ public interface ISessionStore : IAsyncDisposable
     /// <summary>
     /// Deletes one frame that could not be redacted, counting it against its session so Review can say a
     /// screenshot was dropped rather than leaving a silent gap. Used by the redaction worker when a frame
-    /// cannot be read, masked, or fully searched — an unreadable frame kept is an unredacted frame.
+    /// cannot be read, masked, or fully searched: an unreadable frame kept is an unredacted frame.
     /// </summary>
     Task DiscardPendingFrameAsync(string frameId, CancellationToken ct = default);
 
@@ -81,7 +81,7 @@ public interface ISessionStore : IAsyncDisposable
 
     /// <summary>
     /// Deletes one screenshot for good (ST-075) and writes <see cref="AuditTypes.FrameDeletedByUser"/>.
-    /// Called when the 5 s undo window closes, never before it — Spec §4 prefers an undo to a dialog, and
+    /// Called when the 5 s undo window closes, never before it. Spec §4 prefers an undo to a dialog, and
     /// an undo that cannot put the frame back is a dialog with extra steps.
     /// </summary>
     /// <returns>Whether there was a frame to delete.</returns>
@@ -139,8 +139,8 @@ public interface ISessionStore : IAsyncDisposable
     Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default);
 
     /// <summary>
-    /// Sessions whose raw data is still present and whose last activity — <c>ended_at</c>, or the creation
-    /// time when a session never finished — is older than <paramref name="cutoff"/> (ST-044). A session that
+    /// Sessions whose raw data is still present and whose last activity (<c>ended_at</c>, or the creation
+    /// time when a session never finished) is older than <paramref name="cutoff"/> (ST-044). A session that
     /// never reaches finalize ages out like any other; only <paramref name="activeSessionId"/> is exempt.
     /// </summary>
     Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, string? activeSessionId = null, CancellationToken ct = default);
@@ -153,13 +153,13 @@ public interface ISessionStore : IAsyncDisposable
 
     /// <summary>
     /// Review's Discard (ST-074, Spec §5 S3). Deletes the frames, transcript and events, drops the drafted
-    /// note, marks the session discarded and writes the audit row — in one transaction, so there is no
+    /// note, marks the session discarded and writes the audit row, in one transaction, so there is no
     /// moment where the raw data is gone and nothing says why.
     ///
     /// Not <see cref="DeleteSessionAsync"/>, which removes the row: Spec §5 S4 lists Discarded as a status
     /// a technician can filter history by, and a row that is gone cannot have one. Not
     /// <see cref="PurgeRawDataAsync"/> either, which keeps the note on purpose, because retention ages out
-    /// the evidence and leaves the deliverable — and here the note is the thing being thrown away.
+    /// the evidence and leaves the deliverable, and here the note is the thing being thrown away.
     /// </summary>
     /// <returns>How many frames were deleted.</returns>
     Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);

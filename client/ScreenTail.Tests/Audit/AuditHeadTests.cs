@@ -11,7 +11,7 @@ namespace ScreenTail.Tests.Audit;
 /// from its end: a shorter chain verifies perfectly. The head is the second opinion.
 ///
 /// Two ways it disagreed with an honest log. The row and the head were written as two separate commits,
-/// so anything between them — a crash, a shutdown cancelling the token — left the head one behind. And
+/// so anything between them (a crash, a shutdown cancelling the token) left the head one behind. And
 /// verification read the rows and the head under two separate acquisitions of the store's gate, so an
 /// append landing in the gap made a log nobody had touched report as tampered.
 ///

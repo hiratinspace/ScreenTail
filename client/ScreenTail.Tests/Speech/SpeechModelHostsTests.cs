@@ -7,7 +7,7 @@ namespace ScreenTail.Tests.Speech;
 /// The allowlist has to contain the host the model actually comes from (ST-027, INV-8).
 ///
 /// The published URL is on huggingface.co and answers 302 to a content host, so the second hop is the
-/// one that carries the file — and the guard decides each hop on its own. The list named two CDN hosts
+/// one that carries the file, and the guard decides each hop on its own. The list named two CDN hosts
 /// that the publisher no longer uses, so the hop was refused, and because
 /// <c>EgressBlockedException</c> was missing from the catch in <c>PrepareAsync</c> the refusal faulted a
 /// background task that nobody awaited. No log line, no narration, no sign of either.

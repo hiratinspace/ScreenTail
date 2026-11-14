@@ -18,7 +18,7 @@ public sealed class RetentionOptions
 /// </summary>
 /// <param name="activeSessionId">
 /// The session being recorded right now, exempt while it runs. Everything else ages out, including a session
-/// that never reached finalize — otherwise a crash whose recovery never ran would keep raw frames for good.
+/// that never reached finalize; otherwise a crash whose recovery never ran would keep raw frames for good.
 /// </param>
 /// <param name="purged">
 /// Told of each session whose raw data was just removed (ST-013), so the session machine can stop saying a
@@ -152,7 +152,7 @@ public static class LocalDataEraser
     /// Says that an erasure has been asked for, before anybody is told it happened.
     ///
     /// The command used to answer the UI, and then the service stopped, and only then did anything get
-    /// deleted — in a finally, after every other shutdown step. A process that exited first, or a file
+    /// deleted, in a finally, after every other shutdown step. A process that exited first, or a file
     /// it could not remove, left the store intact and no record anywhere that erasure was owed. The
     /// next start opened it and carried on (2026-09-19 review).
     /// </summary>

@@ -1,10 +1,10 @@
-# Contrast report — Review hi-fi (ST-015)
+# Contrast report: Review hi-fi (ST-015)
 
 Measured from `shared/design/tokens.json` with the WCAG 2.1 relative-luminance formula, for every
 foreground/background pair `review.css` actually uses. Regenerate with `python3 contrast.py`.
 
 **Every pair passes.** Text is held to AA (4.5:1); state colours are held to the non-text 3:1,
-because Spec v0.4.2 restricts them to indicators — a rule, a border, a dot, a glyph — and never to
+because Spec v0.4.2 restricts them to indicators (a rule, a border, a dot, a glyph) and never to
 body-size text.
 
 That rule is not decorative. The first version of this design used `confidence.low` for the warning
@@ -13,7 +13,7 @@ and **3.30:1**. The colour now carries the border and the glyph; the words are `
 in the design depends on colour alone to be understood (Spec §7): a low-confidence step also has the ⚠
 glyph, the word "Inferred", and a left rule.
 
-## Text — AA, 4.5:1
+## Text: AA, 4.5:1
 
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|
@@ -40,7 +40,7 @@ glyph, the word "Inferred", and a left rule.
 | dark | `text.on-accent` | `accent.primary` | 9.00:1 | ✅ |
 | light | `text.on-accent` | `accent.primary` | 6.54:1 | ✅ |
 
-## State colours — indicators only, 3:1
+## State colours: indicators only, 3:1
 
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|

@@ -55,7 +55,7 @@ public sealed record Coverage(int Captured, int Total)
 /// written at finalize would go on saying "draft" after the note was published, and would say nothing
 /// about a session that was discarded afterwards.
 ///
-/// Platform-neutral, so the filtering and the coverage arithmetic can be argued about without a window —
+/// Platform-neutral, so the filtering and the coverage arithmetic can be argued about without a window,
 /// which matters because Spec §5 S4 renders two hundred rows and the ticket puts a number on it.
 /// </summary>
 public static class SessionHistory
@@ -64,7 +64,7 @@ public static class SessionHistory
     /// What the row's badge says.
     ///
     /// Order matters: discarded wins over everything, because a session someone threw away is not a draft
-    /// waiting for them however complete it was. Partial comes before draft for the opposite reason — a
+    /// waiting for them however complete it was. Partial comes before draft for the opposite reason: a
     /// note with missing steps should not sit in the list looking like any other.
     /// </summary>
     public static SessionStatus StatusOf(SessionSummary session)

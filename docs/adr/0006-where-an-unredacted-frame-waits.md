@@ -12,8 +12,8 @@ A screenshot is taken, encoded as JPEG, and written into the encrypted store wit
 downscales the result and writes it over the original with the flag cleared.
 
 So the unredacted frame is on disk for as long as it takes the worker to reach it. That is usually
-milliseconds — redaction measured a median of 171 ms a frame, and a technician generates a few frames a
-minute — and it is longer whenever the backlog is not empty.
+milliseconds (redaction measured a median of 171 ms a frame, and a technician generates a few frames a
+minute), and it is longer whenever the backlog is not empty.
 
 **This is not an INV-1 breach, and the ADR should not pretend it is.** INV-1 says no unredacted frame is
 shown, exported or transmitted. A row in a SQLCipher database is none of those three: the read path
@@ -25,7 +25,7 @@ What it is instead is a window, and three things can reach into it:
 1. **Anything holding the store key while the frame is pending.** That is the technician's own account,
    which is also the threat model the IPC peer check exists for: a same-user process is the ordinary
    attacker here, not an exotic one.
-2. **A crash.** `RecoverAsync` purges pending frames on the next start, which is the right answer — but
+2. **A crash.** `RecoverAsync` purges pending frames on the next start, which is the right answer, but
    the bytes are on disk from the crash until the service runs again, which may be days.
 3. **Freed pages.** SQLite does not overwrite a deleted row's pages, and `secure_delete` is off, so the
    ciphertext of an unredacted frame survives its deletion until the page is reused. Retention's
@@ -55,7 +55,7 @@ Consequences worth stating plainly:
 
 - **Unredacted pixels never touch disk.** All three windows above close, not because the enforcement got
   stricter but because there is nothing to enforce against.
-- **The write disappears rather than moving.** Today each frame is written twice — 200 KB to 1.5 MB
+- **The write disappears rather than moving.** Today each frame is written twice: 200 KB to 1.5 MB
   staged, then the downscaled redaction over it. The staged write goes, so it is roughly 3.5 MB of disk
   per frame down to about 0.4 MB.
 - **The `redaction_pending` column stops having a `1` state in practice.** It stays, because a store
@@ -78,7 +78,7 @@ Dropping is the honest answer of the three available:
 - *Falling back to the store* would keep the window this ADR exists to close, and would keep it for
   exactly the busy sessions where it is widest.
 - *Dropping* loses a screenshot and says so. `frames_purged_unredacted` already exists, already reaches
-  the bundle, and already makes the draft hedge rather than claim to have seen everything — because
+  the bundle, and already makes the draft hedge rather than claim to have seen everything, because
   ADR-0004 needed the same admission for a different reason.
 
 Four is chosen to be small. Redaction is 171 ms a frame and clicks arrive a few a minute, so a depth
@@ -88,7 +88,7 @@ click, not to hold a session.
 ## What this does not change
 
 **The double decode stays.** The recogniser decodes the JPEG to read it and the masker decodes it again
-to paint on it, and the obvious fix — pass the decoded bitmap between them — costs about 33 MB per frame
+to paint on it, and the obvious fix (pass the decoded bitmap between them) costs about 33 MB per frame
 held instead of 1.5 MB. That is a different trade with a different answer, it is an efficiency change
 rather than a privacy one, and putting it in this ADR would let a memory decision ride in on a privacy
 decision. It stays in the efficiency backlog.
@@ -103,7 +103,7 @@ keeping the buffer, at the cost of a second key nobody can recover and a scheme 
 review. More machinery than not writing the bytes.
 
 **Do nothing.** Defensible: it is not a breach, and the window is short. It is rejected because the
-window is not short *when it matters* — a crash holds it open for days, and the busiest sessions hold it
+window is not short *when it matters*: a crash holds it open for days, and the busiest sessions hold it
 open longest.
 
 ## Consequences

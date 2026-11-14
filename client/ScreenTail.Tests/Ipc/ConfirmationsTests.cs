@@ -7,7 +7,7 @@ namespace ScreenTail.Tests.Ipc;
 ///
 /// The spec has asked for a typed confirmation before an irreversible delete since it was written, and
 /// nothing enforced it. "Discard session" sat one item below "Stop and draft" in the tray menu and threw
-/// the session away on a single click, and <c>erase_all_local_data</c> had no fields at all — so one
+/// the session away on a single click, and <c>erase_all_local_data</c> had no fields at all, so one
 /// frame on the pipe wiped the store.
 ///
 /// The rule lives in the service rather than in the dialog, because a confirmation the UI is trusted to
@@ -48,7 +48,7 @@ public sealed class ConfirmationsTests
     public void AWindowCannotSpendAConfirmationAnotherWindowAsked()
     {
         // 2026-09-20 review. The token was a bearer token with nothing tying it to who asked, and every
-        // authenticated pipe client shares one issuer — so the impostor this class was written against
+        // authenticated pipe client shares one issuer, so the impostor this class was written against
         // could sit and wait for the technician to confirm something of their own, then spend it.
         //
         // Two round trips only mean something if both are the same conversation.
@@ -181,7 +181,7 @@ public sealed class ConfirmationsTests
     [Fact]
     public void TokensThatWereNeverUsedDoNotPileUp()
     {
-        // Issuing costs nothing and destroys nothing, so there is no rate limit — which means a caller
+        // Issuing costs nothing and destroys nothing, so there is no rate limit, which means a caller
         // that asks a thousand times must not leave a thousand entries behind for ever.
         var clock = new ManualTime(At);
         var confirmations = new Confirmations(clock);

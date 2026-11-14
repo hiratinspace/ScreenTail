@@ -3,8 +3,8 @@ namespace ScreenTail.Core.Privacy;
 /// <summary>
 /// A loop that outlives its own bad moments (INV-6; 2026-09-19 review).
 ///
-/// The loops that keep capture honest — the password-field guard, the sensitive-context guard, the scope
-/// coordinator, the scene sampler — each caught cancellation and nothing else. One exception of any
+/// The loops that keep capture honest (the password-field guard, the sensitive-context guard, the scope
+/// coordinator, the scene sampler) each caught cancellation and nothing else. One exception of any
 /// other kind, and a full disk under a state write is enough, ended the loop for the life of the
 /// service. Nothing else noticed, and capture carried on without the thing that was supposed to stop it.
 /// A dead password guard means password fields are recorded; a dead scope coordinator leaves the last

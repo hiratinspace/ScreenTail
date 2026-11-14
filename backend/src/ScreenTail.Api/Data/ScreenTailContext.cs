@@ -45,7 +45,7 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
     ///
     /// SQLite has no date type and EF cannot translate a comparison between two of these, so
     /// <c>WHERE at >= @since</c> throws at query time rather than at compile time. Postgres has
-    /// <c>timestamptz</c> and is unaffected — which is exactly why nobody noticed. The daily cost cap is
+    /// <c>timestamptz</c> and is unaffected, which is exactly why nobody noticed. The daily cost cap is
     /// built on such a comparison, its only test used a fake ledger, and CI's Postgres step applies
     /// migrations without running a query. So the one query in this service that decides whether money
     /// may be spent had never been executed anywhere, and it did not work (2026-09-19 review).

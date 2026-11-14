@@ -56,7 +56,7 @@ migrations to a real Postgres and checks every table arrived, because the migrat
 SQLite cannot check and is what a deployment actually runs.
 
 Nothing in the suite calls a real model. The host under test runs as Development so that it behaves like
-a developer's machine, and Development is where user secrets are read — which is where the provider key
+a developer's machine, and Development is where user secrets are read, which is where the provider key
 lives. `ApiFixture` pins the key to empty and `NoLiveProviderInTestsTests` asserts it, because without
 that the suite bills whoever owns the key on every run and passes or fails depending on whose laptop it
 is on.
@@ -76,7 +76,7 @@ measurement skips with its reason rather than reporting a budget miss that never
 
 The key has no default and none is in the repository. There are two places to put it.
 
-**Developing locally — user secrets.** They live in your user profile, outside the repository, so there
+**Developing locally: user secrets.** They live in your user profile, outside the repository, so there
 is nothing here to commit by mistake and nothing to export each morning:
 
 ```bash
@@ -89,7 +89,7 @@ dotnet user-secrets list          # prints the values, so mind the shoulder
 A colon separates section from key here. The host reads user secrets only in the Development
 environment, so nothing about a deployment changes.
 
-**Deployed, or in CI — environment variables.** A double underscore is the separator:
+**Deployed, or in CI: environment variables.** A double underscore is the separator:
 
 ```bash
 export Summarization__ApiKey='…'
@@ -144,7 +144,7 @@ are announced months ahead, and the 404 names the replacement, so this is an out
 in one line rather than one that waits for a release.
 
 **Pictures are sent small on purpose.** Measured on 2026-09-19 against `gemini-3.6-flash`, on the
-heaviest bundle a client may send — twenty-five frames, which is `BundleOptions.MaxFrames`:
+heaviest bundle a client may send (twenty-five frames, which is `BundleOptions.MaxFrames`):
 
 | `MediaResolution` | Time to draft | Prompt tokens | Cost |
 | --- | --- | --- | --- |
@@ -160,7 +160,7 @@ sees less of whatever OCR missed, which is the right direction for INV-1.
 
 **The token rates are settings too, and they are estimates.** The defaults are Gemini Flash 3.x standard
 rates read on 2026-09-19; they are scheduled to double on 2027-01-01. They feed a spending cap rather
-than an invoice, so being slightly wrong costs a tenant a few sessions either way — but a rate that is
+than an invoice, so being slightly wrong costs a tenant a few sessions either way, but a rate that is
 stale by a factor of ten, as the first set was, is not a cap at all. Thinking tokens are billed at the
 output rate and are counted separately by the provider from the answer's own tokens; both are charged.
 
@@ -177,7 +177,7 @@ With one, a session gets exactly one model call, and:
 
 `DraftValidator` refuses a draft before it is returned: an invented frame reference, a quotation nobody
 uttered, a credential written back out, or a note that reads as an instruction. That last one is the
-prompt-injection defence — text on a customer's screen can ask a model to emit a command, and a note is
+prompt-injection defence: text on a customer's screen can ask a model to emit a command, and a note is
 where somebody downstream would find it and run it.
 
 ## Integration credentials
@@ -212,8 +212,8 @@ Development.
 ## Authentication
 
 A device is activated once and holds a long-lived refresh token; the database keeps only its SHA-256. It
-exchanges that for short-lived access tokens. Tokens are pinned to HS256 — a token that names its own
-algorithm is a token that can name `none` — with issuer, audience, lifetime and signature all validated
+exchanges that for short-lived access tokens. Tokens are pinned to HS256 (a token that names its own
+algorithm is a token that can name `none`), with issuer, audience, lifetime and signature all validated
 and no clock skew allowed.
 
 Revocation is checked on every request under `/v1` by one shared check, `CallerCheck`: a revoked device, a disabled technician or a disabled tenant is refused, whatever its token still says. Since 2026-10-12 it is an authorization policy on the whole `/v1` group (`CallerPolicy`) rather than a line each handler had to remember, so a route mapped there tomorrow is covered without anyone adding anything; it runs before the request body is read, and its 401 is the same one a forged token gets. `EveryRouteRevocationTests` walks the app's own route table to prove it. That first sentence was aspirational until 2026-09-19. The check existed only on `/v1/me`, so a revoked laptop went on drafting, and spending, until its token expired rather than at activation: a token stays valid for its whole

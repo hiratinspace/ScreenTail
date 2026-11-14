@@ -31,7 +31,7 @@
       <li><span>A ScreenConnect window gets focus. Capture starts within a second: the tray icon turns to recording, and the HUD appears top-right without taking focus.</span><span class="where"><a href="s1-tray.html#state=recording">S1 recording</a> · <a href="s2-hud.html#state=docked">S2 HUD</a></span><span class="inv">INV-4 visible capture · ST-023 auto-start</span></li>
       <li><span>The technician works and talks. Clicks trigger screenshots; speech is transcribed on the device; the HUD counts redactions.</span><span class="where"><a href="s2-hud.html#state=expanded">S2 expanded</a></span><span class="inv">INV-2 no keystrokes · INV-9 tech mic only</span></li>
       <li><span>The remote window closes. After the 90 s grace period the session finalizes; pending redactions get up to 20 s.</span><span class="where"><a href="s5-s7-settings.html#state=capture">S5 grace period</a></span><span class="inv">INV-1 no unredacted frame leaves</span></li>
-      <li><span>Toast: "Draft ready — Printer offline · Acme Dental" with Review.</span><span class="where">Spec §6</span><span class="inv">No focus steal</span></li>
+      <li><span>Toast: "Draft ready: Printer offline · Acme Dental" with Review.</span><span class="where">Spec §6</span><span class="inv">No focus steal</span></li>
       <li><span>Review: scan the note, confirm the ⚠ step (<span class="kbd">Alt+C</span>), keep the suggested ticket, check 0:30.</span><span class="where"><a href="s3-review.html#state=default">S3 default</a></span><span class="inv">30-second review</span></li>
       <li><span><span class="kbd">Ctrl+Enter</span> publishes the note, the time entry and 7 screenshots. Toast: "Published to ticket #48213 · 0:30 logged".</span><span class="where"><a href="s3-review.html#state=published">S3 published</a></span><span class="inv">INV-3 human click</span></li>
     </ol>
@@ -43,7 +43,7 @@
       <li><span>Mid-session, the technician opens 1Password, or focuses a password field in a local app.</span><span class="where"><a href="s5-s7-settings.html#state=privacy">S6 exclusions</a></span><span class="inv">ST-040, ST-043</span></li>
       <li><span>The HUD switches to "Paused: excluded app" or "Paused: sensitive field". No screenshots or typing events are kept; data is dropped, not hidden.</span><span class="where"><a href="s2-hud.html#state=docked">S2 variants</a></span><span class="inv">INV-6</span></li>
       <li><span>Focus returns to the remote window and capture resumes on the next click, with nothing to click.</span><span class="where">S2 recording</span><span class="inv">Auto-resume</span></li>
-      <li><span>A login prompt inside the remote canvas is caught by OCR: masked, and screenshots are suppressed for 10 s.</span><span class="where">—</span><span class="inv">ST-041 sensitive_context</span></li>
+      <li><span>A login prompt inside the remote canvas is caught by OCR: masked, and screenshots are suppressed for 10 s.</span><span class="where">n/a</span><span class="inv">ST-041 sensitive_context</span></li>
       <li><span>In Review, the gap shows as a striped row in Screenshots and a hatched band on the timeline. Spoken secrets show as [REDACTED].</span><span class="where"><a href="s3-review.html#state=default">S3 gap + timeline</a></span><span class="inv">Trust through transparency</span></li>
     </ol>
   </section>

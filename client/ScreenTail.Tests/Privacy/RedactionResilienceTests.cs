@@ -63,7 +63,7 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         //
         // It is discarded now rather than left pending for finalize (2026-09-20). Same answer, sooner:
         // a frame nobody could make readable must not be kept, and leaving it pending meant the worker
-        // had to remember it to avoid picking it up again — a list that grew for the life of the service
+        // had to remember it to avoid picking it up again: a list that grew for the life of the service
         // and a backlog count that never reached zero.
         Assert.Equal(2, worker.Progress.Frames);
         Assert.Equal(1, worker.Progress.Failed);
@@ -78,7 +78,7 @@ public sealed class RedactionResilienceTests : IAsyncDisposable
         // 2026-09-19 review, and the September one before it (P1-9). A frame whose redaction threw was
         // added to an in-memory set that nothing ever emptied. Three things followed: the set grew for
         // the life of the service, every poll of the queue expanded it into a NOT IN list that grew with
-        // it, and the backlog the pill shows counts pending frames — so it never reached zero again, and
+        // it, and the backlog the pill shows counts pending frames, so it never reached zero again, and
         // a technician watching it saw work that was never going to finish.
         //
         // The frame is discarded instead. That is what INV-1 wants anyway: nobody has read it, so nobody

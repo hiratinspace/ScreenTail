@@ -13,7 +13,7 @@ public sealed record HotkeyConflict(HotkeyAction Action, Hotkey Hotkey, string R
 ///
 /// Conflicts come in two kinds and both end in the same place. Two actions bound to the same chord is ours
 /// to catch, and this catches it before anything is registered. Another application already owning the
-/// chord is Windows' to report, and only at registration time — <c>RegisterHotKey</c> simply fails, with no
+/// chord is Windows' to report, and only at registration time: <c>RegisterHotKey</c> simply fails, with no
 /// way to ask who holds it. Either way Settings needs to say which action has no chord and offer one that
 /// is free, because a hotkey that silently does nothing is worse than one that was never offered.
 /// </summary>
@@ -118,8 +118,8 @@ public sealed class HotkeyBindings
     }
 
     /// <summary>
-    /// A chord none of ours is using. It cannot promise Windows will accept it — nothing can, short of
-    /// trying — but it will not collide with a shortcut this application already has.
+    /// A chord none of ours is using. It cannot promise Windows will accept it (nothing can, short of
+    /// trying), but it will not collide with a shortcut this application already has.
     /// </summary>
     public Hotkey? Suggest()
     {

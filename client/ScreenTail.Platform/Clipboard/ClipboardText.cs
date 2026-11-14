@@ -8,7 +8,7 @@ namespace ScreenTail.Platform.Clipboard;
 ///
 /// The Win32 clipboard directly rather than WPF's: the service has no WPF, and the raw API has no thread
 /// requirement. Read once, when a session starts, and handed to <c>TicketHint</c> which keeps digits or
-/// nothing; the text itself is not kept, logged or passed on — a clipboard is whatever the technician
+/// nothing; the text itself is not kept, logged or passed on. A clipboard is whatever the technician
 /// last copied, which may be a password (INV-10, ST-077 AC3). Anything that is not plain text, or a
 /// clipboard held open by another process, is null.
 /// </summary>

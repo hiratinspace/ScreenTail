@@ -44,7 +44,7 @@ def normalise(text: str) -> list[str]:
     folded = unicodedata.normalize("NFKC", text).casefold()
 
     # Hyphens and apostrophes are closed up, so "Wi-Fi" and "wifi", "didn't" and "didnt", "it's" and
-    # "its" are all the same word — which they are, for a note written from this transcript. Two costs,
+    # "its" are all the same word, which they are, for a note written from this transcript. Two costs,
     # both accepted: "twenty-five" becomes "twentyfive" and will not match "twenty five", and a
     # contraction is conflated with a possessive. Both are rare in a support call; "Wi-Fi" is in nearly
     # every one of them, and the alternative charges 50% WER on a two-word sentence heard perfectly.

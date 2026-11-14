@@ -1,4 +1,4 @@
-# Market scan and product ideas — September 2026
+# Market scan and product ideas, September 2026
 
 **Snapshot taken:** 2026-09-15
 **Purpose:** record what the market looked like, where ScreenTail's wedge is, and the feature ideas
@@ -14,8 +14,8 @@ indexes because the vendor blocked direct fetches (marked *indexed*). Treat ever
 
 ## 1. Where ScreenTail stands against this
 
-The goal — follow a remote-fix session, take relevant screenshots with context, add what the
-technician said, and produce a note that can be retrieved later — is already specified in the
+The goal (follow a remote-fix session, take relevant screenshots with context, add what the
+technician said, and produce a note that can be retrieved later) is already specified in the
 Build Plan and the capture half is built (see `docs/STATUS.md`). What is missing is the middle of
 the pipeline: audio capture, drafting, publishing, and the UI wired to the service. This document
 is about where to aim next, not what to build from scratch.
@@ -29,8 +29,8 @@ is about where to aim next, not what to build from scratch.
 | Product | What it does | Where it differs from ScreenTail |
 |---|---|---|
 | **Cyft** (cyft.ai) | Desktop app: reads the screen by OS-level OCR, listens to the call, watches typing; activity stream with timestamps and screenshots. A "pod" inside ConnectWise detects the open ticket. Outputs customer-facing, internal and resolution notes, auto time entry, similar-past-ticket correlation. SOC 2 claimed; 30-day default retention (*indexed*). | Cloud processing. ConnectWise only. No stated on-device redaction. Pricing and platform not public. |
-| **Vight** (vight.ai) | Started as call intelligence; now a background agent "recording the session while they work the ticket". Notes, PSA time entries, follow-ups, sentiment, coaching scores, KB drafts. ConnectWise, Autotask, HaloPSA; IT Glue, Hudu, SharePoint; most MSP phone systems. Case study claims 5,671 unbilled hours recovered across 67,794 calls. Added "AI-powered Level 2 support" in August 2026. | Cloud. No redaction statement beyond encryption, SSO and IP allow-lists. Real traction and press — the competitor to watch. |
-| **IT Glue Cooper Copilot — Smart SOP Generator** (Kaseya) | Chrome extension: Start Capture records screenshots, clicks and keystrokes; live preview with pause/delete; capture stored in the browser; produces an editable SOP in IT Glue. | Browser only. SOP-shaped, not ticket-note-shaped. |
+| **Vight** (vight.ai) | Started as call intelligence; now a background agent "recording the session while they work the ticket". Notes, PSA time entries, follow-ups, sentiment, coaching scores, KB drafts. ConnectWise, Autotask, HaloPSA; IT Glue, Hudu, SharePoint; most MSP phone systems. Case study claims 5,671 unbilled hours recovered across 67,794 calls. Added "AI-powered Level 2 support" in August 2026. | Cloud. No redaction statement beyond encryption, SSO and IP allow-lists. Real traction and press: the competitor to watch. |
+| **IT Glue Cooper Copilot: Smart SOP Generator** (Kaseya) | Chrome extension: Start Capture records screenshots, clicks and keystrokes; live preview with pause/delete; capture stored in the browser; produces an editable SOP in IT Glue. | Browser only. SOP-shaped, not ticket-note-shaped. |
 | **Lexful** (GA August 2026) | AI-native documentation platform: raw notes in, structured SOPs out. "Your data never trains any AI model." | No screen or session capture found. |
 | Scribe, Tango, Guidde, Folge | Generic click-capture SOP tools. | No PSA or RMM integration. |
 
@@ -41,7 +41,7 @@ ScreenTail's value for that tool's users shrinks. Every one of them is locked to
 
 | Tool | Status | What it does | Notes |
 |---|---|---|---|
-| **Atera AI Copilot** — remote session summary | Shipped; in all plans, free since June 2026 | Summary generated from the Splashtop session ("itemised list of actions performed on the end-user Windows device"), tech name and duration. Only when the tech uses Disconnect, not the window's X. Admins see all techs' summaries; techs see their own. Account toggle; turning it off deletes prior summaries. | Splashtop-only, Atera-only. Says "sensitive data (passwords, addresses) are not included" without saying how. |
+| **Atera AI Copilot** (remote session summary) | Shipped; in all plans, free since June 2026 | Summary generated from the Splashtop session ("itemised list of actions performed on the end-user Windows device"), tech name and duration. Only when the tech uses Disconnect, not the window's X. Admins see all techs' summaries; techs see their own. Account toggle; turning it off deletes prior summaries. | Splashtop-only, Atera-only. Says "sensitive data (passwords, addresses) are not included" without saying how. |
 | **TeamViewer Session Insights** | Shipped 2024; Business through Tensor; AI-credit pricing | Summary, smart tags (issue type, applications involved), step-by-step action log; editable, exportable, multi-language. ServiceNow, Salesforce, API. Session Analytics dashboards. | The most mature native implementation. **Rule-based anonymisation on the client before upload**, passwords never recorded, a custom model catches tokens and out-of-office dates; Azure OpenAI in declared regions, no training. |
 | **BeyondTrust Remote Support 26.2.1** | Shipped, cloud only | Auto summary at session end: case summary, step-by-step resolution, system info and tags, highlights. | No privacy detail in the release notes. |
 | **Zoho Assist "Session Highlights"** (v16.5, Aug 2026) | Shipped | Key actions, issue category, apps used, summary; filter by tech, category, tag; export. Zia session audit reports since 2024. | |
@@ -108,7 +108,7 @@ acceptance criteria; the Guide's rule against expanding scope inside a ticket st
 |---|---|---|---|---|
 | 1 | **Errors that appear without a click.** Detect a small centred dialog appearing in the remote-canvas region, capture it, OCR it, and extract error codes and event IDs as structured fields. Tag the frame as an error. | ST-026 already catches the frame; ST-041 already OCRs it | Click-triggered capture misses exactly the errors a technician reads without clicking. Structured error codes make sessions searchable across clients ("0x80070005 seen at three sites this month"), which is the start of the tribal-knowledge story. | Anthropic computer-use guidance; Microsoft Clarity smart events |
 | 2 | **Keep the dead ends.** Have the note prompt render "tried X → error → did Y" instead of a flat step list. | ST-061 | What did not work is the most valuable part of a KB article and the first thing an escalation reader wants. | Supademo branching |
-| 3 | **Named markers as section anchors.** Extend the mark-moment hotkey so the technician can say two words — "root cause", "waiting on vendor", "workaround" — and the draft uses the marker as the interpretive cue for that section. | ST-029, ST-028 | A technician will never type during a fix but will hit a key and say two words. This is Granola's core trick. | Granola |
+| 3 | **Named markers as section anchors.** Extend the mark-moment hotkey so the technician can say two words ("root cause", "waiting on vendor", "workaround") and the draft uses the marker as the interpretive cue for that section. | ST-029, ST-028 | A technician will never type during a fix but will hit a key and say two words. This is Granola's core trick. | Granola |
 | 4 | **Every sentence links to its frame.** Make hover-to-see-the-evidence the primary trust mechanism in Review. | ST-061 already rejects dangling frame references; ST-074, ST-075 | Verifying a claim in one hover beats reading the whole note. Every adjacent category converged on this. | LogRocket Galileo, Fireflies, Teams recap |
 | 5 | **Dead-time accounting.** Detect reboots (the remote window vanishes and reconnects) and long idle stretches. Show the time entry as "45 min, of which 20 waiting on Windows Update" with the idle line toggleable. | ST-066, ST-022 | Unbilled time is the ROI story Vight sells on. Idle subtraction the technician can see and override is more trustworthy than a silent rounding rule. | xop.ai, Vight |
 | 6 | **Three audiences from one session.** Internal note (default), customer-facing plain-English summary, KB draft. | ST-061, ST-096 | Owners show the customer-facing one to clients. Cyft ships this; it is a prompt variant, not new capture. | Cyft, Kaseya Smart Writing Assistant |
@@ -175,8 +175,8 @@ acceptance criteria; the Guide's rule against expanding scope inside a ticket st
 
 ## 6. Open decision
 
-Of the three jobs in §3 — faster notes for technicians, knowledge that compounds, proof for
-disputes and audits — which does the pilot MSP care about most? The answer decides which of the
+Of the three jobs in §3 (faster notes for technicians, knowledge that compounds, proof for
+disputes and audits), which does the pilot MSP care about most? The answer decides which of the
 sixteen ideas become tickets first. ST-110's baseline interviews are the place to ask.
 
 ---

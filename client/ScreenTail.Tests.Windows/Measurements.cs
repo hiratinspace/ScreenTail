@@ -4,7 +4,7 @@ namespace ScreenTail.Tests.Windows;
 /// Where a measured number goes so it can be found again.
 ///
 /// A passing test's console output is kept by xUnit and never reaches the run log, and job summaries are
-/// visible on the run page but not through the API — so a green run used to report its numbers nowhere that
+/// visible on the run page but not through the API, so a green run used to report its numbers nowhere that
 /// could be read back. These go to both, plus a file the workflow uploads, which is the one a person or a
 /// script can actually fetch later to see whether a budget is drifting.
 /// </summary>

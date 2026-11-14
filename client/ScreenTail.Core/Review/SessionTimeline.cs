@@ -12,7 +12,7 @@ public enum TimelineMarkerKind
     /// <summary>A square. A screenshot, and the only kind that can be clicked through to.</summary>
     Frame,
 
-    /// <summary>A flag. "Mark this moment" — the only frame anyone asked for by name.</summary>
+    /// <summary>A flag. "Mark this moment": the only frame anyone asked for by name.</summary>
     Marked,
 
     /// <summary>A striped band. Capture was off, and for how long.</summary>
@@ -51,7 +51,7 @@ public sealed record TranscriptLine(string Id, string At, long TsMs, string Text
     /// <summary>
     /// Whether the redaction engine replaced something here.
     ///
-    /// Not to hide it — it is already gone — but so the panel can show that something was removed rather
+    /// Not to hide it (it is already gone), but so the panel can show that something was removed rather
     /// than leaving a sentence that reads oddly for no visible reason.
     /// </summary>
     public bool HasRedaction => Text.Contains("[REDACTED]", StringComparison.Ordinal);
@@ -62,7 +62,7 @@ public sealed record TranscriptLine(string Id, string At, long TsMs, string Text
 ///
 /// <b>This is where a draft is checked.</b> The note claims things; a technician verifies them by
 /// clicking a sentence and seeing the screenshot it came from. Without that route the only way to check a
-/// draft is to read the whole session, which is the work the product exists to remove — so the thirty
+/// draft is to read the whole session, which is the work the product exists to remove, so the thirty
 /// second review the whole design is built around rests on this panel being right.
 ///
 /// Two rules shape it. <b>Nothing is invented</b>: a sentence with no screenshot near it jumps nowhere
@@ -248,7 +248,7 @@ public sealed class SessionTimeline
 /// Whether the panel is open, and how tall it is (Spec §5 S3).
 ///
 /// Collapsed by default and <c>Alt+T</c> toggles it. The choice persists, because a technician who works
-/// with the transcript open should not reopen it for every session — and the one who never uses it should
+/// with the transcript open should not reopen it for every session, and the one who never uses it should
 /// not have to close it either.
 /// </summary>
 public sealed class TimelinePanelState(bool expanded = false)

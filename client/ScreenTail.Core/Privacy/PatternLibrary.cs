@@ -62,7 +62,7 @@ internal static partial class PatternLibrary
 {
     /// <summary>
     /// Match budget for the built-in patterns, in milliseconds. They are linear, so this never fires on
-    /// input — only on a machine so loaded that matching stalls. It was 100 ms, which a busy CI agent
+    /// input, only on a machine so loaded that matching stalls. It was 100 ms, which a busy CI agent
     /// tripped; at one second a timeout means something is genuinely wrong.
     /// </summary>
     private const int BuiltInTimeoutMs = 1_000;
@@ -132,7 +132,7 @@ internal static partial class PatternLibrary
     private const int MaxWalk = 10;
 
     /// <summary>
-    /// The joining words that assert a value — "is", "was", "set to" — as opposed to the articles and
+    /// The joining words that assert a value ("is", "was", "set to"), as opposed to the articles and
     /// prepositions that merely continue a sentence. An ordinary word reached only through the latter
     /// is the sentence carrying on ("the PIN for the user", "a new password at first login"), not the
     /// secret; one reached through the former is taken as the secret however plain it looks (ST-115).
@@ -145,7 +145,7 @@ internal static partial class PatternLibrary
     /// <summary>
     /// How many words of the secret to mask once one is found.
     ///
-    /// More than one because a spoken password is often more than one word — "Winter 2026" was masked as
+    /// More than one because a spoken password is often more than one word: "Winter 2026" was masked as
     /// "Winter", which leaves the year in the transcript and the audit log claiming otherwise. Bounded,
     /// because the rest of the sentence is a technician's own account of what they did and masking it
     /// teaches them to turn the rule off. This is the value in the text, which is all a transcript gets.
@@ -160,8 +160,8 @@ internal static partial class PatternLibrary
     ///
     /// Three things have to be true at once, which is why this is not a regular expression any more.
     /// Joining words are walked past ("was reset to Spring2027"), so are the noises people make while
-    /// remembering one ("is, uh, Winter2026"). Words that end a sentence about passwords — "incorrect",
-    /// "expired", "blank" — stop it dead, because masking those is what makes a technician turn the rule
+    /// remembering one ("is, uh, Winter2026"). Words that end a sentence about passwords ("incorrect",
+    /// "expired", "blank") stop it dead, because masking those is what makes a technician turn the rule
     /// off. And a password said as two words ("Winter 2026") has to be masked as two, or the year stays
     /// in the transcript with an audit row claiming otherwise (2026-09-20 review).
     ///
@@ -571,7 +571,7 @@ internal static partial class PatternLibrary
             }
             catch (RegexMatchTimeoutException)
             {
-                // Skipped for this frame rather than stalling capture — but the text was then not fully
+                // Skipped for this frame rather than stalling capture, but the text was then not fully
                 // searched, and saying nothing here reported it as clean. The built-ins have always
                 // called this; the custom path did not, so a tenant pattern that timed out let every
                 // account number on the screen be stored with Complete = true (INV-1).
@@ -593,7 +593,7 @@ internal static partial class PatternLibrary
                 try
                 {
                     // A zero-length match returns itself from NextMatch for ever, so it used to end the
-                    // scan — silently, part-way through, leaving the rest of the text unsearched while
+                    // scan silently, part-way through, leaving the rest of the text unsearched while
                     // reporting it clean. Stepping past it keeps going.
                     match = match.Length > 0 ? match.NextMatch() : regex.Match(text, match.Index + 1);
                 }
@@ -835,7 +835,7 @@ internal static partial class PatternLibrary
     /// The card numbers inside one run of digit groups.
     ///
     /// A run is not a card. OCR joins a page's words with single spaces, so whatever sits beside the
-    /// number on a payment form — the CVV, the expiry, a zip code, an order number — arrives in the same
+    /// number on a payment form (the CVV, the expiry, a zip code, an order number) arrives in the same
     /// run. Taking the run as the candidate meant the checksum was computed over the card <i>and</i> its
     /// neighbour, failed, and the card went through unmasked with its CVV beside it (2026-09-19 review).
     ///
@@ -938,7 +938,7 @@ internal static partial class PatternLibrary
     //
     // A bare 123456789 is included only where a cue says what it is. Nine digits on their own are an order
     // number, a part number or a phone number far more often than a social security number, and ST-042
-    // budgets 2% false positives — masking every nine-digit run would spend that many times over on one
+    // budgets 2% false positives. Masking every nine-digit run would spend that many times over on one
     // screen of a customer's order history.
     [GeneratedRegex(
         @"\b(?!000|666|9\d\d)\d{3}[-. ](?!00)\d{2}[-. ](?!0000)\d{4}\b"
