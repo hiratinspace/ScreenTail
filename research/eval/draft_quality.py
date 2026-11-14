@@ -10,7 +10,7 @@ treats them alike cannot hold a 25% target. Case, punctuation and whitespace are
 comparison, for the same reason `wer.py` folds them: a full stop the technician added is not an edit
 worth counting against a model.
 
-**A hallucination is a step whose evidence does not exist.** Not "a step that reads oddly" — that is the
+**A hallucination is a step whose evidence does not exist.** Not "a step that reads oddly"; that is the
 rubric's job, and a human's. A step carries `frame_refs` and `transcript_refs`; when one of those names
 a frame or a segment the session does not contain, the model invented the thing it claims to have seen.
 That is countable, and it is the failure the whole review flow exists to catch.

@@ -35,7 +35,7 @@ internal sealed class OcrWorker : IDisposable
         {
             // Usually a missing VC++ redistributable or no network on first run.
             var reason = $"{ex.GetType().Name}: {ex.Message}";
-            Console.WriteLine($"OCR disabled — {reason}");
+            Console.WriteLine($"OCR disabled: {reason}");
             onUnavailable(reason);
             return null;
         }

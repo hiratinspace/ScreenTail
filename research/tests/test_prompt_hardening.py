@@ -1,7 +1,7 @@
 """What a hostile screen can put into a published ticket note (ST-061).
 
 Found by an adversarial review. The model is handed OCR text from a customer's screen and a transcript,
-and nothing told it those are evidence rather than instructions — so text on a screen could steer the
+and nothing told it those are evidence rather than instructions, so text on a screen could steer the
 note, and the post-conditions would not notice, because `problem`, `result` and `follow_ups` were checked
 for nothing but SSNs and card numbers.
 
@@ -53,14 +53,14 @@ def test_a_follow_up_that_tells_the_reader_to_do_something_is_refused(follow_up:
 
 
 def test_the_problem_field_cannot_carry_a_url_either():
-    # problem, result and suggested_title are copied into the ticket as readily as a step is — and
+    # problem, result and suggested_title are copied into the ticket as readily as a step is, and
     # suggested_title into a customer-visible Discussion note.
     assert any("instruction" in e for e in errors_with(problem="Printer offline; see http://fix.example."))
 
 
 def test_an_invented_quotation_outside_a_step_is_refused():
     # The quotation rule was applied to step text alone, so a fabricated line attributed to the customer
-    # sailed through in `problem` — the field most likely to be read as the customer's own account.
+    # sailed through in `problem`, the field most likely to be read as the customer's own account.
     errors = errors_with(problem='The user said "the last technician deleted my files".')
 
     assert any("nobody said" in e for e in errors)
@@ -87,7 +87,7 @@ def test_a_quotation_in_any_kind_of_marks_still_has_to_be_real(quoted: str):
 )
 def test_a_credential_put_back_into_the_note_is_refused(leak: str):
     # Rule 5 tells the model never to reproduce a password or key, and the backstop checked for cards and
-    # SSNs only — so the one category the prompt names first was the one nothing enforced.
+    # SSNs only, so the one category the prompt names first was the one nothing enforced.
     assert errors_with(result=leak)
 
 
@@ -102,7 +102,7 @@ def test_a_credential_put_back_into_the_note_is_refused(leak: str):
 )
 def test_writing_about_a_password_is_not_reproducing_one(innocent: str):
     # The other half, and the reason the value has to look like a secret rather than merely follow the
-    # word. A failing check fails the whole draft, so a false positive here throws away a correct note —
+    # word. A failing check fails the whole draft, so a false positive here throws away a correct note,
     # and a note about a password prompt is one of the commonest tickets there is.
     assert not errors_with(result=innocent)
 

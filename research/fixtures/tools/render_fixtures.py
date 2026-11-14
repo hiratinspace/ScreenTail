@@ -8,8 +8,8 @@ deterministic: same source, same PNGs.
     python tools/render_fixtures.py
 
 These frames are drawn, not captured. They carry the chrome, layout and secret shapes the real thing
-has, which is what the UI and the pattern engine need, but they are too clean to judge OCR quality on
-— that is what the staged captures in ST-030 are for.
+has, which is what the UI and the pattern engine need, but they are too clean to judge OCR quality on;
+that is what the staged captures in ST-030 are for.
 """
 
 from __future__ import annotations
@@ -572,7 +572,7 @@ def billing_bundle() -> dict[str, object]:
     return {
         "slug": "vpn-billing-portal-rdp",
         "summary": (
-            "A card number on screen, already masked in the stored frame — what a redacted bundle looks like."
+            "A card number on screen, already masked in the stored frame: what a redacted bundle looks like."
         ),
         "screens": screens,
         "session": {

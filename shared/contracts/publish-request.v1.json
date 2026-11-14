@@ -48,7 +48,7 @@
       ],
       "result": "Printing works again.",
       "follow_ups": ["Check the driver on the second printer."],
-      "suggested_title": "Printer offline — Acme Dental",
+      "suggested_title": "Printer offline: Acme Dental",
       "suggested_time_minutes": 23,
       "kb_candidate": false,
       "kb_reason": "Not a KB candidate: one-off fix",

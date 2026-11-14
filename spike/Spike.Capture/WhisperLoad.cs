@@ -41,7 +41,7 @@ internal sealed class WhisperLoad : IDisposable
         catch (Exception ex)
         {
             var reason = $"{ex.GetType().Name}: {ex.Message}";
-            Console.WriteLine($"Whisper disabled — {reason}");
+            Console.WriteLine($"Whisper disabled: {reason}");
             report.WhisperUnavailable = reason;
             return null;
         }

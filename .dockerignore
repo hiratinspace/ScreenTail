@@ -7,7 +7,7 @@
 # inside the image is held to different rules than the build outside it, and fails on generated code.
 !.editorconfig
 # ST-063: the note prompt is embedded in the API assembly, so it is an input to this build. Only the
-# prompt itself — the fixtures, the eval harness and the virtualenv beside it are not.
+# prompt itself; the fixtures, the eval harness and the virtualenv beside it are not.
 !research/
 research/*
 !research/prompts/
