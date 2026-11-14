@@ -207,9 +207,8 @@
                     <WrapPanel Orientation="Horizontal">
                         <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding TicketNoteLabel}" IsChecked="{Binding TicketNote}" AutomationProperties.Name="{Binding TicketNoteName}" />
                         <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding TimeEntryLabel}" IsChecked="{Binding TimeEntry}" AutomationProperties.Name="{Binding TimeEntryName}" />
-                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding KbLabel}" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}" AutomationProperties.HelpText="{Binding KbReason}" />
+                        <CheckBox Margin="0,2,8,2" Style="{StaticResource CheckChip}" Content="{Binding KbLabel}" IsChecked="{Binding KbArticle}" AutomationProperties.Name="{Binding KbName}" ToolTip="{Binding KbReason}" AutomationProperties.HelpText="{Binding KbReason}" />
                     </WrapPanel>
-                    <TextBlock Margin="0,2,0,0" Style="{StaticResource Text.Muted}" Text="{Binding KbReason}" />
                 </StackPanel>
             </Grid>
         </Border>

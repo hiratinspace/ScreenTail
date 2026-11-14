@@ -289,11 +289,11 @@
                                     <controls:Repeater Grid.Column="4" ItemsSource="{Binding Frames}">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type review:FrameChip}">
-                                                <StackPanel Width="160"
+                                                <StackPanel Width="128"
                                                             Margin="0,4,0,4"
                                                             Visibility="{Binding Present, Converter={StaticResource Visible}}">
-                                                    <Button Width="160"
-                                                            Height="90"
+                                                    <Button Width="128"
+                                                            Height="72"
                                                             Style="{StaticResource StepFrame}"
                                                             Tag="{Binding Id}"
                                                             Command="{Binding DataContext.ShowFrameCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
