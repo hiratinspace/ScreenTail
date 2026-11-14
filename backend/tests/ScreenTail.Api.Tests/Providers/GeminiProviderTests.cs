@@ -61,7 +61,7 @@ public sealed class GeminiProviderTests
     {
         // Gemini 3.x reasons before it answers and bills for the reasoning. A one-word question on
         // 2026-09-19 was charged 92 thinking tokens against a single token of answer, so a cost built
-        // from candidatesTokenCount alone under-reports by most of the bill — and the daily cap that
+        // from candidatesTokenCount alone under-reports by most of the bill, and the daily cap that
         // reads it is then a cap on nothing.
         var thinking = await CostOf(prompt: 1_000, output: 200, thoughts: 5_000);
         var spelledOut = await CostOf(prompt: 1_000, output: 5_200, thoughts: 0);
@@ -301,7 +301,7 @@ public sealed class GeminiProviderTests
     {
         // Google answers a rate limit with a google.rpc.RetryInfo in the error details and no Retry-After
         // header, so the only place the number exists is the body. ProviderError has carried a RetryAfter
-        // field since the first provider was written and nothing had ever filled it in — which left
+        // field since the first provider was written and nothing had ever filled it in, which left
         // ST-064's outbox guessing at a delay the provider had already told us.
         var handler = new RecordingHandler(RateLimited("26s"));
         var provider = Provider(handler);

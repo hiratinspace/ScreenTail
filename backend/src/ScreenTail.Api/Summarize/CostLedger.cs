@@ -29,7 +29,7 @@ public sealed class CostLedger(ScreenTailContext db, TimeProvider time, Summariz
     public async Task<decimal> SpentTodayAsync(Guid tenantId, CancellationToken ct = default)
     {
         // A DateTimeOffset, not a DateTime. Comparing the two is an implicit conversion no provider can
-        // translate, so this query threw wherever it ran — which was nowhere, because until the
+        // translate, so this query threw wherever it ran, which was nowhere, because until the
         // 2026-09-19 review the real ledger had no test and every caller used a fake.
         var since = new DateTimeOffset(time.GetUtcNow().UtcDateTime.Date, TimeSpan.Zero);
         return await db.DraftCosts

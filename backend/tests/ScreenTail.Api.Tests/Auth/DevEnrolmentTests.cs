@@ -10,7 +10,7 @@ namespace ScreenTail.Api.Tests.Auth;
 /// enrolment flow to do it properly (ST-010, ST-063).
 ///
 /// ST-010 will issue device tokens as part of signing in. It does not exist, and until it does a client
-/// has nothing to put in an Authorization header — so the path built in #123 could be tested and could
+/// has nothing to put in an Authorization header, so the path built in #123 could be tested and could
 /// not be <em>run</em>. This is the smallest thing that closes that: seed a tenant, a user and a device,
 /// and print a token for them.
 ///

@@ -66,7 +66,7 @@ public static class SummarizeEndpoint
 
             // Everything the bundle could be wrong about, before a model call is paid for. Two of the
             // 2026-09-19 review's findings were requests that were accepted, billed, and only then found
-            // to be unstorable — a billed draft with no ledger row, and a daily cap that never moved.
+            // to be unstorable: a billed draft with no ledger row, and a daily cap that never moved.
             if (BundleLimits.Check(bundle) is { } problem)
             {
                 return Results.BadRequest(new SummarizeResponse("rejected", problem));

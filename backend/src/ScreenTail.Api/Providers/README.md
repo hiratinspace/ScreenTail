@@ -15,8 +15,8 @@ that changes.
 | `IPsaProvider` | Tickets, notes, time entries | ConnectWise Manage (ST-091) | HaloPSA (ST-121) |
 | `IDocProvider` | Companies, knowledge-base articles | Hudu (ST-095) | IT Glue |
 
-They are separate because the two are chosen independently — an MSP may run ConnectWise with Hudu, or
-Autotask with IT Glue — and because the failures differ. A PSA refusing a note stops the billing record;
+They are separate because the two are chosen independently (an MSP may run ConnectWise with Hudu, or
+Autotask with IT Glue) and because the failures differ. A PSA refusing a note stops the billing record;
 a documentation platform refusing an article does not.
 
 ## Failures are values, not exceptions
@@ -37,7 +37,7 @@ if (!result.Ok)
 ### The error kinds
 
 Six, and deliberately no more. A taxonomy with thirty entries becomes thirty branches nobody writes, and
-each unhandled one falls through to "something went wrong" — the message Spec §4 exists to forbid. These
+each unhandled one falls through to "something went wrong", the message Spec §4 exists to forbid. These
 are the cases where the next step genuinely differs.
 
 | Kind | Means | The technician should |
@@ -45,7 +45,7 @@ are the cases where the next step genuinely differs.
 | `Unauthenticated` | Credentials wrong, missing or expired | Fix them in Settings |
 | `Forbidden` | Credentials fine, this account may not | Ask an administrator |
 | `NotFound` | Ticket, company or article is not there | Pick a different one |
-| `Invalid` | The provider refused what we sent | Nothing — it is our bug |
+| `Invalid` | The provider refused what we sent | Nothing; it is our bug |
 | `Unavailable` | Rate limit, timeout, outage | Wait; this is the only retryable one |
 | `Unknown` | A write left and nothing said whether it was saved | Look in the PSA or platform before publishing again |
 
@@ -112,7 +112,7 @@ of the API's answers, and it passes the contract harness like the fake does.
 vault's `hudu` credential like ConnectWise. Companies are paged and cached ten minutes per tenant in
 `HuduCompanyCache`; an article is created as a draft under its company and its attachments are uploaded
 against it; a company the tenant does not have is refused before anything is sent.
-`docs/integrations/hudu.md` says what to verify against a real Hudu first — that `draft` is honoured.
+`docs/integrations/hudu.md` says what to verify against a real Hudu first: that `draft` is honoured.
 
 Both providers send through `ProviderHttp`, so they cannot disagree about what a 429 means: only an
 outage is retried, three attempts at most, and a write only when nothing of it left or the answer was

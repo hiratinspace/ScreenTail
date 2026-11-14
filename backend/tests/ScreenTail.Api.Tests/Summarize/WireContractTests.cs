@@ -20,7 +20,7 @@ namespace ScreenTail.Api.Tests.Summarize;
 /// the field names are the contract. A contract that lives in two comments is a contract that drifts,
 /// and this one drifted before anything could notice: until 2026-09-22 the client's sender was a stub,
 /// so the shape had never been posted anywhere. The client's own bundle carries <c>image</c> as a
-/// <b>path</b>, and this endpoint has always read it as base64 bytes — one field name, two readings,
+/// <b>path</b>, and this endpoint has always read it as base64 bytes: one field name, two readings,
 /// and no test on either side could see it.
 ///
 /// <c>shared/contracts/summarize-request.v1.json</c> is the fixture both ends read. The client asserts

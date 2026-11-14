@@ -11,7 +11,7 @@ namespace ScreenTail.Api.Data;
 /// from a live server, so the placeholder below is never opened.
 ///
 /// <b>It reads the real connection string when there is one.</b> Because EF prefers this factory,
-/// ignoring the environment would mean <c>database update</c> silently used the placeholder — which is
+/// ignoring the environment would mean <c>database update</c> silently used the placeholder, which is
 /// how the first CI run of this failed, with "no password has been provided" pointing at a connection
 /// string nobody had configured.
 /// </summary>

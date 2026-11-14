@@ -10,7 +10,7 @@ namespace ScreenTail.Api.Auth;
 /// How the API is configured to trust a token (ST-008).
 ///
 /// There is no default signing key, and that is deliberate. A development default is a production key
-/// the day somebody forgets to set one, and the failure is silent — everything works, and anyone who
+/// the day somebody forgets to set one, and the failure is silent: everything works, and anyone who
 /// has read the source can mint a token for any tenant. The service refuses to start without one.
 /// </summary>
 public sealed class JwtOptions

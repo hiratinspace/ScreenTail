@@ -9,7 +9,7 @@ namespace ScreenTail.Api.Tests.Summarize;
 /// The daily spending cap, against the real ledger and under concurrency (ST-063; 2026-09-19 review).
 ///
 /// The cap was check-then-act. <c>SpentTodayAsync</c> and the write that recorded a cost were a model
-/// call apart — ten to forty seconds — and nothing happened in between. Every request that started
+/// call apart (ten to forty seconds) and nothing happened in between. Every request that started
 /// while the tenant was a penny under its budget passed the check, so a device that opened five hundred
 /// of them at once ran up five hundred drafts against a cap of ten dollars. A cap enforced at the start
 /// of a queue of one is not a cap.
@@ -20,7 +20,7 @@ namespace ScreenTail.Api.Tests.Summarize;
 /// a hundred too many.
 ///
 /// <c>CostLedger</c> itself had no test at all before this. Only the fakes were exercised, so the query
-/// the cap actually reads had never run anywhere — and EF's SQLite provider refuses <c>Sum</c> over
+/// the cap actually reads had never run anywhere, and EF's SQLite provider refuses <c>Sum</c> over
 /// <c>decimal</c>, which is why nobody noticed.
 /// </summary>
 public sealed class CostCapTests(ApiFixture api) : IClassFixture<ApiFixture>
@@ -100,7 +100,7 @@ public sealed class CostCapTests(ApiFixture api) : IClassFixture<ApiFixture>
     [Fact]
     public async Task ASessionThatCostMoreThanItsReservationStillStopsTheNextOne()
     {
-        // The reservation is an estimate, so a session can cost more than it claimed — a repair retry
+        // The reservation is an estimate, so a session can cost more than it claimed: a repair retry
         // doubles the bill, and the ceiling is a guess about a provider's prices. What must not happen
         // is the cap staying broken: the truth is settled, and the next request reads the truth.
         var tenantId = Guid.NewGuid();

@@ -71,7 +71,7 @@ public sealed class ConnectWiseProviderTests : IDisposable
     public async Task RecentTicketsAreOpenOnesLastTouchedFirstTenAtATime()
     {
         // ST-092's default, for the picker on focus: no condition on the summary, the tenant's open
-        // tickets in the order they were last updated, and a short page — this is a glance, not a search.
+        // tickets in the order they were last updated, and a short page: this is a glance, not a search.
         var result = await Provider().RecentTicketsAsync(TestContext.Current.CancellationToken);
 
         var request = Assert.Single(_api.Requests);

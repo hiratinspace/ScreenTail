@@ -19,7 +19,7 @@ public sealed record BundleFrame(
     ///
     /// The Windows client encodes JPEG, so that is the default and it never has to say. Anything else
     /// does, because the provider cannot tell from base64 and a model handed a PNG labelled as a JPEG
-    /// refuses the whole request — which costs the note, not the picture.
+    /// refuses the whole request, which costs the note, not the picture.
     /// </summary>
     [JsonPropertyName("media_type")]
     public string MediaType { get; init; } = "image/jpeg";

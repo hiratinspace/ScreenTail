@@ -33,7 +33,7 @@ public sealed record PublishedNote(string Id, Uri? Url, ProviderError? Incomplet
 /// <summary>
 /// A professional services automation platform: ConnectWise Manage in v1, HaloPSA in v1.1 (ST-121).
 ///
-/// One interface for all of them, and the client never sees a concrete one — it asks the backend to
+/// One interface for all of them, and the client never sees a concrete one: it asks the backend to
 /// publish and the backend decides which provider that means. A client that knew about ConnectWise would
 /// need a ConnectWise release to support Halo, and would hold a second set of credentials on a
 /// technician's laptop.
@@ -58,7 +58,7 @@ public interface IPsaProvider
 
     /// <summary>
     /// The picker's list before anything is typed (Spec §5 S3): the tenant's open tickets most recently
-    /// touched, ten at most. A glance, not a search — it is asked on every focus.
+    /// touched, ten at most. A glance, not a search: it is asked on every focus.
     /// </summary>
     Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default);
 

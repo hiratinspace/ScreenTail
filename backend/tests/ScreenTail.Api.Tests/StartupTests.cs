@@ -66,7 +66,7 @@ public sealed class StartupTests
     public void AKeyMountedFromAFileStillWorks(string mounted)
     {
         // 2026-09-19 review. A secret mounted from a file or a secrets store almost always arrives with a
-        // trailing newline, and an HTTP header value cannot contain one — so building the request threw a
+        // trailing newline, and an HTTP header value cannot contain one, so building the request threw a
         // FormatException that no catch covered, and every draft came back as a 500 on a deployment whose
         // key was perfectly correct. The operator would have had no way to tell that from a bad key.
         var options = new SummarizationOptions { ApiKey = mounted };
@@ -110,7 +110,7 @@ public sealed class StartupTests
     ///
     /// Read as text because what is being checked is a decision in the composition root, and there is no
     /// object to ask: a middleware that was never added leaves nothing behind to inspect. Brittle in the
-    /// one way that is acceptable — it fails loudly if the line moves, and says so.
+    /// one way that is acceptable: it fails loudly if the line moves, and says so.
     /// </summary>
     private static string ProgramPath()
     {

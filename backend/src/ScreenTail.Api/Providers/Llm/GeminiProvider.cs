@@ -33,7 +33,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     /// <summary>
     /// How this class writes JSON: escaping what JSON requires and nothing more.
     ///
-    /// The default encoder also escapes everything that could matter inside a web page — '+', the
+    /// The default encoder also escapes everything that could matter inside a web page: '+', the
     /// apostrophe, every accented letter. None of this is ever put in a page. It is posted to an API, and
     /// the cost of the caution was real: base64 is one '+' in sixty-four, so every image went out eight
     /// per cent larger, and the model was shown don\u0027t where the technician said don't.
@@ -363,7 +363,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
     }
 
     /// <summary>
-    /// A protobuf duration: seconds, a decimal point and a trailing "s" — <c>26s</c>, <c>26.656292589s</c>.
+    /// A protobuf duration: seconds, a decimal point and a trailing "s", as in <c>26s</c> or <c>26.656292589s</c>.
     /// Parsed whole, because rounding "0.5s" down to nothing produces a retry with no delay, which is
     /// the request that earned the rate limit in the first place.
     /// </summary>
@@ -530,7 +530,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
         var generation = new Dictionary<string, object>
         {
             // Asked for as JSON rather than parsed out of prose. It does not remove the need for the
-            // post-conditions — a schema-valid draft can still cite a frame that does not exist — but it
+            // post-conditions (a schema-valid draft can still cite a frame that does not exist), but it
             // removes the whole class of failure where the answer is a paragraph.
             ["responseMimeType"] = "application/json",
 
@@ -552,7 +552,7 @@ public sealed class GeminiProvider(HttpClient http, SummarizationOptions options
         }
 
         // Straight to the bytes that are sent. Building a string first and encoding it afterwards held
-        // the images three times over — about forty megabytes of allocation for a six-megabyte request.
+        // the images three times over: about forty megabytes of allocation for a six-megabyte request.
         return JsonSerializer.SerializeToUtf8Bytes(
             new
             {
