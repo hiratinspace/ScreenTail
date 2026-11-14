@@ -608,12 +608,12 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Steps = [new DraftStepJson { Text = "Checked the spooler service; it was stopped.", Confidence = "high", FrameRefs = ["f-1"] }],
         Result = "Printing works again.",
         FollowUps = [],
-        SuggestedTitle = "Printer offline — Acme Dental",
+        SuggestedTitle = "Printer offline: Acme Dental",
         SuggestedTimeMinutes = 23,
         KbCandidate = false,
         KbReason = "Not a KB candidate: one-off fix",
         Source = "cloud",
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 
     private static PublishFrame Frame(string id) => new(id, "/9j/4AAQSkZJRg==", "image/jpeg");

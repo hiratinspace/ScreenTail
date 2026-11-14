@@ -52,7 +52,7 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-PROMPT = HERE / "note_v1.md"
+PROMPT = HERE / "note_v2.md"
 RULES = json.loads((HERE / "shared-rules.json").read_text(encoding="utf-8"))
 TABLES = json.loads((HERE / "unicode-tables.json").read_text(encoding="utf-8"))
 
@@ -408,7 +408,7 @@ def prompt_version() -> str:
     for line in PROMPT.read_text(encoding="utf-8").splitlines():
         if line.startswith("**Version:**"):
             return line.split("`")[1]
-    raise AssertionError("note_v1.md does not declare a version")
+    raise AssertionError("note_v2.md does not declare a version")
 
 
 def spoken_form(text: str) -> str | None:

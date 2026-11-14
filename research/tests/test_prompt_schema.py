@@ -92,8 +92,8 @@ def test_output_schema_refuses_anything_it_did_not_ask_for(validator: Draft20201
 
 
 def test_the_prompt_documents_every_field_it_must_return():
-    text = (PROMPTS / "note_v1.md").read_text(encoding="utf-8")
-    assert prompt_version() == "note_v1"
+    text = (PROMPTS / "note_v2.md").read_text(encoding="utf-8")
+    assert prompt_version() == "note_v2"
     for field in OUTPUT_SCHEMA["required"]:
         assert field in text, f"{field} is in the schema but never mentioned in the prompt"
 

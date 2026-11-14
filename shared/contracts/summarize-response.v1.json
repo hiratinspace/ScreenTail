@@ -56,7 +56,7 @@
           "kb_candidate": false,
           "kb_reason": "A routine fix with nothing new to write down.",
           "source": "cloud",
-          "prompt_version": "note_v1"
+          "prompt_version": "note_v2"
         }
       }
     },

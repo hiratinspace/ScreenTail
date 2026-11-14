@@ -749,7 +749,7 @@ public sealed class GeminiProviderTests
     private static string Draft() => """
         {"problem": "p", "steps": [], "result": "r", "follow_ups": [], "suggested_title": "t",
          "suggested_time_minutes": 10, "kb_candidate": false, "kb_reason": "k", "source": "cloud",
-         "prompt_version": "note_v1"}
+         "prompt_version": "note_v2"}
         """;
 
     private static SummarizeBundle Bundle() => new()

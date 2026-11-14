@@ -143,7 +143,7 @@ public sealed class ClaudeProviderTests
             "kb_candidate", "kb_reason", "source", "prompt_version"];
         Assert.Equal(fields, schema.GetProperty("required").EnumerateArray().Select(field => field.GetString()!));
         Assert.Equal(fields, schema.GetProperty("properties").EnumerateObject().Select(field => field.Name));
-        Assert.Equal("note_v1", schema.GetProperty("properties").GetProperty("prompt_version").GetProperty("const").GetString());
+        Assert.Equal("note_v2", schema.GetProperty("properties").GetProperty("prompt_version").GetProperty("const").GetString());
 
         var text = format.GetRawText();
         foreach (var unsupported in new[] { "minLength", "maxLength", "maxItems", "minimum", "maximum", "$schema", "$id" })
@@ -507,7 +507,7 @@ public sealed class ClaudeProviderTests
 
         Assert.True(result.Ok, result.Error?.ToString());
         using var note = JsonDocument.Parse(result.Value!.Json);
-        Assert.Equal("note_v1", note.RootElement.GetProperty("prompt_version").GetString());
+        Assert.Equal("note_v2", note.RootElement.GetProperty("prompt_version").GetString());
     }
 
     // --- When it will not draft ---------------------------------------------------------------------------
@@ -924,7 +924,7 @@ public sealed class ClaudeProviderTests
     private static string Draft() => """
         {"problem": "p", "steps": [], "result": "r", "follow_ups": [], "suggested_title": "t",
          "suggested_time_minutes": 10, "kb_candidate": false, "kb_reason": "k", "source": "cloud",
-         "prompt_version": "note_v1"}
+         "prompt_version": "note_v2"}
         """;
 
     internal static SummarizeBundle Bundle() => new()

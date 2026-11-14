@@ -24,7 +24,7 @@ public sealed record AccessTokenResponse(string AccessToken, DateTimeOffset Expi
 /// </summary>
 public static class DevicesEndpoint
 {
-    public const string SeatLimitMessage = "Seat limit reached — contact your admin";
+    public const string SeatLimitMessage = "Seat limit reached. Contact your admin.";
 
     /// <summary>The answer to any code that is not one we issued, malformed or well-formed: it names no tenant and says nothing about which.</summary>
     public const string UnknownCodeMessage = "That code is not one we issued. Check it against the invite.";

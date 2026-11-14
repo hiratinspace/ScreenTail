@@ -172,6 +172,6 @@ public class SessionValidatorTests
         KbCandidate = false,
         KbReason = "no",
         Source = DraftSource.Cloud,
-        PromptVersion = "note_v1",
+        PromptVersion = "note_v2",
     };
 }
