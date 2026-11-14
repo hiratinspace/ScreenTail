@@ -35,7 +35,7 @@ public sealed class TitleBarTintTests(TheApplication app)
 
                     ThemeManager.Apply(AppTheme.Light, app.Resources);
                     await Audit.Settle();
-                    Assert.Equal(TitleBarTint.For(false, "#141030", "#F7F5FE"), TitleBar.GetApplied(shell));
+                    Assert.Equal(TitleBarTint.For(false, "#ECEDF1", "#121826"), TitleBar.GetApplied(shell));
 
                     ThemeManager.SystemHighContrast = () => true;
                     ThemeManager.Apply(AppTheme.Light, app.Resources);

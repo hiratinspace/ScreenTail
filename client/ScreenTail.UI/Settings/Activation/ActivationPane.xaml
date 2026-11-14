@@ -5,10 +5,10 @@
              AutomationProperties.Name="This device">
     <!-- Spec §5 S8 step 2, here until the onboarding wizard exists (ST-083): the code from the invite
          goes in, the tenant's name comes back. The refresh token stays with the service. -->
-    <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+    <Border Style="{StaticResource Settings.Tile}">
         <StackPanel>
             <StackPanel Orientation="Horizontal">
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="This device" />
+                <TextBlock Style="{StaticResource Text.TileHeading}" Text="This device" />
                 <ContentControl Margin="8,0,0,0"
                                 VerticalAlignment="Center"
                                 Style="{StaticResource Badge.Published}"

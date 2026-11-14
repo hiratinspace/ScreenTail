@@ -66,6 +66,12 @@
         <Setter Property="FontWeight" Value="{DynamicResource Weight.semibold}" />
         <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
     </Style>
+    <!-- A tile's own heading (v0.7.0): body size, semibold, one step under the section heading above the
+         tiles, so a page has three clear levels: screen title, section, tile. -->
+    <Style x:Key="Text.TileHeading" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
+        <Setter Property="FontWeight" Value="{DynamicResource Weight.semibold}" />
+        <Setter Property="Foreground" Value="{DynamicResource Brush.text.primary}" />
+    </Style>
     <Style x:Key="Text.ScreenTitle" BasedOn="{StaticResource Text.Body}" TargetType="TextBlock">
         <Setter Property="FontFamily" Value="{DynamicResource Font.display}" />
         <Setter Property="FontSize" Value="{DynamicResource Size.xl}" />
@@ -1431,6 +1437,17 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{DynamicResource Radius.card}" />
         <Setter Property="Padding" Value="{DynamicResource Padding.card}" />
+    </Style>
+    <!-- A Settings tile (v0.7.0, owner: Windows 11 style): one setting or one small group of them, a
+         compact surface with a 4 px gap to the next, so a section reads as a stack of separate tiles rather
+         than one long card each. -->
+    <Style x:Key="Settings.Tile" TargetType="Border">
+        <Setter Property="Background" Value="{DynamicResource Brush.bg.surface}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Brush.border.subtle}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{DynamicResource Radius.control}" />
+        <Setter Property="Padding" Value="16,12" />
+        <Setter Property="Margin" Value="0,0,0,4" />
     </Style>
     <!-- Pane: one of Review's three columns, a card with no outer margin of its own. -->
     <Style x:Key="Pane" BasedOn="{StaticResource Card}" TargetType="Border">

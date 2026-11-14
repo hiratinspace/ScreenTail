@@ -56,7 +56,6 @@ Theme/Components.xaml	Margin	11,4,34,4	1
 Theme/Components.xaml	Margin	3	1
 Theme/Components.xaml	Margin	9,0	1
 Theme/Components.xaml	Margin	9,0,-9,0	1
-Theme/Components.xaml	MinHeight	36	1
 Theme/Components.xaml	MinHeight	52	1
 Theme/Components.xaml	Padding	10,0	2
 Theme/Components.xaml	Padding	10,2	1

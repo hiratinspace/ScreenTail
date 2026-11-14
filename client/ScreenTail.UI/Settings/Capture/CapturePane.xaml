@@ -6,10 +6,10 @@
     <StackPanel MaxWidth="{DynamicResource Layout.content-max-width}" HorizontalAlignment="Stretch">
 
         <!-- Remote tools: a toggle per tool the registry knows. -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Remote tools" />
+                    <TextBlock Style="{StaticResource Text.TileHeading}" Text="Remote tools" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[RemoteTools]}" />
                 </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A session starts when one of these takes focus. Switch one off and its windows are not captured." />
@@ -24,10 +24,10 @@
         </Border>
 
         <!-- Capture scope, with the inline warning and a confirmation before "All windows" saves (INV-5). -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Capture scope" />
+                    <TextBlock Style="{StaticResource Text.TileHeading}" Text="Capture scope" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[CaptureScope]}" />
                 </StackPanel>
                 <RadioButton Margin="0,8,0,0" GroupName="Scope" Content="Remote-tool windows and admin tools (Recommended)" IsChecked="{Binding RemoteToolsOnly}" IsEnabled="{Binding ScopeEditable}" />
@@ -42,10 +42,10 @@
         </Border>
 
         <!-- Auto-start and the grace period. -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Starting and stopping" />
+                    <TextBlock Style="{StaticResource Text.TileHeading}" Text="Starting and stopping" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[StartingAndStopping]}" />
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Start a session by itself when a remote tool takes focus" IsChecked="{Binding AutoStart}" />
@@ -59,10 +59,10 @@
         </Border>
 
         <!-- Hotkeys, checked as typed; a clash names an alternative inline (ST-029). -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Hotkeys" />
+                    <TextBlock Style="{StaticResource Text.TileHeading}" Text="Hotkeys" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Hotkeys]}" />
                 </StackPanel>
                 <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding Hotkeys}">
@@ -85,10 +85,10 @@
         </Border>
 
         <!-- Screenshots and the microphone. -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Screenshots" />
+                    <TextBlock Style="{StaticResource Text.TileHeading}" Text="Screenshots" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Screenshots]}" />
                 </StackPanel>
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="How readily a screenshot is taken when the screen changes between clicks." />
@@ -106,7 +106,7 @@
                      on screen with the window in front (the code-behind says when); nothing is recorded. -->
                 <StackPanel x:Name="MicrophoneCard">
                     <StackPanel Margin="0,24,0,0" Orientation="Horizontal">
-                        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Microphone" />
+                        <TextBlock Style="{StaticResource Text.TileHeading}" Text="Microphone" />
                         <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[Microphone]}" />
                     </StackPanel>
                     <TextBlock Margin="0,8,0,4" Style="{StaticResource Text.Label}" Text="Device" />
@@ -158,7 +158,7 @@
             </StackPanel>
         </Border>
 
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+        <Border Style="{StaticResource Settings.Tile}">
             <StackPanel Orientation="Horizontal">
                 <CheckBox Content="Start ScreenTail when I sign in to Windows" IsChecked="{Binding StartUiAtLogin}" />
                 <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[StartAtSignIn]}" />

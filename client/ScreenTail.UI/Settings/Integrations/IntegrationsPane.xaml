@@ -9,10 +9,10 @@
              fields. A PasswordBox that goes out of view is cleared in code-behind, so a private key
              does not sit in a collapsed control for the afternoon. -->
         <DataTemplate x:Key="IntegrationCardTemplate" DataType="{x:Type local:IntegrationCardViewModel}">
-            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <Border Style="{StaticResource Settings.Tile}">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                        <TextBlock Style="{StaticResource Text.TileHeading}" Text="{Binding Title}" />
                         <ContentControl Margin="8,0,0,0"
                                         VerticalAlignment="Center"
                                         Style="{StaticResource Badge.Published}"
@@ -175,13 +175,13 @@
 
         <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
              nobody takes it for ConnectWise or Hudu, or a provider this version does not know. -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding OthersVisibility}">
+        <Border Style="{StaticResource Settings.Tile}" Visibility="{Binding OthersVisibility}">
             <controls:Repeater ItemsSource="{Binding Others}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                                <TextBlock Style="{StaticResource Text.TileHeading}" Text="{Binding Title}" />
                                 <ContentControl Margin="8,0,0,0"
                                                 VerticalAlignment="Center"
                                                 Style="{StaticResource Badge.Published}"
@@ -203,9 +203,9 @@
 
         <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
              filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
-        <Border Style="{StaticResource Card}" Visibility="{Binding MappingsVisibility}">
+        <Border Style="{StaticResource Settings.Tile}" Visibility="{Binding MappingsVisibility}">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
+                <TextBlock Style="{StaticResource Text.TileHeading}" Text="Company mapping" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
                 <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
                 <controls:Repeater Margin="0,12,0,0" ItemsSource="{Binding Mappings}">
