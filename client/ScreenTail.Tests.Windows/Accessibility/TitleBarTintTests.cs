@@ -31,7 +31,7 @@ public sealed class TitleBarTintTests(TheApplication app)
 
                     ThemeManager.Apply(AppTheme.Dark, app.Resources);
                     await Audit.Settle();
-                    Assert.Equal(TitleBarTint.For(false, "#121826", "#F7F5FE"), TitleBar.GetApplied(shell));
+                    Assert.Equal(TitleBarTint.For(false, "#0D111B", "#F7F5FE"), TitleBar.GetApplied(shell));
 
                     ThemeManager.Apply(AppTheme.Light, app.Resources);
                     await Audit.Settle();
@@ -65,7 +65,7 @@ public sealed class TitleBarTintTests(TheApplication app)
             try
             {
                 Assert.True(TitleBar.GetTint(dialog));
-                Assert.Equal(TitleBarTint.For(false, "#121826", "#F7F5FE"), TitleBar.GetApplied(dialog));
+                Assert.Equal(TitleBarTint.For(false, "#0D111B", "#F7F5FE"), TitleBar.GetApplied(dialog));
             }
             finally
             {
