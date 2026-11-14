@@ -12,6 +12,18 @@ measured automatically, and three smaller ones.
 
 ## 1. Where things stand
 
+**Update 2026-11-13: M1 is done.** On the demo laptop, at `main` `074d4cfb` (#311): AnyDesk taking focus
+started a session by itself; about six minutes later the bundle (13 of 15 screenshots, 26 transcript
+segments, about 19k tokens, nothing purged unredacted) went to the backend, Claude (`claude-opus-5-5`)
+answered in 17.5 s, and the owner read the note in Review: **the notes were good**, and the pill and the
+tray showed the recording the whole time. Publish was not part of it (the demo PSA was off). What it
+found: the capture service ran at about 25% of the machine against ST-031's 15% budget, so the throttle
+gave up scene sampling and most OCR for most of the session; a quick focus on AnyDesk left an empty
+18-second session; the dark theme was hard to read and some screens waste space; drafted titles carried
+em dashes because `note_v1` asked for them. The fixes are in flight (#312 Appearance, #313 dark theme,
+#314 `note_v2`); the processor overrun and the empty session are open. The rest of this page is the
+2026-11-10 snapshot.
+
 **Everything between a real session and a published note is built, merged and green. It is not
 established that any of it has run end to end with the real model and a person reading the note.**
 Capture, redaction, speech, the bundle, the outbox, the sender, the backend endpoint, the model call,
@@ -399,7 +411,7 @@ Gemini model on 2026-09-19 (ST-063), on the heaviest bundle a client may send, n
       from a plain PowerShell window, not an administrator one. Run `setup.cmd` again if start says so.
 - [ ] **Turn the laptop runner on** when a pull request waits for it. Today that is the draft #269; the
       two pieces in progress (§1) will need it too.
-- [ ] **Run M1.** On the laptop: one session, and the rehearsal checklist at the end of
+- [x] **Run M1** (done 2026-11-13, see the update at the top). On the laptop: one session, and the rehearsal checklist at the end of
       `docs/dev/demo.md`. Write down what the first note got right and wrong. Drafting with Claude needs
       credits on the Anthropic account; with Gemini the free tier is enough. If anything goes wrong, run
       `report.cmd` before `stop.cmd` and keep the file.
@@ -597,7 +609,7 @@ chose it says so.
 
 | When | What | Who |
 |---|---|---|
-| **Now** | Pull `main` on the demo laptop, then **M1**: one real session drafted by the real model and read, with the demo scripts and the rehearsal checklist | Owner |
+| **Now** | ~~M1~~ done 2026-11-13. Review #312 to #314, then the fixes M1 found: the capture service over its processor budget, and the empty session a quick focus leaves | Owner reviews; agent fixes |
 | Alongside | Turn the laptop runner on so the draft #269 gets its laptop run, then review it; the same for the two pieces in progress when their pull requests open (the "Not confirmed" label and "Mark as published", and the OCR hardening for scaling, lossy viewers and wrapped secrets) | Owner turns the laptop on; agent finishes and opens them |
 | Right after | Write down what the first note got right and wrong, with the rehearsal checklist; that is the first row of the eval corpus, before ST-030's ten sessions exist. The laptop hand checks in §5 can be done in the same sitting | Owner, ten minutes for the note |
 | Then | Fix what M1 finds, as #262 and #264 fixed what the first runs found. Small work that needs no owner: making the loop harness a required check once #268's fix has a few more runs on `main` behind it (it has one), and ST-013's golden replay once ST-030 exists | Agent |
