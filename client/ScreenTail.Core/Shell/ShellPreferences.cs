@@ -3,11 +3,30 @@ using System.Text.Json.Serialization;
 
 namespace ScreenTail.Core.Shell;
 
-public enum AppTheme
+/// <summary>
+/// How ScreenTail looks, as the technician chose it in Settings, Appearance (ST-070). Windows high
+/// contrast is not one of these: it is never chosen here, and it takes over from any of them while it is on.
+/// </summary>
+public enum ThemeChoice
 {
-    Dark,
+    /// <summary>Follow Windows' "Choose your app mode", and change when it does. The default.</summary>
+    System,
     Light,
-    HighContrast,
+    Dark,
+}
+
+public static class ThemeChoices
+{
+    /// <summary>Whether <paramref name="choice"/> shows the light palette, given how Windows' app mode is set now.</summary>
+    public static bool UsesLight(ThemeChoice choice, bool windowsUsesLight) => choice switch
+    {
+        ThemeChoice.Light => true,
+        ThemeChoice.Dark => false,
+        _ => windowsUsesLight,
+    };
+
+    /// <summary>A value the enum does not name, from a hand-edited file, is read as <see cref="ThemeChoice.System"/>.</summary>
+    public static ThemeChoice Known(ThemeChoice choice) => Enum.IsDefined(choice) ? choice : ThemeChoice.System;
 }
 
 /// <param name="Width">Zero means "not set yet", so the shell picks its own size the first time.</param>
@@ -15,7 +34,12 @@ public sealed record ShellPreferences
 {
     public ShellView View { get; init; } = ShellView.Review;
 
-    public AppTheme Theme { get; init; } = AppTheme.Dark;
+    /// <summary>
+    /// Settings, Appearance (ST-070). Follows Windows unless the technician picked Light or Dark. Files
+    /// written before this was a choice carry a "Theme" key that always said Dark, which nobody chose; it
+    /// is not read, so those installations follow Windows too.
+    /// </summary>
+    public ThemeChoice Appearance { get; init; } = ThemeChoice.System;
 
     public double Width { get; init; }
 

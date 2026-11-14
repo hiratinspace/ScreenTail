@@ -18,7 +18,7 @@ public sealed class ShellPreferencesTests : IDisposable
         var preferences = new ShellPreferences
         {
             View = ShellView.History,
-            Theme = AppTheme.Light,
+            Appearance = ThemeChoice.Light,
             Width = 1_280,
             Height = 800,
             Maximised = true,
@@ -50,7 +50,7 @@ public sealed class ShellPreferencesTests : IDisposable
         var loaded = Store().Load();
 
         Assert.Equal(ShellView.Review, loaded.View);
-        Assert.Equal(AppTheme.Dark, loaded.Theme);
+        Assert.Equal(ThemeChoice.System, loaded.Appearance);
         Assert.Equal(0, loaded.Width);
     }
 
@@ -84,12 +84,12 @@ public sealed class ShellPreferencesTests : IDisposable
         // Written through a temporary file and moved over, so a reader during a save never sees a partial
         // one — and a crash mid-save leaves the previous settings intact rather than a broken file.
         var store = Store();
-        store.Save(new ShellPreferences { Theme = AppTheme.Light });
+        store.Save(new ShellPreferences { Appearance = ThemeChoice.Light });
 
-        store.Save(new ShellPreferences { Theme = AppTheme.HighContrast });
+        store.Save(new ShellPreferences { Appearance = ThemeChoice.Dark });
 
         Assert.False(File.Exists(PathTo() + ".tmp"), "a temporary file was left behind");
-        Assert.Equal(AppTheme.HighContrast, Store().Load().Theme);
+        Assert.Equal(ThemeChoice.Dark, Store().Load().Appearance);
     }
 
     [Fact]
@@ -106,12 +106,42 @@ public sealed class ShellPreferencesTests : IDisposable
     public void ThemeIsWrittenAsAWordAndNotANumber()
     {
         // The file is one a person may open. "Light" survives a reordering of the enum; 1 does not.
-        Store().Save(new ShellPreferences { Theme = AppTheme.Light, View = ShellView.Settings });
+        Store().Save(new ShellPreferences { Appearance = ThemeChoice.Light, View = ShellView.Settings });
 
         var written = File.ReadAllText(PathTo());
 
         Assert.Contains("\"Light\"", written, StringComparison.Ordinal);
         Assert.Contains("\"Settings\"", written, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFileFromBeforeAppearanceWasAChoiceFollowsWindows()
+    {
+        // Every earlier version wrote "Theme": "Dark" whatever the technician wanted, since there was no
+        // way to choose. That word is not a choice, so it is not read: the installation follows Windows.
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(PathTo(), """{ "View": "History", "Theme": "Dark", "Width": 1280 }""");
+
+        var loaded = Store().Load();
+
+        Assert.Equal(ThemeChoice.System, loaded.Appearance);
+        Assert.Equal(ShellView.History, loaded.View);
+        Assert.Equal(1_280, loaded.Width);
+    }
+
+    [Fact]
+    public void SavingTheAppearanceKeepsTheRestOfTheFile()
+    {
+        var store = Store();
+        store.Save(new ShellPreferences { View = ShellView.History, Width = 1_280, HudX = 40 });
+
+        Assert.True(Core.Settings.AppearanceSection.Persist(store, ThemeChoice.Light));
+
+        var loaded = Store().Load();
+        Assert.Equal(ThemeChoice.Light, loaded.Appearance);
+        Assert.Equal(ShellView.History, loaded.View);
+        Assert.Equal(1_280, loaded.Width);
+        Assert.Equal(40, loaded.HudX);
     }
 
     private ShellPreferencesStore Store() => new(PathTo());
