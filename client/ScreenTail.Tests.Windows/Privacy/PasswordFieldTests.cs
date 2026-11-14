@@ -89,7 +89,7 @@ public sealed class PasswordFieldTests
     {
         // This runs on every focus change, and focus changes constantly while someone works. ST-031 budgets
         // 15% of the machine for all of ScreenTail, so the per-ask cost is worth knowing rather than
-        // assuming — a cross-process automation call is not obviously cheap.
+        // assuming: a cross-process automation call is not obviously cheap.
         Assert.SkipUnless(OnWindows, "Windows only.");
         using var window = DesktopWindow.Create("ScreenTail probe cost");
         window.AddFields();

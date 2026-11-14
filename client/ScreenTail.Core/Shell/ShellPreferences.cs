@@ -71,7 +71,7 @@ public sealed record ShellPreferences
 /// Remembers where the shell was and how it looked (ST-070, Spec §4).
 ///
 /// Written atomically through a temporary file, because the moment this is saved is when the app is
-/// closing — which is also when a machine is most likely to be shutting down or losing power. A half-
+/// closing, which is also when a machine is most likely to be shutting down or losing power. A half-
 /// written preferences file that fails to parse would reset a technician's window and theme every time
 /// something went wrong, which looks exactly like the app losing their settings at random.
 ///
@@ -83,7 +83,7 @@ public sealed record ShellPreferences
 ///
 /// <b>"Hide the HUD" is deliberately not here.</b> Spec §5 S2 makes it a per-session choice and INV-4
 /// allows a tray-only session only where "the user explicitly chose" it. Persisting it would turn one
-/// right-click into a standing tray-only mode across reboots that the technician never opted into — a
+/// right-click into a standing tray-only mode across reboots that the technician never opted into: a
 /// recording with no visible indicator, which is the thing INV-4 exists to prevent. It lives with the
 /// session instead, and ends with it.
 /// </summary>
@@ -145,8 +145,8 @@ public sealed class ShellPreferencesStore(string path)
     /// <summary>
     /// Everything a bad path or a bad file can throw.
     ///
-    /// The list includes the ones a malformed path raises — a null character, a name too long, a shape
-    /// Windows does not support — and not only the ones a failed write does. Those arrive from a roaming
+    /// The list includes the ones a malformed path raises (a null character, a name too long, a shape
+    /// Windows does not support), and not only the ones a failed write does. Those arrive from a roaming
     /// profile or a settings file just as easily as from a bug, and a method whose contract is "returns
     /// false, never throws" has to mean it: this is the one place in the app where failing loudly would
     /// turn a cosmetic problem into "ScreenTail will not open".

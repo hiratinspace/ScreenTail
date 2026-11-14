@@ -11,7 +11,7 @@ namespace ScreenTail.Tests.Windows.Input;
 /// <summary>
 /// ST-024 against real hooks. These inject keystrokes and clicks with SendInput, so they **take over the
 /// keyboard and mouse** of whatever machine runs them, and skip unless
-/// <c>SCREENTAIL_ALLOW_INPUT_INJECTION=1</c> says that's allowed. Only the dedicated laptop job sets it —
+/// <c>SCREENTAIL_ALLOW_INPUT_INJECTION=1</c> says that's allowed. Only the dedicated laptop job sets it;
 /// the capability job stays safe to run on a machine someone is using.
 ///
 /// Input is aimed at a window this test owns and focuses first, so the keystrokes land nowhere else.
@@ -246,7 +246,7 @@ public sealed class InputHookTests
 
     private static void Record(string measurement) => Measurements.Record(measurement);
 
-    /// <summary>Synthetic input, aimed at whatever currently has focus — which the caller has just taken.</summary>
+    /// <summary>Synthetic input, aimed at whatever currently has focus, which the caller has just taken.</summary>
     private static class Synthetic
     {
         public static void Type(string text)

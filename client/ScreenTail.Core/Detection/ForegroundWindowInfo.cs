@@ -2,11 +2,11 @@ namespace ScreenTail.Core.Detection;
 
 /// <summary>
 /// The window in front, as much of it as Windows will tell us (ST-022). Everything here is a window
-/// property — title, process, class — and never window content: nothing read here is captured (INV-2).
+/// property (title, process, class) and never window content: nothing read here is captured (INV-2).
 /// </summary>
 /// <param name="ProcessId">0 when the window vanished before we could resolve it.</param>
 /// <param name="ProcessName">Executable name without extension, or null when the process is out of reach.</param>
-/// <param name="Title">Window title. Empty is normal — many windows have none.</param>
+/// <param name="Title">Window title. Empty is normal; many windows have none.</param>
 /// <param name="BrowserTabTitle">
 /// For a browser, the active tab's title with the browser's own suffix removed. Null for everything else.
 /// </param>
@@ -31,7 +31,7 @@ public sealed record ForegroundWindowInfo(
     ///
     /// A tab title is not evidence of what a tab is. "ScreenConnect" appears in a support email, a search
     /// result and the vendor's own documentation, and matching on it put the whole browser in scope and
-    /// started a session — so a technician reading about a tool had their browsing captured (INV-5,
+    /// started a session, so a technician reading about a tool had their browsing captured (INV-5,
     /// 2026-09-19 review). The registry has carried a url_pattern for every browser entry since it was
     /// written; nothing ever filled this in for it to match against.
     ///
@@ -39,7 +39,7 @@ public sealed record ForegroundWindowInfo(
     /// </summary>
     public string? BrowserUrl { get; init; }
 
-    /// <summary>Nothing is in the foreground — the desktop, a lock screen, or a window that just closed.</summary>
+    /// <summary>Nothing is in the foreground: the desktop, a lock screen, or a window that just closed.</summary>
     public static ForegroundWindowInfo None(DateTimeOffset at) =>
         new(0, 0, null, string.Empty, string.Empty, null, false, at);
 

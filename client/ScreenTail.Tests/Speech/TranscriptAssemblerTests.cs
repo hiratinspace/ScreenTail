@@ -7,7 +7,7 @@ namespace ScreenTail.Tests.Speech;
 /// ST-027: what reaches the transcript, and what must not (INV-9).
 ///
 /// The hallucination cases are the point. ST-061 verifies a drafted quotation against the transcript, so a
-/// line the model invented does not merely add noise — it makes a fabricated quote pass the check and get
+/// line the model invented does not merely add noise; it makes a fabricated quote pass the check and get
 /// published into a customer's ticket as something the technician said.
 /// </summary>
 public sealed class TranscriptAssemblerTests

@@ -3,12 +3,12 @@
 -- The hash chain catches a row that was edited, removed from the middle, or reordered: every hash after
 -- it stops matching. It does not catch rows removed from the end. Delete the last fifty and what remains
 -- is a shorter chain that verifies perfectly, which is exactly the edit somebody covering a purge would
--- make — and the export would say "all 120 audit rows verify" about a log that had 170 (weaknesses P1-5).
+-- make, and the export would say "all 120 audit rows verify" about a log that had 170 (weaknesses P1-5).
 --
 -- So the end is written down separately: how many rows there have been, and the hash of the last one.
 -- One row, enforced by the CHECK, updated in the same gate as every append.
 --
--- This is not a signature either. Someone holding the store key can edit this table too — but they now
+-- This is not a signature either. Someone holding the store key can edit this table too, but they now
 -- have to edit two places consistently rather than delete from one, and the claim the chain makes has
 -- always been that tampering cannot be made to look like it never happened.
 CREATE TABLE audit_head (

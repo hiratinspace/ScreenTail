@@ -13,7 +13,7 @@ namespace ScreenTail.Tests.Notifications;
 /// next step costs nothing.
 ///
 /// The rule underneath all of them is the failure rule. A draft that could not be written must never take
-/// the session with it — the screenshots and the transcript are still there, they are what the technician
+/// the session with it: the screenshots and the transcript are still there, they are what the technician
 /// came for, and an error page where the work used to be is the worst possible answer.
 /// </summary>
 public sealed class NotificationTests
@@ -76,7 +76,7 @@ public sealed class NotificationTests
     [Fact]
     public void NothingIsSaidTwiceForTheSameThing()
     {
-        // A state the service repeats — a reconnect, a get_state — must not produce a second toast. Two
+        // A state the service repeats (a reconnect, a get_state) must not produce a second toast. Two
         // identical notifications say the thing happened twice.
         var notifier = new Notifier();
         var state = Capture(CaptureStates.DraftReady, "Printer offline", "Acme Dental");
@@ -145,7 +145,7 @@ public sealed class NotificationTests
         // Spec v0.4.3 settled this shape of question once already, for the offline case: a button that
         // tells you to retry something that cannot succeed is worse than no button, because it makes the
         // technician think the problem is theirs. The same reasoning applies to a deployment with no
-        // provider configured — every retry fails in the same millisecond.
+        // provider configured: every retry fails in the same millisecond.
         Assert.Equal(expected, DraftFailure.CanRetry(reason));
     }
 

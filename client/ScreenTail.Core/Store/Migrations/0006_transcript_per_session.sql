@@ -3,7 +3,7 @@
 -- The id was a table-wide PRIMARY KEY and the ids are "t-0001" upwards, counted from when the capture
 -- service started. So the first thing a technician said after any service restart collided with a row
 -- from an earlier session that retention had not yet removed, the insert failed, the exception left the
--- narration loop — which caught only cancellation — and narration stopped silently for the life of the
+-- narration loop (which caught only cancellation), and narration stopped silently for the life of the
 -- service. Every session after a restart was recorded without a word of what was said.
 --
 -- SQLite cannot alter a primary key, so the table is rebuilt. Everything else about it is unchanged.

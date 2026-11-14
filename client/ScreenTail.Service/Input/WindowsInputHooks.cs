@@ -11,7 +11,7 @@ namespace ScreenTail.Service.Input;
 ///
 /// These callbacks sit on the path every input event in the system travels down. Windows gives them a few
 /// milliseconds each (<c>LowLevelHooksTimeout</c>, 300 ms by default but effectively much tighter under
-/// load) and silently removes a hook that overruns — so the callbacks here classify, write one struct to a
+/// load) and silently removes a hook that overruns, so the callbacks here classify, write one struct to a
 /// lock-free buffer, and return. No allocation, no lock, no syscall, no logging. Everything else happens on
 /// the consumer's thread.
 ///
@@ -66,8 +66,8 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
 
     /// <summary>
     /// The longest a callback has held the input path, in microseconds. ST-024 budgets 1 ms; the spike
-    /// measured 0.445 ms on this hardware. Measuring costs two timestamps and a compare — about fifty
-    /// nanoseconds against that budget — and it is the only number that says whether the machine still
+    /// measured 0.445 ms on this hardware. Measuring costs two timestamps and a compare (about fifty
+    /// nanoseconds against that budget), and it is the only number that says whether the machine still
     /// feels right to the person using it.
     /// </summary>
     public double WorstCallbackMicroseconds =>
@@ -199,7 +199,7 @@ internal sealed class WindowsInputHooks : IAsyncDisposable
 
     /// <summary>
     /// Whether this key would put a character on screen. Decided by range rather than by translating the
-    /// key, because translating it would mean knowing which character — and then having it.
+    /// key, because translating it would mean knowing which character, and then having it.
     /// </summary>
     private static bool IsPrintable(int key) =>
         key is (>= 0x30 and <= 0x39)      // 0-9

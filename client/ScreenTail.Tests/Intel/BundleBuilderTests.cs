@@ -9,8 +9,8 @@ namespace ScreenTail.Tests.Intel;
 /// contain matters more than what it does.
 ///
 /// Every exclusion below is written as a regression test on purpose: remove the filter and the test
-/// fails. The review that produced ST-048 found the opposite shape throughout — well-written decision
-/// classes with no test between them and the data — and this is the layer where that mistake would send
+/// fails. The review that produced ST-048 found the opposite shape throughout (well-written decision
+/// classes with no test between them and the data) and this is the layer where that mistake would send
 /// a customer's unredacted screen to a model provider.
 /// </summary>
 public sealed class BundleBuilderTests
@@ -153,7 +153,7 @@ public sealed class BundleBuilderTests
         // request refused for being too large costs the whole note rather than a few pictures.
         //
         // The weight comes from the store now. This test used to fake it by putting 300,000 characters
-        // in Frame.Image — which is the *path*, "frames/f001.jpg" — so it measured a string nobody
+        // in Frame.Image, which is the *path*, "frames/f001.jpg", so it measured a string nobody
         // stores and passed against a budget that could never be reached (2026-09-19 review).
         var session = Session([.. Enumerable.Range(0, 200).Select(i => Frame($"f{i:D3}", i * 1_000))]);
 

@@ -370,7 +370,7 @@ public sealed class BrowserPatternEntry
     ///
     /// Required for a match when it is present, because a tab title is not evidence of what a tab is.
     /// Nothing reads a browser's address bar yet (ST-043), so today this means browser entries do not
-    /// match at all — a feature turned off rather than a wrong answer given.
+    /// match at all: a feature turned off rather than a wrong answer given.
     /// </summary>
     [JsonPropertyName("url_pattern")]
     public string? UrlPattern { get; init; }

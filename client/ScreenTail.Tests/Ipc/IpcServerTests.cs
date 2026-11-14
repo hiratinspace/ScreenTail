@@ -89,7 +89,7 @@ public sealed class IpcServerTests : IAsyncDisposable
     public async Task SilentConnectionsCannotLockTheRealUiOut()
     {
         // ST-085 (weaknesses P1-6). The handshake limit was one global counter with no fairness, so a
-        // same-user process — explicitly in scope — could open sixteen connections, send nothing, and
+        // same-user process (explicitly in scope) could open sixteen connections, send nothing, and
         // refill every slot as the timeout reaped them. The real UI then saw the pipe closed during its
         // handshake, could not see or change capture state, and INV-4's indicator became unreachable
         // without touching capture at all.
@@ -783,7 +783,7 @@ public sealed class IpcServerTests : IAsyncDisposable
     public async Task VerifyingTheRealUiDoesNotMakeItLookSilent()
     {
         // 2026-09-19 review, and the half of weaknesses P1-6 that was still open. An entry left the
-        // eviction table only after the *whole* handshake — which includes verifying the peer's
+        // eviction table only after the *whole* handshake, which includes verifying the peer's
         // Authenticode signature, two WinVerifyTrust calls that take real time on a cold file.
         //
         // So the genuine UI counted as "silent" during its own verification, and a same-user process
@@ -850,7 +850,7 @@ public sealed class IpcServerTests : IAsyncDisposable
     public async Task APeerThatSaysNothingDoesNotHoldAConnectionForEver()
     {
         // Before this there was no handshake deadline. A same-user process could connect, send nothing,
-        // and hold a pipe instance and a parked task until the service stopped — thousands of them, until
+        // and hold a pipe instance and a parked task until the service stopped: thousands of them, until
         // the service ran out of the handles it needs to accept the real UI.
         await StartServerAsync();
 
@@ -1214,7 +1214,7 @@ public sealed class IpcServerTests : IAsyncDisposable
         Assert.Equal("modified_binary", refused.Reason);
         Assert.True(refusing.Asked, "the verifier was never consulted");
 
-        // The connection itself is expected — that is how the verifier gets something to inspect. What
+        // The connection itself is expected; that is how the verifier gets something to inspect. What
         // must not have happened is a write.
         await listening.WaitAsync(Soon);
         var read = new byte[64];

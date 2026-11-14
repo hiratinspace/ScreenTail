@@ -6,7 +6,7 @@ namespace ScreenTail.Tests.Schema;
 /// The session schema, loaded once.
 ///
 /// <see cref="JsonSchema.FromFile"/> registers the document globally by its <c>$id</c>, so a second class
-/// loading the same file throws "Overwriting registered schemas is not permitted" — and it throws in
+/// loading the same file throws "Overwriting registered schemas is not permitted", and it throws in
 /// whichever test happened to run second, which makes it look like that test's fault.
 /// </summary>
 internal static class SessionSchema

@@ -5,8 +5,8 @@ namespace ScreenTail.Core.Intel;
 /// <summary>
 /// A ticket number read off what is in front of the technician when a session starts (ST-077).
 ///
-/// The title first — the browser tab's when there is one, because a PSA in a browser puts the ticket in
-/// the tab and the browser's own name in the window — and the clipboard only when the title says nothing.
+/// The title first (the browser tab's when there is one, because a PSA in a browser puts the ticket in
+/// the tab and the browser's own name in the window), and the clipboard only when the title says nothing.
 /// What comes out is digits. The title and the clipboard are read here and nowhere else, and neither is
 /// kept: INV-10 forbids titles in anything that persists, and a clipboard is whatever the technician last
 /// copied, which may be a password.

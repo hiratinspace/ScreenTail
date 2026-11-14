@@ -5,7 +5,7 @@ namespace ScreenTail.Core.Capture;
 ///
 /// A technician double-clicks, drags, clicks through a menu: five clicks in half a second are one action and
 /// deserve one frame. The first click of a burst is the one captured rather than the last, because the
-/// frame is taken to show what was on screen when they acted — waiting for the burst to end would photograph
+/// frame is taken to show what was on screen when they acted; waiting for the burst to end would photograph
 /// the consequence instead of the cause.
 /// </summary>
 public sealed class ClickDebouncer(TimeProvider? time = null, TimeSpan? window = null)

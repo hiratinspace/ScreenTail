@@ -36,8 +36,8 @@ internal sealed class BindingErrors : TraceListener
 
     public static void Listen()
     {
-        // Error only. WPF logs a great deal at Warning that is ordinary — a binding resolving late during
-        // template application, for one — and a check that fires on those would be turned off within a week.
+        // Error only. WPF logs a great deal at Warning that is ordinary (a binding resolving late during
+        // template application, for one), and a check that fires on those would be turned off within a week.
         PresentationTraceSources.Refresh();
         PresentationTraceSources.DataBindingSource.Listeners.Add(new BindingErrors());
         PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Error;

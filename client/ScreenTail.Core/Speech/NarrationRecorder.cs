@@ -48,7 +48,7 @@ public sealed record NarrationOptions
 /// end up in a customer's ticket note.
 ///
 /// <b>Audio is never stored.</b> It lives in a ring buffer long enough to cut the current segment out of
-/// and is overwritten continuously. The session keeps the words, never the recording — there is no
+/// and is overwritten continuously. The session keeps the words, never the recording: there is no
 /// retention rule to get right because there is nothing to retain.
 /// </summary>
 public sealed class NarrationRecorder : IDisposable
@@ -136,7 +136,7 @@ public sealed class NarrationRecorder : IDisposable
     ///
     /// Asked of every chunk as it arrives, rather than of every segment as it is written. The microphone
     /// is opened when the service starts and listens for the life of it, so without this everything said
-    /// between sessions — and while capture was suppressed for a password field — went through Whisper,
+    /// between sessions (and while capture was suppressed for a password field) went through Whisper,
     /// and whether it was stored came down to whether the segment happened to close before capture came
     /// back. A password read aloud during a pause, finished after the resume, was stored (2026-09-19
     /// review).
@@ -270,7 +270,7 @@ public sealed class NarrationRecorder : IDisposable
                     //
                     // It used to be opened for the life of the service and the audio thrown away when no
                     // session was running. That kept INV-9, and it left Windows' microphone-in-use
-                    // indicator lit all day on a machine that records for a fraction of it — which is
+                    // indicator lit all day on a machine that records for a fraction of it, which is
                     // what a customer sees when the technician turns their screen round (2026-09-20
                     // review).
                     //
@@ -538,7 +538,7 @@ public sealed class NarrationRecorder : IDisposable
     ///
     /// The cut happens here, on the microphone's thread, while the audio is certainly still in the ring.
     /// The model runs elsewhere. It used to run here: whisper.cpp takes between 2.6 and 10.8 seconds for
-    /// a segment (ADR-0001), and for all of that the loop consuming audio was not consuming audio — so
+    /// a segment (ADR-0001), and for all of that the loop consuming audio was not consuming audio, so
     /// the sentence after the one being transcribed aged out of the ring and was lost, which the old
     /// comment on this method admitted in as many words (2026-09-20 review).
     /// </summary>
@@ -754,7 +754,7 @@ public sealed class NarrationRecorder : IDisposable
     /// Copies one segment out of the ring, or nothing when it has already been overwritten.
     ///
     /// The buffer is sized for the longest segment the gate can produce, so this only comes up empty if
-    /// transcription has fallen far enough behind that the audio is gone — which is a gap worth counting,
+    /// transcription has fallen far enough behind that the audio is gone, which is a gap worth counting,
     /// not a reason to transcribe whatever is in the buffer now.
     /// </summary>
     private ReadOnlyMemory<short> Extract(SpeechSegment segment)

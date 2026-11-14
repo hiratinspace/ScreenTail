@@ -35,7 +35,7 @@ public partial class App : Application, IDisposable
 
         // Before a window, a tray icon or a pipe. The service verifies the file this process started
         // from, and .NET will load somebody else's code into a genuine signed process if the environment
-        // asks — so an attacker needs no forged binary, only our real one launched with a startup hook
+        // asks, so an attacker needs no forged binary, only our real one launched with a startup hook
         // set. The process being hijacked is ours, so it is ours to refuse (ST-012, 2026-09-19 review).
         //
         // The second line, not the first: a startup hook runs before this does, so the project builds
@@ -70,7 +70,7 @@ public partial class App : Application, IDisposable
         else if (Array.IndexOf(args, "--hud") >= 0 && directory is not null)
         {
             // ST-072's variants. Each pill is its own window, so there is no host window to hang the
-            // render off — and the first version hung a 1x1 Window's ContentRendered, which never fires
+            // render off, and the first version hung a 1x1 Window's ContentRendered, which never fires
             // on a window with no Content. The job sat there for twenty minutes before CI killed it.
             //
             // Driven from the dispatcher instead, with shutdown held open explicitly because nothing is
@@ -105,7 +105,7 @@ public partial class App : Application, IDisposable
         else if (directory is not null)
         {
             // The shell renders itself the same way the gallery does when asked. RenderTargetBitmap draws
-            // offscreen, so this works on a hosted runner with no interactive desktop — which is what makes
+            // offscreen, so this works on a hosted runner with no interactive desktop, which is what makes
             // a XAML shell checkable at all without a machine to look at. It catches what writing XAML
             // blind actually gets wrong: a missing resource key, a style on the wrong target type, a
             // binding to a property that is not there.
@@ -170,7 +170,7 @@ public partial class App : Application, IDisposable
     public void Dispose()
     {
         // Synchronous on purpose: this runs on the way out, and an async void here would let the process
-        // exit with the tray icon still in the notification area — the ghost icon that only disappears
+        // exit with the tray icon still in the notification area: the ghost icon that only disappears
         // when the mouse passes over it.
         _live?.DisposeAsync().AsTask().GetAwaiter().GetResult();
         _live = null;

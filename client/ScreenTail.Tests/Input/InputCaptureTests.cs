@@ -14,7 +14,7 @@ public sealed class InputCaptureTests
     public void NothingInTheSignalTypeCanHoldAKeystroke()
     {
         // INV-2 as a structural fact rather than a habit: adding a field able to carry a key would fail here,
-        // which is the point — the next person to touch this has to confront the invariant deliberately.
+        // which is the point: the next person to touch this has to confront the invariant deliberately.
         var fields = typeof(InputSignal).GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
         Assert.Equal(
@@ -119,7 +119,7 @@ public sealed class InputCaptureTests
             Assert.True(buffer.Write(new InputSignal(InputKind.Click, Tick(), i, 0)));
         }
 
-        // Full. The fifth write still happens — it reports the drop rather than refusing, because a hook
+        // Full. The fifth write still happens: it reports the drop rather than refusing, because a hook
         // callback has nowhere to keep a signal it was not allowed to write.
         Assert.False(buffer.HasRoom);
         Assert.False(buffer.Write(new InputSignal(InputKind.Click, Tick(), 99, 0)));
@@ -183,7 +183,7 @@ public sealed class InputCaptureTests
     [Fact]
     public void WritingIsCheapEnoughForTheInputPath()
     {
-        // Not the real callback — that is measured on the laptop — but this catches an allocation or a lock
+        // Not the real callback (that is measured on the laptop) but this catches an allocation or a lock
         // creeping into the buffer, which is what would actually make the callback slow.
         var buffer = new InputRingBuffer(4096);
         var signal = new InputSignal(InputKind.Click, 0, 1, 2);

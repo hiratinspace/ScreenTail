@@ -18,7 +18,7 @@ public sealed record Banner(BannerKind Kind, string Text);
 /// <summary>
 /// What the note pane says across the top (Spec §5 S3, ST-074).
 ///
-/// Derived, never stored. A banner is a claim about the session — "three screenshots were removed" — and
+/// Derived, never stored. A banner is a claim about the session ("three screenshots were removed"), and
 /// the only thing entitled to make it is the session record itself. A flag set at draft time would go on
 /// saying it after the cause was gone, and worse, would say nothing after a cause that appeared later.
 ///

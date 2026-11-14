@@ -108,7 +108,7 @@ public sealed class ModelDownloadTests : IDisposable
     public async Task AServerThatIgnoresTheRangeStillProducesTheRightFile()
     {
         // Plenty of CDNs answer 200 with the whole file. Appending that to what is already on disk would
-        // give a file with the first bytes twice — which fails the hash only after the whole download.
+        // give a file with the first bytes twice, which fails the hash only after the whole download.
         var server = new StubServer(Weights) { HonourRange = false };
         var download = new ModelDownload(new HttpClient(server));
         var path = Path.Combine(_dir, "model.bin");
@@ -141,7 +141,7 @@ public sealed class ModelDownloadTests : IDisposable
     public async Task APartialThatIsAlreadyTheWholeFileIsFinishedRatherThanStuck()
     {
         // 2026-09-19 review. A partial exactly as long as the model asks the server to resume from the
-        // end, and a correct server answers 416 — which EnsureSuccessStatusCode threw on, before the hash
+        // end, and a correct server answers 416, which EnsureSuccessStatusCode threw on, before the hash
         // was ever computed. The file on disk was complete and correct, and narration stayed broken for
         // the life of the machine because nothing ever got as far as checking it.
         var server = new StubServer(Weights);
@@ -176,7 +176,7 @@ public sealed class ModelDownloadTests : IDisposable
     [Fact]
     public async Task AServerSendingMoreThanTheModelIsCutOff()
     {
-        // The size is known and the hash is checked, so a longer file always fails — but only after it
+        // The size is known and the hash is checked, so a longer file always fails, but only after it
         // has been written. A server that never stops fills the disk before anybody finds out, and the
         // disk it fills is the one holding the encrypted store.
         var server = new StubServer(Weights) { Extra = 5_000_000 };
@@ -187,7 +187,7 @@ public sealed class ModelDownloadTests : IDisposable
             () => download.EnsureAsync(Model(), path, ct: TestContext.Current.CancellationToken));
 
         // The message says which rule stopped it. Without the cap this still throws, on the hash, after
-        // the whole oversized file has been written — so asserting only the exception type would pass
+        // the whole oversized file has been written, so asserting only the exception type would pass
         // against the behaviour being fixed.
         Assert.Contains("longer than it should be", thrown.Message, StringComparison.Ordinal);
         Assert.False(File.Exists(path + ".partial"), "the oversized attempt should not be left to resume from");
@@ -221,7 +221,7 @@ public sealed class ModelDownloadTests : IDisposable
 
         // Collected synchronously. Progress<T> posts to the captured synchronization context, so the
         // reports arrive after the download returns and the assertions become a race against the thread
-        // pool — the test would pass locally and fail on a loaded CI machine.
+        // pool: the test would pass locally and fail on a loaded CI machine.
         var seen = new Collected();
 
         await download.EnsureAsync(Model(), path, seen, TestContext.Current.CancellationToken);

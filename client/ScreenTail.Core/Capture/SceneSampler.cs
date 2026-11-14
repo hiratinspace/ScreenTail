@@ -28,7 +28,7 @@ public sealed record SceneSamplerOptions
     ///
     /// Measured, not guessed: on a synthetic 1080p desktop a caret scores 0, a taskbar clock 0 and heavy
     /// pixel noise 3, while dialogs from 300×160 upwards score 19 to 33. Ten sits in that gap with room on
-    /// both sides, and leans towards noticing — an extra frame costs a little disk and is capped by
+    /// both sides, and leans towards noticing: an extra frame costs a little disk and is capped by
     /// <see cref="Budget"/>, while a missed dialog is the screenshot the ticket note needed.
     /// </summary>
     public int Threshold { get; init; } = 10;
@@ -57,8 +57,8 @@ public sealed record SceneCounts(long Seen, long Kept, long Unchanged, long TooS
 /// appearing while they watch, a progress bar finishing, a service finally starting. Those are often the
 /// screenshot the ticket note actually needs, and no click marks them.
 ///
-/// The whole difficulty is the other direction. A screen is never perfectly still — a caret blinks, a clock
-/// ticks, an antivirus icon animates — and a sampler that treats any difference as news would fill a
+/// The whole difficulty is the other direction. A screen is never perfectly still (a caret blinks, a clock
+/// ticks, an antivirus icon animates), and a sampler that treats any difference as news would fill a
 /// twenty-minute session with a thousand pictures of the same desktop, blow ST-005's disk budget, and bury
 /// the useful frames. So three things have to be true before a sample is kept: it looks different from the
 /// last frame kept, the last one was not a moment ago, and this session has not already had its share.
@@ -89,7 +89,7 @@ public sealed class SceneSampler(TimeProvider? time = null, SceneSamplerOptions?
 
     /// <summary>
     /// Whether this sample is worth storing. The baseline only moves when a frame is kept, so a screen that
-    /// drifts slowly still trips the threshold eventually — the question is "has it changed since the last
+    /// drifts slowly still trips the threshold eventually. The question is "has it changed since the last
     /// picture we have", not "since a second ago".
     /// </summary>
     public SceneDecision Offer(SceneHash hash)

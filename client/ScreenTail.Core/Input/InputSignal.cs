@@ -27,7 +27,7 @@ public enum MouseButtonKind : byte
 /// One observation from the input hooks (ST-024). A struct, so the ring buffer is a flat array with nothing
 /// to allocate on the input path.
 ///
-/// There is no field here that can hold a key. Not "we choose not to write one" — there is nowhere to put
+/// There is no field here that can hold a key. Not "we choose not to write one": there is nowhere to put
 /// it. That is how INV-2 is kept: the callback classifies into <see cref="InputKind"/> and the virtual-key
 /// code goes out of scope before the callback returns, so no later mistake can start recording keystrokes
 /// without changing this type and every test that pins it.

@@ -61,8 +61,8 @@ public static class IpcTokenFile
         }
         catch
         {
-            // The temporary file holds a live token and is created with whatever permissions it inherits
-            // — the ACL is applied a moment later. If anything between those two points throws, leaving
+            // The temporary file holds a live token and is created with whatever permissions it inherits;
+            // the ACL is applied a moment later. If anything between those two points throws, leaving
             // it on disk hands the token to anyone who can read the folder until "delete everything"
             // next empties it.
             try

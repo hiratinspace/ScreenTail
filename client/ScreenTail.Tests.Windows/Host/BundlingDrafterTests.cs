@@ -14,7 +14,7 @@ namespace ScreenTail.Tests.Windows.Host;
 /// ST-060 against the real encrypted store, which is the only place the claim can be tested honestly.
 ///
 /// <see cref="BundleBuilderTests"/> proves the exclusions against a session built in memory. This proves
-/// them against the store a session actually comes out of — the path where a frame nobody has redacted
+/// them against the store a session actually comes out of: the path where a frame nobody has redacted
 /// would have to travel to reach a model provider.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]

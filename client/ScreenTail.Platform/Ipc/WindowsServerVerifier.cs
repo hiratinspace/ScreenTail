@@ -17,7 +17,7 @@ namespace ScreenTail.Platform.Ipc;
 /// defeated without touching capture at all.
 ///
 /// The rule is the same one ADR-0003 already states, read the other way round: the process on the far end
-/// must be Authenticode-signed by our publisher, or — in an unsigned dev build — live in the same
+/// must be Authenticode-signed by our publisher or, in an unsigned dev build, live in the same
 /// directory as this executable.
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -52,7 +52,7 @@ public sealed class WindowsServerVerifier : IServerVerifier
 
         // Asked of the kernel, and held open while the answer is used. Process.MainModule reads the
         // target's own loader data, which a same-user process can rewrite to name the real signed
-        // executable — so the check would go and verify a genuine file on disk while talking to an
+        // executable, so the check would go and verify a genuine file on disk while talking to an
         // impostor. And a process id is reused the moment its process exits, so the handle is what makes
         // the file we verify and the peer we are talking to the same thing (2026-09-19 review).
         using var image = ProcessImage.Of(pid);
@@ -76,8 +76,8 @@ public sealed class WindowsServerVerifier : IServerVerifier
         }
 
         // Only a build that carries no signature at all may fall back to the directory rule. Our own
-        // signature failing to verify — an untrusted certificate, a chain that will not build, a
-        // tampered binary — used to arrive here as the same null thumbprint, so a release quietly
+        // signature failing to verify (an untrusted certificate, a chain that will not build, a
+        // tampered binary) used to arrive here as the same null thumbprint, so a release quietly
         // applied the rule meant for builds nobody signed (2026-09-19 review). A release that cannot
         // vouch for itself vouches for nothing.
         if (!Authenticode.IsUnsigned(_uiExecutable))

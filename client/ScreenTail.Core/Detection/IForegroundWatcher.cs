@@ -29,7 +29,7 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
     private long _reportedAt;
 
     /// <summary>
-    /// How long the same window must hold a new title before the change counts. Titles are the noisy ones —
+    /// How long the same window must hold a new title before the change counts. Titles are the noisy ones:
     /// a progress percentage or an unsaved-changes marker can rewrite the title several times a second.
     /// A change of window is never held back: the 100 ms budget is measured on exactly that.
     /// </summary>

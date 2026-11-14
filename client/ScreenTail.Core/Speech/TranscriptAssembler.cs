@@ -18,7 +18,7 @@ public sealed record Transcribed(SpeechSegment Segment, string Text, double Conf
 /// go through the consent ticket rather than through a field that happened to be settable.
 ///
 /// <b>Silence must not become speech.</b> Whisper emits confident, fluent text for audio that contains
-/// none — "Thank you.", "Thanks for watching!", a line of subtitle credits — and it does it most on the
+/// none ("Thank you.", "Thanks for watching!", a line of subtitle credits), and it does it most on the
 /// quiet stretches a support call is mostly made of. That is ordinarily a nuisance; here it is a
 /// correctness problem with teeth, because ST-061 verifies a drafted quotation by checking it against the
 /// transcript. A hallucinated line does not just add noise: it makes a fabricated quote <em>verifiable</em>,
@@ -77,7 +77,7 @@ public sealed class TranscriptAssembler(TranscriptOptions? options = null)
     /// Whether this looks like the model talking to itself rather than reporting speech.
     ///
     /// Three signals, and it takes more than one to drop a segment where the text is plausible. A
-    /// technician really might say "thank you", and throwing that away silently is its own failure — so a
+    /// technician really might say "thank you", and throwing that away silently is its own failure, so a
     /// known phrase is only rejected when the audio or the confidence agrees it was not spoken.
     /// </summary>
     private bool IsHallucination(string text, Transcribed heard)
@@ -114,7 +114,7 @@ public sealed class TranscriptAssembler(TranscriptOptions? options = null)
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
 
     /// <summary>
-    /// What Whisper says when it has nothing to say. Drawn from its training data — subtitle tracks — which
+    /// What Whisper says when it has nothing to say. Drawn from its training data (subtitle tracks), which
     /// is why the phrases are the ones a video ends with.
     /// </summary>
     private static readonly Regex Boilerplate = new(

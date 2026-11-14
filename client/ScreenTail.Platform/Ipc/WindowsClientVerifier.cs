@@ -13,7 +13,7 @@ namespace ScreenTail.Platform.Ipc;
 /// the rule, never the path.
 ///
 /// "Signed by" means <see cref="Authenticode"/> verified the signature against the file's contents, not
-/// that a matching certificate was found in it — see there for why that distinction is the whole point.
+/// that a matching certificate was found in it. See there for why that distinction is the whole point.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsClientVerifier : IClientVerifier
@@ -44,7 +44,7 @@ public sealed class WindowsClientVerifier : IClientVerifier
 
         // Asked of the kernel, and held open while the answer is used. Process.MainModule reads the
         // target's own loader data, which a same-user process can rewrite to name the real signed
-        // executable — so the check would go and verify a genuine file on disk while talking to an
+        // executable, so the check would go and verify a genuine file on disk while talking to an
         // impostor. And a process id is reused the moment its process exits, so the handle is what makes
         // the file we verify and the peer we are talking to the same thing (2026-09-19 review).
         using var image = ProcessImage.Of(pid);
@@ -68,8 +68,8 @@ public sealed class WindowsClientVerifier : IClientVerifier
         }
 
         // Only a build that carries no signature at all may fall back to the directory rule. Our own
-        // signature failing to verify — an untrusted certificate, a chain that will not build, a
-        // tampered binary — used to arrive here as the same null thumbprint, so a release quietly
+        // signature failing to verify (an untrusted certificate, a chain that will not build, a
+        // tampered binary) used to arrive here as the same null thumbprint, so a release quietly
         // applied the rule meant for builds nobody signed (2026-09-19 review). A release that cannot
         // vouch for itself vouches for nothing.
         if (!Authenticode.IsUnsigned(_serviceExecutable))

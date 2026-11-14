@@ -5,8 +5,8 @@ namespace ScreenTail.Service.Capture;
 /// <summary>
 /// Stands in for the capture sources until the things they need exist.
 ///
-/// The state machine is built early — it has to recover the sessions a crash left behind before the pipe
-/// starts serving, so the first client to connect sees the outcome rather than the orphan — while the
+/// The state machine is built early (it has to recover the sessions a crash left behind before the pipe
+/// starts serving, so the first client to connect sees the outcome rather than the orphan), while the
 /// sources need the screenshot capturer and the scope coordinator, which come later. Before this, the host
 /// passed <see cref="NoCaptureSources"/> and never replaced it, so "mark moment" reached a method that did
 /// nothing: the marker was written and the frame it was meant to point at never existed.

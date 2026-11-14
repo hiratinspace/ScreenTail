@@ -8,7 +8,7 @@ namespace ScreenTail.Tests.Capture;
 /// Where a frame waits between being taken and being read (ADR-0006, ST-041).
 ///
 /// It used to wait in the encrypted store, with <c>redaction_pending = 1</c>. That was never an INV-1
-/// breach — every read path filters the flag — but it was a window: anything holding the store key could
+/// breach (every read path filters the flag) but it was a window: anything holding the store key could
 /// read it while it sat there, a crash left it on disk until the next start, and the freed page kept its
 /// ciphertext until something reused it. ADR-0006 closes all three by not writing the bytes at all.
 ///

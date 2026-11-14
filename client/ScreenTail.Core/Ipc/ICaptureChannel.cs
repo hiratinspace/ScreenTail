@@ -7,7 +7,7 @@ namespace ScreenTail.Core.Ipc;
 ///
 /// <see cref="IpcClient"/> is the real one. The interface exists so that the thing which decides
 /// <em>when</em> to connect, what to show while it cannot, and when to give up can be argued about and
-/// tested without a named pipe, a Windows machine or a running service — which is most of what INV-4
+/// tested without a named pipe, a Windows machine or a running service, which is most of what INV-4
 /// turns on.
 /// </summary>
 public interface ICaptureChannel : IAsyncDisposable

@@ -13,7 +13,7 @@ namespace ScreenTail.Core.Privacy;
 /// prompt. The acceptance criterion is about the product, not the class, so the event has to land somewhere.
 ///
 /// One background loop owns the suppressed/recording decision and nothing else touches it. The obvious
-/// alternative — start a timer on each sighting and unsuppress when it fires — has a race that resumes
+/// alternative (start a timer on each sighting and unsuppress when it fires) has a race that resumes
 /// capture while a login screen is still up: a second sighting arriving as the first timer expires can
 /// leave the resume running after the re-suppress. A single loop comparing "should we be suppressed" with
 /// "are we suppressed" cannot get into that state, and on a signal that is already seconds old (it comes

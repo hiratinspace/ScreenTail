@@ -10,7 +10,7 @@ namespace ScreenTail.Tests.Timeline;
 /// ST-028: which screenshot each thing the technician said was about.
 ///
 /// This decides what a published ticket note claims. A sentence attached to the wrong screenshot is worse
-/// than one attached to none — the note reads as if the technician said something about a step they never
+/// than one attached to none: the note reads as if the technician said something about a step they never
 /// mentioned, and it reads confidently.
 /// </summary>
 public sealed class TimelineAlignerTests
@@ -45,7 +45,7 @@ public sealed class TimelineAlignerTests
     [Fact]
     public void SpeechWithNoScreenshotNearItBecomesNarration()
     {
-        // ST-028's second criterion. The technician explained something they did not screenshot — the
+        // ST-028's second criterion. The technician explained something they did not screenshot; the
         // explanation still has to reach the note, as narration rather than as nothing.
         var frames = new[] { Frame("f1", 2_000) };
         var segments = new[] { Segment("t1", 40_000, 44_000) };
@@ -149,7 +149,7 @@ public sealed class TimelineAlignerTests
     [Fact]
     public void ASessionWithNoScreenshotsIsAllNarration()
     {
-        // A session where scope allowed no frames — every window out of scope — still has everything the
+        // A session where scope allowed no frames (every window out of scope) still has everything the
         // technician said, and Review shows it as narration rather than as an empty note.
         var segments = new[] { Segment("t1", 1_000, 2_000), Segment("t2", 9_000, 10_000) };
 
@@ -189,7 +189,7 @@ public sealed class TimelineAlignerTests
     {
         // ST-028's third criterion, against the real schema rather than a hand-checked shape. Alignment
         // writes frame_id onto segments and adds narration events, and both are shapes the bundle builder,
-        // the drafter and Review all read — a session that no longer validates would break all three.
+        // the drafter and Review all read; a session that no longer validates would break all three.
         var schema = SessionSchema.Instance;
         var frames = new[] { Frame("f1", 12_000) };
         var segments = new[] { Segment("t1", 10_500, 14_200), Segment("t2", 90_000, 92_000) };
@@ -226,7 +226,7 @@ public sealed class TimelineAlignerTests
         RedactionPending = false,
 
         // A frame that is no longer pending has been through the worker, so it has a time it was
-        // redacted at — session.v1 enforces the pair, and SessionJson refuses to write one without it.
+        // redacted at: session.v1 enforces the pair, and SessionJson refuses to write one without it.
         RedactedAt = new DateTimeOffset(2026, 9, 13, 15, 0, 0, TimeSpan.Zero),
         MaskedRegions = [],
         SensitiveContext = false,

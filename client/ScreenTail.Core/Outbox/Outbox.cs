@@ -59,7 +59,7 @@ public sealed class Outbox(
     /// Asks the provider whether an uncertain piece of work actually landed.
     ///
     /// Returns the remote identifier if it did, null if it did not, and throws if it could not be
-    /// established — in which case the item stays uncertain, which is the honest answer.
+    /// established, in which case the item stays uncertain, which is the honest answer.
     ///
     /// Null leaves items parked, and that is the right default: a duplicate note in a customer's ticket
     /// is worse than one a technician can see has not been sent.
@@ -191,7 +191,7 @@ public sealed class Outbox(
             // OperationCanceledException is in that list because HttpClient's own timeout throws
             // TaskCanceledException, not TimeoutException. It used to fall straight out of here, the
             // host's loop read it as "we are shutting down" and ended for the life of the service, and
-            // the item was left Pending with its attempt count untouched — so the next run sent it
+            // the item was left Pending with its attempt count untouched, so the next run sent it
             // again. A duplicate publish is exactly what this class exists to prevent (2026-09-19
             // review). The clause above is what keeps a real shutdown distinguishable.
             outcome = ex is IOException or HttpRequestException

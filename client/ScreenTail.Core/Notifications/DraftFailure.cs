@@ -7,7 +7,7 @@ namespace ScreenTail.Core.Notifications;
 /// failed draft having spent twenty minutes fixing something on a customer's machine. The screenshots,
 /// the click timeline and what they said out loud are all intact and are most of what they came for. An
 /// error where the work used to be would send them to write the note from memory, which is the outcome
-/// this product exists to prevent — so every flag below is true, in every failure, without exception.
+/// this product exists to prevent, so every flag below is true, in every failure, without exception.
 /// </summary>
 /// <param name="Reason">The service's own words about what went wrong. Plain language, never a stack trace.</param>
 /// <param name="CanRetryNow">

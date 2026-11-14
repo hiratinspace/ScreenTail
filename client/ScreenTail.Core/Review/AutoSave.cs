@@ -9,7 +9,7 @@ public enum SaveStatus
     /// <summary>A write is in flight.</summary>
     Saving,
 
-    /// <summary>Edits are waiting for the next due moment. Shown as "Saving…" too — the distinction is
+    /// <summary>Edits are waiting for the next due moment. Shown as "Saving…" too; the distinction is
     /// ours, not the technician's, and a third word would only invite them to wonder about it.</summary>
     Pending,
 
@@ -31,7 +31,7 @@ public sealed record AutoSaveOptions
 
     /// <summary>
     /// The longest an edit may sit unsaved, however fast the typing. ST-074 says edits persist within one
-    /// second, and a plain debounce never fires at all while someone types steadily — which is precisely
+    /// second, and a plain debounce never fires at all while someone types steadily, which is precisely
     /// the moment there is most to lose.
     /// </summary>
     public TimeSpan Ceiling { get; init; } = TimeSpan.FromMilliseconds(900);
@@ -44,8 +44,8 @@ public sealed record AutoSaveOptions
 /// Decides when the note gets written (ST-074).
 ///
 /// It runs no timer of its own: the caller ticks it, which is the UI's dispatcher timer in the app and a
-/// hand-moved clock in the tests. That keeps the whole rule — debounce, ceiling, retry, and the ordering
-/// against a save that is still in flight — testable on a machine with no WPF and no Windows (ADR-0002),
+/// hand-moved clock in the tests. That keeps the whole rule (debounce, ceiling, retry, and the ordering
+/// against a save that is still in flight) testable on a machine with no WPF and no Windows (ADR-0002),
 /// and it means the document stays single-threaded.
 ///
 /// <see cref="NoteDraft.Revision"/> is what it tracks, not a dirty flag. A save takes time, and a
@@ -108,17 +108,17 @@ public sealed class AutoSave : IDisposable
 
     /// <summary>
     /// Call on a timer. Writes if a write is due; otherwise does nothing and returns immediately. A tick
-    /// that arrives while a write is in flight is dropped — another one is along shortly.
+    /// that arrives while a write is in flight is dropped; another one is along shortly.
     /// </summary>
     public Task TickAsync(CancellationToken ct = default) => IsDue() ? WriteAsync(wait: false, ct) : Task.CompletedTask;
 
     /// <summary>
     /// `Ctrl+S`, and closing the window. Writes now if anything is unsaved, ignoring the debounce and any
-    /// retry delay — a technician who asked has waited long enough, and a window about to close has no
+    /// retry delay: a technician who asked has waited long enough, and a window about to close has no
     /// later.
     ///
     /// It waits for a write already in flight rather than returning. Returning was the first version, and
-    /// it dropped whatever was typed *during* that write, on the close path, silently — which is the one
+    /// it dropped whatever was typed *during* that write, on the close path, silently, which is the one
     /// outcome this whole class exists to prevent.
     /// </summary>
     public Task FlushAsync(CancellationToken ct = default) => WriteAsync(wait: true, ct);

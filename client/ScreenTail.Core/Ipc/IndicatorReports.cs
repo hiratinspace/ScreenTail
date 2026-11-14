@@ -6,11 +6,11 @@ namespace ScreenTail.Core.Ipc;
 /// It used to know one thing: how many clients were connected to the pipe. <b>A connection is not a
 /// pill.</b> The window could be positioned on a monitor that had since been unplugged, the tray icon
 /// could be in Windows 11's overflow flyout, and the UI could have frozen while still holding the socket
-/// open — and in all three the service went on recording a customer's screen while counting itself
+/// open, and in all three the service went on recording a customer's screen while counting itself
 /// indicated (2026-09-20 review).
 ///
 /// A report is the UI saying "I am showing the pill", repeated while it is true. Reports expire, so the
-/// interesting case — a UI that has stopped painting but not stopped running — stops counting on its own.
+/// interesting case (a UI that has stopped painting but not stopped running) stops counting on its own.
 ///
 /// A report with a zero width and height says something narrower: the technician chose tray-only between
 /// sessions, and the pill returns as a session starts (owner decision, 2026-10-25). It is accepted here

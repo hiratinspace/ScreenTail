@@ -32,7 +32,7 @@ public sealed class WindowsServerVerifierTests : IDisposable
     public void ATamperedCopyOfASignedBinaryIsRefused()
     {
         // The reason WinVerifyTrust replaced a thumbprint comparison. This copies a genuinely signed
-        // executable — certificate table and all — and changes one byte of its contents. The certificate
+        // executable (certificate table and all) and changes one byte of its contents. The certificate
         // is still there and still has the right thumbprint; the signature no longer covers the file.
         //
         // Under the old check this file passed as "signed by our publisher", which is precisely the
@@ -79,14 +79,14 @@ public sealed class WindowsServerVerifierTests : IDisposable
         //
         // The fail-closed change says only a file with *no signature at all* may use the development
         // rule; a file that is signed and will not verify must refuse. The obvious way to make one is
-        // the trick the tamper test above uses — copy a signed executable and change a byte. On this
+        // the trick the tamper test above uses: copy a signed executable and change a byte. On this
         // machine that produces TRUST_E_NOSIGNATURE, not a bad digest, because dotnet.exe is signed
         // through the system catalog rather than in the file: change one byte and its hash matches no
         // catalog entry, and there is no embedded signature to fail against.
         //
         // So a tampered catalog-signed file genuinely is unsigned as far as Windows is concerned, and
-        // the case the change exists for — a certificate the machine does not trust, a chain that
-        // cannot be built — needs a certificate to construct and cannot be synthesised here.
+        // the case the change exists for (a certificate the machine does not trust, a chain that
+        // cannot be built) needs a certificate to construct and cannot be synthesised here.
         var dotnet = Path.Combine(
             Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
             "dotnet.exe");

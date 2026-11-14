@@ -33,7 +33,7 @@ namespace ScreenTail.UI.Shell;
 ///
 /// This is the piece the UI process did not have. Every window was reachable, tested and rendered in CI,
 /// and none of them was connected to anything: the shell injected a literal snapshot, the HUD was built
-/// only by the CI harness, and no tray icon existed at all. INV-4 — capture is always visibly indicated —
+/// only by the CI harness, and no tray icon existed at all. INV-4 (capture is always visibly indicated)
 /// was true of the design and of nothing that ran (weaknesses P0-2).
 ///
 /// It owns four things and no state of its own:
@@ -567,7 +567,7 @@ public sealed class LiveShell : IAsyncDisposable
     /// Asks the service for a confirmation token, asks the technician to type the word, and sends both.
     ///
     /// Two round trips, and neither is decoration. The dialog is why a misclick no longer costs a
-    /// technician the whole job — this item sits one below "Stop and draft" — and the token is why a
+    /// technician the whole job (this item sits one below "Stop and draft"), and the token is why a
     /// process that is not the UI cannot skip the dialog: the service refuses a discard that does not
     /// carry one it issued moments ago (Spec §3, 2026-09-19 review).
     ///
@@ -666,7 +666,7 @@ public sealed class LiveShell : IAsyncDisposable
     /// arrive at invisible capture through a menu item (INV-4; 2026-09-19 review).
     ///
     /// The service suppresses capture within seconds of the last window closing, so this is belt and
-    /// braces rather than the guarantee — but it is also the difference between a session the technician
+    /// braces rather than the guarantee, but it is also the difference between a session the technician
     /// stopped and one that stops itself with a gap in the middle. Asked, not assumed: quitting during a
     /// live session is a choice, and Spec §3 says an interruption to a session is one to confirm.
     /// </summary>

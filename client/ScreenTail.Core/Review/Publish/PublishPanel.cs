@@ -802,7 +802,7 @@ public sealed class PublishPanel
 
     /// <summary>
     /// The prompt's answer: remember that the ticket's company is this platform company, then send the
-    /// article again — only the article; whatever landed stays landed. Returns whether the backend took
+    /// article again, only the article; whatever landed stays landed. Returns whether the backend took
     /// the mapping; when it did not, the prompt stays up with the results as they were.
     /// </summary>
     public async Task<bool> MapAndRetryAsync(string docCompanyId, DraftNote note, IReadOnlyList<string> frameIds, CancellationToken ct = default)

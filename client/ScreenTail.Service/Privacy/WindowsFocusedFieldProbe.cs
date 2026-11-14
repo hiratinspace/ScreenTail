@@ -15,8 +15,8 @@ internal enum FocusAnswerSource
 /// <summary>
 /// Asks Windows whether the focused control masks what is typed into it (ST-040).
 ///
-/// UI Automation is the only mechanism that answers for every toolkit. The Win32 way — find the focused
-/// window and send it <c>EM_GETPASSWORDCHAR</c> — works for classic edit controls and fails for exactly the
+/// UI Automation is the only mechanism that answers for every toolkit. The Win32 way (find the focused
+/// window and send it <c>EM_GETPASSWORDCHAR</c>) works for classic edit controls and fails for exactly the
 /// cases that matter most: a WPF <c>PasswordBox</c> is not a window at all, and neither is a password field
 /// in a browser. It is kept as a fallback for the reverse case, a control with no automation peer.
 ///

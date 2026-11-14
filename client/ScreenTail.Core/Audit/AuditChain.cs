@@ -9,13 +9,13 @@ namespace ScreenTail.Core.Audit;
 ///
 /// Each row's hash covers its own fields and the hash of the row before it, so changing a row, removing
 /// one, or reordering two breaks every hash from that point forward. That is the whole claim: not that the
-/// log cannot be tampered with — anyone holding the store key can write to the table — but that tampering
+/// log cannot be tampered with (anyone holding the store key can write to the table), but that tampering
 /// cannot be made to look like it never happened.
 ///
 /// <b>This is not a signature.</b> Someone with the key can rewrite a row and recompute the rest of the
 /// chain. Defeating that needs a key the client does not hold, which is ST-114's evidence pack signing it
-/// on the way out, not this. What the chain gives is integrity against edits after the fact — a file
-/// recovered from a backup, a row deleted by hand, a log truncated to hide a purge — which is what the
+/// on the way out, not this. What the chain gives is integrity against edits after the fact (a file
+/// recovered from a backup, a row deleted by hand, a log truncated to hide a purge), which is what the
 /// export is asked to stand behind.
 /// </summary>
 public static class AuditChain
@@ -25,13 +25,13 @@ public static class AuditChain
 
     /// <summary>
     /// ASCII unit separator. Fields are joined with a character none of them can contain, so two different
-    /// rows cannot produce the same string to hash — "a" + "bc" and "ab" + "c" would otherwise collide.
+    /// rows cannot produce the same string to hash: "a" + "bc" and "ab" + "c" would otherwise collide.
     /// </summary>
     private const char Separator = '\u001f';
 
     /// <summary>
     /// The hash of one row. Every field that means anything goes in, separated by a character that cannot
-    /// appear in any of them, so two different rows cannot produce the same string to hash — "a" + "bc"
+    /// appear in any of them, so two different rows cannot produce the same string to hash: "a" + "bc"
     /// and "ab" + "c" would otherwise collide.
     /// </summary>
     public static string Hash(string? previous, DateTimeOffset at, string? sessionId, string type, long? count, string? detail)

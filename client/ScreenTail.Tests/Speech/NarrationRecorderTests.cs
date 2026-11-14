@@ -8,7 +8,7 @@ namespace ScreenTail.Tests.Speech;
 /// ST-027's middle: microphone in, transcript segments out.
 ///
 /// The gate, the assembler and the model download all existed and were tested, and nothing connected
-/// them — there was no audio source, no transcriber and no loop, so a session recorded clicks and
+/// them: there was no audio source, no transcriber and no loop, so a session recorded clicks and
 /// screenshots and heard nothing. This is that loop, and it is in Core so the decisions can be argued
 /// about without a microphone, a Windows machine or a model file.
 ///
@@ -115,7 +115,7 @@ public sealed class NarrationRecorderTests
     public async Task ASegmentStillOpenWhenTheSessionEndsIsNotLost()
     {
         // A technician who stops the session mid-sentence. The gate flushes, and the last thing they said
-        // is usually the outcome — the half of the session a note most needs.
+        // is usually the outcome, the half of the session a note most needs.
         var kept = new List<TranscriptSegment>();
         var recorder = Recorder(
             new FakeMicrophone(Silence(20), Speech(60)),
@@ -131,8 +131,8 @@ public sealed class NarrationRecorderTests
     public async Task NothingSaidWhileCaptureIsOffIsEverTranscribed()
     {
         // 2026-09-19 review. The microphone is opened when the service starts and listens for the life
-        // of it, so everything a technician says between sessions — and while paused for a password
-        // field — went through Whisper, and whether it was stored came down to whether the segment
+        // of it, so everything a technician says between sessions (and while paused for a password
+        // field) went through Whisper, and whether it was stored came down to whether the segment
         // happened to close before capture came back.
         //
         // Nothing is even transcribed now. Audio heard while capture is off is dropped where it arrives,
@@ -261,7 +261,7 @@ public sealed class NarrationRecorderTests
     public async Task AStoreThatRefusesASegmentDoesNotEndNarration()
     {
         // The loop caught cancellation and nothing else, so one failed write stopped narration for the
-        // life of the service — and the failure that actually happened was an id collision on the first
+        // life of the service, and the failure that actually happened was an id collision on the first
         // segment after a restart, which is to say: every session after a restart.
         //
         // Two things said, the first refused by the store. The second has to arrive: a counter that

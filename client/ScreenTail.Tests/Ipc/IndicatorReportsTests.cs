@@ -8,12 +8,12 @@ namespace ScreenTail.Tests.Ipc;
 ///
 /// It used to know one thing: how many clients were connected to the pipe. A connection is not a pill.
 /// The window could be positioned on a monitor that had since been unplugged, the tray icon could be in
-/// Windows 11's overflow flyout, and the UI could have frozen while still holding the socket open —
+/// Windows 11's overflow flyout, and the UI could have frozen while still holding the socket open,
 /// and in all three the service went on recording a customer's screen while counting itself indicated.
 ///
 /// <b>What this changes and what it does not.</b> A report is the UI saying "I am showing the pill, and
 /// here is where". The service cannot verify that, and a process that lies is a process that could
-/// equally well just connect — so this is not a defence against a hostile client, and the comment on the
+/// equally well just connect, so this is not a defence against a hostile client, and the comment on the
 /// guard says so. What it buys is the accidents: a UI that has stopped painting, stopped running, or is
 /// drawing somewhere nobody can see stops reporting, and reports go stale.
 /// </summary>

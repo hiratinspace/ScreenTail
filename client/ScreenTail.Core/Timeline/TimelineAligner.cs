@@ -24,13 +24,13 @@ public sealed record Alignment(IReadOnlyList<TranscriptSegment> Segments, IReadO
 ///
 /// This is what turns a list of pictures and a wall of text into a note somebody can follow: step three
 /// shows the Services window <i>and</i> says "the spooler was stopped, so I started it". Without it, the
-/// drafter gets frames and sentences with nothing joining them, and has to guess — which is exactly the
+/// drafter gets frames and sentences with nothing joining them, and has to guess, which is exactly the
 /// kind of guess that produces a confident, wrong ticket note.
 ///
 /// <b>A segment that overlaps a frame is about that frame.</b> Speech and action overlap constantly: a
 /// technician says "I'm restarting the spooler now" while clicking, so the sentence starts before the
-/// screenshot and ends after it. Anchoring on the segment's start and looking backwards — the literal
-/// reading of "nearest preceding frame" — would miss that entirely and send the most common case to
+/// screenshot and ends after it. Anchoring on the segment's start and looking backwards (the literal
+/// reading of "nearest preceding frame") would miss that entirely and send the most common case to
 /// narration. So distance is measured from the segment's whole span: a frame inside it is zero away.
 ///
 /// <b>Ties go to the earlier frame.</b> When a segment sits exactly between two screenshots, it belongs to
@@ -88,7 +88,7 @@ public static class TimelineAligner
                 continue;
             }
 
-            // Strictly nearer, so the first frame at a given distance wins — and because the list is
+            // Strictly nearer, so the first frame at a given distance wins, and because the list is
             // sorted by time, that is the earlier one.
             if (distance < bestDistance)
             {

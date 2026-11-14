@@ -8,7 +8,7 @@ namespace ScreenTail.Core.Input;
 /// Aggregation lives here rather than in the hook callback for two reasons: the callback must stay trivial,
 /// and a rule like "how long a pause ends a burst" is a judgement that should be readable and testable
 /// without a keyboard. Typing arrives as one signal per key and leaves as one <c>typing_burst</c> with a
-/// count — the count is the only thing about typing that survives (INV-2).
+/// count, and the count is the only thing about typing that survives (INV-2).
 /// </summary>
 public sealed class InputSignalReader(TimeSpan? burstGap = null)
 {
@@ -104,7 +104,7 @@ public sealed class InputSignalReader(TimeSpan? burstGap = null)
     ///
     /// The counter below outlives every boundary the rest of the product respects. The hooks run for the
     /// life of the service, so left alone it goes on counting through a pause, a password field and a
-    /// customer's password manager, and hands the total to whichever event next closes the burst — by
+    /// customer's password manager, and hands the total to whichever event next closes the burst, by
     /// which time capture is back on and nothing about the event says where its keys were typed. The
     /// caller knows when typing may not be counted; this is how it says so.
     /// </summary>

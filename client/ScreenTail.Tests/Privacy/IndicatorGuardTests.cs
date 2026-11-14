@@ -19,7 +19,7 @@ namespace ScreenTail.Tests.Privacy;
 /// anywhere asked whether a UI was attached. A UI that crashed, was quit from its own menu, or was never
 /// started at all left the service recording a customer's screen with no indicator of any kind.
 ///
-/// That is invisible capture reached without touching capture — the review's own phrase for it — and it
+/// That is invisible capture reached without touching capture (the review's own phrase for it) and it
 /// is the thing INV-4 exists to forbid. These tests read the encrypted store afterwards, because what is
 /// written is the claim.
 /// </summary>

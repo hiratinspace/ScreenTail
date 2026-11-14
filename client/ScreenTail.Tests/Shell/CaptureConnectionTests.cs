@@ -140,7 +140,7 @@ public sealed class CaptureConnectionTests
     public async Task BuiltTheWayTheApplicationBuildsItItStillRetries()
     {
         // The test that was missing. Every other case here hands the connection a retry schedule, so
-        // none of them noticed that the application handed it nothing — and that "nothing" meant
+        // none of them noticed that the application handed it nothing, and that "nothing" meant
         // "never", not "the default" as the parameter's own documentation claimed. A UI that started a
         // moment before the service gave up after one attempt and showed a grey tray icon until someone
         // restarted it, while the service went on starting sessions by itself (INV-4; 2026-09-19 review).

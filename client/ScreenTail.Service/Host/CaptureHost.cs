@@ -373,8 +373,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             () => diagnostics(),
             _ =>
             {
-                // Written down before the UI is told yes. Everything after this can fail — a file held
-                // open by antivirus, or the process dying on the way out — and the next start will
+                // Written down before the UI is told yes. Everything after this can fail (a file held
+                // open by antivirus, or the process dying on the way out), and the next start will
                 // finish the job rather than opening what survived (INV-12).
                 LocalDataEraser.MarkPending(paths.DataDirectory);
                 // The device's tokens go now rather than at shutdown, so a renewal still in flight cannot
@@ -421,9 +421,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // ST-023: the registry decides what counts as a support session and what may be photographed
         // alongside one (INV-5). A registry that fails validation stops the service rather than falling back
-        // to something permissive — the safe default here is to capture nothing, not to guess.
+        // to something permissive: the safe default here is to capture nothing, not to guess.
 
-        // ST-043: the shipped exclusions — password managers, banking tabs, credential prompts. Loaded
+        // ST-043: the shipped exclusions (password managers, banking tabs, credential prompts). Loaded
         // beside the registry and refused the same way if it will not parse: a privacy list that silently
         // half-loaded would stop excluding whatever came after the broken rule, and nothing would say so.
         var exclusions = ExclusionList.Load(await File.ReadAllTextAsync(
@@ -519,7 +519,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             logger);
         var capturing = capture.RunAsync(stoppingToken);
 
-        // ST-026: clicks miss everything the technician reads rather than does — a dialog appearing while
+        // ST-026: clicks miss everything the technician reads rather than does, such as a dialog appearing while
         // they watch, a service finally starting. This looks once a second and only pays for a full capture
         // when the screen actually changed.
         //
@@ -574,7 +574,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             LogHotkeyConflict(logger, conflict.Hotkey.ToString(), conflict.Reason, conflict.Suggestion?.ToString() ?? "none");
         }
 
-        // ST-041: without this, every staged frame stays redaction_pending and is deleted at finalize —
+        // ST-041: without this, every staged frame stays redaction_pending and is deleted at finalize, and
         // the session would end with no screenshots at all. This is also the only thing allowed to read a
         // pending frame or to clear the flag, so INV-1 rests on it.
         var recogniser = new WindowsOcrRecogniser();
@@ -593,7 +593,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // ST-040: the other half of INV-6's sensitive-field rule, and the faster half. ST-041 reads the
         // screen and takes seconds; this asks Windows directly the moment focus moves. Each covers what the
-        // other misses — a field with no automation peer, a prompt whose words give it away.
+        // other misses: a field with no automation peer, a prompt whose words give it away.
         await using var focus = new WindowsFocusWatcher();
         using var focusedField = new WindowsFocusedFieldProbe();
         using var password = new PasswordFieldGuard(machine, focusedField);
@@ -672,7 +672,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // Loaded when a session wants it, not when the service starts.
         //
         // ADR-0001 measured the model at 505 MB resident, which is most of ST-031's 600 MB for the whole
-        // of ScreenTail — held all day on a machine that may record nothing at all that day. Waiting for
+        // of ScreenTail, held all day on a machine that may record nothing at all that day. Waiting for
         // the first session costs that session the moment the model takes to load, which on a machine
         // that has already downloaded it is under a second and which AC3 already covers: audio heard
         // before the model is ready is dropped and counted, never queued (2026-09-20 review).

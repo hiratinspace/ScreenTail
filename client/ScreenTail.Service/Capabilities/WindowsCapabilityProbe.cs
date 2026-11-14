@@ -35,7 +35,7 @@ internal sealed class WindowsCapabilityProbe(TimeProvider? time = null) : ICapab
             //
             // The window station is the first. An interactive process is on WinSta0; a service gets its
             // own station (Service-0x0-3e7$) with no desktop behind it, and nothing there can be focused,
-            // hooked, or captured — the mistake ADR-0003 exists to prevent. The session id is the second,
+            // hooked, or captured: the mistake ADR-0003 exists to prevent. The session id is the second,
             // because those are two different ways to be in session 0.
             //
             // Hardening, not a fix for an observed lie: on the laptop this probe answered correctly, and
@@ -184,7 +184,7 @@ internal sealed class WindowsCapabilityProbe(TimeProvider? time = null) : ICapab
 
     /// <summary>
     /// Whether we can read the window in front. Against an elevated window a non-elevated process is blind,
-    /// and that is the correct, expected answer — Spec §5 S2 tells the technician rather than hiding it.
+    /// and that is the correct, expected answer: Spec §5 S2 tells the technician rather than hiding it.
     /// </summary>
     private static CapabilityCheck CheckElevatedWindows()
     {

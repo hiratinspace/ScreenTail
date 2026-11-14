@@ -10,12 +10,12 @@ namespace ScreenTail.Tests.Windows;
 ///
 /// Every test in this project is here because it needs something only a real machine has: a desktop
 /// session, a screen to capture, an OCR language pack. When the machine does not have it, skipping is the
-/// honest outcome — a foreground test on a machine with no foreground proves nothing, and passing it
+/// honest outcome: a foreground test on a machine with no foreground proves nothing, and passing it
 /// vacuously would be worse than not running it.
 ///
 /// What was not honest was the silence. The <c>NO-DESKTOP</c> marker exists so a run that verified
 /// nothing fails instead of going green, but it was written by <see cref="DesktopWindow.RequireForeground"/>
-/// — which a test only reaches after it has already constructed a window. The ten tests most at risk
+/// (which a test only reaches after it has already constructed a window). The ten tests most at risk
 /// asked the capability probe first and returned before building anything, so they skipped in silence and
 /// the canary reported success (weaknesses P1-4). Asking through here writes the marker first.
 ///
@@ -51,7 +51,7 @@ internal static class Hardware
 
         // Written before the skip, because a skip is where this stops being visible. The workflow greps
         // the measurements file for the marker and fails the job on it.
-        Measurements.Record($"{DesktopWindow.NoDesktopMarker}: {test} skipped — {why} ({check.Message})");
+        Measurements.Record($"{DesktopWindow.NoDesktopMarker}: {test} skipped: {why} ({check.Message})");
         Assert.Skip($"{test}: {why}. {check.Message}");
     }
 }

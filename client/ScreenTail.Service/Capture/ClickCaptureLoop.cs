@@ -16,7 +16,7 @@ namespace ScreenTail.Service.Capture;
 /// Windows-only on purpose, and deliberately thin: this reads the ring buffer the hook callbacks write
 /// into, hands the raw signals on, and logs what a frame cost. Every decision about what
 /// may be recorded or photographed lives in <see cref="SessionRecorder"/> in Core, where a test can reach
-/// it without a Windows machine — which is what INV-5 and INV-6 turn on, and what this file used to hide
+/// it without a Windows machine, which is what INV-5 and INV-6 turn on, and what this file used to hide
 /// (ST-048, weaknesses P0-4).
 /// </summary>
 [SupportedOSPlatform("windows")]

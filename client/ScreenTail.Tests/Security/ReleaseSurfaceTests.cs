@@ -7,8 +7,8 @@ namespace ScreenTail.Tests.Security;
 /// ST-012: the client listens on nothing and ships no debug door.
 ///
 /// A grep proves it today; this proves it tomorrow. Both of these are the sort of thing that arrives in a
-/// hurry — a diagnostic HTTP endpoint "just for the pilot", a <c>#if DEBUG</c> that skips the client
-/// check while someone is testing — and both would be invisible in review of the commit that added them.
+/// hurry (a diagnostic HTTP endpoint "just for the pilot", a <c>#if DEBUG</c> that skips the client
+/// check while someone is testing) and both would be invisible in review of the commit that added them.
 ///
 /// The client's only interface is a named pipe with a per-user ACL, a verified peer and a per-run token
 /// (ADR-0003). Anything that listens on a socket is a second interface with none of that, on a
@@ -272,7 +272,7 @@ public sealed class ReleaseSurfaceTests
     {
         // ST-090's third criterion. The client asks the backend to publish and never learns which PSA
         // that means. A client that knew about ConnectWise would need a ConnectWise release to support
-        // HaloPSA, and — worse — would need a second set of a customer's PSA credentials sitting on a
+        // HaloPSA, and (worse) would need a second set of a customer's PSA credentials sitting on a
         // technician's laptop.
         //
         // The provider *names* may appear in copy: Settings has to say which platform is connected.
@@ -293,7 +293,7 @@ public sealed class ReleaseSurfaceTests
     [Fact]
     public void TheseTestsAreLookingAtRealFiles()
     {
-        // The whole suite above passes trivially if the glob finds nothing — which is what happens the
+        // The whole suite above passes trivially if the glob finds nothing, which is what happens the
         // first time somebody runs it from a different working directory.
         foreach (var project in Projects)
         {

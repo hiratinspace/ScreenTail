@@ -35,7 +35,7 @@ public sealed record AuditInterval(long Times, long TotalMs);
 ///
 /// The reason this exists as its own class rather than a method on the store is what it must never do. The
 /// export is handed to a customer asking what ScreenTail saw on their machine, and its value rests
-/// entirely on it carrying no content — no OCR text, no transcript, no window titles. So it is built only
+/// entirely on it carrying no content: no OCR text, no transcript, no window titles. So it is built only
 /// from <see cref="AuditRecord"/>, which has nowhere to put any of those: a type name, a count, a session
 /// id, a timestamp, and a detail that <see cref="AuditDetail"/> has already refused anything sentence-like
 /// for. There is no path from a frame or a transcript segment into this file, by construction rather than
@@ -85,7 +85,7 @@ public static class AuditExport
     }
 
     /// <summary>
-    /// What the rows add up to: Spec §5 S4's line of the story — frames captured, frames purged
+    /// What the rows add up to: Spec §5 S4's line of the story, meaning frames captured, frames purged
     /// unredacted, suppressed intervals, redactions by type, bytes sent and where to.
     /// </summary>
     public static AuditSummary Summarise(IReadOnlyList<AuditRecord> records, string? sessionId = null)

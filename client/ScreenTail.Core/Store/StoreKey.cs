@@ -7,13 +7,13 @@ namespace ScreenTail.Core.Store;
 /// Hands the store key to SQLCipher as bytes (ST-049, weaknesses P1-7).
 ///
 /// <c>PRAGMA key = "x'…'"</c> did the same job and left two full copies of the key in immortal managed
-/// strings — the hex and the command text — which outlived the <c>Array.Clear</c> calls around them and
+/// strings (the hex and the command text), which outlived the <c>Array.Clear</c> calls around them and
 /// survived into any crash dump or page file. The file is encrypted so that a stolen laptop yields
 /// nothing (T4); a key lying in the process heap is the thing that makes that untrue.
 ///
 /// SQLCipher reads the same <c>x'hex'</c> form through <c>sqlite3_key</c> as through the pragma and
 /// treats it as a raw key, skipping the passphrase derivation the key does not need. So the hex still
-/// has to exist — but as ASCII bytes in a buffer this method owns, on the stack, cleared before it
+/// has to exist, but as ASCII bytes in a buffer this method owns, on the stack, cleared before it
 /// returns. Nothing about the key is ever a <see cref="string"/>.
 /// </summary>
 internal static class StoreKey

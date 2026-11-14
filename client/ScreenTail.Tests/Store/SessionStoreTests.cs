@@ -257,8 +257,8 @@ public sealed class SessionStoreTests : IAsyncDisposable
         // 2026-09-19 review. Transcript ids are "t-0001" upwards, counted from when the capture service
         // started, and the id was a table-wide primary key. So the first thing a technician said after
         // any service restart collided with a row from an earlier session that retention had not yet
-        // removed. The insert failed, the exception left the narration loop — which caught only
-        // cancellation — and narration stopped silently for the life of the service.
+        // removed. The insert failed, the exception left the narration loop (which caught only
+        // cancellation) and narration stopped silently for the life of the service.
         //
         // Every session after the first restart was recorded without a word of what was said.
         var store = await OpenAsync();
@@ -712,7 +712,7 @@ public sealed class SessionStoreTests : IAsyncDisposable
     {
         // ADR-0006. A frame used to be inserted unredacted and updated in place once the worker had
         // read it, which is why `redaction_pending` existed as a state on disk at all. It waits in
-        // memory now, so the only write is this one — and a row that was never pending is a row no
+        // memory now, so the only write is this one, and a row that was never pending is a row no
         // window could ever have been open on.
         var store = await OpenAsync();
         await store.CreateSessionAsync(Session("s1"));

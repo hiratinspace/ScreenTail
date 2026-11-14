@@ -74,7 +74,7 @@ public sealed class HotkeyTests : IAsyncDisposable
     [Fact]
     public void TwoActionsOnOneChordIsReportedWithAWayOut()
     {
-        // AC2. The warning has to name the action that lost, say what took it, and offer something free —
+        // AC2. The warning has to name the action that lost, say what took it, and offer something free;
         // a warning that only says "conflict" leaves the technician to guess a chord and try again.
         var bindings = new HotkeyBindings(new Dictionary<HotkeyAction, Hotkey>
         {
@@ -110,7 +110,7 @@ public sealed class HotkeyTests : IAsyncDisposable
     public void AChordWithNoModifierIsRefusedBeforeItIsRegistered()
     {
         // Windows would accept it, and then "M" would do nothing but mark moments anywhere on the machine
-        // for the rest of the day — including in the middle of a customer's password.
+        // for the rest of the day, including in the middle of a customer's password.
         var bindings = new HotkeyBindings(new Dictionary<HotkeyAction, Hotkey>
         {
             [HotkeyAction.MarkMoment] = new(HotkeyModifiers.None, "M"),
@@ -229,7 +229,7 @@ public sealed class HotkeyTests : IAsyncDisposable
     public async Task MarkMomentRecordsAMarkerAndAsksForAFrame()
     {
         // AC3. The marker path never went through the click debouncer, so "regardless of debounce" is a
-        // property of the design — this is the test that keeps it one.
+        // property of the design; this is the test that keeps it one.
         var machine = await RecordingAsync();
         var router = new HotkeyRouter(machine);
 

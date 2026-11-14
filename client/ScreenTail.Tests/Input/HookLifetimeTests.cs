@@ -11,7 +11,7 @@ namespace ScreenTail.Tests.Input;
 /// A <c>WH_MOUSE_LL</c> hook makes every mouse movement on the machine switch into this process
 /// synchronously, and they were installed for the life of the service. A technician records for a
 /// fraction of their day, so for the rest of it every mouse move on the desktop was paying a context
-/// switch into a process that was going to throw the result away — and the cost does not land as CPU in
+/// switch into a process that was going to throw the result away, and the cost does not land as CPU in
 /// ScreenTail, it lands as input latency in whatever the technician is actually using.
 ///
 /// <b>The hooks follow the session, not the recording state.</b> Suppression is the obvious alternative
@@ -19,8 +19,8 @@ namespace ScreenTail.Tests.Input;
 /// on each one is churn in exchange for nothing, because the machine already drops what it sees while
 /// suppressed (INV-6). What matters is that there is no session at all for most of the day.
 ///
-/// Nothing is lost by starting late. Sessions begin from a foreground change or a hotkey — neither of
-/// which is a click these hooks would have seen — and the recorder already drops the click that starts
+/// Nothing is lost by starting late. Sessions begin from a foreground change or a hotkey (neither of
+/// which is a click these hooks would have seen) and the recorder already drops the click that starts
 /// one as pre-session.
 /// </summary>
 public sealed class HookLifetimeTests : IAsyncDisposable

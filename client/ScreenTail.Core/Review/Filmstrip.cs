@@ -5,7 +5,7 @@ namespace ScreenTail.Core.Review;
 /// <summary>One thing in the strip, in time order: either a screenshot or a stretch with none.</summary>
 public abstract record FilmstripCell(long TsMs);
 
-/// <param name="Number">What the technician reads — the frame's place in the strip, counted from one.
+/// <param name="Number">What the technician reads: the frame's place in the strip, counted from one.
 /// The note's chips say "frame 2" and this is the 2.</param>
 /// <param name="Included">Whether it goes out when the note is published.</param>
 public sealed record FrameCell(Frame Frame, int Number, bool Included) : FilmstripCell(Frame.TsMs)
@@ -29,7 +29,7 @@ public sealed record FrameCell(Frame Frame, int Number, bool Included) : Filmstr
 ///
 /// Spec §5 S3 asks for this and it is not decoration. Without it the strip reads as though the session
 /// simply lost eighteen seconds, and the technician has no way to tell a suppression that worked from a
-/// capture that failed — which is the difference between the product doing its job and the product
+/// capture that failed, which is the difference between the product doing its job and the product
 /// having a bug.
 /// </summary>
 public sealed record GapCell(long TsMs, long EndMs, CaptureStateReason? Reason) : FilmstripCell(TsMs)
@@ -144,7 +144,7 @@ public sealed class Filmstrip
         !recorded && included && Set(frameId, false) is not null;
 
     /// <summary>
-    /// What actually gets attached when the note is published. Excluded frames are absent, not marked —
+    /// What actually gets attached when the note is published. Excluded frames are absent, not marked;
     /// a publisher that had to remember to check a flag is a publisher that one day forgets.
     /// </summary>
     public IReadOnlyList<Frame> ToPublish() =>
@@ -196,7 +196,7 @@ public sealed class Filmstrip
     /// <summary>
     /// Every interval where capture was deliberately off, from the state events themselves.
     ///
-    /// An interval that never closes — the session ended while suppressed — is kept and ends at the last
+    /// An interval that never closes (the session ended while suppressed) is kept and ends at the last
     /// thing the session recorded. Dropping it would hide the one case where a technician most wants to
     /// know why the end of their session has no screenshots.
     /// </summary>

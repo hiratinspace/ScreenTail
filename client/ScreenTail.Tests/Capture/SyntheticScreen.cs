@@ -8,7 +8,7 @@ namespace ScreenTail.Tests.Capture;
 /// The sampler's whole job is to tell a screen that changed from one that only looks like it did, and that
 /// judgement is about real proportions: how much of a 1920×1080 desktop a dialog covers, how little of it a
 /// caret does. Tests built on random grids measure the hash's arithmetic instead, and they agree with
-/// whatever the grid size happens to be — which is how a sampler that cannot see a dialog would pass them.
+/// whatever the grid size happens to be, which is how a sampler that cannot see a dialog would pass them.
 ///
 /// Drawn rather than rendered so it runs on the Mac and means the same thing on every machine. A box filter
 /// is a box filter whether the pixels came from GDI or from a loop.
@@ -31,7 +31,7 @@ internal sealed class SyntheticScreen
     /// </summary>
     /// <param name="scale">
     /// Divides the resolution, leaving every proportion alone. The grid is 17×16 either way, so a screen at
-    /// a quarter the size produces the same cells from the same relative areas — and the sequences that
+    /// a quarter the size produces the same cells from the same relative areas, and the sequences that
     /// play twenty simulated minutes do sixteen times less work for it. Full size is for the tests that
     /// measure sensitivity, where the real pixel counts are the point.
     /// </param>

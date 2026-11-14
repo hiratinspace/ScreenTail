@@ -20,14 +20,14 @@ namespace ScreenTail.Tests.Net;
 /// was a stub that returned "no summarization provider is configured yet", so no session has ever
 /// produced a note.
 ///
-/// <b>The translation is the substance.</b> A <see cref="SessionBundle"/>'s frame carries a path —
-/// <c>frames/f-0002.jpg</c> — because that is what a session on disk looks like. The backend needs the
+/// <b>The translation is the substance.</b> A <see cref="SessionBundle"/>'s frame carries a path
+/// (<c>frames/f-0002.jpg</c>) because that is what a session on disk looks like. The backend needs the
 /// bytes. So this reads each selected frame's redacted image out of the store and sends it base64, and
 /// the path never crosses the wire at all: it is a filename from a technician's machine, and it is of no
 /// use to a model.
 ///
 /// <b>The bundle is rebuilt here, not queued.</b> The outbox holds a marker, so a draft owed since
-/// yesterday is selected from the store as it is now — retention may have thinned it, and a queued
+/// yesterday is selected from the store as it is now: retention may have thinned it, and a queued
 /// bundle could otherwise resurrect a frame the tenant's window has already removed (INV-12).
 /// </summary>
 public sealed class DraftSenderTests : IAsyncDisposable

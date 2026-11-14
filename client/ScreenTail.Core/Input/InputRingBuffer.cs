@@ -8,7 +8,7 @@ namespace ScreenTail.Core.Input;
 /// The producer is a low-level hook callback, which sits on the path every keystroke and mouse move in the
 /// system travels down: if it blocks, the whole machine stutters, and if it takes too long Windows silently
 /// removes the hook. So <see cref="TryWrite"/> takes no lock, allocates nothing, and never waits. When the
-/// consumer falls behind, the oldest signal is dropped and counted — losing a click is a flaw in a note,
+/// consumer falls behind, the oldest signal is dropped and counted. Losing a click is a flaw in a note,
 /// while stalling the input path is a flaw in the user's day.
 ///
 /// Bounded on purpose: a consumer that stops draining costs a fixed 64 KB rather than growing until
@@ -46,7 +46,7 @@ public sealed class InputRingBuffer
     /// </summary>
     /// <returns>
     /// False when the buffer was full and the oldest signal was discarded to make room. Not "the write was
-    /// refused" — a hook callback has nowhere to put a rejected signal and must never retry, so the write
+    /// refused": a hook callback has nowhere to put a rejected signal and must never retry, so the write
     /// always happens and the return value reports what it cost.
     /// </returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

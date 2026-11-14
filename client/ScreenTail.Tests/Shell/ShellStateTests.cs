@@ -128,7 +128,7 @@ public sealed class ShellStateTests
     public void LosingThePipeDoesNotChangeWhatTheSessionWasDoing()
     {
         // The session did not stop because the UI lost its connection. Resetting to idle here would be the
-        // UI telling a lie about somebody's recording — and the recording that is still running.
+        // UI telling a lie about somebody's recording, and the recording that is still running.
         var state = new ShellState();
         state.Connected(Recording("s1"));
 

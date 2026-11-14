@@ -3,21 +3,21 @@ namespace ScreenTail.Core.Review;
 /// <summary>
 /// An irreversible act, held open long enough to take back (Spec §4: undo over confirm).
 ///
-/// Spec §3 reserves the typed confirmation for discarding a whole session. Everything smaller — deleting
-/// a screenshot, blurring a region — happens at once and offers a few seconds to undo, because a dialog
+/// Spec §3 reserves the typed confirmation for discarding a whole session. Everything smaller (deleting
+/// a screenshot, blurring a region) happens at once and offers a few seconds to undo, because a dialog
 /// in front of every small destructive act trains people to dismiss dialogs, including the one that
 /// mattered.
 ///
 /// The ordering is the part worth arguing about, and it is the same for both users of this class: the
 /// safe outcome happens <em>immediately</em>, and what is held for the undo window is only the means to
 /// put it back. A technician who blurs a password needs those pixels gone now, not in five seconds and
-/// not "unless the process died" — so the blurred image is written straight away and the original is kept
+/// not "unless the process died", so the blurred image is written straight away and the original is kept
 /// in memory alone, where a crash loses it, which is the direction a crash should fail in.
 ///
 /// Nothing here runs a timer: <see cref="Tick"/> is called by whatever already ticks, so the whole rule is
 /// testable on a clock the test moves by hand (ADR-0002).
 /// </summary>
-/// <typeparam name="T">What has to be kept in order to undo — the original bytes, the deleted frame.</typeparam>
+/// <typeparam name="T">What has to be kept in order to undo: the original bytes, the deleted frame.</typeparam>
 public sealed class UndoWindow<T>
 {
     private readonly TimeSpan _window;
@@ -54,7 +54,7 @@ public sealed class UndoWindow<T>
     ///
     /// A second act while one is pending closes the first for good rather than replacing it. Two overlapping
     /// undos need two toasts and an order, and a technician deleting four frames in a row would otherwise
-    /// find that only the last one was ever undoable — with the other three silently unrecoverable and no
+    /// find that only the last one was ever undoable, with the other three silently unrecoverable and no
     /// toast to say so.
     /// </summary>
     public void Stage(T undoable)
@@ -93,7 +93,7 @@ public sealed class UndoWindow<T>
     }
 
     /// <summary>
-    /// Closes the window now — the pane lost focus, or the window is closing. Spec §5 S3 ends the blur's
+    /// Closes the window now: the pane lost focus, or the window is closing. Spec §5 S3 ends the blur's
     /// undo when the pane loses focus, and a held original that outlives the screen it belongs to is a
     /// copy of something a technician asked to destroy.
     /// </summary>

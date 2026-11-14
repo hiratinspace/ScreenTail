@@ -19,8 +19,8 @@ namespace ScreenTail.UI.Hud;
 /// <item><b>It never takes focus.</b> A pill that steals the foreground from the remote-tool window mid-
 /// session interrupts the work it is documenting, and on a customer's machine the technician may not
 /// even realise where their keystrokes went.</item>
-/// <item><b>It never appears in a capture.</b> Not in ours — a screenshot of our own HUD tells a reader
-/// nothing — and not in the customer's screen share either. That last one is why it can stay visible at
+/// <item><b>It never appears in a capture.</b> Not in ours (a screenshot of our own HUD tells a reader
+/// nothing), and not in the customer's screen share either. That last one is why it can stay visible at
 /// all times (v0.4.1 Q1), which is what lets INV-4 hold without an auto-hide.</item>
 /// <item><b>It stays on top.</b> An indicator behind the window it is indicating about is not an
 /// indicator.</item>

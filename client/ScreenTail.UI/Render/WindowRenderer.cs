@@ -11,7 +11,7 @@ namespace ScreenTail.UI.Render;
 /// Renders a window to a PNG offscreen.
 ///
 /// <see cref="RenderTargetBitmap"/> does not need an interactive desktop, which is what makes a WPF
-/// screen checkable on a hosted runner with nobody looking at it — and checkable at all while the
+/// screen checkable on a hosted runner with nobody looking at it, and checkable at all while the
 /// development machine is a Mac. It catches what writing XAML blind actually gets wrong: a missing
 /// resource key, a style on the wrong target type, a binding to a property that is not there.
 /// </summary>
@@ -22,7 +22,7 @@ internal static class WindowRenderer
     ///
     /// The distinct-colour check says something was drawn; it cannot say the right thing was drawn. A
     /// recording pill whose state glyph came out the TextBlock default black counted exactly as many
-    /// colours as a correct one, and passed — which is how three of the HUD's four tones shipped with no
+    /// colours as a correct one, and passed, which is how three of the HUD's four tones shipped with no
     /// colour at all. A named token either appears on the pixels or it does not.
     /// </summary>
     /// <param name="over">The background the colour is drawn on, so a partly covered pixel can be
@@ -76,7 +76,7 @@ internal static class WindowRenderer
         for (var i = 0; i + 3 < pixels.Length; i += 4)
         {
             // Near-opaque, then un-premultiplied. Pbgra32 scales each channel by the alpha, so a straight
-            // colour cannot be compared against it directly — and requiring alpha 255 was worse still:
+            // colour cannot be compared against it directly, and requiring alpha 255 was worse still:
             // every antialiased glyph pixel on this pill comes back at 254, so the check skipped precisely
             // the pixels it was looking for and failed a correctly painted amber ‖.
             var alpha = pixels[i + 3];

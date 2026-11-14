@@ -7,7 +7,7 @@ namespace ScreenTail.Tests.Intel;
 
 /// <summary>
 /// ST-067: what the technician keeps changing about drafts, learned from the diff at publish and
-/// handed back to the model as hints. Structural signals only — tense, length, punctuation, case —
+/// handed back to the model as hints. Structural signals only (tense, length, punctuation, case),
 /// never a word of the note (AC2); a hint only once the same change has been made in five of the
 /// last ten sessions (AC1), so one unusual ticket does not steer the next.
 /// </summary>

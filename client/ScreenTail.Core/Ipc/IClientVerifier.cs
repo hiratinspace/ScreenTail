@@ -24,7 +24,7 @@ public interface IIpcCommandHandler
 
     /// <param name="caller">
     /// Which connection sent this. Destructive commands carry a confirmation token, and a token that is
-    /// not tied to the conversation it came from is a bearer token any authenticated client can spend —
+    /// not tied to the conversation it came from is a bearer token any authenticated client can spend,
     /// which is the whole of the second round trip, gone (2026-09-20 review).
     /// </param>
     Task<CommandResult> HandleAsync(IpcCommand command, Guid caller, CancellationToken ct = default);
@@ -45,8 +45,8 @@ public interface IIpcCommandHandler
 /// The other half of ADR-0003 rule 2, and the half that was missing: the UI deciding whether the process
 /// answering on the pipe is really the capture service, <em>before</em> it hands over the session token.
 ///
-/// Without it the handshake is one-sided. Anything that can create the pipe name first — a per-user pipe,
-/// so no privilege is needed — receives the token, and can then feed the UI whatever capture state it
+/// Without it the handshake is one-sided. Anything that can create the pipe name first (a per-user pipe,
+/// so no privilege is needed) receives the token, and can then feed the UI whatever capture state it
 /// likes. That breaks INV-4 in the worst direction: a technician is shown "not recording" while recording
 /// continues, which is the one lie this product must never tell.
 /// </summary>

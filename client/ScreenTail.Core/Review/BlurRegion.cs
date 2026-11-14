@@ -28,8 +28,8 @@ public static class BlurRegion
             throw new ArgumentOutOfRangeException(nameof(frame), frame, "The frame has no size.");
         }
 
-        // Both axes, from their own dimension. Uniform scaling makes one factor look sufficient, and it is
-        // — right up until the pane is resized to a different aspect and every blur lands slightly wrong,
+        // Both axes, from their own dimension. Uniform scaling makes one factor look sufficient, and it is,
+        // right up until the pane is resized to a different aspect and every blur lands slightly wrong,
         // in a way nobody notices because the picture underneath is already gone.
         var scaleX = frame.Width / displayed.Width;
         var scaleY = frame.Height / displayed.Height;

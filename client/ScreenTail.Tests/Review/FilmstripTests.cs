@@ -31,7 +31,7 @@ public sealed class FilmstripTests
     public void TheStripOpensWithWhateverTheTechnicianDecidedLastTime()
     {
         // excluded_by_user is persisted, so reopening Review must not quietly re-include a frame somebody
-        // took out — the most likely reason it is out is that it should not leave the building.
+        // took out: the most likely reason it is out is that it should not leave the building.
         var strip = new Filmstrip(WithFrames(Frame("f1", 1000, excluded: true)));
 
         Assert.False(strip.IsIncluded("f1"));

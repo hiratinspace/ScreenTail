@@ -7,15 +7,15 @@ namespace ScreenTail.Core.Shell;
 /// Owns the connection to the capture service on the UI's behalf (ST-085).
 ///
 /// Before this, <see cref="IpcClient"/> had no production caller at all: every window in the UI process
-/// rendered a literal snapshot, the tray icon did not exist, and INV-4 — capture is always visibly
-/// indicated — was enforced by nothing in the running application (weaknesses P0-2). This is the piece
+/// rendered a literal snapshot, the tray icon did not exist, and INV-4 (capture is always visibly
+/// indicated) was enforced by nothing in the running application (weaknesses P0-2). This is the piece
 /// that was missing. It connects, keeps the shell's store fed, notices when the service goes away, keeps
 /// trying, and recovers without the technician restarting anything.
 ///
 /// The rule it exists to hold: <b>unknown is not idle.</b> When the pipe drops the session has not
 /// stopped, the UI has merely gone blind, so the last state the service reported is kept and the
-/// connection is marked unavailable beside it. Everything downstream — the pill, the tray icon, the
-/// banner — reads that pairing and says "it may still be recording" rather than "not recording". A UI
+/// connection is marked unavailable beside it. Everything downstream (the pill, the tray icon, the
+/// banner) reads that pairing and says "it may still be recording" rather than "not recording". A UI
 /// that reports idle because it lost a pipe is the silent-capture path the whole design forbids.
 ///
 /// Platform-neutral on purpose (ADR-0002). The pipe, the verifier and WPF are all on the other side of an
@@ -37,7 +37,7 @@ public sealed class CaptureConnection : IAsyncDisposable
     /// after one attempt has to be asked for by name, with <see cref="Never"/>.
     ///
     /// It used to be the other way round. Null meant "never", this comment said it meant "the default",
-    /// and the application passed nothing — so the UI tried once, stopped, and sat on a grey tray icon
+    /// and the application passed nothing, so the UI tried once, stopped, and sat on a grey tray icon
     /// until someone restarted it, while the service went on starting sessions by itself. Every test
     /// passed a schedule of its own, so none of them was running the wiring that shipped.
     /// </param>

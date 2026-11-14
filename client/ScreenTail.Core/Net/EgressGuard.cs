@@ -151,7 +151,7 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
             // A redirect is a stranger's instruction to go and talk to a second host, so what travels
             // there is a list rather than a filter: copying everything would hand that host whatever
             // credential was on the first request, and an allowlisted hop would become a token leak.
-            // Range carries no identity — it is a byte offset — and without it a resumed download is
+            // Range carries no identity (it is a byte offset), and without it a resumed download is
             // not resumed. The model host answers 302 to a CDN, so every resume was being answered with
             // the whole file, and a 150 MB download interrupted once restarted from zero for ever
             // (2026-09-20 review).

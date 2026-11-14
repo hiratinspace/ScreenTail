@@ -10,7 +10,7 @@ namespace ScreenTail.Service.Input;
 /// <c>RegisterHotKey</c> rather than reading chords out of ST-024's low-level keyboard hook, even though
 /// that hook already sees every key. Three reasons, and the last one decides it. Windows arbitrates, so the
 /// chord does not also reach whatever the technician is typing into. Failure is how a conflict is
-/// discovered at all — the hook route would silently double-handle a chord another application owns. And
+/// discovered at all; the hook route would silently double-handle a chord another application owns. And
 /// swallowing keys in a hook that sits in front of every application on a support technician's machine is a
 /// far larger thing to get wrong than not having a shortcut.
 ///

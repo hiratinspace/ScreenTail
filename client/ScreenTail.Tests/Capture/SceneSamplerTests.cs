@@ -5,7 +5,7 @@ namespace ScreenTail.Tests.Capture;
 /// <summary>
 /// ST-026 against recorded sequences: a minute, or twenty, of screens played through the sampler at one a
 /// second, counting what came out. Every acceptance criterion here is a total over time rather than a
-/// single decision, and the screens are real proportions rather than random grids — see
+/// single decision, and the screens are real proportions rather than random grids. See
 /// <see cref="SyntheticScreen"/> for why that distinction decides whether these tests mean anything.
 /// </summary>
 public sealed class SceneSamplerTests
@@ -107,7 +107,7 @@ public sealed class SceneSamplerTests
     public void ABusyTwentyMinutesStaysUnderSixtyFrames()
     {
         // ST-005 budgets under 40 MB for a twenty-minute session. That holds only if a screen which
-        // genuinely changes every second — a log scrolling, a progress bar, a video call — is still capped.
+        // genuinely changes every second (a log scrolling, a progress bar, a video call) is still capped.
         var clock = new ManualTime(At);
         var sampler = new SceneSampler(clock);
 
@@ -221,7 +221,7 @@ public sealed class SceneSamplerTests
     /// screen looks while someone works quickly through a problem.
     ///
     /// Not a scrolling log of uniform bands, which is what this was first written as and which the sampler
-    /// correctly ignores — see <see cref="SceneGridTests.ARegionChangingShadeWithoutChangingOrderIsNotSeen"/>.
+    /// correctly ignores (see <see cref="SceneGridTests.ARegionChangingShadeWithoutChangingOrderIsNotSeen"/>).
     /// A sequence the sampler ignores would have made the budget assertions below pass while measuring
     /// nothing at all.
     /// </summary>
@@ -236,7 +236,7 @@ public sealed class SceneSamplerTests
 
     /// <summary>
     /// These sequences play twenty simulated minutes each, and at full resolution that is 1,200 screens of
-    /// two megapixels — seventeen seconds of a suite that otherwise runs in one, on every push. The grid is
+    /// two megapixels: seventeen seconds of a suite that otherwise runs in one, on every push. The grid is
     /// 17×16 whatever the resolution, so a quarter-size screen produces the same cells from the same
     /// relative areas. The sensitivity tests that need real pixel counts stay at full size.
     /// </summary>

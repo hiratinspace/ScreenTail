@@ -76,9 +76,9 @@ public readonly struct SceneHash : IEquatable<SceneHash>
 /// <b>The grid size and the second direction were both measured, not chosen.</b> The textbook dHash is 9×8
 /// and compares across only. On a 1920×1080 desktop that cannot see a dialog: a 400×300 one scores 3
 /// against background noise that already scores 1, so no threshold separates them. Widening the grid to
-/// 17×16 lifts dialogs to 7–12 against the same noise at 3. Adding the downward comparison — dHash is blind
+/// 17×16 lifts dialogs to 7–12 against the same noise at 3. Adding the downward comparison (dHash is blind
 /// along whichever axis it does not walk, so a wide uniform band changing brightness is invisible to the
-/// horizontal one — lifts them again to 19–33, with the caret, the clock and the noise unmoved at 0, 0
+/// horizontal one) lifts them again to 19–33, with the caret, the clock and the noise unmoved at 0, 0
 /// and 3. Three times the signal for the same noise and one more loop.
 ///
 /// <b>What it still cannot see:</b> a region that changes brightness while staying on the same side of

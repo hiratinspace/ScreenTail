@@ -41,7 +41,7 @@ public sealed class VoiceActivityTests
     {
         // The case a loudness threshold gets wrong. A fan, a fluorescent ballast or a busy open-plan
         // office is loud and says nothing, and transcribing it would spend the session's CPU budget
-        // inventing text — Whisper's failure mode on non-speech is to produce fluent sentences.
+        // inventing text: Whisper's failure mode on non-speech is to produce fluent sentences.
         var vad = new VoiceActivity();
         var hum = Noise(amplitude: 3000);
         Settle(vad, hum);

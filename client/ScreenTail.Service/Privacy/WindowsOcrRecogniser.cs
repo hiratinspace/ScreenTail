@@ -16,7 +16,7 @@ namespace ScreenTail.Service.Privacy;
 ///
 /// ADR-0001 measured Tesseract at 1.19 s per frame against a 700 ms budget and listed three ways out:
 /// smaller regions, more threads, or this. This one is chosen because it wins on every axis that matters
-/// here — it is hardware-accelerated, it ships no native binaries and no language data of its own, and it
+/// here: it is hardware-accelerated, it ships no native binaries and no language data of its own, and it
 /// runs on ARM, where Tesseract's x64-only binaries would have forced the capture process into emulation
 /// (finding 7). Shipping fewer third-party binaries is also less attack surface in a process that reads
 /// everything on a technician's screen.

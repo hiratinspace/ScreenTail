@@ -25,7 +25,7 @@ public sealed class OcrTests
     private static bool PerformanceCounts => !string.Equals(
         Environment.GetEnvironmentVariable("RUNNER_ENVIRONMENT"), "github-hosted", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The labels a Windows settings dialog puts on screen — what a technician screenshots all day.</summary>
+    /// <summary>The labels a Windows settings dialog puts on screen: what a technician screenshots all day.</summary>
     private static readonly string[] DialogLabels =
     [
         "Print Spooler", "Properties", "General", "Log On", "Recovery", "Dependencies",
@@ -56,7 +56,7 @@ public sealed class OcrTests
 
     /// <summary>
     /// A Luhn-valid card number that is not the canonical 4111 1111 1111 1111 test card, because the OCR
-    /// engine will not read sixteen repeated ones — see <see cref="TheEngineReadsDigitsAndNotOnlyWords"/>.
+    /// engine will not read sixteen repeated ones (see <see cref="TheEngineReadsDigitsAndNotOnlyWords"/>).
     /// </summary>
     private const string Card = "4532 7891 2345 6789";
 
@@ -96,14 +96,14 @@ public sealed class OcrTests
 
     /// <summary>
     /// One probe per hypothesis, all on one frame, because each run on the spare laptop costs minutes.
-    /// This started as an investigation — the engine read 18 of 18 words on the dialog fixture and none of
-    /// the card digits beside them, in two different places on the page — and it stays as a regression test
+    /// This started as an investigation (the engine read 18 of 18 words on the dialog fixture and none of
+    /// the card digits beside them, in two different places on the page) and it stays as a regression test
     /// because every card, account and phone pattern ST-042 ships is dead code if digits stop coming back.
     ///
     /// The answer it gave: digits are read. Every row here is read except one, and the one is
     /// <c>4111 1111 1111 1111</c>, a line of sixteen repeated ones. A different sixteen-digit card at the
     /// same size and the same rendering hint comes back whole. So the engine's blind spot is not digits,
-    /// or isolation, or ClearType, or small text — it is a long run of one ambiguous glyph, and a real card
+    /// or isolation, or ClearType, or small text; it is a long run of one ambiguous glyph, and a real card
     /// number is not that. <c>MustRead</c> is false only for that row: asserting it stays missed would fail
     /// the day Windows fixes it, which is not a failure.
     /// </summary>

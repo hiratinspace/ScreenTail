@@ -8,13 +8,13 @@ namespace ScreenTail.Core.Speech;
 /// v1 records the technician and never the person on the other end of the call. That is not a setting or
 /// a default: twelve US states require all-party consent for audio, and end-user audio is gated behind
 /// the consent workflow in ST-123. There is one implementation, it opens the local capture device, and
-/// there is no code path to any other source — which is what makes INV-9 a property of the design rather
+/// there is no code path to any other source, which is what makes INV-9 a property of the design rather
 /// than a rule someone has to remember.
 /// </summary>
 public interface IMicrophone : IAsyncDisposable
 {
     /// <summary>
-    /// The device, or null when there is none — no hardware, or Windows has blocked access.
+    /// The device, or null when there is none: no hardware, or Windows has blocked access.
     ///
     /// A device name, never audio and never content, so it is safe in the diagnostics panel a technician
     /// turns round and shows a customer (INV-10).

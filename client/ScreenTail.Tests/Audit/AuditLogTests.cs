@@ -10,8 +10,8 @@ using ScreenTail.Tests.Sessions;
 namespace ScreenTail.Tests.Audit;
 
 /// <summary>
-/// ST-045 against the real store. The log's whole value is in two claims — that it says what happened, and
-/// that it can show it has not been edited since — so these check both against rows the rest of the system
+/// ST-045 against the real store. The log's whole value is in two claims, that it says what happened, and
+/// that it can show it has not been edited since, so these check both against rows the rest of the system
 /// wrote, not rows a test made up.
 /// </summary>
 public sealed class AuditLogTests : IAsyncDisposable
@@ -42,7 +42,7 @@ public sealed class AuditLogTests : IAsyncDisposable
     [Fact]
     public async Task EditingARowBreaksTheChainFromThere()
     {
-        // The claim the export makes. Anyone with the store key can write to this table — that is not what
+        // The claim the export makes. Anyone with the store key can write to this table; that is not what
         // the chain prevents. What it prevents is doing so without it showing.
         var store = await OpenAsync();
         for (var i = 0; i < 5; i++)
@@ -83,7 +83,7 @@ public sealed class AuditLogTests : IAsyncDisposable
     public async Task CuttingTheLogShortFromTheEndIsNoticed()
     {
         // The tamper the chain alone cannot see, open since the September review (P1-5). Delete the last
-        // rows and what is left is a shorter chain that verifies perfectly — so the export said "all N
+        // rows and what is left is a shorter chain that verifies perfectly, so the export said "all N
         // audit rows verify" about a log that used to have more, which is exactly the edit somebody
         // covering a purge would make.
         //
@@ -445,7 +445,7 @@ public sealed class AuditLogTests : IAsyncDisposable
 
     /// <summary>
     /// Edits the table behind the store's back, the way someone with the key and a SQL client would, and
-    /// hands back the reopened store — the old instance is disposed, and a caller holding it would fail on
+    /// hands back the reopened store. The old instance is disposed, and a caller holding it would fail on
     /// the semaphore rather than on the thing under test.
     /// </summary>
     private async Task<SqliteSessionStore> TamperAsync(string sql, params (string Name, object? Value)[] parameters)

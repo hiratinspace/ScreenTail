@@ -10,7 +10,7 @@ namespace ScreenTail.Tests.Capture;
 /// nothing that identified the window it was about.
 ///
 /// A capture taken moments later photographed whatever had the foreground by then, so a decision about
-/// ScreenConnect could authorise a screenshot of Outlook. This covers the half that is arithmetic — that
+/// ScreenConnect could authorise a screenshot of Outlook. This covers the half that is arithmetic: that
 /// the decision names its window. Whether the capturer honours it is in
 /// <c>ScreenTail.Tests.Windows.Capture.ScreenshotTests</c>, against the real screen, because a fake
 /// capturer here would only be testing the fake.
@@ -35,7 +35,7 @@ public sealed class ScopeEnforcementTests
     public void TwoWindowsOfTheSameToolAreTwoDecisions()
     {
         // A technician with two remote sessions open. Both are in scope, and a frame authorised for one
-        // must not be taken of the other — so the handle has to distinguish them, not the tool id.
+        // must not be taken of the other, so the handle has to distinguish them, not the tool id.
         var policy = new ScopePolicy(Registry);
 
         var first = policy.Decide(Window("mstsc", handle: 1));
@@ -129,7 +129,7 @@ public sealed class ScopeEnforcementTests
     {
         // INV-6: "excluded app, elevated window, out-of-scope → no frames, no typing events written."
         // Before this, the capture loop gated only on the session state and wrote keystroke counts for
-        // whatever the technician alt-tabbed to — their own password manager during the auto-stop grace
+        // whatever the technician alt-tabbed to: their own password manager during the auto-stop grace
         // period, for instance.
         var outOfScope = new ScopePolicy(Registry).Decide(Window("outlook", handle: 11));
 

@@ -28,7 +28,7 @@ public sealed record RedactionPolicy
 
     public static RedactionPolicy Default { get; } = new();
 
-    /// <summary>Everything on, including emails — what "maximum redaction" means in Settings.</summary>
+    /// <summary>Everything on, including emails: what "maximum redaction" means in Settings.</summary>
     public static RedactionPolicy Strict { get; } = new() { Emails = true };
 
     /// <summary>

@@ -116,7 +116,7 @@ public sealed class IpcServer : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(ipcEvent);
 
         // All at once, and with a deadline each. One at a time meant a single client that had stopped
-        // reading held up every state change to every other window — and the pipe has no output buffer,
+        // reading held up every state change to every other window, and the pipe has no output buffer,
         // so "stopped reading" blocks the write rather than filling a queue (2026-09-19 review).
         await Task.WhenAll(_clients.Values.Select(client => TellAsync(client, ipcEvent, ct))).ConfigureAwait(false);
     }
@@ -183,7 +183,7 @@ public sealed class IpcServer : IAsyncDisposable
             {
                 // Inside the try. CreateNamedPipe runs eagerly here and throws on resource failure, and
                 // this loop is an unobserved Task.Run: an escape stopped it for good, silently, leaving
-                // the service unable to accept the UI ever again — no HUD, and no way to stop capture
+                // the service unable to accept the UI ever again: no HUD, and no way to stop capture
                 // from the UI. Backing off and retrying is the only safe answer, because the cause is
                 // usually the handle pressure that this loop's own connections created.
                 pipe = _pipeFactory();
@@ -352,7 +352,7 @@ public sealed class IpcServer : IAsyncDisposable
     /// as fast as it can connect.
     ///
     /// Every rejection used to INSERT a row. A same-user process looping a bad token at a few thousand a
-    /// second had an unbounded write primitive into the encrypted database — audit rows are never pruned,
+    /// second had an unbounded write primitive into the encrypted database. Audit rows are never pruned,
     /// so it grew until the disk filled, and every real store write starved behind the gate it held. The
     /// rejections are counted in memory and one row is written per minute per reason, which is what an
     /// audit of "somebody is trying" actually needs: that it happened, and how much.
@@ -386,7 +386,7 @@ public sealed class IpcServer : IAsyncDisposable
     /// silent.
     ///
     /// It used to be called after the whole handshake, which includes verifying the peer's Authenticode
-    /// signature — two WinVerifyTrust calls that take real time on a cold file. So the genuine UI was
+    /// signature: two WinVerifyTrust calls that take real time on a cold file. So the genuine UI was
     /// "silent" during its own verification and could be evicted by a peer opening connections in a
     /// loop, which is the lockout this table exists to prevent (2026-09-19 review).
     /// </param>

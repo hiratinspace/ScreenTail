@@ -8,7 +8,7 @@ namespace ScreenTail.Core.Review;
 /// In Core rather than in the view model because the ordering <em>is</em> the guarantee, and a rule that
 /// can only be checked on Windows is a rule that is checked when someone remembers. The painting is the
 /// frames implementation's: in the running application that is the service, over the pipe, with the
-/// same masker redaction uses — the pane used to flatten in WPF and hand the bytes back, which re-encoded
+/// same masker redaction uses; the pane used to flatten in WPF and hand the bytes back, which re-encoded
 /// a JPEG as PNG on the UI thread and made the stored name a lie (weaknesses P2-9).
 /// </summary>
 public sealed class FrameBlur(IReviewFrames frames)
@@ -16,7 +16,7 @@ public sealed class FrameBlur(IReviewFrames frames)
     private readonly IReviewFrames _frames = frames ?? throw new ArgumentNullException(nameof(frames));
 
     /// <summary>
-    /// Flattens the rectangle and writes it, returning the region recorded — or null when there was
+    /// Flattens the rectangle and writes it, returning the region recorded, or null when there was
     /// nothing to do.
     ///
     /// The store is written before this returns, so the caller cannot show a covered password over an
@@ -35,7 +35,7 @@ public sealed class FrameBlur(IReviewFrames frames)
         ArgumentNullException.ThrowIfNull(frame);
 
         // Nothing to flatten, and no way to check what was flattened. Writing anyway would replace a real
-        // frame with a rectangle drawn over nothing — destroying it to hide something that may not have
+        // frame with a rectangle drawn over nothing, destroying it to hide something that may not have
         // been there.
         if (image is null || !BlurRegion.IsMeaningful(drawn))
         {

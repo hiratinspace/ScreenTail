@@ -57,7 +57,7 @@ public partial class DiagnosticsWindow : Window
 
     /// <summary>
     /// What the panel shows before anything has connected, and what the CI render draws. Every value is
-    /// the shape of a real one so the screenshot shows the panel doing its job — a blank one would pass
+    /// the shape of a real one so the screenshot shows the panel doing its job; a blank one would pass
     /// the render check while proving nothing.
     /// </summary>
     public static CoreShell.Diagnostics Sample { get; } = new(

@@ -33,8 +33,8 @@ public readonly record struct CaptureTiming(TimeSpan Grab, TimeSpan Convert, Tim
 public interface IScreenshotCapturer
 {
     /// <summary>
-    /// Captures the window in front, or null when there is nothing to capture — the window closed between
-    /// the click and the capture, or Windows refused. A null is a missing frame, never a blank one.
+    /// Captures the window in front, or null when there is nothing to capture (the window closed between
+    /// the click and the capture, or Windows refused). A null is a missing frame, never a blank one.
     /// </summary>
     /// <param name="expected">
     /// The window the caller's scope decision was about. When it no longer has the foreground, nothing is

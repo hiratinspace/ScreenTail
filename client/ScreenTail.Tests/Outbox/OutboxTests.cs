@@ -7,7 +7,7 @@ namespace ScreenTail.Tests.Outbox;
 ///
 /// The queue itself is easy; the two rules that are not are why this exists. Work must survive a restart,
 /// because a technician who closes their laptop at the end of a job should not lose the note. And an
-/// attempt whose outcome nobody knows — the request went, the answer never came — must never simply be
+/// attempt whose outcome nobody knows (the request went, the answer never came) must never simply be
 /// tried again, because the second copy of a note lands in a customer's ticket and the technician is the
 /// last to find out.
 /// </summary>
@@ -27,7 +27,7 @@ public sealed class OutboxTests
 
         await outbox.EnqueueAsync(Work("s1", OutboxKind.Draft));
 
-        // A drain while offline still counts as work done — it tried — but nothing left the machine and
+        // A drain while offline still counts as work done (it tried) but nothing left the machine and
         // the item is still waiting.
         Assert.True(await outbox.DrainAsync(TestContext.Current.CancellationToken));
         Assert.Equal(0, network.Sent);
@@ -125,7 +125,7 @@ public sealed class OutboxTests
     [Fact]
     public async Task TheSameWorkIsOnlyQueuedOnce()
     {
-        // Finalize can run twice — a crash between drafting and marking it done, a recovered session —
+        // Finalize can run twice (a crash between drafting and marking it done, a recovered session)
         // and the idempotency key is what stops that becoming two drafts of one session.
         var store = new FakeOutboxStore();
         var outbox = new Core.Outbox.Outbox(store, new FakeNetwork().SendAsync, new ManualTime(At));
@@ -442,7 +442,7 @@ public sealed class OutboxTests
         // 2026-09-19 review. An HttpClient timeout throws TaskCanceledException, which the filter did not
         // catch: it left DrainAsync, the host's loop caught it as cancellation, and the loop ended for
         // the life of the service. The item stayed Pending with its attempt count untouched, so the next
-        // run sent it again — the duplicate publish this whole class exists to prevent.
+        // run sent it again: the duplicate publish this whole class exists to prevent.
         var store = new FakeOutboxStore();
         var outbox = Build(store, (_, _) => throw new TaskCanceledException("the request timed out"));
         await outbox.EnqueueAsync(Work("s1", OutboxKind.PublishNote));

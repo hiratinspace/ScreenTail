@@ -18,7 +18,7 @@ public readonly record struct AudioFormat(int SampleRate, int Channels, int Bits
 ///
 /// Getting it wrong is not a quiet failure. A channel count read wrong turns a voice into a chipmunk and
 /// a sample rate read wrong turns it into a drone, and a transcriber answers both with confident
-/// sentences rather than with nothing — which is how invented text reaches a customer's ticket note.
+/// sentences rather than with nothing, which is how invented text reaches a customer's ticket note.
 /// </summary>
 public static class AudioConversion
 {
@@ -103,12 +103,12 @@ public static class AudioConversion
 
     /// <summary>
     /// Clamped, not wrapped. A device with gain applied hands back samples outside [-1, 1], and wrapping
-    /// would turn the loudest moment of a sentence into its opposite — a click, which transcribes as a
+    /// would turn the loudest moment of a sentence into its opposite: a click, which transcribes as a
     /// word boundary that was never spoken.
     /// </summary>
     private static short Clamp(float sample) =>
-        // Scaled by 32768 and clamped, not by 32767. Sixteen-bit audio is asymmetric — one more step
-        // below zero than above — so dividing by 32768 on the way in and multiplying by 32767 on the way
+        // Scaled by 32768 and clamped, not by 32767. Sixteen-bit audio is asymmetric (one more step
+        // below zero than above), so dividing by 32768 on the way in and multiplying by 32767 on the way
         // out loses a bit of every sample and never quite returns what it was given.
         (short)Math.Clamp(sample * 32768f, short.MinValue, short.MaxValue);
 }

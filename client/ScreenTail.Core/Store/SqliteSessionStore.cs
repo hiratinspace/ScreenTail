@@ -170,7 +170,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// disk; it waits in memory now, so a row written here was never pending and no window could have
     /// been open on it.
     ///
-    /// <paramref name="frame"/> is what was captured and carries the row's shape — when, how big, what
+    /// <paramref name="frame"/> is what was captured and carries the row's shape: when, how big, what
     /// triggered it. Its image is deliberately not written: <paramref name="outcome"/> holds the only
     /// picture allowed on disk.
     /// </summary>
@@ -215,9 +215,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
         TakeNextPendingFrameAsync(null, ct);
 
     /// <param name="except">
-    /// Frames another worker is already redacting. Without this, two workers select the same row — the
-    /// query cannot claim it, because a frame stays <c>redaction_pending</c> until the redaction finishes
-    /// — and the slower one's MarkFrameRedactedAsync then finds nothing to update and throws.
+    /// Frames another worker is already redacting. Without this, two workers select the same row: the
+    /// query cannot claim it, because a frame stays <c>redaction_pending</c> until the redaction finishes,
+    /// and the slower one's MarkFrameRedactedAsync then finds nothing to update and throws.
     /// </param>
     public Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default)
     {
@@ -1179,8 +1179,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// The audit log's rows, for one session or for all of them.
     ///
     /// Two statements rather than one with <c>(@session IS NULL OR session_id = @session)</c>. SQLite
-    /// cannot use <c>audit_by_session</c> through that OR — it planned a full scan of the log whichever
-    /// argument it was given — and the audit log is the one table nothing ever prunes, so it is the one
+    /// cannot use <c>audit_by_session</c> through that OR (it planned a full scan of the log whichever
+    /// argument it was given), and the audit log is the one table nothing ever prunes, so it is the one
     /// place a scan gets slower for ever (2026-09-20 review, confirmed with EXPLAIN QUERY PLAN).
     /// </summary>
     public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) =>
@@ -1833,7 +1833,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     /// Appends one audit row, linked to the one before it (ST-045).
     ///
     /// The previous hash is read inside the same gate as the insert. Two rows reading the same predecessor
-    /// would both claim to follow it, and the chain would fork — which verification would report as
+    /// would both claim to follow it, and the chain would fork, which verification would report as
     /// tampering, on a log nobody had touched. Every caller already holds the gate, which is why this reads
     /// through the connection directly rather than through QueryAsync: that would take the same
     /// non-reentrant semaphore and deadlock, as DiscardPendingFrameAsync found the hard way.
@@ -1857,8 +1857,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
         // The row and the head are one write or neither.
         //
-        // They were two separate commits, so anything in between — a crash, a shutdown cancelling the
-        // token, and IpcServer hands this its stopping token — left the head describing one row more
+        // They were two separate commits, so anything in between (a crash, a shutdown cancelling the
+        // token, and IpcServer hands this its stopping token) left the head describing one row more
         // than the log held. Verification reports that as rows deleted from the end: tampering, on a log
         // nobody had touched, repaired invisibly by the next append (2026-09-20 review).
         //

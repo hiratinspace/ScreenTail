@@ -11,8 +11,8 @@ namespace ScreenTail.Platform.Ipc;
 /// The check this replaces read the certificate out of the file's certificate table and compared its
 /// thumbprint, which proves nothing: that table is just bytes in the file. Copy the publisher's
 /// certificate blob into a modified executable and the thumbprint matches exactly, while the signature it
-/// came with no longer covers the contents. The one attack the check existed to stop — a tampered binary
-/// driving capture — was the attack it let through.
+/// came with no longer covers the contents. The one attack the check existed to stop (a tampered binary
+/// driving capture) was the attack it let through.
 ///
 /// <c>WinVerifyTrust</c> is the API that actually hashes the file and walks the chain. The thumbprint is
 /// still read afterwards, to pin the publisher: a validly signed binary from somebody else is a validly
@@ -23,7 +23,7 @@ internal static class Authenticode
 {
     /// <summary>
     /// TRUST_E_NOSIGNATURE. The file carries no signature at all, which is every build until ST-112's
-    /// certificate exists — as opposed to one that carries a signature Windows will not accept.
+    /// certificate exists, as opposed to one that carries a signature Windows will not accept.
     /// </summary>
     private const uint NoSignature = 0x800B0100;
 
@@ -40,8 +40,8 @@ internal static class Authenticode
     /// Whether this file is unsigned, as opposed to signed and unacceptable.
     ///
     /// The difference decides whether a build may fall back to the development rule. Both used to arrive
-    /// as a null thumbprint, so a release whose own signature failed to verify — a certificate the
-    /// machine does not trust, a chain that cannot be built, a tampered binary — quietly applied the rule
+    /// as a null thumbprint, so a release whose own signature failed to verify (a certificate the
+    /// machine does not trust, a chain that cannot be built, a tampered binary) quietly applied the rule
     /// meant for builds nobody signed, and said so only in an Information log line (2026-09-19 review).
     /// </summary>
     internal static bool IsUnsigned(string file) => Verify(file) == NoSignature;
@@ -68,7 +68,7 @@ internal static class Authenticode
         var added = false;
         handle?.DangerousAddRef(ref added);
         // Marshalled by hand rather than pinned. WINTRUST_FILE_INFO holds an LPCWSTR, and a managed type
-        // with a string in it cannot be pinned at all — GCHandle.Alloc throws "Object contains references",
+        // with a string in it cannot be pinned at all: GCHandle.Alloc throws "Object contains references",
         // which is a Windows-only failure and so invisible until CI ran it.
         var path = Marshal.StringToHGlobalUni(file);
         var fileInfoPtr = Marshal.AllocHGlobal(Marshal.SizeOf<WinTrustFileInfo>());

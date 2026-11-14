@@ -4,7 +4,7 @@ namespace ScreenTail.Tests.Detection;
 
 /// <summary>
 /// ST-048 (weaknesses P0-5). The watcher subscribed with <c>SetWinEventHook(0x0003, 0x800C, …)</c>,
-/// reading the two arguments as "these two events" when Windows reads them as an inclusive range — every
+/// reading the two arguments as "these two events" when Windows reads them as an inclusive range: every
 /// event from <c>EVENT_SYSTEM_FOREGROUND</c> to <c>EVENT_OBJECT_NAMECHANGE</c>, which is nearly the whole
 /// table. Each one arrived carrying its own window handle, and every handle that differed from the last
 /// was published as the foreground window, so scope decisions (INV-5) and the typing gate (INV-6) were

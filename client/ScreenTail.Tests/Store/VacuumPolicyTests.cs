@@ -12,7 +12,7 @@ namespace ScreenTail.Tests.Store;
 /// needs free disk space about equal to the database.
 ///
 /// It ran after any retention pass that purged anything. Sessions age out through the working day, so
-/// that is a half-minute freeze in the middle of a technician's afternoon — usually to reclaim a handful
+/// that is a half-minute freeze in the middle of a technician's afternoon, usually to reclaim a handful
 /// of pages the next session's frames would have reused anyway.
 /// </summary>
 public sealed class VacuumPolicyTests : IAsyncDisposable

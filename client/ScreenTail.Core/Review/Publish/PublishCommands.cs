@@ -8,8 +8,8 @@ namespace ScreenTail.Core.Review.Publish;
 
 /// <summary>
 /// The service's side of publishing over the pipe (ST-093, ST-094). The UI names the session, the
-/// ticket, the destinations and the frames it kept; this reads the frames' bytes from the store — only
-/// redacted frames have any (INV-1) — and asks the backend, which holds the tenant's PSA. The backend's
+/// ticket, the destinations and the frames it kept; this reads the frames' bytes from the store (only
+/// redacted frames have any, INV-1) and asks the backend, which holds the tenant's PSA. The backend's
 /// per-destination answer is passed back as it is.
 ///
 /// Same two entry points as <see cref="ReviewCommands"/>: a question answered with its event, and the

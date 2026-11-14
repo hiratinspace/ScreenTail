@@ -7,7 +7,7 @@ public sealed record ScopeOptions
 {
     /// <summary>
     /// INV-5: the default is remote-tool windows plus the admin-tool allowlist. "All windows" is opt-in and
-    /// confirmed in Settings — a technician turns it on knowing their own inbox is now fair game.
+    /// confirmed in Settings; a technician turns it on knowing their own inbox is now fair game.
     /// </summary>
     public bool CaptureAllWindows { get; init; }
 
@@ -19,7 +19,7 @@ public sealed record ScopeOptions
 
     /// <summary>
     /// The shipped and tenant-synced exclusions: password managers, banking tabs, credential prompts
-    /// (ST-043). Null means none are loaded, which is a misconfiguration rather than a policy — the
+    /// (ST-043). Null means none are loaded, which is a misconfiguration rather than a policy: the
     /// defaults ship with the product.
     /// </summary>
     public Privacy.ExclusionList? Exclusions { get; init; }
@@ -56,7 +56,7 @@ public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToo
     /// Whether this event may be written while the window in front is the one this decision is about.
     ///
     /// INV-6: "excluded app, elevated window, out-of-scope → no frames, <b>no typing events written</b>."
-    /// Anything keyboard-derived is dropped out of scope — a burst count, a shortcut and an Enter all say
+    /// Anything keyboard-derived is dropped out of scope. A burst count, a shortcut and an Enter all say
     /// something about what was typed, and Ctrl+C in a customer's password manager is the case that
     /// matters.
     ///
@@ -79,8 +79,8 @@ public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToo
 /// Runs on every foreground change, so it answers from a dictionary where it can and only falls back to
 /// patterns when it must. The order matters and is the whole of the invariant: an exclusion wins over
 /// everything, a remote tool is in scope, an admin tool is in scope *because* it sits beside a session, and
-/// everything else is out of scope — clicks still logged so the timeline stays honest about what the
-/// technician did, but no frames.
+/// everything else is out of scope (clicks still logged so the timeline stays honest about what the
+/// technician did, but no frames).
 /// </summary>
 public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? options = null)
 {
@@ -106,7 +106,7 @@ public sealed class ScopePolicy(RemoteToolRegistry registry, ScopeOptions? optio
 
         // The shipped list first: password managers, banking tabs, credential prompts. Checked before the
         // technician's own additions and before anything else, because an exclusion beats every reason a
-        // window might otherwise be in scope — a password manager opened during a support session is
+        // window might otherwise be in scope: a password manager opened during a support session is
         // still support work, and still must not be photographed (ST-043).
         if (_options.Exclusions?.Match(window) is { } excluded)
         {

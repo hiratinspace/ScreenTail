@@ -11,11 +11,11 @@ namespace ScreenTail.Core.Privacy;
 /// sessions on its own when a remote tool takes the foreground, it registers the global hotkeys itself,
 /// and nothing anywhere asked whether a UI was attached. So a UI that crashed, was quit from its own
 /// menu, or was never started at all left the service recording a customer's screen with no indicator of
-/// any kind — which is the one thing INV-4 exists to forbid, arrived at without touching capture
+/// any kind, which is the one thing INV-4 exists to forbid, arrived at without touching capture
 /// (2026-09-19 review).
 ///
-/// <b>Suppression rather than stopping.</b> INV-6 already means a suppressed session writes nothing —
-/// no frame, no typing count, no transcript — so the invariant holds the moment this takes effect. It
+/// <b>Suppression rather than stopping.</b> INV-6 already means a suppressed session writes nothing
+/// (no frame, no typing count, no transcript), so the invariant holds the moment this takes effect. It
 /// also means a technician whose UI crashed mid-job gets the session back when it reopens, instead of
 /// one job cut into two notes.
 ///
@@ -98,7 +98,7 @@ public sealed class IndicatorGuard
     ///
     /// <b>This used to count connections.</b> A connection is not a pill: the window could be on a
     /// monitor that had since been unplugged, the tray icon could be in the overflow flyout, and the UI
-    /// could have frozen while still holding the socket — and all three read as indicated. It is a
+    /// could have frozen while still holding the socket, and all three read as indicated. It is a
     /// report now, repeated while it is true and expiring when it stops (2026-09-20 review).
     ///
     /// The service cannot verify the report, and a process that would lie about it could just as well

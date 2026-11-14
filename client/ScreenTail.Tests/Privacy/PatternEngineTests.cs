@@ -9,7 +9,7 @@ public sealed class PatternEngineTests
     private static readonly RedactionEngine Engine = new();
 
     [Theory]
-    // Test numbers from the card networks' published set — all Luhn-valid, none real.
+    // Test numbers from the card networks' published set: all Luhn-valid, none real.
     [InlineData("4111111111111111")]
     [InlineData("4111 1111 1111 1111")]
     [InlineData("4111-1111-1111-1111")]

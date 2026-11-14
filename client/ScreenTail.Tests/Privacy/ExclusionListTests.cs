@@ -6,7 +6,7 @@ namespace ScreenTail.Tests.Privacy;
 /// <summary>
 /// ST-043: the windows that must never be photographed, whatever scope says.
 ///
-/// The case this exists for is not an out-of-scope window — ST-023 already handles those. It is a window
+/// The case this exists for is not an out-of-scope window; ST-023 already handles those. It is a window
 /// that is squarely inside the support session and still must not be captured: a technician opening
 /// 1Password to look up the customer's admin password, in the middle of a ScreenConnect session.
 /// </summary>
@@ -40,7 +40,7 @@ public sealed class ExclusionListTests
     [Fact]
     public void TheDefaultsCoverAtLeastTenApplications()
     {
-        // ST-043's third criterion, counted by rule rather than by process name — listing four aliases of
+        // ST-043's third criterion, counted by rule rather than by process name: listing four aliases of
         // one product is not ten password managers.
         Assert.True(Defaults().ExcludedApplications >= 10, $"only {Defaults().ExcludedApplications} applications are excluded");
     }
@@ -110,7 +110,7 @@ public sealed class ExclusionListTests
     [Fact]
     public void AWindowWindowsWillNotIdentifyIsExcluded()
     {
-        // No process name and no title means Windows told us nothing about what is in front — a secure
+        // No process name and no title means Windows told us nothing about what is in front: a secure
         // desktop, a window we may not open, a process that just died. "We could not find out" is not a
         // reason to photograph something.
         var rule = Defaults().Match(Window(process: null, title: string.Empty));
@@ -172,7 +172,7 @@ public sealed class ExclusionListTests
     [Fact]
     public void TheRuleNamesTheRuleAndNotTheWindow()
     {
-        // The name reaches the HUD ("Paused: excluded app — 1Password") and the audit log. A window title
+        // The name reaches the HUD (after "Paused: excluded app", as in 1Password) and the audit log. A window title
         // there would put a customer's bank or a ticket subject into both (INV-10).
         var rule = Defaults().Match(Window(process: "chrome", browserTab: "Chase — Acme Dental operating account"));
 

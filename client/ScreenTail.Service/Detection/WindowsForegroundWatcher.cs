@@ -10,8 +10,8 @@ namespace ScreenTail.Service.Detection;
 /// the hook can't be installed.
 ///
 /// A WinEvent hook only delivers to a thread that pumps messages, so this owns one: a dedicated thread that
-/// installs the hook and runs a message loop until asked to stop. The alternative — hooking from a thread
-/// pool thread — silently delivers nothing, which is the kind of failure that looks like "capture is quiet
+/// installs the hook and runs a message loop until asked to stop. The alternative (hooking from a thread
+/// pool thread) silently delivers nothing, which is the kind of failure that looks like "capture is quiet
 /// today" rather than an error.
 ///
 /// The same thread also runs a slow timer. Titles change without a foreground event (a browser tab loading,
@@ -139,7 +139,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
             // Two hooks, each asking for one event. SetWinEventHook's first two arguments are eventMin and
             // eventMax and the range is inclusive, so passing the two constants below to a single call
-            // subscribed to all 32,778 event types between them — every window move, focus change, menu
+            // subscribed to all 32,778 event types between them: every window move, focus change, menu
             // and console caret on the desktop, each delivered with its own window handle and published as
             // the foreground window (ST-048, weaknesses P0-5).
             //
@@ -482,7 +482,7 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
     private delegate void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint idEventThread, uint dwmsEventTime);
 
     // Deliberately no WINEVENT_SKIPOWNPROCESS. The capture service owns no windows, so it filtered nothing
-    // in production — but it did hide the test's own window, which sent the acceptance test down the polling
+    // in production, but it did hide the test's own window, which sent the acceptance test down the polling
     // path and reported 259 ms against a 100 ms budget. Seeing our own UI come to the front is wanted
     // anyway: ST-040 needs to know when the technician is in Review rather than in the remote session.
     private const uint WINEVENT_OUTOFCONTEXT = 0x0000;

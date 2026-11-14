@@ -7,7 +7,7 @@ namespace ScreenTail.Shared.Logging;
 ///
 /// The messages are content-free by construction: the service logs a title's <i>length</i>, never the
 /// title, and the diagnostics record has no field for one. This is the belt to that brace, for the
-/// value that reaches a log by mistake — a framework's exception message that quotes a path, a template
+/// value that reaches a log by mistake: a framework's exception message that quotes a path, a template
 /// somebody adds in a hurry. A path names the user and often the customer; an address names a person;
 /// and a value logged under a key called <c>Title</c> is a title whatever the message around it says.
 /// </summary>

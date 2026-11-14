@@ -8,7 +8,7 @@ namespace ScreenTail.Tests.Shell;
 ///
 /// The tray icon is the one indicator that is always on screen, so INV-3 and INV-4 both rest on it saying
 /// the right thing in one 16-pixel glyph. The panel exists to answer a customer standing behind a
-/// technician asking what that is recording — which is also why nothing it shows may be content.
+/// technician asking what that is recording, which is also why nothing it shows may be content.
 /// </summary>
 public sealed class TrayAndDiagnosticsTests
 {
@@ -252,7 +252,7 @@ public sealed class TrayAndDiagnosticsTests
     public void AStateThisBuildHasNeverHeardOfIsUnknownRatherThanIdle()
     {
         // 2026-09-19 review. An unrecognised state fell through to "Not capturing" and the idle ring, so
-        // a service newer than this UI — one that had added a recording-like state — would show a
+        // a service newer than this UI (one that had added a recording-like state) would show a
         // technician the icon that means nothing is happening. That is the one guess INV-4 cannot afford
         // to get wrong, and KnownIdle already says so about whether the pill is shown; this is the same
         // reasoning applied to what it says.

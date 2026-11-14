@@ -225,7 +225,7 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
         // a page in a language with no pack installed, or a frame it decoded and gave up on: all four
         // arrive here as zero words. Storing them as redacted marks a customer's screen clean without
         // anything having read it, which is the INV-1 breach this test exists to keep closed. ADR-0004
-        // records the cost — genuinely blank frames are lost — and why it is the cheaper of the two.
+        // records the cost (genuinely blank frames are lost) and why it is the cheaper of the two.
         var store = await OpenAsync();
         await StageAsync(store, "s1", "f1");
         var worker = Worker(store, new FakeRecogniser { Words = [], Confidence = 1.0 });
@@ -241,7 +241,7 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     public async Task ReadingNothingIsCountedApartFromReadingBadly()
     {
         // Both end in a discarded frame, and they mean opposite things. A rising Unread is the recogniser
-        // failing to see anything at all — a missing language pack, a theme it cannot handle — and a
+        // failing to see anything at all (a missing language pack, a theme it cannot handle) and a
         // rising Unreadable is it seeing badly. One number covering both would hide whichever is happening.
         var store = await OpenAsync();
         await StageAsync(store, "s1", "f1");
@@ -396,7 +396,7 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     [InlineData(true, "Login Username Account Next")]
     // Spelled the way Windows and web forms actually draw it. OCR hands back the tokens on screen, so a
     // cue list that only knows "logon" and "sign in" misses the classic logon banner and every hyphenated
-    // sign-in page — the screens this heuristic exists for.
+    // sign-in page: the screens this heuristic exists for.
     [InlineData(true, "Log On to Windows User name Domain")]
     [InlineData(true, "Sign-in Email Continue")]
     [InlineData(true, "Log-in Account Submit")]
@@ -481,7 +481,7 @@ public sealed class RedactionWorkerTests : IAsyncDisposable
     public async Task NothingUnredactedIsEverInTheStore()
     {
         // ADR-0006's own claim, checked at the only two moments it could be false: after the frame was
-        // captured, and after it was written. There is no third moment — the bytes are held in memory in
+        // captured, and after it was written. There is no third moment: the bytes are held in memory in
         // between, and the store learns about the frame once, already masked.
         var store = await OpenAsync();
         await StageAsync(store, "s1", "f1");

@@ -9,8 +9,8 @@ namespace ScreenTail.Service.Speech;
 /// Local transcription with whisper.cpp (ST-027).
 ///
 /// <b>Local, and not as a configuration choice.</b> A transcript of a support call is the most sensitive
-/// thing a session produces — it is the technician saying out loud what they are doing to a customer's
-/// machine — so it never leaves the device whatever the tenant's egress settings say. The only thing that
+/// thing a session produces (it is the technician saying out loud what they are doing to a customer's
+/// machine), so it never leaves the device whatever the tenant's egress settings say. The only thing that
 /// crosses the network here is the model file, which is public, hash-checked and not customer data.
 ///
 /// The model is fetched on first use and can be hundreds of megabytes. <see cref="Ready"/> stays false
@@ -32,7 +32,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// <summary>
     /// How many threads whisper.cpp may use.
     ///
-    /// Unset, it takes every hardware thread the machine has — eight on the reference laptop, which is
+    /// Unset, it takes every hardware thread the machine has: eight on the reference laptop, which is
     /// the whole processor. ADR-0001 measured base.en that way at 49-62% of the CPU, against ST-031's
     /// 15% for all of ScreenTail, on a machine whose real job is the remote-desktop session the
     /// technician is running. Two threads is roughly a quarter of that, which lands near the budget
@@ -161,7 +161,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// A sentence for the log, never content: what reaches here is a host name the guard refused or the
     /// name of an exception, both of which are facts about this machine rather than about a customer's
     /// screen (INV-10). It exists because "no narration" was previously indistinguishable from "nobody
-    /// spoke" — the one failure that actually happens, an egress refusal, threw past the catch below and
+    /// spoke". The one failure that actually happens, an egress refusal, threw past the catch below and
     /// faulted a task nobody awaited (2026-09-20 review).
     /// </summary>
     public string? Unavailable { get; private set; }
@@ -201,7 +201,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         catch (EgressBlockedException blocked)
         {
             // The one failure that actually happened, and the one this catch did not name. The model
-            // host answers 302 to a CDN that was not on the allowlist, so the hop was refused — and an
+            // host answers 302 to a CDN that was not on the allowlist, so the hop was refused, and an
             // EgressBlockedException thrown from here faulted the un-awaited task in CaptureHost that
             // called this, which is how narration came to fail without a single line anywhere saying so
             // (2026-09-20 review).

@@ -5,7 +5,7 @@ namespace ScreenTail.Tests.Store;
 /// <summary>
 /// INV-12's second half: "delete everything" actually deletes everything (2026-09-19 review).
 ///
-/// The command answered the UI, and then the service stopped, and only then did anything get deleted —
+/// The command answered the UI, and then the service stopped, and only then did anything get deleted,
 /// in a <c>finally</c>, after every other shutdown step had run. A file held open by antivirus or a
 /// backup agent, or a process that exited before it got there, left the store intact with no record
 /// anywhere that erasure had been asked for. The next start opened it and carried on, and the
@@ -270,7 +270,7 @@ public sealed class EraseEverythingTests : IDisposable
     public void AnErasureThatWasAskedForIsStillOwedAfterACrash()
     {
         // The whole point of writing the intent down. The service was told to erase, said yes, and died
-        // before it could — or could not delete a locked file. The next start must not simply open the
+        // before it could, or could not delete a locked file. The next start must not simply open the
         // store and carry on.
         Populate();
         LocalDataEraser.MarkPending(_directory);
@@ -479,7 +479,7 @@ public sealed class EraseEverythingTests : IDisposable
     /// Makes the crash-report directory refuse to be removed, until the returned handle is let go.
     ///
     /// The real reason differs by platform and neither one travels: on Windows a file held open cannot
-    /// be unlinked, and on Unix it can — the bytes simply go when the last handle closes — while a
+    /// be unlinked, and on Unix it can (the bytes simply go when the last handle closes) while a
     /// directory without write permission cannot be emptied. Each arm here is that platform's actual
     /// mechanism rather than a simulation of it. What is under test is what the eraser does when a
     /// delete fails, not why it failed.

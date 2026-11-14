@@ -15,7 +15,7 @@ namespace ScreenTail.Core.Capture;
 ///
 /// A click that fails the scope test still becomes an event, with no frame: ST-023 asks for exactly
 /// that, so Review can show "clicks logged, no frames" rather than a silent gap. Anything
-/// keyboard-derived is dropped instead — INV-6 says out-of-scope means "no typing events written", and a
+/// keyboard-derived is dropped instead: INV-6 says out-of-scope means "no typing events written", and a
 /// keystroke count taken in a customer's password manager is not made harmless by having no picture
 /// beside it.
 ///
@@ -66,7 +66,7 @@ public sealed class SessionRecorder(
     /// up. A typing burst is a count kept across many calls, and an event that says "fourteen characters"
     /// cannot say that they were typed while capture was suppressed for a password field. Until
     /// 2026-09-19 that is what happened: the count ran through pauses, suppression and out-of-scope
-    /// windows, and the first click after capture came back wrote it into the session — the length of a
+    /// windows, and the first click after capture came back wrote it into the session: the length of a
     /// password and the moment it was typed, recorded by the mechanism built not to (INV-6).
     ///
     /// So, per call: if the session is not recording, everything is dropped and the open burst is
@@ -166,7 +166,7 @@ public sealed class SessionRecorder(
 
     /// <summary>
     /// Keyboard-derived events, which INV-6 calls "typing events". A shortcut and an Enter say as much
-    /// about what someone typed as a burst count does — Ctrl+C in a password manager is the case — so all
+    /// about what someone typed as a burst count does (Ctrl+C in a password manager is the case), so all
     /// three are treated alike.
     /// </summary>
     private static bool IsKeyboard(SessionEvent sessionEvent) =>

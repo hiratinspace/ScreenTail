@@ -12,7 +12,7 @@ public enum HotkeyAction
     MarkMoment,
 
     /// <summary>
-    /// Bindable, but with no default chord — see <see cref="HotkeyBindings.Defaults"/>. Discarding a
+    /// Bindable, but with no default chord; see <see cref="HotkeyBindings.Defaults"/>. Discarding a
     /// session is irreversible and Spec §3 requires a typed confirmation for it, so it is not something a
     /// mistyped chord should begin.
     /// </summary>

@@ -16,8 +16,8 @@ namespace ScreenTail.Tests.Windows.Privacy;
 /// the real encrypted store, the real OCR engine and the real masker, with a median under 700 ms a frame
 /// and the backlog depth reported every second.
 ///
-/// Nothing here is a stand-in. The per-frame cost that matters is the whole trip — decrypt the staged
-/// frame, read it, decide, paint, downscale, re-encrypt, write — and every fake in that chain would remove
+/// Nothing here is a stand-in. The per-frame cost that matters is the whole trip (decrypt the staged
+/// frame, read it, decide, paint, downscale, re-encrypt, write) and every fake in that chain would remove
 /// most of it. The measurement is the point of the test.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
