@@ -1284,7 +1284,7 @@ Diff draft vs final on publish; store structural style signals only; inject top 
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done 2026-09-13. Renders sample data until ST-085 wires it to the service.
+- **Status:** Done 2026-09-13. Renders sample data until ST-085 wires it to the service. 2026-11-13: the theme now persists, as its acceptance asked; it had always started dark. Settings, Appearance offers Use my Windows setting (the default, followed live), Light or Dark (Spec v0.6.13).
 
 **Description:**
 WPF host with navigation (Review, History, Settings), MVVM store fed by IPC events, theme switching, global shortcut routing (incl. `?` sheet), service-connection status.
