@@ -99,21 +99,6 @@ public static class ConfirmCopy
     }
 
     /// <summary>
-    /// Settings, Integrations, Remove (v0.6.11). Asked inline on the integration's card, never in a
-    /// dialog, so it can be asked while a session is being captured (Spec §4).
-    /// </summary>
-    public static ConfirmWords RemoveIntegration(string title)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(title);
-        return new ConfirmWords(
-            $"Remove {title}?",
-            $"Its keys are deleted from this device, and notes cannot be published to {title} until you connect it again.",
-            $"Remove {title}",
-            "Keep it",
-            ConfirmTone.Danger);
-    }
-
-    /// <summary>
     /// The tray's discard, when the service would not do it or could not be asked: a notice, one button.
     /// The reason, then what that leaves (v0.6.12): the session is still there, so nothing was lost.
     /// </summary>

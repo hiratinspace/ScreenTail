@@ -468,7 +468,7 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.Single(_api.Requests);
         Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
         Assert.Equal("The ConnectWise site answered with a redirect, and ScreenTail does not follow redirects.", result.Error.What);
-        Assert.Equal("Check the site address in Settings → Integrations.", result.Error.Todo);
+        Assert.Equal("Ask your owner to check the site address in the web admin.", result.Error.Todo);
     }
 
     [Fact]

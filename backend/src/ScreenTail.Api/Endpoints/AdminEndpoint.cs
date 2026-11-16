@@ -38,11 +38,6 @@ public sealed record UpdatePolicyRequest(
     int? UpdateCheckHours,
     bool? UpdateChecksUnderLocalOnly);
 
-/// <param name="LastResult"><c>ok</c>, <c>failed</c>, or null before the first test.</param>
-public sealed record AdminIntegration(string Provider, string Name, bool Connected, string? SiteUrl, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCheckedAt, string? LastResult, string? LastError);
-
-public sealed record AdminIntegrationsResponse(IReadOnlyList<AdminIntegration> Integrations);
-
 public sealed record DownloadResponse(string? Url, string Message);
 
 /// <summary>
@@ -194,26 +189,7 @@ public static class AdminEndpoint
         .WithName("AdminSetPolicy")
         .WithSummary("Sets the tenant's policy as a new version. Devices pick it up within the hour.");
 
-        group.MapGet("/integrations", async (AdminCaller owner, ScreenTailContext db, CancellationToken ct) =>
-        {
-            // Never a credential, not even its last four: the owner sees whether it is there and whether
-            // it worked, and technicians manage it from Settings.
-            var rows = await db.Integrations.AsNoTracking()
-                .Where(i => i.TenantId == owner.TenantId && (i.Provider == "connectwise" || i.Provider == "hudu"))
-                .Select(i => new { i.Provider, i.SiteUrl, i.ConnectedAt, i.LastCheckedAt, i.LastError })
-                .ToListAsync(ct)
-                .ConfigureAwait(false);
-            return Results.Ok(new AdminIntegrationsResponse([.. Known.Select(k =>
-            {
-                var row = rows.SingleOrDefault(r => r.Provider == k.Provider);
-                return row is null
-                    ? new AdminIntegration(k.Provider, k.Name, false, null, null, null, null, null)
-                    : new AdminIntegration(k.Provider, k.Name, true, row.SiteUrl, row.ConnectedAt, row.LastCheckedAt, row.LastCheckedAt is null ? null : row.LastError is null ? "ok" : "failed", row.LastError);
-            })]));
-        })
-        .WithName("AdminIntegrations")
-        .WithSummary("Whether ConnectWise and Hudu are connected and how their last test went. No credentials.");
-
+        // The Integrations page's routes, connect and disconnect included, are IntegrationsEndpoint.MapAdminIntegrations.
         group.MapGet("/download", (AdminOptions options) =>
         {
             var url = options.DownloadUri();
@@ -226,8 +202,6 @@ public static class AdminEndpoint
 
         return group;
     }
-
-    private static readonly (string Provider, string Name)[] Known = [("connectwise", "ConnectWise Manage"), ("hudu", "Hudu")];
 
     private static bool LooksLikeAnAddress([NotNullWhen(true)] string? email) =>
         email is { Length: >= 3 and <= 320 }

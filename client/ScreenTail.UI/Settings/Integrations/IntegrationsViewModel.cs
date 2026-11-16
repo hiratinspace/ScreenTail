@@ -39,8 +39,10 @@ public sealed record MappingRow(string PsaCompany, string DocCompanyName, string
 }
 
 /// <summary>
-/// Settings → Integrations (ST-082, Spec §5 S7): the two cards and the company mapping table, bound
-/// over <see cref="IntegrationsPanel"/>. Loaded when the screen opens and again after anything changes.
+/// Settings → Integrations (ST-082, Spec §5 S7): the two cards, read only, and the company mapping
+/// table, bound over <see cref="IntegrationsPanel"/>. Loaded when the screen opens. Nothing here is on
+/// the Settings page's Save bar: integration credentials can only be changed by the tenant owner, in the
+/// web admin, and Test connection and the company mapping act at once.
 /// </summary>
 public sealed partial class IntegrationsViewModel : ObservableObject
 {
@@ -50,28 +52,8 @@ public sealed partial class IntegrationsViewModel : ObservableObject
     public IntegrationsViewModel(IntegrationsPanel panel)
     {
         _panel = panel ?? throw new ArgumentNullException(nameof(panel));
-        Section = new IntegrationsSection(panel);
-        ConnectWise = new IntegrationCardViewModel(panel.ConnectWise, RefreshMappingsAsync, () => Edited?.Invoke(this, EventArgs.Empty));
-        Hudu = new IntegrationCardViewModel(panel.Hudu, RefreshMappingsAsync, () => Edited?.Invoke(this, EventArgs.Empty));
-    }
-
-    /// <summary>
-    /// This section on the Settings page's one Save bar: a card being filled in is a change, stored when
-    /// the page saves. Test connection, Remove and the company mapping act at once and are never on it.
-    /// </summary>
-    public IntegrationsSection Section { get; }
-
-    /// <summary>A card's field changed, so the page's Save bar counts again.</summary>
-    public event EventHandler? Edited;
-
-    /// <summary>
-    /// Settings has one Save bar for the page, so the cards' own Save buttons go and a line says the bar
-    /// stores the connection. Onboarding's Connect step, which has no bar, keeps them.
-    /// </summary>
-    public void UsePageSave()
-    {
-        ConnectWise.UsePageSave();
-        Hudu.UsePageSave();
+        ConnectWise = new IntegrationCardViewModel(panel.ConnectWise);
+        Hudu = new IntegrationCardViewModel(panel.Hudu);
     }
 
     public IntegrationCardViewModel ConnectWise { get; }
@@ -114,18 +96,6 @@ public sealed partial class IntegrationsViewModel : ObservableObject
 
     [ObservableProperty]
     public partial Visibility MappingProblemVisibility { get; set; } = Visibility.Collapsed;
-
-    /// <summary>The panel holds a change the technician has not saved, so the shell does not read it again on a reconnect.</summary>
-    public bool HasUnsavedEdits => _panel.HasUnsavedEdits;
-
-    /// <summary>After the page saved or undid its changes: the cards as they are now, and the mapping table, which a newly stored Hudu opens.</summary>
-    public async Task RefreshAsync(CancellationToken ct = default)
-    {
-        ConnectWise.Refresh();
-        Hudu.Refresh();
-        await _panel.RefreshMappingsAsync(ct).ConfigureAwait(true);
-        ShowMappings();
-    }
 
     public async Task LoadAsync(CancellationToken ct = default)
     {
@@ -184,12 +154,6 @@ public sealed partial class IntegrationsViewModel : ObservableObject
     partial void OnNewPsaCompanyChanged(string value) => CanAddMapping = value.Trim().Length > 0 && NewDocCompany is not null;
 
     partial void OnNewDocCompanyChanged(CompanyChoice? value) => CanAddMapping = NewPsaCompany.Trim().Length > 0 && value is not null;
-
-    private async Task RefreshMappingsAsync()
-    {
-        await _panel.RefreshMappingsAsync().ConfigureAwait(true);
-        ShowMappings();
-    }
 
     private void ShowMappings()
     {

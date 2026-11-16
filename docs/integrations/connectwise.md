@@ -50,14 +50,12 @@ it refused and nothing else from the response (`backend/src/ScreenTail.Api/Provi
    It must be reachable at a public internet address: the backend refuses a site on its own machine or
    a private network, when it is stored and again when it is called.
 
-Stored once, from Settings → Integrations (the card takes the three parts and joins them) or by hand
-over the device's authenticated connection to the backend, and never returned:
-
-```bash
-curl -X PUT "$BACKEND/v1/integrations/connectwise" \
-  -H "Authorization: Bearer $SCREENTAIL_DEVICE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"siteUrl":"https://na.myconnectwise.net","secret":"acme+PUBLICKEY:PRIVATEKEY"}'
-```
+Stored once, by the tenant's owner from the web admin's Integrations page (Connect ConnectWise Manage:
+the form takes the site and the three parts and joins them), and never returned. Behind it is
+`PUT /v1/admin/integrations/connectwise` with
+`{"siteUrl":"https://na.myconnectwise.net","secret":"acme+PUBLICKEY:PRIVATEKEY"}`, on the owner's
+signed-in session with its CSRF header. A technician's device cannot store or remove it
+(`403 owner_only`) and sees the connection read-only in Settings → Integrations.
 
 `GET /v1/integrations` then shows `connectwise`, the site, and `••••` plus the last four characters.
 

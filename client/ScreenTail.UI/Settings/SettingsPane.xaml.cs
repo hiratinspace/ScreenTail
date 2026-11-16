@@ -28,7 +28,17 @@ public partial class SettingsPane : UserControl
     {
         InitializeComponent();
         Page.GotKeyboardFocus += OnPageGotKeyboardFocus;
-        Loaded += (_, _) => SelectShown();
+        Loaded += (_, _) =>
+        {
+            // Opened at a section (Review's "See integrations"): that one, once laid out, not the top.
+            if (DataContext is SettingsViewModel model && model.TakePendingSection() is { } key)
+            {
+                _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () => OnJumpRequested(this, key));
+                return;
+            }
+
+            SelectShown();
+        };
         DataContextChanged += (_, e) =>
         {
             if (e.OldValue is SettingsViewModel old)
@@ -55,6 +65,17 @@ public partial class SettingsPane : UserControl
     /// <summary>The bar's link: the section to the top of the page, and focus on its first control.</summary>
     private void OnJumpRequested(object? sender, string key)
     {
+        // Not on screen yet: Loaded takes the pending section and comes back here.
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        if (DataContext is SettingsViewModel model && model.PendingSection == key)
+        {
+            _ = model.TakePendingSection();
+        }
+
         if (ScrollTo(key) is not { } group)
         {
             return;

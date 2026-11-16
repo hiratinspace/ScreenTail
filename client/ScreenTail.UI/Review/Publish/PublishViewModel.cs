@@ -89,7 +89,7 @@ public sealed partial class PublishViewModel : ObservableObject
     /// out; <see cref="FramesChanged"/> is called when it changes.
     /// </param>
     /// <param name="next">History's rows and the way to open one, for the receipt's Next to check. Null shows no next session.</param>
-    /// <param name="openSettings">Opens Settings, for "Connect a PSA to publish". Null leaves the words without the way there.</param>
+    /// <param name="openSettings">Opens Settings, for "See integrations". Null leaves the words without the way there.</param>
     /// <param name="sessionId">The session this pane publishes, which is never its own next.</param>
     public PublishViewModel(
         PublishPanel panel,
@@ -224,7 +224,7 @@ public sealed partial class PublishViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility TodayVisibility { get; set; } = Visibility.Collapsed;
 
-    /// <summary>Settings is reachable from "Connect a PSA to publish".</summary>
+    /// <summary>Settings is reachable from "See integrations".</summary>
     public Visibility OpenSettingsVisibility => _openSettings is null ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>`Ctrl+T` and Change: the ticket picker opens in place under To. With no PSA there is nothing to pick from.</summary>
@@ -526,7 +526,9 @@ public sealed partial class PublishViewModel : ObservableObject
         var mapped = await _panel.MapAndRetryAsync(choice.Id, _note(), _frames()).ConfigureAwait(true);
         if (!mapped)
         {
-            MappingError = "The backend did not take the mapping. Try again, or map it in Settings → Integrations.";
+            // The backend's words when it gave some (too many changes from this PC: wait, then again). The
+            // chosen company stays chosen, so a second try is one click.
+            MappingError = _panel.MappingRefusal ?? "The backend did not take the mapping. Try again, or map it in Settings → Integrations.";
             MappingErrorVisibility = Visibility.Visible;
         }
 

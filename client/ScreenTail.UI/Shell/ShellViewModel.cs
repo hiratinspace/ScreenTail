@@ -312,6 +312,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             case PaneAction.Settings:
                 _settingsPane ??= _settings?.Invoke();
                 Content = _settingsPane ?? SettingsLater;
+                if (_settingsPane is Settings.SettingsViewModel opened && _state.TakeSettingsSection() is { } section)
+                {
+                    opened.Show(section);
+                }
 
                 // Read when the view becomes Settings, and not again on each state change while it is
                 // open: that overwrote unsaved edits, and Save then stored the old values (S-144, T-161).
@@ -333,12 +337,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                         _ = settings.Privacy.LoadAsync(_closing);
                     }
 
-                    if (!step.KeepEdits || !settings.Integrations.HasUnsavedEdits)
-                    {
-                        _ = settings.Integrations.LoadAsync(_closing);
-                    }
-
-                    // Nothing on the Updates card is typed, so it is always read again.
+                    // Nothing on the Integrations cards (read only, the owner manages them) or the Updates
+                    // card is typed, so they are always read again.
+                    _ = settings.Integrations.LoadAsync(_closing);
                     _ = settings.Updates.LoadAsync(_closing);
                 }
 

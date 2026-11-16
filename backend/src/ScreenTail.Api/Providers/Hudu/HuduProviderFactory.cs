@@ -23,7 +23,17 @@ public sealed class HuduProviderFactory(IIntegrationVault vault, IHttpClientFact
 
     public async Task<IDocProvider?> ForTenantAsync(Guid tenantId, CancellationToken ct = default)
     {
-        var revealed = await vault.RevealAsync(tenantId, "hudu", ct).ConfigureAwait(false);
+        RevealedIntegration? revealed;
+        try
+        {
+            revealed = await vault.RevealAsync(tenantId, "hudu", ct).ConfigureAwait(false);
+        }
+        catch (VaultRowRefusedException)
+        {
+            // A row the vault will not open answers every call in words, not with a 500 (2026-11-15 review).
+            return new RefusedDocProvider("hudu");
+        }
+
         if (revealed is null)
         {
             return null;

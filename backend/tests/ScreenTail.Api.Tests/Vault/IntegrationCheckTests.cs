@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using ScreenTail.Api.Auth;
@@ -29,7 +30,7 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         using var host = HostWith(cw, new ScriptedHudu());
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
 
         using var response = await client.PostAsync(new Uri("/v1/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
@@ -51,7 +52,7 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         using var host = HostWith(cw, new ScriptedHudu());
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG-0000"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG-0000"));
 
         using var response = await client.PostAsync(new Uri("/v1/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
@@ -64,13 +65,55 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
     }
 
     [Fact]
+    public async Task ACredentialTheVaultRefusesIsAnsweredInWordsOnBothCheckRoutesAndWhileMapping()
+    {
+        // 2026-11-15 review: a row bound to another site does not open. Test connection says so (to a
+        // technician: ask the owner; to the owner: what to do), records it, and nothing is a bare 500 (a
+        // provider refusal is the endpoints' own 502 with the words in it).
+        var cw = new ScriptedConnectWise();
+        var hudu = new ScriptedHudu();
+        using var host = HostWith(cw, hudu);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var storedCw = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
+        using var storedHudu = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"));
+        _ = await api.UseAsync(db => db.Integrations.Where(i => i.TenantId == tenantId).ExecuteUpdateAsync(set => set.SetProperty(i => i.SiteUrl, "https://moved.example.com")));
+        using var owner = await host.Factory.OwnerClientAsync(api, tenantId);
+
+        using var deviceCheck = await client.PostAsync(new Uri("/v1/integrations/hudu/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        var asDevice = await deviceCheck.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
+        using var ownerCheck = await owner.PostAsync(new Uri("/v1/admin/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        var asOwner = await ownerCheck.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
+        using var companies = await client.GetAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var tickets = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
+        var list = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+        var ownerList = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, deviceCheck.StatusCode);
+        Assert.False(asDevice!.Ok);
+        Assert.Contains("Ask your owner to connect it again in the web admin.", asDevice.Message, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.OK, ownerCheck.StatusCode);
+        Assert.False(asOwner!.Ok);
+        Assert.Contains("Connect it again in the web admin.", asOwner.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ask your owner", asOwner.Message, StringComparison.Ordinal);
+        Assert.NotEqual(HttpStatusCode.InternalServerError, companies.StatusCode);
+        Assert.Contains("Ask your owner", await companies.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.NotEqual(HttpStatusCode.InternalServerError, tickets.StatusCode);
+        Assert.Contains("Ask your owner", await tickets.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Empty(cw.Requests);
+        Assert.Empty(hudu.Requests);
+        Assert.All(list!.Integrations, row => Assert.Contains("Ask your owner to connect it again", row.LastError, StringComparison.Ordinal));
+        Assert.All(ownerList!.Integrations, row => Assert.DoesNotContain("Ask your owner", row.LastError ?? string.Empty, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task AHuduCheckAsksForItsApiInfo()
     {
         var hudu = new ScriptedHudu();
         using var host = HostWith(new ScriptedConnectWise(), hudu);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"));
 
         using var response = await client.PostAsync(new Uri("/v1/integrations/hudu/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);

@@ -352,12 +352,6 @@ public sealed class ShellViewModelLifetimeTests
 
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Count<IReadOnlyList<IntegrationDetail>>(ct);
 
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
-            throw new InvalidOperationException("not under test");
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) =>
-            throw new InvalidOperationException("not under test");
-
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");
 

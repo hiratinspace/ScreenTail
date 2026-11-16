@@ -279,6 +279,8 @@ label {
 
 input[type='text'],
 input[type='email'],
+input[type='url'],
+input[type='password'],
 input[type='number'],
 select {
   height: var(--layout-control-height);
@@ -485,6 +487,25 @@ input[aria-invalid='true'] {
   background: var(--state-danger);
 }
 
+/* Integrations: the connect form and a card's last result, each set apart from what is above it. */
+.connect-form {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.connect-form > .hint {
+  margin-bottom: var(--space-3);
+}
+
+.connect-form > .question {
+  margin-bottom: var(--space-3);
+}
+
+.outcome > p {
+  margin-top: var(--space-3);
+}
+
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -502,12 +523,15 @@ input[aria-invalid='true'] {
 }
 
 /* The invite code, once. */
-.issued-title {
+.issued-title,
+.question {
   font-weight: var(--weight-semibold);
   margin: 0;
 }
 
-.issued-title:focus {
+.issued-title:focus,
+.question:focus,
+.section-title[tabindex='-1']:focus {
   outline: none;
 }
 

@@ -390,24 +390,37 @@ public sealed class PipePublisherTests : IAsyncDisposable
         _backend.Companies = [new CompanyChoiceRow("7", "Acme Dental")];
 
         var rows = await settings.ListAsync(TestContext.Current.CancellationToken);
-        var stored = await settings.StoreAsync("hudu", "https://acme.huducloud.com", "new-key", TestContext.Current.CancellationToken);
         var check = await settings.CheckAsync("hudu", TestContext.Current.CancellationToken);
         var mappings = await settings.MappingsAsync(TestContext.Current.CancellationToken);
         var unmapped = await settings.UnmapAsync("Acme Dental", TestContext.Current.CancellationToken);
-        var removed = await settings.RemoveAsync("hudu", TestContext.Current.CancellationToken);
 
         var row = Assert.Single(rows!);
         Assert.Equal("hudu", row.Provider);
         Assert.StartsWith("Hudu rejected", row.LastError, StringComparison.Ordinal);
-        Assert.Null(stored);
-        Assert.Equal(("hudu", "https://acme.huducloud.com", "new-key"), _backend.Stored);
         Assert.True(check.Ok);
         Assert.Equal("Connected to https://acme.huducloud.com.", check.Message);
         Assert.Equal("Acme Dental", Assert.Single(mappings!.Companies).Name);
         Assert.Null(unmapped);
         Assert.Equal("Acme Dental", _backend.Unmapped);
-        Assert.Null(removed);
-        Assert.Equal("hudu", _backend.Removed);
+    }
+
+    [Fact]
+    public async Task AStoreOrRemoveFromAnOlderUiIsRefusedByTheServiceAndNeverReachesTheBackend()
+    {
+        // Integration credentials can only be changed by the tenant owner, in the web admin. The commands
+        // stay in the contract, so a UI that still sends them is answered, over the same pipe, with the
+        // owner sentence as a failed result. The service refuses them itself: the backend is never asked,
+        // so the secret goes no further than the service.
+        _ = await PublisherAsync();
+
+        var stored = await _connection!.SendAsync(id => new StoreIntegrationCommand { RequestId = id, Provider = "hudu", SiteUrl = "https://acme.huducloud.com", Secret = "new-key" }, TestContext.Current.CancellationToken);
+        var removed = await _connection.SendAsync(id => new RemoveIntegrationCommand { RequestId = id, Provider = "hudu" }, TestContext.Current.CancellationToken);
+
+        Assert.False(stored.Ok);
+        Assert.Equal(PsaGateway.OwnerOnly, stored.Error);
+        Assert.False(removed.Ok);
+        Assert.Equal(PsaGateway.OwnerOnly, removed.Error);
+        Assert.Empty(_backend.Refused);
     }
 
     [Fact]
@@ -415,13 +428,13 @@ public sealed class PipePublisherTests : IAsyncDisposable
     {
         _ = await PublisherAsync();
         var settings = new PipeIntegrations(_connection!);
-        _backend.Refusal = "This deployment has no vault master key, so credentials cannot be stored.";
+        _backend.Refusal = "The backend did not answer.";
 
-        var stored = await settings.StoreAsync("hudu", "https://acme.huducloud.com", "new-key", TestContext.Current.CancellationToken);
+        var unmapped = await settings.UnmapAsync("Acme Dental", TestContext.Current.CancellationToken);
         var check = await settings.CheckAsync("hudu", TestContext.Current.CancellationToken);
         var rows = await settings.ListAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(_backend.Refusal, stored);
+        Assert.Equal(_backend.Refusal, unmapped);
         Assert.False(check.Ok);
         Assert.Equal(_backend.Refusal, check.Message);
         Assert.Null(rows);
@@ -535,9 +548,11 @@ public sealed class PipePublisherTests : IAsyncDisposable
 
         public IReadOnlyList<IntegrationDetailRow> Details { get; set; } = [];
 
-        public (string Provider, string SiteUrl, string Secret)? Stored { get; private set; }
+        /// <summary>The backend's 403 <c>owner_only</c> sentence, which every store and remove from a device gets.</summary>
+        public const string OwnerOnly = "Your ScreenTail owner manages this connection in the web admin. Ask them to connect or change it there.";
 
-        public string? Removed { get; private set; }
+        /// <summary>Every store and remove that reached the backend, each refused.</summary>
+        public List<string> Refused { get; } = [];
 
         public string? Unmapped { get; private set; }
 
@@ -546,19 +561,14 @@ public sealed class PipePublisherTests : IAsyncDisposable
 
         public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
         {
-            if (Refusal is { } r)
-            {
-                return Task.FromResult(GatewayAnswer.Refused<bool>(r));
-            }
-
-            Stored = (provider, siteUrl, secret);
-            return Task.FromResult(GatewayAnswer.Of(true));
+            Refused.Add("store " + provider);
+            return Task.FromResult(GatewayAnswer.Refused<bool>(OwnerOnly));
         }
 
         public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default)
         {
-            Removed = provider;
-            return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+            Refused.Add("remove " + provider);
+            return Task.FromResult(GatewayAnswer.Refused<bool>(OwnerOnly));
         }
 
         public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default)

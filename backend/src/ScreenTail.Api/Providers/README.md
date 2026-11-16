@@ -148,7 +148,7 @@ refuses to start with it outside Development.
 Hudu. Each is a real Kestrel server on a loopback port, over HTTPS with a certificate made for the run,
 that keeps what it is sent (notes, time entries, documents, articles, uploads) and records every
 request as it arrived. The tests store the stand-ins as a tenant's sites through
-`PUT /v1/integrations/{provider}` and drive publish, ticket search, Test connection and the company
+the owner's `PUT /v1/admin/integrations/{provider}` and drive publish, ticket search, Test connection and the company
 mapping endpoints, so every call goes through the real factory, named client, `PublicNetwork` handler,
 `ProviderHttp` and provider. No vendor account, key or network is needed.
 
