@@ -208,7 +208,10 @@ nobody signed never updates itself either.
   a handle that stops the file being changed, renamed or deleted, plus its Authenticode signature, its
   timestamp and its publisher, compared by identity (subject and Artifact Signing's validation EKU), not
   by leaf certificate. A build signed with a store certificate, which has no validation EKU, updates only
-  to a package signed with the same key: a renewal with a new key is installed by hand once.
+  to a package signed with the same key. So **moving from a store certificate to Artifact Signing, or
+  renewing a store certificate with a new key, needs one manual install** of the new package on each
+  machine; updates work again from then on. In Artifact Signing mode `sign.ps1 -Verify` fails a release
+  whose signatures lack the validation EKU, since installed builds would refuse it as an update.
 - Never during a session: Install is refused while recording, and no session starts while Windows
   Installer runs.
 

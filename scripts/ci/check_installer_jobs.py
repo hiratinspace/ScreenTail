@@ -110,7 +110,14 @@ SIGN_SETTINGS = {
     'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
     'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
 }
-VERIFY_SETTINGS = {'SCREENTAIL_REQUIRE_SIGNING': '1'}
+# The verification also gets the Artifact Signing names (no credential), so it knows which mode signed
+# the build and can require the identity-validation usage installed builds compare updates by.
+VERIFY_SETTINGS = {
+    'SCREENTAIL_REQUIRE_SIGNING': '1',
+    'SCREENTAIL_SIGNING_ENDPOINT': expr('vars.SCREENTAIL_SIGNING_ENDPOINT'),
+    'SCREENTAIL_SIGNING_ACCOUNT': expr('vars.SCREENTAIL_SIGNING_ACCOUNT'),
+    'SCREENTAIL_SIGNING_PROFILE': expr('vars.SCREENTAIL_SIGNING_PROFILE'),
+}
 HANDOFF_SETTINGS = {
     'GH_TOKEN': expr('github.token'),
     'PAYLOAD_ARTIFACT_ID': expr('needs.installer.outputs.payload-artifact-id'),
@@ -210,6 +217,9 @@ MUST_CONTAIN = {
     'installer/sign.ps1': [
         "Get-PinnedPackage 'Microsoft.ArtifactSigning.Client'",
         "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        # A release from Artifact Signing carries the identity-validation usage updates are matched by.
+        "if ($mode -eq 'artifact-signing' -and -not (Test-ValidationUsage $signature.SignerCertificate)) {",
+        "if ([string]$usage.Value -like '1.3.6.1.4.1.311.97.*') {",
     ],
     # ST-113: the update manifests. The OIDC settings leave the environment first, every signature is
     # checked against the client's own trust file before anything is written, the package must be on
@@ -830,6 +840,8 @@ SAMPLE_FILES = {
         "$dlib = Join-Path (Get-PinnedPackage 'Microsoft.ArtifactSigning.Client' $Into) 'bin\\x64\\Azure.CodeSigning.Dlib.dll'",
         "$response = Invoke-RestMethod -Uri \"$($TokenRequestUrl)&audience=api://AzureADTokenExchange\"",
         "& $signtool @arguments @toSign | Out-Host",
+        "            if ($mode -eq 'artifact-signing' -and -not (Test-ValidationUsage $signature.SignerCertificate)) {",
+        "                if ([string]$usage.Value -like '1.3.6.1.4.1.311.97.*') {",
     ]),
     'installer/check-pilot-run.ps1': "\n".join([
         "if ($id -notmatch '\\A[0-9]+\\z') {",
@@ -1010,6 +1022,9 @@ MUST_FAIL = {
     'the manifests signed before the signatures are checked': on_workflow(lambda w: sign_steps(w).insert(11, sign_steps(w).pop(12))),
     'the manifest step dropped': on_workflow(lambda w: sign_steps(w).pop(12)),
     'the manifest step with another flag': on_workflow(lambda w: sign_steps(w)[12].update(run=sign_steps(w)[12]['run'] + ' -MinimumVersion 9.9.9')),
+    'the verification without the signing mode': on_workflow(lambda w: sign_steps(w)[11]['env'].pop('SCREENTAIL_SIGNING_ENDPOINT')),
+    'the verification with a signing credential': on_workflow(lambda w: sign_steps(w)[11]['env'].update(AZURE_CLIENT_ID=expr('vars.AZURE_CLIENT_ID'))),
+    'the verification without the validation usage check': edit_file('installer/sign.ps1', lambda t: t.replace("if ($mode -eq 'artifact-signing' -and -not (Test-ValidationUsage", "if ($false -and -not (Test-ValidationUsage")),
     'the manifest step without its key': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_PILOT_KEY')),
     'the manifest step without its identity': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_PILOT_CLIENT_ID')),
     'the manifest step with the stable key': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTAIL_UPDATE_STABLE_KEY'))),

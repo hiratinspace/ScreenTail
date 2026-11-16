@@ -612,7 +612,9 @@ $elsewhereLog = @(Get-Content (Join-Path $Logs 'uninstall-elsewhere.log') -Error
 $fromElsewhere = [regex]::Escape((Join-Path $elsewhere 'ScreenTail.Service.exe'))
 Check 'nothing was started from the folder the command line named' (@($elsewhereLog | Where-Object { $_ -match $fromElsewhere }).Count -eq 0)
 if ($code -ne 0) {
-    Check 'the uninstall was refused, and ScreenTail is still installed' (@(Get-ArpEntries).Count -eq 1) "exit $code"
+    # Refused means refused by the folder check, and nothing else: any other failure fails the step.
+    Check 'the uninstall was refused by the folder check (1603, RefuseInstallFolder)' ($code -eq 1603 -and @($elsewhereLog | Where-Object { $_ -match 'RefuseInstallFolder' }).Count -ge 1) "exit $code"
+    Check 'and ScreenTail is still installed' (@(Get-ArpEntries).Count -eq 1)
     Check 'with its service still in Program Files' (Test-Path (Join-Path $installDir 'ScreenTail.Service.exe'))
 } else {
     $resolved = @($elsewhereLog | ForEach-Object { [regex]::Match($_, '^Property\(S\): INSTALLFOLDER = (.*)$') } | Where-Object { $_.Success } | ForEach-Object { $_.Groups[1].Value.Trim() }) | Select-Object -Last 1

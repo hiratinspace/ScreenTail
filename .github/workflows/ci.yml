@@ -532,9 +532,14 @@ jobs:
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
+      # The Artifact Signing settings (names, not credentials) tell the check which mode signed the build,
+      # so it can require the identity-validation usage installed builds compare updates by.
       - name: Check every signature (timestamped, one publisher)
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
       # ST-113: the pilot manifest for the signed MSI, signed by the pilot Key Vault key through this
       # job's OIDC token, as the pilot identity, and checked against the keys the client trusts for
