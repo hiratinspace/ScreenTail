@@ -241,7 +241,8 @@ public static class IntegrationsEndpoint
                 IntegrationChanges.Record(db, tenantId, provider, IntegrationChanges.MappingsCleared, by, now);
             }
 
-            IntegrationChanges.Record(db, tenantId, provider, previous is null ? IntegrationChanges.Connected : IntegrationChanges.Replaced, by, now);
+            // A microsecond later (the database's precision), so the page lists the two in the order they happened.
+            IntegrationChanges.Record(db, tenantId, provider, previous is null ? IntegrationChanges.Connected : IntegrationChanges.Replaced, by, now.AddTicks(10));
 
             // The vault saves the context it shares with this request, which writes the change with it.
             await vault.StoreAsync(tenantId, provider, request.SiteUrl.Trim(), request.Secret, ct).ConfigureAwait(false);
@@ -282,7 +283,7 @@ public static class IntegrationsEndpoint
                 IntegrationChanges.Record(db, tenantId, provider, IntegrationChanges.Disconnected, by, now);
                 if (provider == Hudu && await new CompanyMappings(db, tenantId, time).ForgetAllAsync(ct).ConfigureAwait(false) > 0)
                 {
-                    IntegrationChanges.Record(db, tenantId, provider, IntegrationChanges.MappingsCleared, by, now);
+                    IntegrationChanges.Record(db, tenantId, provider, IntegrationChanges.MappingsCleared, by, now.AddTicks(10));
                 }
 
                 _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);

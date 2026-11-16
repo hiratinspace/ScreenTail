@@ -220,7 +220,8 @@ internal sealed class StandInBackend : IAsyncDisposable
 
     private async Task StoreAsync(string provider, Uri site, string secret)
     {
-        using var put = await Client.PutAsJsonAsync(new Uri($"/v1/integrations/{provider}", UriKind.Relative), new StoreIntegrationRequest(site.AbsoluteUri, secret), TestContext.Current.CancellationToken);
+        // As the tenant's owner: only the owner stores a credential (2026-11-15 review).
+        using var put = await Client.StoreIntegrationAsOwnerAsync(_api, provider, new StoreIntegrationRequest(site.AbsoluteUri, secret));
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
     }
 

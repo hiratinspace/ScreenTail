@@ -338,8 +338,9 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsync(
-            new Uri("/v1/integrations/hudu", UriKind.Relative),
+        using var owner = await api.OwnerClientAsync(api, tenantId);
+        using var put = await owner.PutAsync(
+            new Uri("/v1/admin/integrations/hudu", UriKind.Relative),
             new StringContent("{\"secret\":\"hudu-key-0001\"}", Encoding.UTF8, "application/json"),
             TestContext.Current.CancellationToken);
         var body = await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
@@ -439,10 +440,42 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         using var client = api.CreateClient();
 
         using var get = await client.GetAsync(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
-        using var put = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://x", "k"));
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://x", "k"), TestContext.Current.CancellationToken);
+        using var ownerPut = await client.PutAsJsonAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://x", "k"), TestContext.Current.CancellationToken);
+        using var ownerList = await client.GetAsync(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, get.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, put.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, ownerPut.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, ownerList.StatusCode);
+    }
+
+    [Fact]
+    public async Task ADeviceTokenDoesNotOpenTheOwnersRoutes()
+    {
+        // The owner's routes read the admin cookie alone; a device's bearer token is not an owner.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0001"), TestContext.Current.CancellationToken);
+        using var delete = await client.DeleteAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, put.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, delete.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task AnOwnerWriteWithoutTheCsrfHeaderIsRefused()
+    {
+        var (tenantId, _, _) = await SeedAsync();
+        using var owner = await api.OwnerClientAsync(api, tenantId);
+        _ = owner.DefaultRequestHeaders.Remove(AdminSession.CsrfHeader);
+
+        using var put = await owner.PutAsJsonAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0001"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, put.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
     }
 
     private HttpClient Client(string token)

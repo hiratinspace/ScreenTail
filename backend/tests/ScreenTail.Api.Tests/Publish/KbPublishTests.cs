@@ -16,6 +16,7 @@ using ScreenTail.Api.Publish;
 using ScreenTail.Api.Summarize;
 using ScreenTail.Api.Tests.Providers.ConnectWise;
 using ScreenTail.Api.Tests.Providers.Hudu;
+using ScreenTail.Api.Vault;
 
 namespace ScreenTail.Api.Tests.Publish;
 
@@ -705,6 +706,59 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
         Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task EveryCredentialAndMappingChangeIsShownToTheOwnerWithWhoMadeIt()
+    {
+        // 2026-11-15 review. Technicians keep choosing mappings while they publish; the owner sees each
+        // one, and every connect and replace, by who and when, and never a credential.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var unmapped = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Nowhere%20Inc", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var mappedAgain = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var repointed = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"));
+
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        using var read = await owner.GetAsync(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var answer = JsonSerializer.Deserialize<AdminIntegrationsResponse>(body, JsonSerializerOptions.Web)!;
+
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, unmapped.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
+        var cw = answer.Integrations.Single(i => i.Provider == "connectwise");
+        Assert.Equal(new ChangedBy("owner", OwnerRoutes.OwnerName, null), cw.ConnectedBy);
+        Assert.Equal(
+            ["hudu replaced", "hudu mappings_cleared", "hudu mapped", "hudu unmapped", "hudu mapped", "hudu connected", "connectwise connected"],
+            answer.Changes.Select(c => $"{c.Provider} {c.Action}"));
+        var technician = new ChangedBy("technician", "A Technician", "TECH-LAPTOP");
+        Assert.Equal(technician, answer.Changes[2].By);
+        Assert.Equal(("Nowhere Inc", "9"), (answer.Changes[2].PsaCompany, answer.Changes[2].DocCompanyId));
+        Assert.Equal(technician, answer.Changes[3].By);
+        Assert.Equal("Nowhere Inc", answer.Changes[3].PsaCompany);
+        Assert.All(answer.Changes.Where(c => c.Action is "replaced" or "mappings_cleared" or "connected"), c => Assert.Equal("owner", c.By.Kind));
+        foreach (var secret in new[] { "hudu-key-5678", "hudu-key-9999", "5678", "9999", "PRIV-1234" })
+        {
+            Assert.DoesNotContain(secret, body, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task AnotherTenantsChangesAreNotShown()
+    {
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (mine, myTenant) = await ConnectedClientAsync(host);
+        var (_, theirTenant) = await ConnectedClientAsync(host);
+        using var mapped = await mine.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+
+        using var theirOwner = await host.OwnerClientAsync(api, theirTenant);
+        var theirs = await theirOwner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(theirs!.Changes, c => c.Action == "mapped");
+        Assert.Equal(2, theirs.Changes.Count);
+        Assert.Equal(1, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == myTenant && c.Action == "mapped")));
     }
 
     private static bool IsCompanyList(HttpRequestMessage request) => request.RequestUri!.AbsolutePath.EndsWith("/api/v1/companies", StringComparison.Ordinal);
