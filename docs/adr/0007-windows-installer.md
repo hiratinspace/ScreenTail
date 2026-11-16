@@ -315,6 +315,11 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   installed.
 - The backend address is still read from `SCREENTAIL_BACKEND` only. How an installed client learns it
   (a built-in default, an MSI property, the invite code) is not decided here.
+  *(Amended 2026-11-15, security review: an installed client, signed or running from Program Files,
+  reads it only from `HKLM\SOFTWARE\ScreenTail\BackendUrl`, which the package's `BACKENDURL` property
+  writes, and ignores `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`. The address decides where the
+  egress allowlist points and where policy comes from, so a per-user setting could have pointed a
+  locked local-only device elsewhere. The variables remain for development builds.)*
 
 ## Alternatives considered
 

@@ -118,19 +118,24 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // machine has to exist before either, so it gets a holder that is filled in once they do.
         var sources = new DeferredCaptureSources();
 
-        // Where this deployment's backend is, and what this device calls itself.
-        //
-        // Environment variables, and deliberately not a settings system. ST-047 and ST-081 own settings
-        // and an enrolment flow owns the token (ST-010 has no issuing endpoint yet, so this one is
-        // issued by hand). What this is for is making the path real today: without a backend address
-        // nothing can be sent, and inventing a configuration format here would be inventing the thing
-        // two other tickets are going to replace.
+        // Where this deployment's backend is (2026-11-15 review). The address decides where the egress
+        // allowlist points and where the tenant's policy comes from, so a locked local-only is only as
+        // strong as the place it is read from. An installed build (running from ScreenTail's folder under
+        // Program Files, or the signed service executable started from anywhere) reads it only from the
+        // machine-wide setting the installer writes, which only an administrator can change, and ignores
+        // SCREENTAIL_BACKEND and SCREENTAIL_DEVICE_TOKEN. A development build (unsigned) keeps the
+        // variables, which the test loop, the demo and the end-to-end run set for the service's process
+        // alone. DeploymentAddressesTests pins it.
         //
         // Unset is the ordinary case and not an error. The queue keeps the work, Review says the session
         // could not be drafted, and the screenshots and transcript are still there (Spec §5 S3).
-        var backend = Uri.TryCreate(Environment.GetEnvironmentVariable("SCREENTAIL_BACKEND"), UriKind.Absolute, out var url)
-            ? url
-            : null;
+        var installed = DeploymentAddresses.Installed(
+            serviceExecutable,
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            _ => PackageSignature.Running() is not null);
+        var address = DeploymentAddresses.Resolve(installed, MachineBackend.Read(), Environment.GetEnvironmentVariable);
+        var backend = address.Backend;
+        LogAddress(logger, installed, address.Origin, address.EnvironmentIgnored);
 
         // ST-046: every HTTP request the client makes is built through this, so INV-8 is enforced by the
         // composition root rather than by convention. One policy for the guard and for what diagnostics
@@ -169,24 +174,39 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var draftHttp = new HttpClient(egress) { BaseAddress = backend };
 
         // ST-010: the device's standing with the backend. Activated once with an invite's code (the
-        // refresh token under DPAPI), then an access token an hour at a time; the environment's token
-        // is the fallback the M1 runbook uses until the client's onboarding exists.
+        // refresh token under DPAPI), then an access token an hour at a time. A development build falls
+        // back to the environment's token, as the M1 runbook and the demo do; an installed one never.
         var device = new DeviceSession(
             draftHttp,
             new DpapiDeviceCredentials(paths.DeviceCredentials),
-            () => Environment.GetEnvironmentVariable("SCREENTAIL_DEVICE_TOKEN"),
-            TimeProvider.System);
+            DeploymentAddresses.FallbackToken(installed, Environment.GetEnvironmentVariable),
+            TimeProvider.System)
+        {
+            // An installed copy with no machine-wide address says an administrator sets it, on the device
+            // card and when an activation is refused, rather than a bare "no backend".
+            NoBackendNote = address.AdministratorNote,
+            Stopping = stoppingToken,
+        };
         // The policy fetch waits for a token to fetch with, and the outbox waits for the policy: see
-        // StartupOrder. Both are set once and never reset.
+        // StartupOrder. Both are set once and never reset. Under local-only the renewal does not run on
+        // its timer (INV-8): a publish and the hourly policy fetch each sign in when they need to.
         var tokenReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var policyFetched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = Task.Run(() => StartupOrder.RenewDeviceAsync(device, tokenReady, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "device renewal", ex.GetType().Name)), stoppingToken);
+        _ = Task.Run(
+            () => StartupOrder.RenewDeviceAsync(
+                device,
+                tokenReady,
+                TimeProvider.System,
+                stoppingToken,
+                ex => LogLoopFailed(logger, "device renewal", ex.GetType().Name),
+                inBackground: () => backend is null || egressPolicy.Decide(EgressPurpose.DeviceAuth, backend).Allowed),
+            stoppingToken);
         // ST-067: what the technician keeps changing about drafts, as hints on the next one.
         var style = new StyleStore(Path.Combine(paths.DataDirectory, "style.json"));
         // Each of the three writes a bundle_sent row for what it sent, the host and the bytes, and logs a
         // row it could not write by the fault's type alone (ST-045, INV-10).
         var sender = new DraftSender(draftHttp, store, () => device.CurrentToken, styleHints: style.Hints, logger: logger);
-        var psa = new PsaGateway(draftHttp, () => device.CurrentToken, audit: store, logger: logger);
+        var psa = SigningInPsaGateway.For(new PsaGateway(draftHttp, () => device.CurrentToken, audit: store, logger: logger), device);
         var policySync = new PolicySync(draftHttp, () => device.CurrentToken, new FilePolicyCache(Path.Combine(paths.DataDirectory, "policy.json")), TimeProvider.System);
         _policySync = policySync;
 
@@ -370,7 +390,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                     _ = applyCapture(capture);
                 },
                 meter),
-            () => diagnostics(),
+            () => diagnostics() with { BackendNote = address.AdministratorNote },
             _ =>
             {
                 // Written down before the UI is told yes. Everything after this can fail (a file held
@@ -488,7 +508,16 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         var state = machine.State.ToWire();
         LogStarted(logger, IpcContract.Version, mode, state);
 
-        _ = Task.Run(() => StartupOrder.SyncPolicyAsync(policySync, tokenReady.Task, policyFetched, TimeProvider.System, stoppingToken, ex => LogLoopFailed(logger, "policy", ex.GetType().Name)), stoppingToken);
+        _ = Task.Run(
+            () => StartupOrder.SyncPolicyAsync(
+                policySync,
+                tokenReady.Task,
+                policyFetched,
+                TimeProvider.System,
+                stoppingToken,
+                ex => LogLoopFailed(logger, "policy", ex.GetType().Name),
+                signIn: ct => device.EnsureTokenAsync(EgressPurpose.Policy, ct)),
+            stoppingToken);
         foreground.Changed += coordinator.Observe;
         retryForeground = () => _ = coordinator.Retry(foreground.Current, WindowsForegroundWatcher.Exists);
 
@@ -791,6 +820,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Retention removed raw data from {Count} session(s)")]
     private static partial void LogRetention(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Backend address: installed build {Installed}, from {Origin}, environment variables ignored {Ignored}")]
+    private static partial void LogAddress(ILogger logger, bool installed, AddressOrigin origin, bool ignored);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Capture service started: IPC contract v{IpcVersion}, client verification {Mode}, state {State}")]
     private static partial void LogStarted(ILogger logger, int ipcVersion, string mode, string state);

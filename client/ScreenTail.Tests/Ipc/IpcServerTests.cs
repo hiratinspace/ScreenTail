@@ -5,6 +5,7 @@ using ScreenTail.Core.Audit;
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Detection;
 using ScreenTail.Core.Ipc;
+using ScreenTail.Core.Net;
 using ScreenTail.Shared.Ipc;
 using CoreShell = ScreenTail.Core.Shell;
 
@@ -674,16 +675,17 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AVersionTenUiIsTurnedAwayByAVersionElevenService()
+    public async Task AVersionElevenUiIsTurnedAwayByAVersionTwelveService()
     {
-        // Contract v11 (spec v0.6.9 S4) adds title, ticket and company to a sessions row, optional and
-        // left off when unknown. A v10 UI would still fail on a row that has them, so the pair is refused
-        // at the handshake rather than the rail failing to read.
+        // Contract v12 (2026-11-15 review) adds backend_note to the diagnostics reply, optional and left
+        // off when there is nothing to say. A v11 UI would still fail on a reply that has it, so the pair
+        // is refused at the handshake rather than the panel failing to read. (v11 added title, ticket and
+        // company to a sessions row, refused the same way.)
         await StartServerAsync();
 
-        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 10, Token = IpcToken.Encode(_token), ClientName = "v10-ui" });
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 11, Token = IpcToken.Encode(_token), ClientName = "v11-ui" });
 
-        Assert.Equal(11, IpcContract.Version);
+        Assert.Equal(12, IpcContract.Version);
         Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
     }
 
@@ -712,6 +714,44 @@ public sealed class IpcServerTests : IAsyncDisposable
             $"2 ({CoreShell.DiagnosticsPanel.HookFallbacksMeaning})",
             panel.Rows.Single(r => r.Label == CoreShell.DiagnosticsPanel.HookFallbacks).Value);
         Assert.Contains("hook fallbacks   2", panel.ToClipboardText(DateTimeOffset.UnixEpoch), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnInstalledCopyWithNoMachineAddressSaysSoInThePanelAndTheClipboard()
+    {
+        // Contract v12 (2026-11-15 review): an installed copy no longer reads SCREENTAIL_BACKEND, so one
+        // whose administrator has not set the machine-wide address says that, rather than leaving the
+        // technician to guess why nothing publishes.
+        var note = DeploymentAddresses.Resolve(installed: true, machine: null, name => name == DeploymentAddresses.BackendVariable ? "https://screentail.example/" : null).AdministratorNote;
+        _controller.AnswersTo = typeof(GetDiagnosticsCommand);
+        _controller.Answer = DiagnosticsWith(null) with { BackendNote = note };
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+
+        var reply = await ui.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(DeploymentAddresses.NoMachineAddress + DeploymentAddresses.EnvironmentNotRead, reply.BackendNote);
+        Assert.Contains("\"backend_note\":", JsonSerializer.Serialize<IpcEvent>(reply, IpcFraming.Json), StringComparison.Ordinal);
+        var panel = CoreShell.DiagnosticsPanel.From(CoreShell.Diagnostics.From(reply));
+        Assert.Equal(reply.BackendNote, panel.Rows.Single(r => r.Label == CoreShell.DiagnosticsPanel.Backend).Value);
+        Assert.Contains("backend          " + reply.BackendNote, panel.ToClipboardText(DateTimeOffset.UnixEpoch), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithABackendAddressThereIsNoBackendRowAndNoMember()
+    {
+        _controller.AnswersTo = typeof(GetDiagnosticsCommand);
+        _controller.Answer = DiagnosticsWith(null);
+        await StartServerAsync();
+        await using var ui = await ConnectAsync();
+
+        var reply = await ui.RequestAsync<DiagnosticsReported>(id => new GetDiagnosticsCommand { RequestId = id }, TestContext.Current.CancellationToken);
+
+        Assert.Null(reply.BackendNote);
+        Assert.DoesNotContain("backend_note", JsonSerializer.Serialize<IpcEvent>(reply, IpcFraming.Json), StringComparison.Ordinal);
+        var panel = CoreShell.DiagnosticsPanel.From(CoreShell.Diagnostics.From(reply));
+        Assert.DoesNotContain(panel.Rows, r => r.Label == CoreShell.DiagnosticsPanel.Backend);
+        Assert.DoesNotContain("backend ", panel.ToClipboardText(DateTimeOffset.UnixEpoch), StringComparison.Ordinal);
     }
 
     [Fact]

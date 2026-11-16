@@ -58,8 +58,12 @@ namespace ScreenTail.Shared.Ipc;
 /// when unknown, so a row without them is the v10 row and is drawn as before. Additive, but the framing
 /// rejects unknown members, so a v10 UI would fail on a v11 row: the version moves and the handshake turns
 /// a mismatched pair away instead of leaving the list unreadable.
+///
+/// 12: 2026-11-15 security review, the <c>diagnostics</c> reply gains <c>backend_note</c>, optional, which
+/// says an installed copy has no machine-wide backend address and that an administrator sets it. A new
+/// member on a reply both sides exchange, which a v11 UI would fail on, so the version moves.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 11;
+    public const int Version = 12;
 }

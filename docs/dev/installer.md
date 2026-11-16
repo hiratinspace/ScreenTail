@@ -312,7 +312,34 @@ ScreenTail-Setup.exe /quiet /norestart /log C:\Windows\Temp\screentail-setup.log
 
 # Machines where the runtime is deployed separately
 msiexec /i ScreenTail.msi /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
+
+# The same, with the address of your ScreenTail backend
+msiexec /i ScreenTail.msi BACKENDURL=https://screentail.example.com /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
 ```
+
+- **The backend address:** an installed ScreenTail reads it only from
+  `HKEY_LOCAL_MACHINE\SOFTWARE\ScreenTail`, value `BackendUrl` (a string), which only an administrator can
+  change, and ignores the `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN` variables those development
+  builds use. "Installed" means running from `ScreenTail` under the machine's Program Files, the one folder
+  the package installs into, or being the signed `ScreenTail.Service.exe` wherever it runs. `BACKENDURL` on the `msiexec` line writes it, and is read only when the
+  package is installed or upgraded: an upgrade or a repair without it keeps the value already there, and a
+  new `BACKENDURL` replaces it. `ScreenTail-Setup.exe` does not pass it on yet, so with the setup program,
+  or to change the address in place without reinstalling, write the value with your RMM tool or Group
+  Policy:
+
+  ```powershell
+  reg add HKLM\SOFTWARE\ScreenTail /v BackendUrl /t REG_SZ /d https://screentail.example.com /f /reg:64
+  ```
+
+  The service reads it when it starts, at the next sign-in. Without it nothing is sent, sessions are
+  drafted on the device, and the device card in Settings and the diagnostics panel say that an
+  administrator sets the address.
+
+- **Upgrading from a build that used `SCREENTAIL_BACKEND`:** builds before the 2026-11-15 security review
+  also read the address from that environment variable. An installed copy no longer does, so a machine
+  that relied on it has no backend after the upgrade until the address is set: pass `BACKENDURL` on the
+  upgrade's `msiexec` line, or run the `reg add` line above, before or after upgrading. Development builds,
+  the demo and the end-to-end run are not installed and keep reading the variable.
 
 - **Intune:** add `ScreenTail.msi` as a *line-of-business app* (product code detection is automatic), with
   the Visual C++ 2015-2022 x64 runtime as a Win32 app it depends on; or wrap `ScreenTail-Setup.exe` as a

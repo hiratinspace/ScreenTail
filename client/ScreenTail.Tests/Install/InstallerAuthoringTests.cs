@@ -180,6 +180,39 @@ public sealed class InstallerAuthoringTests
     }
 
     [Fact]
+    public void TheBackendAddressIsWrittenWhereOnlyAnAdministratorCanAndWhereTheServiceReadsIt()
+    {
+        // 2026-11-15 review. An installed service reads its backend address only from the machine's key
+        // and ignores SCREENTAIL_BACKEND, so the package is where an MSP gives it (BACKENDURL). The same
+        // key and value name the service reads, written only when an address was given, and kept across
+        // an upgrade and a repair without overriding a new one from the command line.
+        var package = Package();
+        var value = Assert.Single(package.Descendants(Wix + "RegistryValue"), v => (string?)v.Attribute("Name") == Core.Net.DeploymentAddresses.MachineValue);
+        Assert.Equal("HKLM", (string?)value.Attribute("Root"));
+        Assert.Equal(Core.Net.DeploymentAddresses.MachineKey, (string?)value.Attribute("Key"), ignoreCase: true);
+        Assert.Equal("[BACKENDURL]", (string?)value.Attribute("Value"));
+        Assert.Equal("BACKENDURL", (string?)value.Parent!.Attribute("Condition"));
+        Assert.Contains(
+            package.Descendants(Wix + "ComponentRef"),
+            r => (string?)r.Attribute("Id") == (string?)value.Parent!.Attribute("Id"));
+
+        var kept = Assert.Single(package.Descendants(Wix + "RegistrySearch"), s => (string?)s.Attribute("Name") == Core.Net.DeploymentAddresses.MachineValue);
+        Assert.Equal("BACKENDURLKEPT", (string?)kept.Parent!.Attribute("Id"));
+        Assert.Equal(Core.Net.DeploymentAddresses.MachineKey, (string?)kept.Attribute("Key"), ignoreCase: true);
+        Assert.Equal("always64", (string?)kept.Attribute("Bitness"));
+
+        var restore = Assert.Single(package.Descendants(Wix + "SetProperty"), p => (string?)p.Attribute("Id") == "BACKENDURL");
+        Assert.Equal("[BACKENDURLKEPT]", (string?)restore.Attribute("Value"));
+        Assert.Equal("NOT BACKENDURL AND BACKENDURLKEPT", (string?)restore.Attribute("Condition"));
+        Assert.Equal("both", (string?)restore.Attribute("Sequence"));
+
+        foreach (var id in new[] { "BACKENDURL", "BACKENDURLKEPT" })
+        {
+            Assert.Equal("yes", (string?)package.Descendants(Wix + "Property").Single(p => (string?)p.Attribute("Id") == id).Attribute("Secure"));
+        }
+    }
+
+    [Fact]
     public void TheWholePayloadLandsInOneFolder()
     {
         // ADR-0003's development rule: an unsigned peer is accepted only from the same directory. Every

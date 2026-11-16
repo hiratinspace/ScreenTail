@@ -62,7 +62,7 @@ An agent that finds a ticket seemingly requiring one of these to be broken must 
 | INV-5 | **Capture scope defaults to remote-tool windows + admin-tool allowlist.** "All windows" is opt-in and confirmed. | Registry / scope policy |
 | INV-6 | **Suppression states drop data, not just hide it.** Password field, excluded app, elevated window, out-of-scope → no frames, no typing events written. | State machine sub-state `suppressed` |
 | INV-7 | **The backend never persists frames.** Summarization holds frames in memory for one request. Tests assert storage size unchanged. | Backend summarization endpoint |
-| INV-8 | **Local-only mode means zero egress** except user-initiated publish to PSA/doc hosts. Enforced by an HTTP allowlist, not by convention. | Egress guard |
+| INV-8 | **Local-only mode means zero egress** except user-initiated publish to PSA/doc hosts. Enforced by an HTTP allowlist, not by convention. | Egress guard, by purpose: `Publish` goes; `Policy` goes, because it is how local-only is lifted; `DeviceAuth` (activation, token renewal) goes only on behalf of a publish or the policy fetch, on that fetch's schedule, never on the renewal timer; everything else is refused (`docs/security/data-flow.md`) |
 | INV-9 | **Only the technician's microphone is captured** in v1. End-user audio requires the v1.2 consent workflow. | STT pipeline |
 | INV-10 | **Logs and metrics contain no content** (no window titles, transcript, OCR text, note text, company or ticket text). | PII scrubber, metrics schema |
 | INV-11 | **Admin policy fields are enforced on the client**, not just displayed. Locked fields cannot be changed locally. | Policy sync |

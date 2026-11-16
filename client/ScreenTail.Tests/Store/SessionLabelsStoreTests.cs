@@ -113,7 +113,7 @@ public sealed class SessionLabelsStoreTests : IAsyncDisposable
         Assert.False(second.TryGetProperty("title", out _));
         Assert.False(second.TryGetProperty("ticket", out _));
         Assert.False(second.TryGetProperty("company", out _));
-        Assert.Equal(11, IpcContract.Version);
+        Assert.True(IpcContract.Version >= 11);
     }
 
     public async ValueTask DisposeAsync()
