@@ -5,6 +5,7 @@
         xmlns:activation="clr-namespace:ScreenTail.UI.Settings.Activation"
         xmlns:integrations="clr-namespace:ScreenTail.UI.Settings.Integrations"
         xmlns:local="clr-namespace:ScreenTail.UI.Onboarding"
+        xmlns:core="clr-namespace:ScreenTail.Core.Onboarding;assembly=ScreenTail.Core"
         Title="Set up ScreenTail"
         Width="960"
         Height="640"
@@ -233,11 +234,13 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- 5. Connect (skippable) -->
+                    <!-- 5. Connect (skippable): what is connected, read only. The owner connects ConnectWise and
+                         Hudu in the web admin, so there is nothing to type here (Spec §5 S8 step 5, v0.6.15). -->
                     <!-- The step's visibility sits on a wrapper: on the pane itself it would bind against the pane's own DataContext. -->
-                    <Border Visibility="{Binding ConnectVisibility}">
-                        <integrations:IntegrationsPane DataContext="{Binding Integrations}" />
-                    </Border>
+                    <StackPanel Visibility="{Binding ConnectVisibility}">
+                        <TextBlock Style="{StaticResource Text.Secondary}" TextWrapping="Wrap" Text="{x:Static core:OnboardingWizard.ConnectByOwner}" />
+                        <integrations:IntegrationsPane Margin="0,16,0,0" DataContext="{Binding Integrations}" />
+                    </StackPanel>
 
                     <!-- 6. Try it: a real session, drafted the real way. -->
                     <StackPanel Visibility="{Binding TryItVisibility}">

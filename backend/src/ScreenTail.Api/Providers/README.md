@@ -125,6 +125,10 @@ wait on as `retry_after_seconds`, as the ticket search does. Each client holds a
 `Invalid` for a read and `Unknown` for a write, never an exception, and the body is not quoted back.
 An empty success lacks the list too: Hudu without a `companies` key is not a tenant with no companies.
 Hudu's company list stops at `Hudu:MaxCompanies` (10,000) and is then an error, not a shorter list.
+A company whose id is over 64 or whose name is over 200 characters is left out of it, and the log says
+how many (never which); the ids and names kept have a budget of `Hudu:MaxCompanyListChars` (1,000,000
+characters), past which the list is an error too. A list that expired while it was loading is answered
+to its callers and not kept.
 
 ## Public addresses only
 
@@ -144,7 +148,7 @@ refuses to start with it outside Development.
 Hudu. Each is a real Kestrel server on a loopback port, over HTTPS with a certificate made for the run,
 that keeps what it is sent (notes, time entries, documents, articles, uploads) and records every
 request as it arrived. The tests store the stand-ins as a tenant's sites through
-`PUT /v1/integrations/{provider}` and drive publish, ticket search, Test connection and the company
+the owner's `PUT /v1/admin/integrations/{provider}` and drive publish, ticket search, Test connection and the company
 mapping endpoints, so every call goes through the real factory, named client, `PublicNetwork` handler,
 `ProviderHttp` and provider. No vendor account, key or network is needed.
 

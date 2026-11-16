@@ -51,7 +51,7 @@ public sealed record PermissionRow(string Capability, string Label, bool Ok, str
 
 /// <summary>
 /// The onboarding wizard's rules (ST-083, Spec §5 S8), composed from the panels Settings already has:
-/// activation, the tools, the integrations. Each step says what it takes to continue and why not. A
+/// activation, the tools, the integrations (shown read only: the owner connects them). Each step says what it takes to continue and why not. A
 /// blocked microphone is a worse session rather than a blocked setup, so it is shown with its fix and
 /// re-checked but does not stop the technician; blocked screen capture does, because there is nothing
 /// to capture with. Finishing is remembered so the wizard does not run again unasked; the tray runs it
@@ -81,6 +81,13 @@ public sealed class OnboardingWizard(
     /// <summary>What the step says when the service refused the test session and gave no reason of its own.</summary>
     public const string TestNotStarted = "The test session did not start. Check that ScreenTail's tray icon says it is connected, then try again.";
 
+    /// <summary>
+    /// The Connect step's first line (Spec §5 S8 step 5, v0.6.15). Integration credentials can only be
+    /// changed by the tenant owner, in the web admin, so the step shows what is connected and says who
+    /// connects the rest; there is nothing to type here, and the step can be skipped or continued as before.
+    /// </summary>
+    public const string ConnectByOwner = "Your owner connects ConnectWise and Hudu in the web admin. You can publish once they have.";
+
     public ActivationPanel Activation { get; } = activation ?? throw new ArgumentNullException(nameof(activation));
 
     public CapturePanel Capture { get; } = capture ?? throw new ArgumentNullException(nameof(capture));
@@ -104,8 +111,8 @@ public sealed class OnboardingWizard(
     public bool CanGoBack => Step > OnboardingStep.Welcome && Step < OnboardingStep.Done;
 
     /// <summary>
-    /// Two steps can be skipped. Connect, because publishing can wait and capture cannot (Spec §5 S8
-    /// step 5); Activate, because its own words offer Settings later, and a device enrolled from the
+    /// Two steps can be skipped. Connect, because publishing can wait and capture cannot, and the owner
+    /// connects it anyway (Spec §5 S8 step 5); Activate, because its own words offer Settings later, and a device enrolled from the
     /// environment (the M1 runbook) has no code to enter.
     /// </summary>
     public bool CanSkip => Step is OnboardingStep.Connect or OnboardingStep.Activate;

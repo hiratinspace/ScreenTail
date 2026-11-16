@@ -9,7 +9,7 @@ public interface IDocProviderFactory
 }
 
 /// <summary>Builds a <see cref="HuduProvider"/> from the vault's <c>hudu</c> credential (ST-095 with ST-009).</summary>
-public sealed class HuduProviderFactory(IIntegrationVault vault, IHttpClientFactory http, HuduOptions options, HuduCompanyCache cache, TimeProvider? time = null) : IDocProviderFactory
+public sealed class HuduProviderFactory(IIntegrationVault vault, IHttpClientFactory http, HuduOptions options, HuduCompanyCache cache, TimeProvider? time = null, ILogger<HuduProvider>? log = null) : IDocProviderFactory
 {
     /// <summary>
     /// Where a stored site's API lives, as the client is pointed at it. Also what two stored sites are
@@ -23,7 +23,17 @@ public sealed class HuduProviderFactory(IIntegrationVault vault, IHttpClientFact
 
     public async Task<IDocProvider?> ForTenantAsync(Guid tenantId, CancellationToken ct = default)
     {
-        var revealed = await vault.RevealAsync(tenantId, "hudu", ct).ConfigureAwait(false);
+        RevealedIntegration? revealed;
+        try
+        {
+            revealed = await vault.RevealAsync(tenantId, "hudu", ct).ConfigureAwait(false);
+        }
+        catch (VaultRowRefusedException)
+        {
+            // A row the vault will not open answers every call in words, not with a 500 (2026-11-15 review).
+            return new RefusedDocProvider("hudu");
+        }
+
         if (revealed is null)
         {
             return null;
@@ -31,6 +41,6 @@ public sealed class HuduProviderFactory(IIntegrationVault vault, IHttpClientFact
 
         var client = http.CreateClient(nameof(HuduProvider));
         client.BaseAddress = BaseAddressFor(revealed.SiteUrl);
-        return new HuduProvider(client, revealed.Secret, options, cache, HuduCompanyCache.KeyFor(tenantId), time);
+        return new HuduProvider(client, revealed.Secret, options, cache, HuduCompanyCache.KeyFor(tenantId), time, log);
     }
 }

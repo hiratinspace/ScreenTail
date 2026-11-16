@@ -14,6 +14,22 @@ namespace ScreenTail.Tests.Shell;
 public sealed class ShellStateTests
 {
     [Fact]
+    public void SeeIntegrationsOpensSettingsAtIntegrationsOnce()
+    {
+        // Review's "See integrations" opens Settings at that section, not at Activation; a later plain
+        // visit to Settings opens at the top again.
+        var state = new ShellState();
+        var seen = new List<ShellSnapshot>();
+        state.Changed += seen.Add;
+
+        state.NavigateToSettings("Integrations");
+
+        Assert.Equal(ShellView.Settings, Assert.Single(seen).View);
+        Assert.Equal("Integrations", state.TakeSettingsSection());
+        Assert.Null(state.TakeSettingsSection());
+    }
+
+    [Fact]
     public void EveryViewSeesTheSameChangeAtOnce()
     {
         // ST-070's first criterion. Three views, one event, and none of them going to the pipe themselves.

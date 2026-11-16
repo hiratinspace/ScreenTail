@@ -23,7 +23,7 @@ namespace ScreenTail.Api.Providers.Hudu;
 /// companies, all at once, against the customer's Hudu. Callers for the same tenant, site and key wait
 /// on the one load and are all given its answer, a refusal included; another tenant's load is its own.
 /// Only a successful list is kept, so a failed, thrown or stopped load leaves nothing behind and the
-/// next caller loads again. A caller that gives up stops only its own wait: the load carries on for
+/// next caller loads again; so does a list that had already expired by the time its load ended. A caller that gives up stops only its own wait: the load carries on for
 /// the others, and is stopped only once nobody is left waiting for it.
 ///
 /// <see cref="Forget"/> moves the tenant to a new generation, and so does a call for another site or
@@ -156,7 +156,7 @@ public sealed class HuduCompanyCache(TimeProvider time)
         }
     }
 
-    private static async Task RunAsync(Tenant tenant, Flight flight, Func<CancellationToken, Task<ProviderResult<IReadOnlyList<CompanyRef>>>> load)
+    private async Task RunAsync(Tenant tenant, Flight flight, Func<CancellationToken, Task<ProviderResult<IReadOnlyList<CompanyRef>>>> load)
     {
         try
         {
@@ -164,7 +164,10 @@ public sealed class HuduCompanyCache(TimeProvider time)
             lock (tenant.Gate)
             {
                 Land(tenant, flight);
-                if (result.Ok && !flight.Abandoned && flight.Generation == tenant.Generation)
+
+                // A load that outlasted its own expiry (a slow site, paged to the cap) answers the callers
+                // who asked and is not kept: it would never be served, only held (2026-11-15 review).
+                if (result.Ok && !flight.Abandoned && flight.Generation == tenant.Generation && flight.Until > time.GetUtcNow())
                 {
                     tenant.Kept = new Entry(flight.Until, flight.Source, result.Value!);
                 }

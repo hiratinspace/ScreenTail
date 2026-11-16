@@ -18,7 +18,7 @@ long as a Retry-After of up to five seconds; a longer one is answered at once, s
 asked to wait. A wrong key is not retried. An article or upload is sent
 again only when none of it left or Hudu answered 429; otherwise it comes back `unknown` and the
 technician is asked to check Hudu first. The company list stops at 10,000 companies. Every refusal reaches the technician as a kind and two sentences: "Hudu rejected the API key.
-Update it in Settings → Integrations." A 422 carries Hudu's own words about the field it refused,
+Ask your ScreenTail owner to update the Hudu connection in the web admin." A 422 carries Hudu's own words about the field it refused,
 except that the company must exist: that is a company deleted in Hudu while the backend's ten-minute
 list still held it, so the list is dropped, the mapping to it is forgotten, and the article comes back
 `needs_mapping` for the technician to choose another company. Only that answer does this. A plain 404
@@ -43,14 +43,11 @@ publish, which asks for a mapping once and writes nothing.
    Hudu must be reachable at a public internet address: the backend refuses a site on its own machine
    or a private network, when it is stored and again when it is called.
 
-Stored once, from Settings → Integrations or by hand over the device's authenticated connection to
-the backend, and never returned:
-
-```bash
-curl -X PUT "$BACKEND/v1/integrations/hudu" \
-  -H "Authorization: Bearer $SCREENTAIL_DEVICE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"siteUrl":"https://acme.huducloud.com","secret":"<the API key>"}'
-```
+Stored once, by the tenant's owner from the web admin's Integrations page (Connect Hudu: the site and
+the API key), and never returned. Behind it is `PUT /v1/admin/integrations/hudu` with
+`{"siteUrl":"https://acme.huducloud.com","secret":"<the API key>"}`, on the owner's signed-in session
+with its CSRF header. A technician's device cannot store or remove it (`403 owner_only`); it sees the
+connection read-only in Settings → Integrations and still chooses company mappings when it publishes.
 
 ## Images: what to verify first
 
