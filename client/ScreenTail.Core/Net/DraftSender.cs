@@ -84,6 +84,20 @@ public sealed class DraftSender(
     private long _holdEnds = NoHold;
     private volatile string? _holdReason;
 
+    // "The backend says this tenant locks local-only, until": set by a 403 local_only. Until then every
+    // queued draft is written on the device without being sent, so a device whose policy has not caught
+    // up yet sends no more bundles for the backend to refuse (2026-11-15 review). Monotonic, like the hold.
+    private long _localOnlyEnds = NoHold;
+
+    /// <summary>
+    /// How long drafts are written on the device after the backend said the tenant locks local-only: the
+    /// policy fetch's own interval, by which time the device has the lock itself and nothing is queued.
+    /// </summary>
+    public static readonly TimeSpan LocalOnlyHold = PolicySync.Every;
+
+    /// <summary>The backend's status for a tenant whose policy locks local-only (summarize-response.v1.json).</summary>
+    public const string LocalOnlyStatus = "local_only";
+
     /// <summary>
     /// Sends one queued draft and says what the outbox should do with it.
     ///
@@ -102,6 +116,13 @@ public sealed class DraftSender(
         if (HeldFor() is { } remaining)
         {
             return SendOutcome.NotSent(_holdReason ?? "The backend is not drafting at the moment.", remaining);
+        }
+
+        // The backend said this tenant locks local-only: nothing is sent, and the session is drafted here,
+        // as it would have been had the policy been in force when it finished (ST-065 AC3).
+        if (Remaining(Interlocked.Read(ref _localOnlyEnds)) is not null)
+        {
+            return await DraftHereAsync(item.SessionId, ct).ConfigureAwait(false);
         }
 
         if (token() is not { Length: > 0 } bearer)
@@ -176,19 +197,37 @@ public sealed class DraftSender(
     /// <summary>How long drafting is still held, or null when it is not.</summary>
     private TimeSpan? HeldFor()
     {
-        var ends = Interlocked.Read(ref _holdEnds);
+        var remaining = Remaining(Interlocked.Read(ref _holdEnds));
+        return remaining > Outbox.Outbox.MaxRetryAfter ? Outbox.Outbox.MaxRetryAfter : remaining;
+    }
+
+    /// <summary>How long until the monotonic timestamp <paramref name="ends"/>, or null when it has passed or was never set.</summary>
+    private TimeSpan? Remaining(long ends)
+    {
         if (ends == NoHold)
         {
             return null;
         }
 
         var remaining = _time.GetElapsedTime(_time.GetTimestamp(), ends);
-        if (remaining <= TimeSpan.Zero)
+        return remaining <= TimeSpan.Zero ? null : remaining;
+    }
+
+    /// <summary>
+    /// The session drafted on this device (ST-065 AC3), for a tenant the backend says locks local-only.
+    /// The screenshots and the transcript stay where they are and the technician gets a note to review,
+    /// marked local, rather than "draft failed" for a choice their administrator made.
+    /// </summary>
+    private async Task<SendOutcome> DraftHereAsync(string sessionId, CancellationToken ct)
+    {
+        var session = await store.LoadSessionAsync(sessionId, ct).ConfigureAwait(false);
+        if (session is null)
         {
-            return null;
+            return SendOutcome.Failed("The session was gone before it could be drafted.");
         }
 
-        return remaining > Outbox.Outbox.MaxRetryAfter ? Outbox.Outbox.MaxRetryAfter : remaining;
+        await store.SaveReadyDraftAsync(sessionId, FallbackDraft.Build(session), ct).ConfigureAwait(false);
+        return SendOutcome.Done(sessionId);
     }
 
     /// <summary>
@@ -237,6 +276,16 @@ public sealed class DraftSender(
             // every one of those takes the note, and only a discarded or missing one refuses it.
             await store.SaveReadyDraftAsync(sessionId, draft, ct).ConfigureAwait(false);
             return SendOutcome.Done(sessionId);
+        }
+
+        // The tenant's policy locks local-only and this device had not heard yet. Nothing was drafted
+        // in the cloud; the session is drafted here, and so is every draft queued behind it until the
+        // policy fetch brings the lock (2026-11-15 review).
+        if (response.StatusCode == HttpStatusCode.Forbidden && answer?.Status == LocalOnlyStatus)
+        {
+            var ends = _time.GetTimestamp() + (long)((Int128)LocalOnlyHold.Ticks * _time.TimestampFrequency / TimeSpan.TicksPerSecond);
+            _ = Interlocked.Exchange(ref _localOnlyEnds, ends);
+            return await DraftHereAsync(sessionId, ct).ConfigureAwait(false);
         }
 
         var reason = answer?.Reason ?? $"The backend answered {(int)response.StatusCode}.";

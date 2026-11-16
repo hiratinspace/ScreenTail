@@ -132,7 +132,10 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
             return GatewayAnswer.Refused<ActivatedDeviceRow>(ErasedRefusal);
         }
 
-        using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/devices/activate", UriKind.Relative), EgressPurpose.Publish);
+        // The technician typed the code and pressed Activate: a sign-in they asked for, which local-only
+        // lets out the way it lets out the publish it is for (INV-8).
+        using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/devices/activate", UriKind.Relative), EgressPurpose.DeviceAuth)
+            .OnBehalfOf(EgressPurpose.Publish);
         request.Content = JsonContent.Create(new ActivateBody(code ?? string.Empty, deviceName ?? string.Empty), options: Json);
         HttpResponseMessage response;
         try
@@ -181,15 +184,60 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         }
     }
 
-    /// <summary>Buys a new access token. False when there was nothing to buy it with, or the backend said no or nothing.</summary>
-    public async Task<bool> RefreshAsync(CancellationToken ct = default)
+    /// <summary>
+    /// Buys a new access token on the background schedule. False when there was nothing to buy it with, or
+    /// the backend said no or nothing, or local-only mode refused a renewal nobody asked for (INV-8).
+    /// </summary>
+    public Task<bool> RefreshAsync(CancellationToken ct = default) => RefreshCoreAsync(onBehalfOf: null, ct);
+
+    /// <summary>
+    /// Buys a new access token for <paramref name="onBehalfOf"/>: <see cref="EgressPurpose.Publish"/> when the
+    /// technician pressed something, <see cref="EgressPurpose.Policy"/> before a policy fetch. Under local-only
+    /// those are the only renewals that go (2026-11-15 review).
+    /// </summary>
+    public Task<bool> RefreshAsync(EgressPurpose onBehalfOf, CancellationToken ct = default) => RefreshCoreAsync(onBehalfOf, ct);
+
+    /// <summary>
+    /// The token to send for <paramref name="onBehalfOf"/>, renewed first when the one in hand has run out
+    /// or is about to. This is what lets a publish after a long idle under local-only work: the background
+    /// renewal does not run there, so the token the publish needs is bought when the publish asks for it.
+    /// Null when there is none to send (not activated, revoked, or the backend did not answer).
+    /// </summary>
+    public async Task<string?> EnsureTokenAsync(EgressPurpose onBehalfOf, CancellationToken ct = default)
+    {
+        if (CurrentToken is { } current)
+        {
+            return current;
+        }
+
+        try
+        {
+            _ = await RefreshCoreAsync(onBehalfOf, ct).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // A credential save that throws comes after the new token is held; the caller still gets it.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+#pragma warning restore CA1031
+        {
+        }
+
+        return CurrentToken;
+    }
+
+    private async Task<bool> RefreshCoreAsync(EgressPurpose? onBehalfOf, CancellationToken ct)
     {
         if (_erased || _credentials.Load() is not { } credential || _http.BaseAddress is null)
         {
             return false;
         }
 
-        using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/devices/token", UriKind.Relative), EgressPurpose.Publish);
+        // Its own purpose, never Publish: the background renewal used to go out under Publish, so local-only
+        // did not stop it (2026-11-15 review). What it is for travels with it, and the guard decides on that.
+        using var request = EgressRequest.For(HttpMethod.Post, new Uri("v1/devices/token", UriKind.Relative), EgressPurpose.DeviceAuth);
+        if (onBehalfOf is { } behalf)
+        {
+            _ = request.OnBehalfOf(behalf);
+        }
+
         request.Content = JsonContent.Create(new RefreshBody(credential.RefreshToken), options: Json);
         HttpResponseMessage response;
         try

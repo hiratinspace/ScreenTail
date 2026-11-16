@@ -15,9 +15,16 @@ public static class StartupOrder
     /// <summary>
     /// The device's renewal loop, on DeviceSession's own schedule, that also says when there is first a
     /// token to send.
+    ///
+    /// Until that first token, each turn signs in for the policy fetch that is waiting on it, which
+    /// local-only lets out because the policy is how local-only is lifted. After it, a turn renews in the
+    /// background only while <paramref name="inBackground"/> says it may, and under local-only it may
+    /// not: there the token is renewed when a publish or the hourly policy fetch asks for one
+    /// (<see cref="DeviceSession.EnsureTokenAsync"/>), never on the timer (INV-8, 2026-11-15 review).
     /// </summary>
     /// <param name="failed">Told of a renewal that threw, so the host can log its type. Never its message (INV-10).</param>
-    public static async Task RenewDeviceAsync(DeviceSession device, TaskCompletionSource tokenReady, TimeProvider time, CancellationToken ct, Action<Exception>? failed = null)
+    /// <param name="inBackground">Whether a renewal nobody asked for may go now. Null means always, as before.</param>
+    public static async Task RenewDeviceAsync(DeviceSession device, TaskCompletionSource tokenReady, TimeProvider time, CancellationToken ct, Action<Exception>? failed = null, Func<bool>? inBackground = null)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(tokenReady);
@@ -26,7 +33,21 @@ public static class StartupOrder
             bool renewed;
             try
             {
-                renewed = await device.RefreshAsync(ct).ConfigureAwait(false);
+                if (!tokenReady.Task.IsCompleted)
+                {
+                    // The sign-in the first policy fetch waits for.
+                    renewed = await device.RefreshAsync(EgressPurpose.Policy, ct).ConfigureAwait(false);
+                }
+                else if (inBackground is null || inBackground())
+                {
+                    renewed = await device.RefreshAsync(ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    // Local-only: no request at all, rather than one the guard refuses and counts. The
+                    // next turn looks again, so a lifted local-only renews within minutes.
+                    renewed = false;
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -66,7 +87,12 @@ public static class StartupOrder
     /// when the first fetch landed. The outbox waits for that.
     /// </summary>
     /// <param name="failed">Told of a fetch that threw, so the host can log its type. Never its message (INV-10).</param>
-    public static async Task SyncPolicyAsync(PolicySync policy, Task tokenReady, TaskCompletionSource fetched, TimeProvider time, CancellationToken ct, Action<Exception>? failed = null)
+    /// <param name="signIn">
+    /// Asked before each fetch for a token that has not run out, renewing it on behalf of the policy fetch
+    /// when it has. Under local-only the background renewal does not run, so this is how the hourly fetch
+    /// still has a token to send. Null fetches with whatever token is in hand, as before.
+    /// </param>
+    public static async Task SyncPolicyAsync(PolicySync policy, Task tokenReady, TaskCompletionSource fetched, TimeProvider time, CancellationToken ct, Action<Exception>? failed = null, Func<CancellationToken, Task>? signIn = null)
     {
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(tokenReady);
@@ -79,6 +105,11 @@ public static class StartupOrder
                 bool ok;
                 try
                 {
+                    if (signIn is not null)
+                    {
+                        await signIn(ct).ConfigureAwait(false);
+                    }
+
                     ok = await policy.FetchAsync(ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
