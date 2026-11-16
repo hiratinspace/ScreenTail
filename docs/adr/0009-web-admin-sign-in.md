@@ -384,7 +384,12 @@ it, as Google's does.
 5. **Session lifetime 8 hours, no refresh; sign-out ends every session of that owner.**
 6. **Owners see integration status but never a credential, not even its last four**, and do not manage
    credentials from the web; technicians still do from Settings (ST-009's rule that any device of the
-   tenant may manage them is unchanged here).
+   tenant may manage them is unchanged here). **Superseded 2026-11-15 (security review, owner
+   decision):** only the owner connects, replaces, tests and disconnects ConnectWise and Hudu, from the
+   web admin's Integrations page (`/v1/admin/integrations/{provider}`, cookie session and CSRF header).
+   A device's store or remove is refused with `403 owner_only`; devices still list integrations, test
+   the stored credential and choose company mappings while publishing. Every credential and mapping
+   change is recorded and shown on that page. The owner still never sees any part of a stored secret.
 7. **Google's keys out of reach means no sign-in** rather than checking against a stale copy.
 8. **Signup matches the Google account by its subject**; the address is checked against the allowlist
    only when a tenant is created. Only ASCII addresses can sign up, compared without regard to ASCII
