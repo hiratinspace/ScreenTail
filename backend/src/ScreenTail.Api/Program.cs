@@ -412,6 +412,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDraftingConcurrency();
+app.UsePublishConcurrency();
 
 // Liveness only: checks no dependencies and returns no data (INV-7, INV-10).
 app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")));

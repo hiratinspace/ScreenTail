@@ -25,6 +25,14 @@ public sealed class HuduOptions
     /// </summary>
     public int MaxCompanies { get; set; } = 10_000;
 
+    /// <summary>
+    /// The most characters of company ids and names kept from one tenant's Hudu (2026-11-15 review), about
+    /// 2 MB in memory. A real list is a few tens of characters a company: at <see cref="MaxCompanies"/>
+    /// that is around 400,000, and this is an average of a hundred a company, so only a site that pads
+    /// every name meets it. Past it the list is an error, never a shorter list, like the company cap.
+    /// </summary>
+    public long MaxCompanyListChars { get; set; } = 1_000_000;
+
     /// <summary>ST-095 AC1: companies are cached ten minutes. The mapping screen asks often and the list rarely changes.</summary>
     public TimeSpan CompanyCacheFor { get; set; } = TimeSpan.FromMinutes(10);
 }

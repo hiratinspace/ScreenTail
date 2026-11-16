@@ -59,7 +59,7 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.False(check!.Ok);
-        Assert.Contains("Settings", check.Message, StringComparison.Ordinal);
+        Assert.Contains("web admin", check.Message, StringComparison.Ordinal);
         Assert.Equal(check.Message, Assert.Single(list!.Integrations).LastError);
     }
 

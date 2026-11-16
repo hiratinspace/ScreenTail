@@ -20,7 +20,7 @@ namespace ScreenTail.Api.Tests.Providers.ConnectWise;
 
 /// <summary>
 /// The provider a tenant gets is built from the credential the vault holds for it, and nothing else
-/// (ST-091 with ST-009). No credential, no provider; the client sees "Connect a PSA to publish".
+/// (ST-091 with ST-009). No credential, no provider; the client is told the owner connects one in the web admin.
 /// </summary>
 public sealed class ConnectWiseFactoryTests : IAsyncDisposable
 {
@@ -139,6 +139,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Contains("no_psa", body, StringComparison.Ordinal);
+        Assert.Equal("No PSA is connected, so tickets cannot be searched. Your owner connects one in the web admin.", System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("message").GetString());
     }
 
     [Fact]
@@ -155,7 +156,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Contains("unauthenticated", body, StringComparison.Ordinal);
-        Assert.Contains("Settings", body, StringComparison.Ordinal);
+        Assert.Contains("web admin", body, StringComparison.Ordinal);
     }
 
     [Fact]

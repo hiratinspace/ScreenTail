@@ -137,6 +137,34 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.True(discussion.Ok);
     }
 
+    [Theory]
+    [InlineData("48213\n")]
+    [InlineData("..")]
+    [InlineData("48213/../1")]
+    [InlineData("48213.0")]
+    [InlineData("-1")]
+    [InlineData("T-48213")]
+    public async Task ANoteForATicketIdThatIsNotANumberIsRefusedBeforeAnythingIsSent(string ticketId)
+    {
+        // 2026-11-15 review: the id is part of the note's route, so it is read as a number, as the time
+        // entry reads it, and nothing else reaches the path.
+        var result = await Provider().AddNoteAsync(new TicketNote(ticketId, "Problem, steps, result.", Internal: true, []), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.NotFound, result.Error!.Kind);
+        Assert.Empty(_api.Requests);
+    }
+
+    [Fact]
+    public async Task ANoteGoesToTheTicketByItsNumber()
+    {
+        // The number, as ConnectWise writes it: a leading zero the technician typed does not reach the route.
+        var result = await Provider().AddNoteAsync(new TicketNote("048213", "Problem, steps, result.", Internal: true, []), TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.EndsWith("/service/tickets/48213/notes", Assert.Single(_api.Requests).RequestUri!.AbsolutePath, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task AttachmentsFollowTheNoteAsDocumentsOnTheTicket()
     {
