@@ -97,8 +97,9 @@ Open `https://<SCREENTAIL_DOMAIN>` and sign in with Google as the allowlisted ad
 asks for the organisation's name and creates the tenant with that person as its owner
 (`Admin__NewTenantSeats` seats). From then on, **Technicians and seats → Invite a technician** gives a
 one-time code to hand on (there is no mail provider yet), which the technician enters in the Windows
-client's **Settings → This device**. The client reaches the backend at `https://<SCREENTAIL_DOMAIN>`
-(`SCREENTAIL_BACKEND`).
+client's **Settings → This device**. The client reaches the backend at `https://<SCREENTAIL_DOMAIN>`:
+an installed client reads that address from the machine-wide setting its installer writes
+(`BACKENDURL`, `docs/dev/installer.md`); `SCREENTAIL_BACKEND` is for development builds only.
 
 The operator's command line works through the same image:
 

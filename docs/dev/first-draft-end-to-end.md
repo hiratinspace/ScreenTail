@@ -290,7 +290,9 @@ curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d 
 The client does this itself now: the setup wizard's Activate step (ST-083) and Settings both take the
 code, keep the refresh token under DPAPI in `%LOCALAPPDATA%\ScreenTail\device.cred`, and renew the access
 token on their own. Once a device is activated, `SCREENTAIL_DEVICE_TOKEN` is ignored. To go back to the
-environment's token, delete that file while the service is stopped. The `curl` lines above are the same
+environment's token, delete that file while the service is stopped. Both variables are for development
+builds only: an installed build (signed, or running from Program Files) ignores them and reads its backend
+address from the machine-wide setting the installer writes (`docs/dev/installer.md`, `BACKENDURL`). The `curl` lines above are the same
 two calls made by hand. `--offboard-tenant <id>` deletes every row of a tenant.
 
 These operator commands (`--invite`, `--offboard-tenant`, `--set-policy`, `--rotate-vault-keys`) run with

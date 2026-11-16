@@ -353,7 +353,22 @@ nothing a client sends can become a line of the prompt.
 settings (retention days, local-only and whether the admin locked it, capture scope) with no content,
 fetched from the configured backend host under its own egress purpose, at start and hourly. It has to
 be, because the policy that turns local-only on is the only thing that can turn it off. The last copy
-that arrived is kept on disk and applies when the backend does not answer. The speech model is not
+that arrived is kept on disk and applies when the backend does not answer.
+
+**The device signs in under its own purpose, `DeviceAuth`** (2026-11-15). Activation and renewing the
+access token carry no content and go only to the backend host, and each says what the sign-in is for.
+In local-only mode a sign-in goes only on behalf of a publish the technician asked for (activation
+included) or of the policy fetch; the background renewal every fifty minutes does not run. So under
+local-only the client's requests on its own are the policy fetch and the sign-in it needs, at start and
+hourly, and a publish after a long idle signs in first.
+
+**The lock is held by the backend too** (2026-11-15). The drafting endpoint refuses a tenant whose policy
+locks local-only (`403 local_only`), before any model is asked, whatever the device believes; the device
+then drafts the session on its own, and the drafts queued behind it, for the hour its policy fetch takes
+to bring the lock. And an installed client reads its backend address only from the machine-wide setting
+an administrator writes (`HKLM\SOFTWARE\ScreenTail`, the installer's `BACKENDURL`), never from a per-user
+environment variable, because that address decides where the allowlist points and where the policy
+comes from. The speech model is not
 fetched in local-only mode either (ST-046): it carries no customer data, but it is a request the
 technician did not make. A machine that has no model when local-only is turned on records sessions
 without narration until the model is present or the policy is lifted, and the recogniser says so.
