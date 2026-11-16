@@ -360,7 +360,8 @@ access token carry no content and go only to the backend host, and each says wha
 In local-only mode a sign-in goes only on behalf of a publish the technician asked for (activation
 included) or of the policy fetch; the background renewal every fifty minutes does not run. So under
 local-only the client's requests on its own are the policy fetch and the sign-in it needs, at start and
-hourly, and a publish after a long idle signs in first.
+hourly, and a publish after a long idle signs in first. A first sign-in that fails is tried again on the
+policy fetch's own failure schedule (ten minutes), so it goes no more often than the fetch it is for.
 
 **The lock is held by the backend too** (2026-11-15). The drafting endpoint refuses a tenant whose policy
 locks local-only (`403 local_only`), before any model is asked, whatever the device believes; the device

@@ -293,6 +293,66 @@ public sealed class DeviceSignInEgressTests
         await renewing.WaitAsync(TimeSpan.FromSeconds(30), ct);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UnderLocalOnlyAFailedFirstSignInIsTriedAgainOnThePolicyFetchsSchedule(bool localOnly)
+    {
+        // The backend does not give the first token. Under local-only the sign-in for the policy goes out
+        // no more often than the policy fetch would (ten minutes after a failure), not every five.
+        var ct = TestContext.Current.CancellationToken;
+        var policy = Policy(localOnly, enforced: true);
+        var far = new TokenBackend { TokenStatus = HttpStatusCode.ServiceUnavailable };
+        using var http = new HttpClient(new EgressGuard(policy, far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, Activated(), time: new ManualTime(T0));
+        var tokenReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var turns = new Turns(2);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var renewing = StartupOrder.RenewDeviceAsync(
+            device,
+            tokenReady,
+            turns,
+            stopping.Token,
+            inBackground: () => policy.Decide(EgressPurpose.DeviceAuth, Backend).Allowed);
+        await turns.Parked.WaitAsync(TimeSpan.FromSeconds(30), ct);
+
+        var expected = localOnly ? PolicySync.RetryAfterFailure : DeviceSession.RetryAfterFailure;
+        Assert.All(turns.Asked, wait => Assert.Equal(expected, wait));
+        Assert.Equal(3, far.TokenRequests);
+        Assert.False(tokenReady.Task.IsCompleted);
+
+        await stopping.CancelAsync();
+        await renewing.WaitAsync(TimeSpan.FromSeconds(30), ct);
+    }
+
+    [Fact]
+    public async Task BeforeActivationTheLoopLooksAgainSoonBecauseNothingIsSent()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var policy = Policy(localOnly: true, enforced: true);
+        var far = new TokenBackend();
+        using var http = new HttpClient(new EgressGuard(policy, far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, new DeviceSessionTests.InMemoryCredentials(), time: new ManualTime(T0));
+        var tokenReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var turns = new Turns(1);
+        using var stopping = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var renewing = StartupOrder.RenewDeviceAsync(
+            device,
+            tokenReady,
+            turns,
+            stopping.Token,
+            inBackground: () => policy.Decide(EgressPurpose.DeviceAuth, Backend).Allowed);
+        await turns.Parked.WaitAsync(TimeSpan.FromSeconds(30), ct);
+
+        Assert.All(turns.Asked, wait => Assert.Equal(DeviceSession.RetryAfterFailure, wait));
+        Assert.Equal(0, far.TokenRequests);
+
+        await stopping.CancelAsync();
+        await renewing.WaitAsync(TimeSpan.FromSeconds(30), ct);
+    }
+
     [Fact]
     public async Task ThePolicyLoopSignsInBeforeEachFetch()
     {
@@ -500,12 +560,17 @@ public sealed class DeviceSignInEgressTests
     private sealed class Turns(int turns) : TimeProvider
     {
         private readonly TaskCompletionSource _parked = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly System.Collections.Concurrent.ConcurrentQueue<TimeSpan> _asked = new();
         private int _left = turns;
 
         public Task Parked => _parked.Task;
 
+        /// <summary>What each wait was for, in order.</summary>
+        public IReadOnlyCollection<TimeSpan> Asked => _asked;
+
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         {
+            _asked.Enqueue(dueTime);
             if (Interlocked.Decrement(ref _left) >= 0)
             {
                 _ = ThreadPool.QueueUserWorkItem(_ => callback(state));

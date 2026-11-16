@@ -17,7 +17,9 @@ public static class StartupOrder
     /// token to send.
     ///
     /// Until that first token, each turn signs in for the policy fetch that is waiting on it, which
-    /// local-only lets out because the policy is how local-only is lifted. After it, a turn renews in the
+    /// local-only lets out because the policy is how local-only is lifted; under local-only one that fails
+    /// is tried again on the policy fetch's failure schedule (<see cref="PolicySync.RetryAfterFailure"/>),
+    /// so it goes no more often than the fetch it is for. After it, a turn renews in the
     /// background only while <paramref name="inBackground"/> says it may, and under local-only it may
     /// not: there the token is renewed when a publish or the hourly policy fetch asks for one
     /// (<see cref="DeviceSession.EnsureTokenAsync"/>), never on the timer (INV-8, 2026-11-15 review).
@@ -31,11 +33,13 @@ public static class StartupOrder
         while (!ct.IsCancellationRequested)
         {
             bool renewed;
+            var forThePolicy = false;
             try
             {
                 if (!tokenReady.Task.IsCompleted)
                 {
                     // The sign-in the first policy fetch waits for.
+                    forThePolicy = device.Activated;
                     renewed = await device.RefreshAsync(EgressPurpose.Policy, ct).ConfigureAwait(false);
                 }
                 else if (inBackground is null || inBackground())
@@ -71,9 +75,17 @@ public static class StartupOrder
                 _ = tokenReady.TrySetResult();
             }
 
+            // Under local-only a failed sign-in for the policy is retried on the policy fetch's own failure
+            // schedule, not the renewal's: it goes out only as often as the fetch it is for would (INV-8).
+            // Before activation nothing was sent, so the shorter wait only looks again sooner.
+            var wait = renewed
+                ? DeviceSession.RefreshEvery
+                : forThePolicy && inBackground is not null && !inBackground()
+                    ? PolicySync.RetryAfterFailure
+                    : DeviceSession.RetryAfterFailure;
             try
             {
-                await Task.Delay(renewed ? DeviceSession.RefreshEvery : DeviceSession.RetryAfterFailure, time, ct).ConfigureAwait(false);
+                await Task.Delay(wait, time, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
