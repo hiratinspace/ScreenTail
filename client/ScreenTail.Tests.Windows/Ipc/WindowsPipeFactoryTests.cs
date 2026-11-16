@@ -95,6 +95,113 @@ public sealed class WindowsPipeFactoryTests
         Assert.True(answered.Ok);
     }
 
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public async Task ANameAlreadyHeldRefusesTheServiceLoudlyUntilItIsFree()
+    {
+        // 2026-11-15 review: without the first-instance flag the service's instances joined a pipe
+        // somebody else had made under the same name, and a UI could be answered by either. Here the
+        // earlier pipe is this test's own, which is the hardest case: same account, default DACL, so
+        // only the flag tells it apart.
+        var name = PipeName("held");
+        var told = 0;
+        var create = WindowsPipeFactory.ForCurrentUser(name, () => told++);
+        await using var squatter = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+
+        Assert.Throws<PipeNameHeldException>(() => create());
+        Assert.Throws<PipeNameHeldException>(() => create());
+        Assert.Equal(1, told);
+
+        // Once it is released the service takes the name, and every later instance joins its pipe.
+        await squatter.DisposeAsync();
+        await using var first = create();
+        await using var second = create();
+        Assert.Equal(1, told);
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public async Task TheServerWaitsOutAHeldNameAndThenServesTheUi()
+    {
+        // The refusal is an IOException, which the accept loop backs off from and tries again, so the
+        // service is reachable the moment the name is free rather than never.
+        var name = PipeName("wait");
+        var token = IpcToken.Generate();
+        var self = Environment.ProcessPath!;
+        var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var squatter = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        await using var server = new IpcServer(
+            WindowsPipeFactory.ForCurrentUser(name, () => held.TrySetResult()),
+            token,
+            new WindowsClientVerifier(self),
+            new IdleHandler(),
+            new NoAudit(),
+            "0.0.1-test");
+        server.Start();
+
+        await held.Task.WaitAsync(Soon, TestContext.Current.CancellationToken);
+        await squatter.DisposeAsync();
+
+        await using var client = await IpcClient.ConnectAsync(
+            name,
+            token,
+            "test-ui",
+            new WindowsServerVerifier(self),
+            "0.0.1",
+            Soon,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(CaptureStates.Idle, client.State.State);
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public async Task ANameTakenWhileNoInstanceWasOpenIsRefusedToo()
+    {
+        // The accept loop can close its only instance before making the next. A pipe made in that gap
+        // is not the service's, though the service has made the first instance before.
+        var name = PipeName("gap");
+        var told = 0;
+        var create = WindowsPipeFactory.ForCurrentUser(name, () => told++);
+        create().Dispose();
+
+        // One that will not let anyone add an instance, as another account's pipe would not.
+        var me = WindowsIdentity.GetCurrent().User!;
+        var closed = new PipeSecurity();
+        closed.SetAccessRule(new PipeAccessRule(me, PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        await using var squatter = NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, closed);
+
+        Assert.Throws<PipeNameHeldException>(() => create());
+        Assert.Equal(1, told);
+
+        await squatter.DisposeAsync();
+        await using var reclaimed = create();
+        await using var joined = create();
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public async Task TheServiceStillListensOnSeveralInstancesAtOnce()
+    {
+        // The flag is for the first instance only. On every one it would refuse the service's own
+        // second listener, and the HUD's connection would wait behind the shell's.
+        var name = PipeName("several");
+        var create = WindowsPipeFactory.ForCurrentUser(name);
+        var pipes = new List<NamedPipeServerStream>();
+        try
+        {
+            for (var i = 0; i < 4; i++)
+            {
+                pipes.Add(create());
+            }
+
+            await using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await client.ConnectAsync((int)Soon.TotalMilliseconds, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            foreach (var pipe in pipes)
+            {
+                await pipe.DisposeAsync();
+            }
+        }
+    }
+
     /// <summary>
     /// Everyone, Anonymous, Authenticated Users, BUILTIN\Users, Interactive and Network: each of these
     /// would let some other account on the machine, or a process that is not the technician, open the

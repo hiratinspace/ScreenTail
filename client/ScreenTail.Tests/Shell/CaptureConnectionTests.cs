@@ -117,6 +117,22 @@ public sealed class CaptureConnectionTests
     }
 
     [Fact]
+    public async Task APipeNameHeldByAPipeThatWillNotLetUsInIsUnavailable()
+    {
+        // 2026-11-15 review: when another account holds the service's pipe name, the UI is refused at
+        // the pipe itself. That is the same "capture service not running" as no service at all, never
+        // a fault the shell does not know how to show.
+        var shell = new ShellState();
+        await using var connection = Connect(shell, () => throw new UnauthorizedAccessException("Access to the path is denied."));
+
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Unavailable);
+        Assert.Null(shell.Snapshot.Capture);
+        Assert.Null(connection.LastRefusal);
+    }
+
+    [Fact]
     public async Task ItKeepsTryingAndRecoversWithoutTheUiRestarting()
     {
         // The service restarting mid-day is ordinary, and the UI has to survive it by itself. A

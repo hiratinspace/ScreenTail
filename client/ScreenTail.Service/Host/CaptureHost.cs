@@ -388,7 +388,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             sessionPolicy,
             updateCommands);
         await using var server = new IpcServer(
-            WindowsPipeFactory.ForCurrentUser(pipeName),
+            // A pipe name somebody else already holds is logged as an error, and the UI, which cannot
+            // reach this service meanwhile, says the capture service is not running (2026-11-15 review).
+            WindowsPipeFactory.ForCurrentUser(pipeName, () => LogPipeNameHeld(logger)),
             token,
             verifier,
             controller,
@@ -805,6 +807,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Hotkey {Hotkey} is unavailable: {Reason} Suggested instead: {Suggestion}")]
     private static partial void LogHotkeyConflict(ILogger logger, string hotkey, string reason, string suggestion);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "The capture pipe's name is held by a pipe this service did not make, so the UI cannot connect; retrying every second until it is free")]
+    private static partial void LogPipeNameHeld(ILogger logger);
 
     // The type and never the message: a store error can quote what it was asked to write (INV-10).
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Guard} guard hit {Error} and carried on")]
