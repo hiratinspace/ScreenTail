@@ -228,8 +228,10 @@ secret file with target `Summarization__FallbackApiKey`, never in `api.env`.
   narrow what a leaked `migrate-connection` can do.
 - **Plaintext between the API and PostgreSQL** on the internal bridge. If PostgreSQL moves off this host
   (a managed database), the connection string needs `SSL Mode=VerifyFull` and the server's CA.
-- **No memory or process limits** on the containers (`mem_limit`, `pids_limit`): sized to the host
-  once it is chosen.
+- **Memory and process limits.** The API has `mem_limit` 1536m by default (`SCREENTAIL_API_MEMORY` in
+  `.env`), so a runaway API is stopped and restarted rather than PostgreSQL or the host; raise it on a
+  host larger than 2 GB. PostgreSQL and Caddy have no memory limit, and no container has `pids_limit`:
+  sized to the host once it is chosen.
 - **The proxy build's two Alpine packages are not pinned** (`libcap-getcap`, `libcap-setcap`, used only
   to strip a file capability and then removed); the base images are pinned by digest.
 - **Processes on the host can reach the API directly** on the edge network, bypassing Caddy (but not
