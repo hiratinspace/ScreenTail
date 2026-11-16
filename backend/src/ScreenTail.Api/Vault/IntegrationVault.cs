@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
 using ScreenTail.Api.Data;
@@ -26,9 +27,13 @@ public interface IIntegrationVault
 
     Task<bool> RemoveAsync(Guid tenantId, string provider, CancellationToken ct = default);
 
-    /// <summary>The rows, for listing. Ciphertext comes along; the caller shows the hint.</summary>
-    Task<IReadOnlyList<Integration>> ListAsync(Guid tenantId, CancellationToken ct = default);
+    /// <summary>The rows, for listing: what may be shown and nothing sealed (2026-11-15 review).</summary>
+    Task<IReadOnlyList<IntegrationListing>> ListAsync(Guid tenantId, CancellationToken ct = default);
 }
+
+/// <summary>One integration as a list shows it. No ciphertext, no nonce, no wrapped key: only what is safe to display.</summary>
+/// <param name="SecretHint">The credential's last four characters, stored in the clear for exactly this.</param>
+public sealed record IntegrationListing(string Provider, string? SiteUrl, string? SecretHint, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCheckedAt, string? LastError);
 
 public sealed class VaultNotConfiguredException : InvalidOperationException
 {
@@ -84,8 +89,9 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
             throw new VaultNotConfiguredException();
         }
 
+        // Bound to the row it is written to (2026-11-15 review): this tenant, this provider, this host.
         var masterKey = options.CurrentKey();
-        var sealed_ = Envelope.Seal(Encoding.UTF8.GetBytes(secret), masterKey);
+        var sealed_ = Envelope.Seal(Encoding.UTF8.GetBytes(secret), masterKey, Envelope.BindingFor(tenantId, provider, siteUrl));
         var now = time.GetUtcNow();
 
         var row = await db.Integrations.SingleOrDefaultAsync(i => i.TenantId == tenantId && i.Provider == provider, ct).ConfigureAwait(false);
@@ -122,15 +128,51 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
         // run is what moves it. A row under a key this deployment does not hold is an error worth its
         // own words, because the alternative is a provider call with garbage.
         var masterKey = KeyFor(row.KeyId);
-        var sealed_ = new Sealed(row.SecretCiphertext, row.SecretNonce, row.DataKeyWrapped, row.DataKeyNonce, row.KeyId);
-        return new RevealedIntegration(row.Provider, row.SiteUrl ?? string.Empty, Encoding.UTF8.GetString(Envelope.Open(sealed_, masterKey)));
+        var secret = Open(row, masterKey, out _);
+        try
+        {
+            return new RevealedIntegration(row.Provider, row.SiteUrl ?? string.Empty, Encoding.UTF8.GetString(secret));
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(secret);
+        }
+    }
+
+    /// <summary>
+    /// A row's secret, opened: in the bound form first (tenant, provider and host as associated data), and
+    /// only if that fails in the form rows had before the binding, which carries none. A bound row moved
+    /// to another tenant, provider or host fails both ways, since its tag covers the binding it was sealed
+    /// with. <paramref name="legacy"/> says which form opened, so the rotation can rewrite the old one.
+    /// </summary>
+    /// <exception cref="CryptographicException">Neither form opens: the wrong key, a changed byte, or a row moved.</exception>
+    internal static byte[] Open(Integration row, ReadOnlySpan<byte> masterKey, out bool legacy)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var sealed_ = new Sealed(row.SecretCiphertext!, row.SecretNonce!, row.DataKeyWrapped!, row.DataKeyNonce!, row.KeyId!);
+        try
+        {
+            legacy = false;
+            return Envelope.Open(sealed_, masterKey, Envelope.BindingFor(row.TenantId, row.Provider, row.SiteUrl));
+        }
+        catch (CryptographicException)
+        {
+            legacy = true;
+            return Envelope.Open(sealed_, masterKey);
+        }
     }
 
     public async Task<bool> RemoveAsync(Guid tenantId, string provider, CancellationToken ct = default) =>
         await db.Integrations.Where(i => i.TenantId == tenantId && i.Provider == provider).ExecuteDeleteAsync(ct).ConfigureAwait(false) > 0;
 
-    public async Task<IReadOnlyList<Integration>> ListAsync(Guid tenantId, CancellationToken ct = default) =>
-        await db.Integrations.AsNoTracking().Where(i => i.TenantId == tenantId).OrderBy(i => i.Provider).ToListAsync(ct).ConfigureAwait(false);
+    // Projected, so the sealed columns never leave the database for a list (2026-11-15 review).
+    public async Task<IReadOnlyList<IntegrationListing>> ListAsync(Guid tenantId, CancellationToken ct = default) =>
+        await db.Integrations.AsNoTracking()
+            .Where(i => i.TenantId == tenantId)
+            .OrderBy(i => i.Provider)
+            .Select(i => new IntegrationListing(i.Provider, i.SiteUrl, i.SecretHint, i.ConnectedAt, i.LastCheckedAt, i.LastError))
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
 
     private byte[] KeyFor(string keyId)
     {

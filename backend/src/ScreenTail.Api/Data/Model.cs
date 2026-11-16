@@ -207,6 +207,44 @@ public sealed class CompanyMapping
     public DateTimeOffset CreatedAt { get; set; }
 }
 
+/// <summary>
+/// One change to a tenant's integrations or company mappings, for the owner's Integrations page
+/// (2026-11-15 review): when, which provider, what happened and who did it. Never a credential, not even
+/// its last four. The company names are the tenant's own, shown to its owner; they are never logged.
+/// </summary>
+public sealed class IntegrationChange
+{
+    public Guid Id { get; set; }
+
+    public Guid TenantId { get; set; }
+
+    public DateTimeOffset At { get; set; }
+
+    [MaxLength(50)]
+    public required string Provider { get; set; }
+
+    /// <summary><c>connected</c>, <c>replaced</c>, <c>disconnected</c>, <c>mapped</c>, <c>unmapped</c> or <c>mappings_cleared</c>.</summary>
+    [MaxLength(32)]
+    public required string Action { get; set; }
+
+    /// <summary>Set when the owner made the change, from the web admin.</summary>
+    public Guid? OwnerId { get; set; }
+
+    /// <summary>Set with <see cref="DeviceId"/> when a technician made the change, from ScreenTail on their PC.</summary>
+    public Guid? UserId { get; set; }
+
+    public Guid? DeviceId { get; set; }
+
+    [MaxLength(200)]
+    public string? PsaCompany { get; set; }
+
+    [MaxLength(64)]
+    public string? DocCompanyId { get; set; }
+
+    [MaxLength(200)]
+    public string? DocCompanyName { get; set; }
+}
+
 public sealed class Integration
 {
     public Guid Id { get; set; }

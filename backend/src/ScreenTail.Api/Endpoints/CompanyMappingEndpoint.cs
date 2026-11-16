@@ -1,8 +1,10 @@
+using Microsoft.AspNetCore.Mvc;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers.Demo;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Publish;
+using ScreenTail.Api.Vault;
 
 namespace ScreenTail.Api.Endpoints;
 
@@ -80,9 +82,19 @@ public static class CompanyMappingEndpoint
                 return Results.BadRequest(new { error = "no_such_company", message = "The documentation platform has no company with that id." });
             }
 
-            _ = await new CompanyMappings(db, who.TenantId, time).RememberAsync(request.PsaCompany, company, "manual", ct).ConfigureAwait(false);
+            // Technicians keep this, since the mapping prompt comes up while they publish; the owner sees
+            // each one on the Integrations page (2026-11-15 review). Recorded in the same transaction.
+            await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
+            {
+                var mapped = await new CompanyMappings(db, who.TenantId, time).RememberAsync(request.PsaCompany, company, "manual", ct).ConfigureAwait(false);
+                IntegrationChanges.Record(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Mapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), mapped.PsaCompany, mapped.DocCompanyId, mapped.DocCompanyName);
+                _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+                await transaction.CommitAsync(ct).ConfigureAwait(false);
+            }
+
             return Results.NoContent();
         })
+        .WithMetadata(new RequestSizeLimitAttribute(IntegrationsEndpoint.BodyLimit))
         .WithName("MapCompany")
         .WithSummary("Maps a PSA company to a documentation-platform company, by hand.");
 
@@ -93,7 +105,16 @@ public static class CompanyMappingEndpoint
                 return IntegrationsEndpoint.DemoOn();
             }
 
-            return await new CompanyMappings(db, who.TenantId, time).ForgetAsync(psaCompany, ct).ConfigureAwait(false) ? Results.NoContent() : Results.NotFound();
+            await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
+            if (!await new CompanyMappings(db, who.TenantId, time).ForgetAsync(psaCompany, ct).ConfigureAwait(false))
+            {
+                return Results.NotFound();
+            }
+
+            IntegrationChanges.Record(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Unmapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), psaCompany.Trim());
+            _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+            await transaction.CommitAsync(ct).ConfigureAwait(false);
+            return Results.NoContent();
         })
         .WithName("UnmapCompany")
         .WithSummary("Forgets a company mapping.");

@@ -439,7 +439,7 @@ _ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 // Mapped beside the device group, not inside it, so no device policy applies here and no owner policy
 // applies there.
 _ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).MapAdminSession();
-_ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin();
+_ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin().MapAdminIntegrations();
 
 var v1 = app.MapGroup("/v1").RequireAuthorization(CallerPolicy.Name);
 _ = v1.MapMe();

@@ -30,6 +30,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<CompanyMapping> CompanyMappings => Set<CompanyMapping>();
 
+    public DbSet<IntegrationChange> IntegrationChanges => Set<IntegrationChange>();
+
     public DbSet<Invite> Invites => Set<Invite>();
 
     public DbSet<Policy> Policies => Set<Policy>();
@@ -146,6 +148,15 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
             integration.ToTable("integrations");
             integration.HasKey(i => i.Id);
             integration.HasIndex(i => new { i.TenantId, i.Provider }).IsUnique();
+        });
+
+        modelBuilder.Entity<IntegrationChange>(change =>
+        {
+            change.ToTable("integration_changes");
+            change.HasKey(c => c.Id);
+
+            // The owner's page: one tenant's latest changes, newest first.
+            change.HasIndex(c => new { c.TenantId, c.At });
         });
 
         modelBuilder.Entity<Invite>(invite =>
