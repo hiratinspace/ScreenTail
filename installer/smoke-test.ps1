@@ -599,15 +599,33 @@ Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -
 
 Check 'the installed service starts again for the uninstall' (Start-InstalledService)
 
-# --- An uninstall that names another install folder is refused -----------------------------------------
-# The uninstall runs the installed service from the install folder as the system account, so the folder
-# check holds for an uninstall too. Refused right after the folders are resolved, before anything is
-# closed or removed: ScreenTail stays installed and the real uninstall below still works.
-Write-Step 'A silent uninstall that names another install folder is refused'
+# --- An uninstall that names another install folder runs nothing from there ----------------------------
+# The uninstall runs the installed service from the install folder as the system account, so it must
+# never take that folder from the command line. Either the folder check refuses the uninstall (and
+# ScreenTail stays installed), or Windows Installer keeps the installed folder for an installed product
+# and ignores the command line's, which is what the hosted image does (2026-11-16): then the uninstall
+# runs from Program Files, nothing runs from the other folder, and ScreenTail is installed again for the
+# checks below.
+Write-Step 'A silent uninstall that names another install folder runs nothing from there'
 $code = Invoke-Msi '/x' $Msi 'uninstall-elsewhere.log' "INSTALLFOLDER=$elsewhere"
-Check 'msiexec /x with INSTALLFOLDER outside Program Files fails' ($code -ne 0) "exit $code"
-Check 'and ScreenTail is still installed' (@(Get-ArpEntries).Count -eq 1)
-Check 'with its service still in Program Files' (Test-Path (Join-Path $installDir 'ScreenTail.Service.exe'))
+$elsewhereLog = @(Get-Content (Join-Path $Logs 'uninstall-elsewhere.log') -ErrorAction SilentlyContinue)
+$fromElsewhere = [regex]::Escape((Join-Path $elsewhere 'ScreenTail.Service.exe'))
+Check 'nothing was started from the folder the command line named' (@($elsewhereLog | Where-Object { $_ -match $fromElsewhere }).Count -eq 0)
+if ($code -ne 0) {
+    Check 'the uninstall was refused, and ScreenTail is still installed' (@(Get-ArpEntries).Count -eq 1) "exit $code"
+    Check 'with its service still in Program Files' (Test-Path (Join-Path $installDir 'ScreenTail.Service.exe'))
+} else {
+    $resolved = @($elsewhereLog | ForEach-Object { [regex]::Match($_, '^Property\(S\): INSTALLFOLDER = (.*)$') } | Where-Object { $_.Success } | ForEach-Object { $_.Groups[1].Value.Trim() }) | Select-Object -Last 1
+    Check 'Windows Installer kept the installed folder for the uninstall' ($resolved -eq "$installDir\") "INSTALLFOLDER $resolved"
+    Check 'and the uninstall step ran from Program Files' (@($elsewhereLog | Where-Object { $_ -match [regex]::Escape((Join-Path $installDir 'ScreenTail.Service.exe')) }).Count -ge 1)
+    Write-Step 'Install again for the checks below'
+    $code = Invoke-Msi '/i' $Msi 'install-again.log'
+    Check 'msiexec /i /qn exits 0' ($code -eq 0) "exit $code"
+    New-ItemProperty -Path $userRun -Name 'ScreenTail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $userRun -Name $decoyName -Value $decoyCommand -PropertyType String -Force | Out-Null
+    Test-InstalledLayout $version
+    Check 'the installed service starts again for the uninstall' (Start-InstalledService)
+}
 Remove-Item $elsewhere -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- A second technician, never signed in, with data and a planted link --------------------------------
