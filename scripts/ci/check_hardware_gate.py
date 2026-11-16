@@ -7,11 +7,14 @@ says it does:
 
   - the laptop off on purpose (HW_RUNNER not true): no evidence, said in the summary, the pull request
     labelled needs-hardware-evidence, and not a blocker;
-  - a pull request from a fork, whose code never reaches the laptop: the same answer, without waiting;
+  - a pull request from a fork, whose code never reaches the laptop: the same answer, without waiting,
+    including one whose fork has since been deleted (no head repository name at all);
   - both laptop jobs passed: a pass;
   - a laptop job skipped while the laptop was meant to run: not a pass. The summary says the jobs did
     not run, the pull request is labelled, and the gate fails (2026-11-15 review: it used to count a
-    skipped job as a passed one);
+    skipped job as a passed one). Its remedy names the usual cause, a hardware-checks run made while
+    HW_RUNNER was off, and the no-evidence remedy does not lead into it: it says to re-run the laptop's
+    jobs, not only the gate, which would find the old skipped ones;
   - a laptop job failed or was cancelled: a failure.
 
 Usage: check_hardware_gate.py [repo root] [path to ci.yml, default .github/workflows/ci.yml]
@@ -86,16 +89,22 @@ def both(conclusion_one, conclusion_two):
     return [(REQUIRED[0], 'completed', conclusion_one), (REQUIRED[1], 'completed', conclusion_two)]
 
 
-# (name, HW_RUNNER, head repo, check runs, expected exit code, text the summary must hold, labelled)
+NONE = ['Hardware evidence: none']
+OFF = NONE + ['re-run the hardware-checks jobs for this commit']
+NOT_RUN = ['Hardware evidence: not run', 'made while `HW_RUNNER` was off, re-run its jobs']
+
+# (name, HW_RUNNER, head repo, check runs, expected exit code, texts the summary must hold, labelled)
 CASES = [
-    ('laptop off on purpose', 'false', REPO, [], 0, 'Hardware evidence: none', True),
-    ('HW_RUNNER unset', '', REPO, [], 0, 'Hardware evidence: none', True),
-    ('pull request from a fork', 'true', 'someone/fork', both('skipped', 'skipped'), 0, 'Hardware evidence: none', True),
-    ('both laptop jobs passed', 'true', REPO, both('success', 'success'), 0, 'The spare laptop passed', False),
-    ('input job skipped', 'true', REPO, both('success', 'skipped'), 1, 'Hardware evidence: not run', True),
-    ('both laptop jobs skipped', 'true', REPO, both('skipped', 'skipped'), 1, 'Hardware evidence: not run', True),
-    ('capabilities job failed', 'true', REPO, both('failure', 'skipped'), 1, None, False),
-    ('input job cancelled', 'true', REPO, both('success', 'cancelled'), 1, None, False),
+    ('laptop off on purpose', 'false', REPO, [], 0, OFF, True),
+    ('HW_RUNNER unset', '', REPO, [], 0, OFF, True),
+    ('pull request from a fork', 'true', 'someone/fork', both('skipped', 'skipped'), 0, NONE, True),
+    ('pull request from a deleted fork', 'true', '', both('skipped', 'skipped'), 0, NONE, True),
+    ('both laptop jobs passed', 'true', REPO, both('success', 'success'), 0, ['The spare laptop passed'], False),
+    ('input job skipped', 'true', REPO, both('success', 'skipped'), 1, NOT_RUN, True),
+    # What a gate re-run after HW_RUNNER was turned on finds, when the laptop's jobs were not re-run.
+    ('both skipped by a run made while HW_RUNNER was off', 'true', REPO, both('skipped', 'skipped'), 1, NOT_RUN, True),
+    ('capabilities job failed', 'true', REPO, both('failure', 'skipped'), 1, [], False),
+    ('input job cancelled', 'true', REPO, both('success', 'cancelled'), 1, [], False),
 ]
 
 
@@ -116,8 +125,9 @@ def main():
             problems = []
             if got != code:
                 problems.append(f"exit code {got}, expected {code}")
-            if says and says not in summary:
-                problems.append(f"the summary does not say '{says}'")
+            for text in says:
+                if text not in summary:
+                    problems.append(f"the summary does not say '{text}'")
             if labelled and '--add-label needs-hardware-evidence' not in log:
                 problems.append("the pull request was not labelled needs-hardware-evidence")
             if not labelled and '--add-label needs-hardware-evidence' in log:
