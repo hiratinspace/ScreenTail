@@ -23,11 +23,14 @@ public sealed class WindowsClientVerifier : IClientVerifier
 
     public WindowsClientVerifier(string serviceExecutable)
     {
-        _serviceExecutable = Path.GetFullPath(serviceExecutable);
+        _serviceExecutable = PeerDirectory.Anchor(serviceExecutable);
         _publisherThumbprint = Authenticode.VerifiedSignerThumbprint(_serviceExecutable);
     }
 
     public bool ServiceIsSigned => _publisherThumbprint is not null;
+
+    /// <summary>The path clients are compared against, for the Windows tests.</summary>
+    internal string Anchor => _serviceExecutable;
 
     public ValueTask<string?> VerifyAsync(PipeStream connection, CancellationToken ct = default)
     {

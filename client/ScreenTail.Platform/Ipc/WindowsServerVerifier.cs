@@ -29,11 +29,14 @@ public sealed class WindowsServerVerifier : IServerVerifier
     /// <param name="uiExecutable">This process's own image. The dev-build fallback compares against it.</param>
     public WindowsServerVerifier(string uiExecutable)
     {
-        _uiExecutable = Path.GetFullPath(uiExecutable);
+        _uiExecutable = PeerDirectory.Anchor(uiExecutable);
         _publisherThumbprint = Authenticode.VerifiedSignerThumbprint(_uiExecutable);
     }
 
     public bool UiIsSigned => _publisherThumbprint is not null;
+
+    /// <summary>The path servers are compared against, for the Windows tests.</summary>
+    internal string Anchor => _uiExecutable;
 
     public ValueTask<string?> VerifyAsync(PipeStream connection, CancellationToken ct = default)
     {

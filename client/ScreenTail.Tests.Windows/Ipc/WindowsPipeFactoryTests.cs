@@ -103,19 +103,53 @@ public sealed class WindowsPipeFactoryTests
         // earlier pipe is this test's own, which is the hardest case: same account, default DACL, so
         // only the flag tells it apart.
         var name = PipeName("held");
-        var told = 0;
-        var create = WindowsPipeFactory.ForCurrentUser(name, () => told++);
+        var told = new List<int>();
+        var create = WindowsPipeFactory.ForCurrentUser(name, told.Add);
         await using var squatter = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
 
         Assert.Throws<PipeNameHeldException>(() => create());
         Assert.Throws<PipeNameHeldException>(() => create());
-        Assert.Equal(1, told);
+        Assert.Throws<PipeNameHeldException>(() => create());
+
+        // Each refusal counted in a row, which is what turns the service's warning into an error.
+        Assert.Equal([1, 2, 3], told);
 
         // Once it is released the service takes the name, and every later instance joins its pipe.
         await squatter.DisposeAsync();
         await using var first = create();
         await using var second = create();
-        Assert.Equal(1, told);
+        Assert.Equal([1, 2, 3], told);
+        await first.DisposeAsync();
+        await second.DisposeAsync();
+
+        // A later episode counts from one again.
+        await using var again = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        Assert.Throws<PipeNameHeldException>(() => create());
+        Assert.Equal([1, 2, 3, 1], told);
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public async Task APipeOfTheSameOwnerThatLetsUsInIsStillNotOurs()
+    {
+        // The gap check compares owner and DACL, not the owner alone. This pipe has this account as its
+        // owner and lets it add instances, so only its DACL (which also admits Everyone) tells it apart.
+        var name = PipeName("same-owner");
+        var told = new List<int>();
+        var create = WindowsPipeFactory.ForCurrentUser(name, told.Add);
+        create().Dispose();
+
+        var me = WindowsIdentity.GetCurrent().User!;
+        var open = new PipeSecurity();
+        open.SetAccessRule(new PipeAccessRule(me, PipeAccessRights.FullControl, AccessControlType.Allow));
+        open.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.WorldSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        await using var squatter = NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, open);
+
+        Assert.Throws<PipeNameHeldException>(() => create());
+        Assert.Equal([1], told);
+
+        await squatter.DisposeAsync();
+        await using var reclaimed = create();
+        await using var joined = create();
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
@@ -129,7 +163,7 @@ public sealed class WindowsPipeFactoryTests
         var held = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var squatter = new NamedPipeServerStream(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         await using var server = new IpcServer(
-            WindowsPipeFactory.ForCurrentUser(name, () => held.TrySetResult()),
+            WindowsPipeFactory.ForCurrentUser(name, _ => held.TrySetResult()),
             token,
             new WindowsClientVerifier(self),
             new IdleHandler(),
@@ -157,8 +191,8 @@ public sealed class WindowsPipeFactoryTests
         // The accept loop can close its only instance before making the next. A pipe made in that gap
         // is not the service's, though the service has made the first instance before.
         var name = PipeName("gap");
-        var told = 0;
-        var create = WindowsPipeFactory.ForCurrentUser(name, () => told++);
+        var told = new List<int>();
+        var create = WindowsPipeFactory.ForCurrentUser(name, told.Add);
         create().Dispose();
 
         // One that will not let anyone add an instance, as another account's pipe would not.
@@ -168,7 +202,7 @@ public sealed class WindowsPipeFactoryTests
         await using var squatter = NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, closed);
 
         Assert.Throws<PipeNameHeldException>(() => create());
-        Assert.Equal(1, told);
+        Assert.Equal([1], told);
 
         await squatter.DisposeAsync();
         await using var reclaimed = create();

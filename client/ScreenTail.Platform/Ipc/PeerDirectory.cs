@@ -28,6 +28,25 @@ namespace ScreenTail.Platform.Ipc;
 [SupportedOSPlatform("windows")]
 internal static class PeerDirectory
 {
+    /// <summary>
+    /// The path a verifier compares its peers against. When it is this process's own executable, it is
+    /// read from the kernel, where the peer's path comes from too. <c>Environment.ProcessPath</c> is the
+    /// path as launched, and through a junction or a mounted folder that is spelt differently from the
+    /// kernel's record of the same file, so a signed install would have refused its own other half.
+    /// Any other path (a test's anchor) is taken as given.
+    /// </summary>
+    internal static string Anchor(string executable)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+        var full = Path.GetFullPath(executable);
+        var own = Environment.ProcessPath;
+        return own is not null
+            && string.Equals(Path.GetFullPath(own), full, StringComparison.OrdinalIgnoreCase)
+            && ProcessImage.OwnPath() is { } kernel
+            ? kernel
+            : full;
+    }
+
     /// <summary>Whether <paramref name="first"/> and <paramref name="second"/> are in the same folder.</summary>
     internal static bool Same(string first, string second) => SameText(Of(first), Of(second));
 

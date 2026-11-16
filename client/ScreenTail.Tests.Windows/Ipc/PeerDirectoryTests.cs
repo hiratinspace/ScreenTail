@@ -122,6 +122,86 @@ public sealed class PeerDirectoryTests : IDisposable
         Assert.True(PeerDirectory.Same(Path.Combine(link, "ScreenTail.UI.exe"), Path.Combine(link, "ScreenTail.Service.exe")));
     }
 
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void AnAnchorOnThisProcessIsTheKernelsRecordOfIt()
+    {
+        // The peer's path is the kernel's, so this process's own must be too: Environment.ProcessPath is
+        // the path as launched, which a junction or a mounted folder spells differently (review of #325).
+        var kernel = ProcessImage.OwnPath();
+        Assert.NotNull(kernel);
+
+        Assert.Equal(kernel, PeerDirectory.Anchor(Environment.ProcessPath!));
+        Assert.Equal(kernel, new WindowsClientVerifier(Environment.ProcessPath!).Anchor);
+        Assert.Equal(kernel, new WindowsServerVerifier(Environment.ProcessPath!).Anchor);
+
+        // Any other anchor is taken as given.
+        var elsewhere = Path.Combine(_dir, "ScreenTail.Service.exe");
+        Assert.Equal(elsewhere, PeerDirectory.Anchor(elsewhere));
+
+        // And a sibling of the kernel's path is a sibling (the dev rule, since the test host is unsigned).
+        var sibling = Path.Combine(Path.GetDirectoryName(kernel)!, "ScreenTail.UI.exe");
+        Assert.Null(new WindowsClientVerifier(Environment.ProcessPath!).Verify(sibling));
+        Assert.Null(new WindowsServerVerifier(Environment.ProcessPath!).Verify(sibling));
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void APeerStartedThroughALinkIsJudgedByWhatTheKernelRecords()
+    {
+        // What the kernel records for a process started through a link decides which folder the check
+        // sees, so it is measured here rather than assumed. A junction any user can make; a file symbolic
+        // link needs an administrator or Developer Mode, and is measured only where it can be made.
+        Assert.SkipUnless(PipePeer.Available, "Windows PowerShell not found");
+        var realFolder = Path.GetDirectoryName(PipePeer.Executable)!;
+        var link = Path.Combine(_dir, "link");
+        Directory.CreateDirectory(_dir);
+        Assert.True(Junction(link, realFolder), "mklink /J failed");
+        Measure("junction", Path.Combine(link, "powershell.exe"), PipePeer.Executable);
+
+        var fileLink = Path.Combine(_dir, "powershell.exe");
+        try
+        {
+            File.CreateSymbolicLink(fileLink, PipePeer.Executable);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Measurements.Record($"PeerDirectory: a file symbolic link could not be made on this machine ({ex.GetType().Name}), so that case is not measured here");
+            return;
+        }
+
+        Measure("file symbolic link", fileLink, PipePeer.Executable);
+    }
+
+    /// <summary>
+    /// Starts PowerShell through <paramref name="launched"/>, records what the kernel says it was started
+    /// from, and checks the folder rule follows that record.
+    /// </summary>
+    private static void Measure(string kind, string launched, string real)
+    {
+        var start = new ProcessStartInfo(launched) { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 30" })
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("PowerShell did not start.");
+        try
+        {
+            using var image = ProcessImage.Of((uint)process.Id);
+            Assert.NotNull(image);
+            // Folder by folder, so a short name in the temp path is not a difference.
+            var asLaunched = PeerDirectory.Same(image.Path, launched);
+            var asReal = PeerDirectory.Same(image.Path, real);
+            Measurements.Record($"PeerDirectory: a process started through a {kind} is recorded by the kernel {(asLaunched ? "under the link's path" : asReal ? "under the real path" : "under another path")}");
+            Assert.True(asLaunched || asReal, $"The kernel recorded {image.Path}");
+
+        }
+        finally
+        {
+            process.Kill();
+            _ = process.WaitForExit(TimeSpan.FromSeconds(5));
+        }
+    }
+
     public void Dispose()
     {
         if (!Directory.Exists(_dir))

@@ -16,6 +16,13 @@ namespace ScreenTail.Platform.Ipc;
 public static class WindowsPipeFactory
 {
     /// <summary>
+    /// How many refusals in a row before a held name is an error rather than a warning. A service that
+    /// crashed can leave its pipe behind for as long as a UI holds its end, which clears in a few seconds
+    /// once the UI notices; a name still held after that is worth an error.
+    /// </summary>
+    public const int HeldIsAnErrorAfter = 5;
+
+    /// <summary>
     /// The service's pipe instances, one per call: the server listens on one and keeps one per client.
     ///
     /// <b>The first instance claims the name</b> (<see cref="PipeOptions.FirstPipeInstance"/>). Pipe names
@@ -26,25 +33,26 @@ public static class WindowsPipeFactory
     /// in a gap with no instance open belongs to whoever took it, and is refused the same way.
     ///
     /// A refusal is <see cref="PipeNameHeldException"/>, an <see cref="IOException"/>, so the server goes
-    /// on retrying and takes the name once it is free. <paramref name="nameHeld"/> is told once each time
-    /// the name is found held, for the service's log. The UI meanwhile reaches nothing it will trust and
-    /// says the capture service is not running.
+    /// on retrying and takes the name once it is free. <paramref name="nameHeld"/> is told each refusal,
+    /// with how many there have been in a row, for the service's log; the count starts again once the
+    /// name is the service's. The UI meanwhile reaches nothing it will trust and says the capture service
+    /// is not running.
     /// </summary>
-    public static Func<NamedPipeServerStream> ForCurrentUser(string pipeName, Action? nameHeld = null)
+    public static Func<NamedPipeServerStream> ForCurrentUser(string pipeName, Action<int>? nameHeld = null)
     {
         var user = WindowsIdentity.GetCurrent().User ?? throw new InvalidOperationException("Cannot determine the current Windows user.");
         var security = new PipeSecurity();
         security.SetAccessRule(new PipeAccessRule(user, PipeAccessRights.FullControl, AccessControlType.Allow));
 
         var gate = new object();
-        SecurityIdentifier? owner = null;
-        var told = false;
+        string? descriptor = null;
+        var refusals = 0;
 
         return () =>
         {
             lock (gate)
             {
-                if (owner is null)
+                if (descriptor is null)
                 {
                     NamedPipeServerStream first;
                     try
@@ -58,19 +66,20 @@ public static class WindowsPipeFactory
                         throw Held(refused);
                     }
 
-                    owner = OwnerOf(first);
-                    if (owner is null)
+                    descriptor = DescriptorOf(first);
+                    if (descriptor is null)
                     {
                         first.Dispose();
                         throw Held(null);
                     }
 
-                    told = false;
+                    refusals = 0;
                     return first;
                 }
 
                 // All instances of one pipe share its security descriptor, so an instance of the pipe the
-                // first one made has the first one's owner, and an instance of anyone else's has theirs.
+                // first one made has the first one's owner and DACL, and an instance of anybody else's has
+                // theirs, even one of this account's that lets it in.
                 NamedPipeServerStream next;
                 try
                 {
@@ -80,14 +89,14 @@ public static class WindowsPipeFactory
                 {
                     // This account always may add an instance to its own pipe, so a pipe that refuses it
                     // is somebody else's.
-                    owner = null;
+                    descriptor = null;
                     throw Held(refused);
                 }
 
-                if (OwnerOf(next) is not { } joined || !owner.Equals(joined))
+                if (!string.Equals(DescriptorOf(next), descriptor, StringComparison.Ordinal))
                 {
                     next.Dispose();
-                    owner = null;
+                    descriptor = null;
                     throw Held(null);
                 }
 
@@ -97,12 +106,7 @@ public static class WindowsPipeFactory
 
         PipeNameHeldException Held(Exception? inner)
         {
-            if (!told)
-            {
-                told = true;
-                nameHeld?.Invoke();
-            }
-
+            nameHeld?.Invoke(++refusals);
             return new PipeNameHeldException(PipeNameHeldException.Explanation, inner);
         }
     }
@@ -125,12 +129,14 @@ public static class WindowsPipeFactory
             outBufferSize: 0,
             security);
 
-    /// <summary>The pipe's owner, or null when Windows will not say, which is treated as not ours.</summary>
-    private static SecurityIdentifier? OwnerOf(NamedPipeServerStream pipe)
+    /// <summary>
+    /// The pipe's owner and DACL, as text, or null when Windows will not say, which is treated as not ours.
+    /// </summary>
+    private static string? DescriptorOf(NamedPipeServerStream pipe)
     {
         try
         {
-            return pipe.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+            return pipe.GetAccessControl().GetSecurityDescriptorSddlForm(AccessControlSections.Owner | AccessControlSections.Access);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException or IOException)
         {
@@ -140,13 +146,14 @@ public static class WindowsPipeFactory
 }
 
 /// <summary>
-/// The capture pipe's name is held by a pipe this service did not make (2026-11-15 review). An
-/// <see cref="IOException"/>, so the server's accept loop backs off and tries again.
+/// The capture pipe's name is held by another pipe, possibly this service's previous run still held open
+/// by a UI (2026-11-15 review). An <see cref="IOException"/>, so the server's accept loop backs off and
+/// tries again.
 /// </summary>
 public sealed class PipeNameHeldException : IOException
 {
     /// <summary>What it says when nothing more specific was given. No path and no account, just the fact.</summary>
-    public const string Explanation = "The capture pipe's name is held by another process, so the UI cannot reach this service until it is released.";
+    public const string Explanation = "The capture pipe's name is held by another pipe (possibly this service's previous run), so the UI cannot reach this service until it is released.";
 
     public PipeNameHeldException()
         : base(Explanation)
