@@ -151,7 +151,64 @@ public sealed class InstallerAuthoringTests
         {
             var scheduled = Package().Descendants(Wix + sequence).Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == "RefuseInstallFolder");
             Assert.Equal("CostFinalize", (string?)scheduled.Attribute("After"));
-            Assert.Equal("NOT Installed AND INSTALLFOLDER ~<> EXPECTEDINSTALLFOLDER", (string?)scheduled.Attribute("Condition"));
+            Assert.Equal("INSTALLFOLDER ~<> EXPECTEDINSTALLFOLDER", (string?)scheduled.Attribute("Condition"));
+        }
+    }
+
+    [Fact]
+    public void TheInstallFolderIsCheckedOnUninstallAndRepairToo()
+    {
+        // An uninstall and a repair run the installed service from [INSTALLFOLDER] as the system account
+        // as well, so the check is not limited to a first install. A correct installation is always in
+        // the expected folder, so its own uninstall and repair pass the same condition.
+        foreach (var sequence in new[] { "InstallUISequence", "InstallExecuteSequence" })
+        {
+            var scheduled = Package().Descendants(Wix + sequence).Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == "RefuseInstallFolder");
+            Assert.DoesNotContain("Installed", (string?)scheduled.Attribute("Condition"), StringComparison.Ordinal);
+            Assert.DoesNotContain("REMOVE", (string?)scheduled.Attribute("Condition"), StringComparison.Ordinal);
+        }
+
+        // Every step that runs a program from the install folder as the system account comes after the
+        // check in the same sequence: the check is right after CostFinalize, and they are before RemoveFiles.
+        foreach (var id in new[] { "RemoveUserData", "ReleaseForUpgrade" })
+        {
+            var command = Package().Descendants(Wix + "SetProperty").Single(p => (string?)p.Attribute("Id") == id);
+            Assert.StartsWith("\"[INSTALLFOLDER]", (string?)command.Attribute("Value"), StringComparison.Ordinal);
+            var scheduled = Package().Descendants(Wix + "InstallExecuteSequence").Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == id);
+            Assert.Equal("RemoveFiles", (string?)scheduled.Attribute("Before"));
+        }
+    }
+
+    [Fact]
+    public void TheBackendAddressIsWrittenWhereOnlyAnAdministratorCanAndWhereTheServiceReadsIt()
+    {
+        // 2026-11-15 review. An installed service reads its backend address only from the machine's key
+        // and ignores SCREENTAIL_BACKEND, so the package is where an MSP gives it (BACKENDURL). The same
+        // key and value name the service reads, written only when an address was given, and kept across
+        // an upgrade and a repair without overriding a new one from the command line.
+        var package = Package();
+        var value = Assert.Single(package.Descendants(Wix + "RegistryValue"), v => (string?)v.Attribute("Name") == Core.Net.DeploymentAddresses.MachineValue);
+        Assert.Equal("HKLM", (string?)value.Attribute("Root"));
+        Assert.Equal(Core.Net.DeploymentAddresses.MachineKey, (string?)value.Attribute("Key"), ignoreCase: true);
+        Assert.Equal("[BACKENDURL]", (string?)value.Attribute("Value"));
+        Assert.Equal("BACKENDURL", (string?)value.Parent!.Attribute("Condition"));
+        Assert.Contains(
+            package.Descendants(Wix + "ComponentRef"),
+            r => (string?)r.Attribute("Id") == (string?)value.Parent!.Attribute("Id"));
+
+        var kept = Assert.Single(package.Descendants(Wix + "RegistrySearch"), s => (string?)s.Attribute("Name") == Core.Net.DeploymentAddresses.MachineValue);
+        Assert.Equal("BACKENDURLKEPT", (string?)kept.Parent!.Attribute("Id"));
+        Assert.Equal(Core.Net.DeploymentAddresses.MachineKey, (string?)kept.Attribute("Key"), ignoreCase: true);
+        Assert.Equal("always64", (string?)kept.Attribute("Bitness"));
+
+        var restore = Assert.Single(package.Descendants(Wix + "SetProperty"), p => (string?)p.Attribute("Id") == "BACKENDURL");
+        Assert.Equal("[BACKENDURLKEPT]", (string?)restore.Attribute("Value"));
+        Assert.Equal("NOT BACKENDURL AND BACKENDURLKEPT", (string?)restore.Attribute("Condition"));
+        Assert.Equal("both", (string?)restore.Attribute("Sequence"));
+
+        foreach (var id in new[] { "BACKENDURL", "BACKENDURLKEPT" })
+        {
+            Assert.Equal("yes", (string?)package.Descendants(Wix + "Property").Single(p => (string?)p.Attribute("Id") == id).Attribute("Secure"));
         }
     }
 

@@ -141,6 +141,8 @@ export interface RemoteTool {
   client_version?: string;
 }
 /**
+ * A mouse click. Its position is kept only where frames may be taken: a click in an excluded, elevated or out-of-scope window has no x and y (INV-6).
+ *
  * This interface was referenced by `Session`'s JSON-Schema
  * via the `definition` "ClickEvent".
  */
@@ -148,10 +150,10 @@ export interface ClickEvent {
   type: 'click';
   ts_ms: TsMs;
   /**
-   * Physical screen pixels; negative on monitors left of or above the primary.
+   * Physical screen pixels; negative on monitors left of or above the primary. Absent, with y, when the window clicked may not be photographed.
    */
-  x: number;
-  y: number;
+  x?: number;
+  y?: number;
   button: MouseButton;
   /**
    * Screenshot taken for this click; absent when debounced or out of scope.

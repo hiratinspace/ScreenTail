@@ -34,7 +34,7 @@
                     <TextBlock Style="{StaticResource Text.TileHeading}" Text="Excluded apps" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[ExcludedApps]}" />
                 </StackPanel>
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Add any process that must never be captured." />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Password managers, banking tabs and credential prompts are excluded already (Recommended). Browser tabs are matched by the page title shown in the browser's title bar, not by the web address. Add any process that must never be captured." />
                 <controls:Repeater Margin="0,8,0,0" ItemsSource="{Binding ExcludedProcesses}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>

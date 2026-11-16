@@ -35,6 +35,7 @@ internal sealed partial class AutoSessionCoordinator
     private readonly Func<(bool LocalOnly, string? PolicyVersion)> _sessionPolicy;
     private readonly Func<bool>? _autoStart;
     private readonly TimeProvider _time;
+    private readonly Func<ForegroundWindowInfo?>? _latest;
 
     // The decision in force and what the timeline last said. Changed by the scope loop, by the auto-stop
     // timer and, when the policy moved, by whoever asks for the scope first. Never held across a wait.
@@ -52,6 +53,12 @@ internal sealed partial class AutoSessionCoordinator
     /// answer there is no flag to start a session under.
     /// </param>
     /// <param name="time">The clock the auto-stop timer runs on, so a test can run the grace out without waiting for it.</param>
+    /// <param name="latest">
+    /// The watcher's last look at the window in front, reported or held back while its title settles
+    /// (<see cref="ForegroundChangeFilter.Latest"/>). When it shows the decided window under a title nobody
+    /// has decided on, <see cref="CurrentScope"/> decides again on it before answering (INV-6). Null keeps
+    /// the decision on reports alone.
+    /// </param>
     public AutoSessionCoordinator(
         SessionMachine machine,
         ScopePolicy policy,
@@ -61,8 +68,10 @@ internal sealed partial class AutoSessionCoordinator
         Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
         Func<string?>? clipboard = null,
         Func<bool>? autoStart = null,
-        TimeProvider? time = null)
+        TimeProvider? time = null,
+        Func<ForegroundWindowInfo?>? latest = null)
     {
+        _latest = latest;
         _machine = machine ?? throw new ArgumentNullException(nameof(machine));
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
         _trigger = trigger ?? throw new ArgumentNullException(nameof(trigger));
@@ -84,15 +93,20 @@ internal sealed partial class AutoSessionCoordinator
     /// What the HUD shows about scope right now (Spec §5 S2), and what the capture loops ask before taking
     /// a frame. Made again for the window already in front when the policy has changed since it was made:
     /// turning "all windows" off, excluding an app or switching a tool off applies to the next frame, not
-    /// to the next window the technician happens to move to (INV-5, INV-11). When nothing changed this is
-    /// a reference comparison, so the capture loops pay nothing for it.
+    /// to the next window the technician happens to move to (INV-5, INV-11). Made again, too, when the
+    /// window decided on has since been retitled and the watcher is still holding the new title back to
+    /// let it settle: a tab that became an excluded page is not photographed under the old tab's decision
+    /// for those 250 ms (INV-6, <see cref="UndecidedTitle"/>). Such a title can only tighten the decision;
+    /// it loosens when the report arrives. When nothing changed this is a reference
+    /// comparison and a title comparison, so the capture loops pay almost nothing for it.
     /// </summary>
     public ScopeDecision? CurrentScope
     {
         get
         {
             var decided = _decided;
-            if (decided is null || ReferenceEquals(decided.Options, _policy.Options))
+            if (decided is null
+                || (ReferenceEquals(decided.Options, _policy.Options) && UndecidedTitle.Newer(decided.Window, _latest?.Invoke()) is null))
             {
                 return decided?.Decision;
             }
@@ -252,7 +266,7 @@ internal sealed partial class AutoSessionCoordinator
         bool worthRecording;
         lock (_gate)
         {
-            _decided = new Decided(decision, window, options);
+            _decided = new Decided(decision, window, options, window);
             worthRecording = TakeRecording(decision);
         }
 
@@ -386,17 +400,35 @@ internal sealed partial class AutoSessionCoordinator
         _ = _trigger.Follow(running, decided?.Decision.ToolId, decided?.Window);
     }
 
-    /// <summary>The decision in force, made again if the policy changed since it was made. Call under the gate.</summary>
+    /// <summary>
+    /// The decision in force, made again if the policy changed since it was made or the window it is about
+    /// has a newer title the watcher has not reported yet. Call under the gate.
+    ///
+    /// On a title not reported yet the decision can only tighten: the stricter of the one in force and the
+    /// new title's is kept (<see cref="ScopeDecision.Stricter"/>), and it loosens when the report arrives
+    /// (<see cref="HandleAsync"/>) or the window shows the reported title again. A title on its way
+    /// somewhere may not be photographed on the strength of where it is passing through.
+    ///
+    /// The timeline hears of a change made here at the next auto-stop tick (<see cref="TickOnceAsync"/>)
+    /// or at the report, whichever comes first, not once per rewrite of the title.
+    /// </summary>
     private Decided Redecided()
     {
         var decided = _decided!;
         var options = _policy.Options;
-        if (ReferenceEquals(decided.Options, options))
+        var window = UndecidedTitle.Newer(decided.Window, _latest?.Invoke()) ?? decided.Window;
+        if (ReferenceEquals(decided.Options, options) && ReferenceEquals(window, decided.Window))
         {
             return decided;
         }
 
-        var next = new Decided(_policy.Decide(decided.Window), decided.Window, options);
+        var decision = _policy.Decide(window);
+        if (!window.SameAs(decided.Reported))
+        {
+            decision = ScopeDecision.Stricter(decided.Decision, decision);
+        }
+
+        var next = new Decided(decision, window, options, decided.Reported);
         _decided = next;
         return next;
     }
@@ -419,8 +451,11 @@ internal sealed partial class AutoSessionCoordinator
     private static bool IsRunning(SessionState state) =>
         state is SessionState.Recording or SessionState.Paused or SessionState.Suppressed;
 
-    /// <summary>A scope decision, the window it is about, and the policy it was made under.</summary>
-    private sealed record Decided(ScopeDecision Decision, ForegroundWindowInfo Window, ScopeOptions Options);
+    /// <summary>
+    /// A scope decision, the window it is about, the policy it was made under, and the last look at that
+    /// window the watcher reported (the same as <paramref name="Window"/> unless a retitle is still settling).
+    /// </summary>
+    private sealed record Decided(ScopeDecision Decision, ForegroundWindowInfo Window, ScopeOptions Options, ForegroundWindowInfo Reported);
 
     [LoggerMessage(
         Level = LogLevel.Warning,

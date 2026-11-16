@@ -19,7 +19,17 @@ public sealed class ConnectWiseProviderFactory(IIntegrationVault vault, IHttpCli
 
     public async Task<IPsaProvider?> ForTenantAsync(Guid tenantId, CancellationToken ct = default)
     {
-        var revealed = await vault.RevealAsync(tenantId, "connectwise", ct).ConfigureAwait(false);
+        RevealedIntegration? revealed;
+        try
+        {
+            revealed = await vault.RevealAsync(tenantId, "connectwise", ct).ConfigureAwait(false);
+        }
+        catch (VaultRowRefusedException)
+        {
+            // A row the vault will not open answers every call in words, not with a 500 (2026-11-15 review).
+            return new RefusedPsaProvider("connectwise");
+        }
+
         if (revealed is null)
         {
             return null;

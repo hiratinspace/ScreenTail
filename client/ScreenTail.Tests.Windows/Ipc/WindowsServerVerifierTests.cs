@@ -57,6 +57,31 @@ public sealed class WindowsServerVerifierTests : IDisposable
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void ASignedUiRefusesAGenuineCopyRunFromAnotherFolder()
+    {
+        // The UI's half of the 2026-11-15 review: a copy of the signed service started from a folder
+        // the user can write to still verifies, and must not be handed the token.
+        var dotnet = Path.Combine(
+            Environment.GetEnvironmentVariable("DOTNET_ROOT") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "dotnet"),
+            "dotnet.exe");
+        Assert.SkipUnless(File.Exists(dotnet), "dotnet.exe not found");
+        Directory.CreateDirectory(_dir);
+        var ui = Path.Combine(_dir, "ScreenTail.UI.exe");
+        var sibling = Path.Combine(_dir, "ScreenTail.Service.exe");
+        File.Copy(dotnet, ui);
+        File.Copy(dotnet, sibling);
+        Assert.SkipUnless(Authenticode.VerifiedSignerThumbprint(ui) is not null, "a copy of dotnet.exe does not verify on this machine");
+
+        var installed = new WindowsServerVerifier(dotnet);
+        var copied = new WindowsServerVerifier(ui);
+
+        Assert.True(installed.UiIsSigned);
+        Assert.Equal("signed_outside_ui_directory", installed.Verify(sibling));
+        Assert.Null(copied.Verify(sibling));
+        Assert.Equal("signed_outside_ui_directory", copied.Verify(dotnet));
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
     public void AnUnsignedDevBuildAcceptsSiblingsOnly()
     {
         Directory.CreateDirectory(_dir);

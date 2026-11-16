@@ -4,8 +4,8 @@ namespace ScreenTail.Tests.Accessibility;
 
 /// <summary>
 /// Settings' wording as the XAML draws it (Spec v0.6.8, Settings): the two dropdowns show names, not the
-/// stored values, and the speech model's is bound to a choice that is never missing; the Hudu hint is
-/// under its box once. Read off the files, so it holds on the Mac. What the choices are is CapturePanel's.
+/// stored values, and the speech model's is bound to a choice that is never missing; the integration
+/// cards are read only (Spec v0.6.15). Read off the files, so it holds on the Mac. What the choices are is CapturePanel's.
 /// </summary>
 public sealed class SettingsWordingControlsTests
 {
@@ -40,12 +40,42 @@ public sealed class SettingsWordingControlsTests
     }
 
     [Fact]
-    public void TheHuduHintIsUnderItsBoxOnce()
+    public void TheIntegrationCardHasNoFieldsAndSaysWhoManagesIt()
     {
-        var integrations = Load("Integrations", "IntegrationsPane.xaml");
+        // Spec v0.6.15 S7: integration credentials can only be changed by the tenant owner, in the web
+        // admin. The card template (the mapping card below it keeps its own box) has nothing to type into,
+        // and says who manages the connection. (Was: the Hudu key's hint, under its box once.)
+        var card = CardTemplate();
 
-        _ = Assert.Single(integrations.Descendants(Wpf + "TextBlock"), t => ((string?)t.Attribute("Text") ?? string.Empty).Contains("Hudu → Admin → API Keys", StringComparison.Ordinal));
+        Assert.Empty(card.Descendants(Wpf + "TextBox"));
+        Assert.Empty(card.Descendants(Wpf + "PasswordBox"));
+        Assert.Contains(card.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding OwnerLine}");
+        Assert.DoesNotContain(card.Descendants(Wpf + "TextBlock"), t => ((string?)t.Attribute("Text") ?? string.Empty).Contains("API Keys", StringComparison.Ordinal));
     }
+
+    [Theory]
+    [InlineData("Save")]
+    [InlineData("Change")]
+    [InlineData("Remove")]
+    public void TheIntegrationCardHasNoButtonThatChangesTheConnection(string content)
+    {
+        var card = CardTemplate();
+
+        Assert.DoesNotContain(card.Descendants(Wpf + "Button"), b => (string?)b.Attribute("Content") == content);
+        Assert.Contains(card.Descendants(Wpf + "Button"), b => (string?)b.Attribute("Content") == "Test connection");
+    }
+
+    [Fact]
+    public void ThePaneHasNoPasswordBoxAnywhere()
+    {
+        // Nothing secret is typed on this page any more, so nothing secret can sit in a collapsed control.
+        Assert.Empty(Load("Integrations", "IntegrationsPane.xaml").Descendants(Wpf + "PasswordBox"));
+    }
+
+    private static XElement CardTemplate() =>
+        Assert.Single(
+            Load("Integrations", "IntegrationsPane.xaml").Descendants(Wpf + "DataTemplate"),
+            t => t.Attributes().Any(a => a.Name.LocalName == "Key" && a.Value == "IntegrationCardTemplate"));
 
     [Theory]
     [InlineData("Capture", "CapturePane.xaml")]

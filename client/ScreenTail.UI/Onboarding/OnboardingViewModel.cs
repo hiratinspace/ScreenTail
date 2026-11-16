@@ -121,7 +121,6 @@ public sealed partial class OnboardingViewModel : ObservableObject
     public Visibility ToolsVisibility => Step == OnboardingStep.Tools ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility ConnectVisibility => Step == OnboardingStep.Connect ? Visibility.Visible : Visibility.Collapsed;
-
     public Visibility TryItVisibility => Step == OnboardingStep.TryIt ? Visibility.Visible : Visibility.Collapsed;
 
     public Visibility DoneVisibility => Step == OnboardingStep.Done ? Visibility.Visible : Visibility.Collapsed;
@@ -219,7 +218,7 @@ public sealed partial class OnboardingViewModel : ObservableObject
             OnboardingStep.Activate => "Activate this device",
             OnboardingStep.Permissions => "What this machine allows",
             OnboardingStep.Tools => "Your remote tools",
-            OnboardingStep.Connect => "Connect your PSA and documentation",
+            OnboardingStep.Connect => "Your PSA and documentation",
             OnboardingStep.TryIt => "Try it",
             _ => "You're set",
         };

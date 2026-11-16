@@ -96,19 +96,28 @@ test('an owner signs up, invites a technician, sees the device, revokes it, sets
     expect(await page.content(), 'the code after a reload').not.toContain(code);
   });
 
-  // A credential-shaped value, made at run time: never a literal in the repository.
-  const secret = `${randomBytes(18).toString('base64url')}Qzxw`;
-  await test.step('the technician activates a device with the code, and it connects ConnectWise', async () => {
+  // Credential-shaped values, made at run time: never a literal in the repository.
+  const keys = {
+    companyId: `E2E${run}`,
+    publicKey: randomBytes(12).toString('base64url'),
+    privateKey: `${randomBytes(18).toString('base64url')}Qzxw`,
+  };
+  // As ConnectWise's sign-in wants it, and as the Integrations page composes it.
+  const secret = `${keys.companyId.toLowerCase()}+${keys.publicKey}:${keys.privateKey}`;
+  const site = `https://psa-${run}.e2e.example`;
+  await test.step('the technician activates a device with the code, and cannot change integrations from it', async () => {
     const device = await http.newContext({ baseURL: world.api });
     try {
       const activated = await device.post('/v1/devices/activate', { data: { code, deviceName } });
       expect(activated.status()).toBe(200);
       const { accessToken } = (await activated.json()) as { accessToken: string };
+      // Integration credentials can only be changed by the tenant owner.
       const stored = await device.put('/v1/integrations/connectwise', {
         headers: { Authorization: `Bearer ${accessToken}` },
-        data: { siteUrl: `https://psa-${run}.e2e.example`, secret },
+        data: { siteUrl: site, secret },
       });
-      expect(stored.status()).toBe(204);
+      expect(stored.status()).toBe(403);
+      expect(((await stored.json()) as { error: string }).error).toBe('owner_only');
     } finally {
       await device.dispose();
     }
@@ -203,20 +212,47 @@ test('an owner signs up, invites a technician, sees the device, revokes it, sets
     expect(policy).toMatchObject({ retentionDays: 14, localOnlyLocked: true, captureAllWindows: true });
   });
 
-  await test.step('integrations: connected, and no credential anywhere on the page or in what it read', async () => {
-    const read = page.waitForResponse((r) => r.url().endsWith('/v1/admin/integrations'));
+  await test.step('integrations: the owner connects ConnectWise, and no credential is anywhere on the page or in what it read', async () => {
+    const first = page.waitForResponse((r) => r.url().endsWith('/v1/admin/integrations') && r.request().method() === 'GET');
     await page.getByRole('link', { name: 'Integrations' }).click();
-    const body = await (await read).text();
+    expect((await first).status()).toBe(200);
     const connectWise = page.getByRole('region', { name: 'ConnectWise Manage' });
-    await expect(connectWise).toContainText('Connected');
-    await expect(connectWise).toContainText(`https://psa-${run}.e2e.example`);
+    await expect(connectWise).toContainText('Not connected');
     await expect(page.getByRole('region', { name: 'Hudu' })).toContainText('Not connected');
+    await expectAccessible(page, 'integrations, nothing connected');
 
-    for (const piece of [secret, secret.slice(-4)]) {
+    await connectWise.getByRole('button', { name: 'Connect' }).click();
+    await connectWise.getByLabel('Site').fill(site);
+    await connectWise.getByLabel('Company ID').fill(keys.companyId);
+    await connectWise.getByLabel('Public key').fill(keys.publicKey);
+    await connectWise.getByLabel('Private key').fill(keys.privateKey);
+    await expect(connectWise.getByLabel('Private key')).toHaveAttribute('type', 'password');
+    await expectAccessible(page, 'integrations, connect form');
+
+    const stored = page.waitForResponse((r) => r.url().endsWith('/v1/admin/integrations/connectwise') && r.request().method() === 'PUT');
+    const checked = page.waitForResponse((r) => r.url().endsWith('/v1/admin/integrations/connectwise/check'));
+    const reread = page.waitForResponse((r) => r.url().endsWith('/v1/admin/integrations') && r.request().method() === 'GET');
+    await connectWise.getByRole('button', { name: 'Save and test' }).click();
+    expect((await stored).status()).toBe(204);
+    // The site does not exist, so the test fails; the page says so rather than claiming it worked.
+    expect((await checked).status()).toBe(200);
+    const body = await (await reread).text();
+
+    await expect(connectWise.getByRole('status')).toContainText('Test failed');
+    await expect(connectWise.locator('.state').first()).toHaveText('Connected');
+    await expect(connectWise).toContainText(site);
+    await expect(connectWise).toContainText(`Connected by ${owner.name}`);
+    await expect(connectWise.getByLabel('Private key')).toHaveCount(0);
+    const changes = page.getByRole('table', { name: 'Recent changes' });
+    await expect(changes.getByRole('row').nth(1)).toContainText('ConnectWise Manage');
+    await expect(changes.getByRole('row').nth(1)).toContainText('Connected');
+    await expect(changes.getByRole('row').nth(1)).toContainText(owner.name);
+
+    for (const piece of [secret, secret.slice(-4), keys.publicKey, keys.privateKey]) {
       expect(body, 'the integrations answer').not.toContain(piece);
       expect(await page.content(), 'the integrations page').not.toContain(piece);
     }
-    await expectAccessible(page, 'integrations');
+    await expectAccessible(page, 'integrations, connected');
   });
 
   await test.step('download: the deployment link', async () => {

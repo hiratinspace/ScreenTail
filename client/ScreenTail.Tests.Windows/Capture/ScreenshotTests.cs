@@ -1,5 +1,6 @@
 using ScreenTail.Core.Capabilities;
 using ScreenTail.Core.Capture;
+using ScreenTail.Core.Detection.Registry;
 using ScreenTail.Service.Capabilities;
 using ScreenTail.Service.Capture;
 
@@ -302,6 +303,78 @@ public sealed class ScreenshotTests
         Assert.True(window.IsForeground, "moving the cover took the foreground");
         Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
         Assert.Equal(1, capturer.SkippedCovered);
+    }
+
+    [Fact]
+    public void NothingIsCapturedWhileTheWindowInFrontIsTranslucent()
+    {
+        // A frame is copied off the screen, so a window in front drawn below full opacity carries whatever
+        // lies under it, which may be an excluded window (INV-6, 2026-11-15 security review). The sample is
+        // skipped; drawn opaque again, the same window is captured.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail translucent target");
+        window.RequireForeground();
+        using var capturer = new ScreenshotCapturer();
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+
+        Assert.True(window.DrawAtOpacity(160), "the window could not be made translucent, so nothing below would mean anything");
+        Thread.Sleep(150);
+        Assert.True(window.IsForeground || window.TakeForeground(TimeSpan.FromSeconds(2)), "the target lost the foreground");
+        Assert.Null(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedSeeThrough);
+
+        Assert.True(window.DrawAtOpacity(255), "the window could not be made opaque again");
+        Thread.Sleep(150);
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedSeeThrough);
+    }
+
+    [Fact]
+    public void AColourKeyedWindowOfARemoteToolIsCapturedAndOfAnyOtherAppIsNot()
+    {
+        // WinForms' TransparencyKey and skinned apps cut shaped corners with a colour key, and ScreenConnect's
+        // client is WinForms, so a remote tool in the shipped registry keeps its frames (a known limit: its
+        // corners can show what is behind). Any other colour-keyed window is refused, because a copy of the
+        // screen shows what is behind the holes, not the key colour (WindowCover.ShowsWhatIsBehind).
+        Hardware.RequireScreenCapture();
+        var registry = RemoteToolRegistry.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json")));
+        using var capturer = new ScreenshotCapturer(registry: registry);
+
+        // Magenta, a colour nothing in the test windows is painted in.
+        using (var tool = DesktopWindow.CreateRemoteToolShaped("ScreenTail colour-keyed remote tool"))
+        {
+            tool.RequireForeground();
+            Assert.True(tool.DrawWithColourKey(0x00FF00FF), "the colour key could not be set, so nothing below would mean anything");
+            Thread.Sleep(150);
+            Assert.True(tool.IsForeground || tool.TakeForeground(TimeSpan.FromSeconds(2)), "the remote tool lost the foreground");
+            Assert.NotNull(capturer.CaptureForegroundWindow(expected: tool.Handle));
+            Assert.Equal(0, capturer.SkippedSeeThrough);
+        }
+
+        using var other = DesktopWindow.Create("ScreenTail colour-keyed other app");
+        other.RequireForeground();
+        Assert.True(other.DrawWithColourKey(0x00FF00FF), "the colour key could not be set");
+        Thread.Sleep(150);
+        Assert.True(other.IsForeground || other.TakeForeground(TimeSpan.FromSeconds(2)), "the other window lost the foreground");
+        Assert.Null(capturer.CaptureForegroundWindow(expected: other.Handle));
+        Assert.Equal(1, capturer.SkippedSeeThrough);
+    }
+
+    [Fact]
+    public void ATranslucentRemoteToolWindowIsStillRefused()
+    {
+        // Opacity below full shows what is behind everywhere; being a remote tool excuses only a colour key.
+        Hardware.RequireScreenCapture();
+        var registry = RemoteToolRegistry.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json")));
+        using var capturer = new ScreenshotCapturer(registry: registry);
+        using var tool = DesktopWindow.CreateRemoteToolShaped("ScreenTail translucent remote tool");
+        tool.RequireForeground();
+
+        Assert.True(tool.DrawAtOpacity(160), "the window could not be made translucent");
+        Thread.Sleep(150);
+        Assert.True(tool.IsForeground || tool.TakeForeground(TimeSpan.FromSeconds(2)), "the remote tool lost the foreground");
+        Assert.Null(capturer.CaptureForegroundWindow(expected: tool.Handle));
+        Assert.Equal(1, capturer.SkippedSeeThrough);
     }
 
     [Fact]

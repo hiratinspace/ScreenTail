@@ -22,3 +22,16 @@ research/prompts/*
 backend/**/bin/
 backend/**/obj/
 backend/tests/
+
+# Local settings and secrets. They are git-ignored, so a clean clone has none, but a developer's
+# working copy can, and `COPY backend/src/` would carry them into the image, where the API would load
+# them. No appsettings file is committed and the image needs none: every setting reaches the container
+# from its environment (deploy/api.env.example). If one is ever committed for the image, allow it here
+# by name, after these lines.
+backend/**/appsettings*.json
+backend/**/launchSettings.json
+backend/**/*.binlog
+**/secrets.json
+**/*.env
+**/.env
+**/.env.*

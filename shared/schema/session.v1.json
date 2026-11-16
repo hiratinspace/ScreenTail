@@ -87,11 +87,13 @@
       "title": "ClickEvent",
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "ts_ms", "x", "y", "button"],
+      "description": "A mouse click. Its position is kept only where frames may be taken: a click in an excluded, elevated or out-of-scope window has no x and y (INV-6).",
+      "required": ["type", "ts_ms", "button"],
+      "dependentRequired": { "x": ["y"], "y": ["x"] },
       "properties": {
         "type": { "const": "click" },
         "ts_ms": { "$ref": "#/$defs/TsMs" },
-        "x": { "type": "integer", "description": "Physical screen pixels; negative on monitors left of or above the primary." },
+        "x": { "type": "integer", "description": "Physical screen pixels; negative on monitors left of or above the primary. Absent, with y, when the window clicked may not be photographed." },
         "y": { "type": "integer" },
         "button": { "$ref": "#/$defs/MouseButton" },
         "frame_id": { "type": "string", "description": "Screenshot taken for this click; absent when debounced or out of scope." }

@@ -137,11 +137,12 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
-        # Windows PowerShell 5.1: the laptop has no pwsh, and the scripts target 5.1 anyway.
-        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        # Windows PowerShell 5.1: the laptop has no pwsh, and the scripts target 5.1 anyway. Without the
+        # runner account's profile, and with actions pinned by commit, as in hardware-checks.yml.
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: spike
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The laptop's work directory outlives the job. A token left in .git/config there is a token
           # the next job can read.
@@ -181,7 +182,7 @@ jobs:
       - name: Only text leaves this machine
         id: outbox
         if: always()
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $src = Join-Path $env:RUNNER_TEMP 'st-001-evidence'
           $out = Join-Path $env:RUNNER_TEMP 'st-001-evidence-outbox'
@@ -207,7 +208,7 @@ jobs:
 
       - name: Upload evidence
         if: always() && steps.outbox.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: st-001-evidence-laptop
           path: ${{ runner.temp }}/st-001-evidence-outbox

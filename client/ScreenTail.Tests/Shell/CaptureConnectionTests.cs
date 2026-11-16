@@ -117,6 +117,22 @@ public sealed class CaptureConnectionTests
     }
 
     [Fact]
+    public async Task APipeNameHeldByAPipeThatWillNotLetUsInIsUnavailable()
+    {
+        // 2026-11-15 review: when another account holds the service's pipe name, the UI is refused at
+        // the pipe itself. That is the same "capture service not running" as no service at all, never
+        // a fault the shell does not know how to show.
+        var shell = new ShellState();
+        await using var connection = Connect(shell, () => throw new UnauthorizedAccessException("Access to the path is denied."));
+
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Unavailable);
+        Assert.Null(shell.Snapshot.Capture);
+        Assert.Null(connection.LastRefusal);
+    }
+
+    [Fact]
     public async Task ItKeepsTryingAndRecoversWithoutTheUiRestarting()
     {
         // The service restarting mid-day is ordinary, and the UI has to survive it by itself. A
@@ -251,6 +267,45 @@ public sealed class CaptureConnectionTests
         Assert.Equal(RejectReasons.UnverifiedClient, connection.LastRefusal);
         Assert.Equal(ServiceConnection.Unavailable, shell.Snapshot.Connection);
     }
+
+    [Fact]
+    public async Task AnImpostorIsAskedAgainSlowlyAndTheRealServiceIsReachedOnceItIsBack()
+    {
+        // 2026-11-15 review: a stranger holding the pipe name used to leave the UI blind until it was
+        // restarted. It is asked again after a long wait instead (no token is written before the server
+        // is verified), the UI says "not running" meanwhile, and the real service is reached once it has
+        // the name back.
+        var shell = new ShellState();
+        var attempts = 0;
+        var seenAfterImpostor = new List<ServiceConnection>();
+        var channel = new FakeChannel(Recording);
+        await using var connection = new CaptureConnection(
+            shell,
+            _ =>
+            {
+                if (++attempts <= 2)
+                {
+                    throw new IpcUntrustedServerException(RejectReasons.UnverifiedClient);
+                }
+
+                seenAfterImpostor.Add(shell.Snapshot.Connection);
+                return Task.FromResult<ICaptureChannel>(channel);
+            },
+            retryAfter: _ => TimeSpan.FromHours(1),
+            untrustedRetryAfter: TimeSpan.FromMilliseconds(20));
+
+        await connection.StartAsync(TestContext.Current.CancellationToken);
+
+        await WaitFor(() => shell.Snapshot.Connection == ServiceConnection.Connected);
+        Assert.Equal(3, attempts);
+        Assert.Equal([ServiceConnection.Unavailable], seenAfterImpostor);
+        Assert.Null(connection.LastRefusal);
+        Assert.Equal(CaptureStates.Recording, shell.Snapshot.Capture!.State);
+    }
+
+    [Fact]
+    public void AnImpostorIsAskedAgainEveryThirtySeconds() =>
+        Assert.Equal(TimeSpan.FromSeconds(30), CaptureConnection.UntrustedRetryAfter);
 
     [Fact]
     public async Task ACommandWithNoConnectionFailsInsteadOfThrowing()

@@ -3,12 +3,15 @@ using System.Net;
 namespace ScreenTail.Core.Net;
 
 /// <summary>A request the egress policy refused. Carries no URL path and no payload (INV-10).</summary>
-public sealed class EgressBlockedException(EgressPurpose purpose, string host, string reason)
+/// <param name="localOnly">Local-only mode refused it, rather than an allowlist that does not name the host.</param>
+public sealed class EgressBlockedException(EgressPurpose purpose, string host, string reason, bool localOnly = false)
     : Exception($"Blocked a {purpose} request to {host}: {reason}")
 {
     public EgressPurpose Purpose { get; } = purpose;
 
     public string Host { get; } = host;
+
+    public bool LocalOnly { get; } = localOnly;
 }
 
 /// <summary>
@@ -56,6 +59,9 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
     /// <summary>Where a caller declares what a request is for. Without it the request does not go out.</summary>
     public static readonly HttpRequestOptionsKey<EgressPurpose> PurposeKey = new("ScreenTail.EgressPurpose");
 
+    /// <summary>What a <see cref="EgressPurpose.DeviceAuth"/> request signs in for (<see cref="EgressPolicy.Decide(EgressPurpose, Uri, EgressPurpose?)"/>).</summary>
+    public static readonly HttpRequestOptionsKey<EgressPurpose> OnBehalfOfKey = new("ScreenTail.EgressOnBehalfOf");
+
     /// <summary>How many requests have been refused. Shown in the diagnostics panel; counts only.</summary>
     public long Blocked => Interlocked.Read(ref _blocked);
 
@@ -83,16 +89,17 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
                 "The request did not say what it was for, so it was not sent.");
         }
 
-        var decision = policy.Decide(purpose, destination);
+        EgressPurpose? onBehalfOf = request.Options.TryGetValue(OnBehalfOfKey, out var forPurpose) ? forPurpose : null;
+        var decision = policy.Decide(purpose, destination, onBehalfOf);
         if (!decision.Allowed)
         {
             _ = Interlocked.Increment(ref _blocked);
-            throw new EgressBlockedException(purpose, destination.Host, decision.Reason);
+            throw new EgressBlockedException(purpose, destination.Host, decision.Reason, decision.LocalOnly);
         }
 
         _ = Interlocked.Increment(ref _allowed);
         var response = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        return await FollowAsync(request, response, purpose, cancellationToken).ConfigureAwait(false);
+        return await FollowAsync(request, response, purpose, onBehalfOf, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -105,6 +112,7 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
         HttpRequestMessage request,
         HttpResponseMessage response,
         EgressPurpose purpose,
+        EgressPurpose? onBehalfOf,
         CancellationToken ct)
     {
         var from = request.RequestUri!;
@@ -120,12 +128,12 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
 
             // Relative locations are legal and are common on the hop that matters.
             var next = new Uri(from, response.Headers.Location);
-            var decision = policy.Decide(purpose, next);
+            var decision = policy.Decide(purpose, next, onBehalfOf);
             if (!decision.Allowed)
             {
                 response.Dispose();
                 _ = Interlocked.Increment(ref _blocked);
-                throw new EgressBlockedException(purpose, next.Host, decision.Reason);
+                throw new EgressBlockedException(purpose, next.Host, decision.Reason, decision.LocalOnly);
             }
 
             // 307 and 308 exist to say "same method, same body, new address", and a request with a body
@@ -145,6 +153,11 @@ public sealed class EgressGuard(EgressPolicy policy, HttpMessageHandler? inner =
             // Every other redirect is a GET: 302 on a POST is defined as one, and re-sending a bundle to
             // a second host is the thing being prevented.
             using var hopRequest = EgressRequest.For(HttpMethod.Get, next, purpose);
+            if (onBehalfOf is { } behalf)
+            {
+                _ = hopRequest.OnBehalfOf(behalf);
+            }
+
 
             // Range, and nothing else, by name.
             //
@@ -194,6 +207,17 @@ public static class EgressRequest
     {
         ArgumentNullException.ThrowIfNull(request);
         request.Options.Set(EgressGuard.PurposeKey, purpose);
+        return request;
+    }
+
+    /// <summary>
+    /// Says what a <see cref="EgressPurpose.DeviceAuth"/> request signs in for. Under local-only only a
+    /// sign-in for a publish or for the policy fetch goes; one that says nothing is the background renewal.
+    /// </summary>
+    public static HttpRequestMessage OnBehalfOf(this HttpRequestMessage request, EgressPurpose purpose)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        request.Options.Set(EgressGuard.OnBehalfOfKey, purpose);
         return request;
     }
 }

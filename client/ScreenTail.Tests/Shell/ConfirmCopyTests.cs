@@ -22,7 +22,6 @@ public sealed class ConfirmCopyTests
         ["erase"] = ConfirmCopy.DeleteEverything,
         ["mark"] = ConfirmCopy.MarkAsPublished("ScreenConnect session, started Tue 10 Nov 14:02, 9 min"),
         ["quit"] = ConfirmCopy.QuitWhileCapturing,
-        ["remove"] = ConfirmCopy.RemoveIntegration("ConnectWise Manage"),
         ["not-discarded"] = ConfirmCopy.NotDiscarded("The capture service did not answer. Check that it is running, then try again."),
     };
 
@@ -73,7 +72,6 @@ public sealed class ConfirmCopyTests
     {
         Assert.Equal(ConfirmTone.Danger, ConfirmCopy.DiscardSession.Tone);
         Assert.Equal(ConfirmTone.Danger, ConfirmCopy.DeleteEverything.Tone);
-        Assert.Equal(ConfirmTone.Danger, ConfirmCopy.RemoveIntegration("Hudu").Tone);
 
         // Vouching for a ticket and quitting destroy nothing: the filled button is the ordinary one.
         Assert.Equal(ConfirmTone.Primary, ConfirmCopy.MarkAsPublished("ScreenConnect session, started Tue 10 Nov 14:02, 9 min").Tone);
@@ -156,14 +154,13 @@ public sealed class ConfirmCopyTests
     }
 
     [Fact]
-    public void RemovingAnIntegrationNamesItAndWhatStopsWorking()
+    public void NoQuestionRemovesAnIntegration()
     {
-        var words = ConfirmCopy.RemoveIntegration("ConnectWise Manage");
-
-        Assert.Equal("Remove ConnectWise Manage?", words.Heading);
-        Assert.Equal("Remove ConnectWise Manage", words.Action);
-        Assert.Contains("ConnectWise Manage", words.Consequence, StringComparison.Ordinal);
-        Assert.True(words.CancelIsDefault);
+        // Spec v0.6.15 S7: integration credentials can only be changed by the tenant owner, in the web
+        // admin, so the client has no Remove and no question that asks before one.
+        Assert.DoesNotContain(
+            typeof(ConfirmCopy).GetMembers(),
+            m => m.Name.Contains("Integration", StringComparison.Ordinal) || m.Name.Contains("Remove", StringComparison.Ordinal));
     }
 
     [Fact]

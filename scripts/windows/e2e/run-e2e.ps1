@@ -278,7 +278,16 @@ if (-not (Step 'setup' 'migrations' 'every migration to apply to screentail_e2e'
     "$($update.Applied) applied (zero means it was up to date)."
 })) { throw $script:AbortMarker }
 
+# Everything the test backend needs is passed below, so it reads no user-secrets file. In Development the
+# API would otherwise load the demo's (the drafting key and the demo's own signing key among them) from
+# %APPDATA%, which is where it looks first. An empty folder of this run's own in its place keeps those
+# out of a process that has no use for them, on the laptop whose account also runs the demo. Process
+# scope only, like every variable here: nothing is written to the user or machine environment.
+$noUserSecrets = Join-Path $OutDir 'no-user-secrets'
+if (-not (Test-Path -LiteralPath $noUserSecrets)) { New-Item -ItemType Directory -Path $noUserSecrets -Force | Out-Null }
+
 $backendEnvironment = @{
+    'APPDATA' = $noUserSecrets
     'ASPNETCORE_ENVIRONMENT' = 'Development'
     'ASPNETCORE_URLS' = $BackendUrl
     'ConnectionStrings__Postgres' = $connection

@@ -532,20 +532,27 @@ jobs:
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
+      # The Artifact Signing settings (names, not credentials) tell the check which mode signed the build,
+      # so it can require the identity-validation usage installed builds compare updates by.
       - name: Check every signature (timestamped, one publisher)
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
-      # ST-113: the pilot manifest for the signed MSI, signed by the Key Vault key through this
-      # job's OIDC token and checked against the client's compiled-in keys before it is written.
-      # Skipped with a notice until SCREENTAIL_UPDATE_KEY and SCREENTAIL_UPDATE_BASE are set on the
-      # signing environment. Publishing them is the owner's step (docs/dev/installer.md, "Updates").
+      # ST-113: the pilot manifest for the signed MSI, signed by the pilot Key Vault key through this
+      # job's OIDC token, as the pilot identity, and checked against the keys the client trusts for
+      # pilot before it is written. The client refuses a stable manifest signed by the pilot key, and
+      # the stable key and identity are only in release-stable (promote-stable.yml). Skipped with a
+      # notice until SCREENTAIL_UPDATE_PILOT_KEY and SCREENTAIL_UPDATE_BASE are set on the signing
+      # environment. Setting them up is the owner's step (docs/dev/installer.md, "Updates").
       - name: Write and sign the pilot update manifest (stable is signed only by promote-stable.yml)
         env:
-          SCREENTAIL_UPDATE_KEY: ${{ vars.SCREENTAIL_UPDATE_KEY }}
+          SCREENTAIL_UPDATE_PILOT_KEY: ${{ vars.SCREENTAIL_UPDATE_PILOT_KEY }}
+          SCREENTAIL_UPDATE_PILOT_CLIENT_ID: ${{ vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID }}
           SCREENTAIL_UPDATE_BASE: ${{ vars.SCREENTAIL_UPDATE_BASE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Upload the signed installer
         id: signed
@@ -680,13 +687,49 @@ jobs:
           PGPASSWORD: ci-only-not-a-secret
         run: |
           missing=0
-          for table in tenants users owners devices invites integrations company_mappings policies session_metrics draft_costs weekly_tenant_metrics; do
+          for table in tenants users owners devices invites integrations integration_changes vault_state company_mappings policies session_metrics draft_costs weekly_tenant_metrics; do
             if ! psql -h localhost -U postgres -d screentail -tAc "select to_regclass('public.$table')" | grep -q "^$table$"; then
               echo "::error::The migrations did not create '$table'."
               missing=1
             fi
           done
           exit $missing
+
+      # A developer's working copy can hold git-ignored settings and secrets files beside the code, and
+      # `COPY backend/src/` would take them into the image, where the API would load them. .dockerignore
+      # keeps them out. This plants files with those names, builds, and looks for them in the build stage
+      # and in the image that ships (2026-11-15 review). The decoys hold nothing secret and are removed.
+      # It refuses to start where any of those names already exists, so run on a working copy it never
+      # overwrites or deletes a developer's real settings file.
+      - name: Local settings and secrets files stay out of the image
+        working-directory: .
+        run: |
+          set -euo pipefail
+          api=backend/src/ScreenTail.Api
+          decoys="$api/appsettings.json $api/appsettings.Development.json $api/appsettings.Local.json $api/Properties/launchSettings.json $api/secrets.json $api/.env $api/.env.local $api/api.env $api/msbuild.binlog"
+          for f in $decoys; do
+            if [ -e "$f" ]; then
+              echo "::error::$f already exists. This check plants a file there and removes it afterwards, so it runs only on a clean checkout."
+              exit 1
+            fi
+          done
+          made_properties=
+          if [ ! -d "$api/Properties" ]; then mkdir "$api/Properties"; made_properties=1; fi
+          trap 'for f in $decoys; do rm -f "$f"; done; if [ -n "$made_properties" ]; then rmdir "$api/Properties" 2>/dev/null || true; fi; docker rm -f decoy-check >/dev/null 2>&1 || true' EXIT
+          for f in $decoys; do printf '{"Decoy":"not a secret"}\n' > "$f"; done
+
+          docker build -q -f backend/Dockerfile --target build -t screentail-api:decoy-build . >/dev/null
+          docker build -q -f backend/Dockerfile -t screentail-api:decoy . >/dev/null
+          found=$(docker run --rm --entrypoint sh screentail-api:decoy-build -c \
+            "find /repo /app \( -name 'appsettings*.json' -o -name launchSettings.json -o -name secrets.json -o -name '*.env' -o -name '.env' -o -name '.env.*' -o -name '*.binlog' \) -print")
+          docker create --name decoy-check screentail-api:decoy >/dev/null
+          shipped=$(docker export decoy-check | tar -t | grep -E '(^|/)(appsettings[^/]*\.json|launchSettings\.json|secrets\.json|[^/]*\.env|\.env(\.[^/]*)?|[^/]*\.binlog)$' || true)
+          if [ -n "$found$shipped" ]; then
+            printf '%s\n' $found $shipped | sed 's/^/::error::In the image: /'
+            exit 1
+          fi
+          set -- $decoys
+          echo "None of the $# planted settings or secrets files reached the build stage or the image."
 
       - name: Container build
         working-directory: .
@@ -1108,6 +1151,19 @@ jobs:
       - name: The installer jobs run on hosted runners, and only main can sign
         run: python3 scripts/ci/check_installer_jobs.py .
 
+      # ST-018. The hardware gate below is a script, and what it answers decides whether a capture change
+      # merges. This runs that exact script against made-up laptop results: a skipped laptop job is no
+      # evidence and never a pass, a laptop that is off or a fork's pull request is labelled and not
+      # blocked, and a failed job fails (scripts/ci/check_hardware_gate.py, 2026-11-15 review).
+      - name: The hardware gate counts a skipped laptop job as no evidence
+        run: python3 scripts/ci/check_hardware_gate.py .
+
+      # The laptop runner signs in as the demo's account. Every job that can land on it pins each action
+      # to a commit, so a moved tag cannot run there, and runs every step in Windows PowerShell without
+      # that account's profile (scripts/ci/check_laptop_jobs.py, 2026-11-15 review).
+      - name: Laptop jobs pin their actions and skip the account profile
+        run: python3 scripts/ci/check_laptop_jobs.py .
+
       - name: No duplicate keys, every job has steps
         run: |
           python3 - <<'EOF'
@@ -1199,30 +1255,55 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
           required='Spare laptop - capabilities and real-window tests
           Spare laptop - input injection (takes over the keyboard)'
 
-          if [ "${HW_RUNNER:-false}" != "true" ]; then
-            # The laptop is off. Saying so on the pull request is the point: this is the state in which
-            # every capture claim on the branch is unverified, and it should be visible rather than
-            # inferred from a workflow that quietly did not run.
+          # No evidence, said on the pull request: this is the state in which every capture claim on the
+          # branch is unverified, and it should be visible rather than inferred from a workflow that
+          # quietly did not run. The first argument is the summary's heading, the rest its lines.
+          say_no_evidence() {
             {
-              echo "## Hardware evidence: none"
+              echo "## Hardware evidence: $1"
               echo
-              echo "\`HW_RUNNER\` is not \`true\`, so the spare laptop did not run. Nothing on this branch that needs"
-              echo "a real desktop, a real screen or real input has been checked."
-              echo
-              echo "To get evidence: sign in on SCREENTRAIL, start the runner interactively, set the \`HW_RUNNER\`"
-              echo "repository variable to \`true\`, and re-run this workflow."
+              shift
+              printf '%s\n' "$@"
             } >> "$GITHUB_STEP_SUMMARY"
             if [ -n "${PR:-}" ]; then
               gh label create needs-hardware-evidence --repo "$REPO" --color 'B60205' \
                 --description 'Touches the capture path; the spare laptop has not verified it' 2>/dev/null || true
               gh pr edit "$PR" --repo "$REPO" --add-label needs-hardware-evidence || true
             fi
+          }
+
+          if [ "${HW_RUNNER:-false}" != "true" ]; then
+            # The laptop is off on purpose. Not a blocker: the label and the summary say plainly that
+            # nothing was checked.
+            say_no_evidence "none" \
+              "\`HW_RUNNER\` is not \`true\`, so the spare laptop did not run. Nothing on this branch that needs" \
+              "a real desktop, a real screen or real input has been checked." \
+              "" \
+              "To get evidence: sign in on SCREENTRAIL, start the runner interactively and set the \`HW_RUNNER\`" \
+              "repository variable to \`true\`. Then re-run the hardware-checks jobs for this commit, whose" \
+              "first run was skipped, and after them this job, which waits for their answer."
             echo "::warning::No hardware evidence for this branch; labelled needs-hardware-evidence."
+            exit 0
+          fi
+
+          # A fork's code never reaches the laptop (hardware-checks.yml skips it), so its jobs will only
+          # ever be skipped. Waiting for them, or calling that skip a pass, would both be wrong. The same
+          # answer as a laptop that is off: no evidence, labelled, not a blocker by itself. A pull request
+          # whose head repository no longer exists (a deleted fork) has no name here, and is one too.
+          if [ -n "${PR:-}" ] && [ "${HEAD_REPO:-}" != "$REPO" ]; then
+            say_no_evidence "none" \
+              "This pull request comes from a fork, and the spare laptop never runs a fork's code. Nothing on" \
+              "this branch that needs a real desktop, a real screen or real input has been checked." \
+              "" \
+              "To get evidence: push the reviewed commits to a branch of this repository and open the pull" \
+              "request from there."
+            echo "::warning::No hardware evidence for a pull request from a fork; labelled needs-hardware-evidence."
             exit 0
           fi
 
@@ -1254,6 +1335,7 @@ jobs:
             queued=0
             missing=0
             failed=0
+            skipped=0
             while IFS= read -r name; do
               [ -z "$name" ] && continue
               line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n {print; exit}')
@@ -1266,7 +1348,10 @@ jobs:
               if [ "$status" != "completed" ]; then
                 pending=$((pending + 1))
                 if [ "$status" != "in_progress" ]; then queued=$((queued + 1)); fi
-              elif [ "$conclusion" != "success" ] && [ "$conclusion" != "skipped" ]; then
+              elif [ "$conclusion" = "skipped" ]; then
+                # A skipped job ran nothing, so it is no evidence, never a pass (2026-11-15 review).
+                skipped=$((skipped + 1))
+              elif [ "$conclusion" != "success" ]; then
                 echo "::error::$name concluded '$conclusion'."
                 failed=$((failed + 1))
               fi
@@ -1274,6 +1359,24 @@ jobs:
 
             if [ "$failed" -gt 0 ]; then
               echo "The spare laptop did not pass. This branch touches the capture path, so that is a blocker."
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ] && [ "$skipped" -gt 0 ]; then
+              # HW_RUNNER is true now, so the laptop was meant to run, and this is not a fork's pull
+              # request. A skip here comes from a hardware-checks run made while HW_RUNNER was off (the
+              # usual one: the variable was turned on afterwards and only this job was re-run), from
+              # HW_RUNNER turned off after this job read it, or from a job condition that no longer holds
+              # (an edit to hardware-checks.yml). Not counted as a pass, and not quietly let through.
+              say_no_evidence "not run" \
+                "$skipped of the spare laptop's jobs were skipped on $SHA, so they checked nothing. A skipped" \
+                "job is not a pass." \
+                "" \
+                "If the hardware-checks run for this commit was made while \`HW_RUNNER\` was off, re-run its jobs" \
+                "now that it is on: when they pass, this job is asked again by itself (hardware-evidence-rerun.yml)." \
+                "If the laptop is meant to be off, set \`HW_RUNNER\` to anything but \`true\` and re-run this job:" \
+                "it then reports no evidence and labels the pull request. Otherwise the jobs' \`if:\` in" \
+                "hardware-checks.yml no longer matches this pull request; fix it there."
+              echo "::error::$skipped of the spare laptop's jobs were skipped on $SHA, which is no evidence. HW_RUNNER is true and this is not a fork's pull request, so they should have run."
               exit 1
             fi
             if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ]; then

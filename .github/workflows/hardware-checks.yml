@@ -103,10 +103,16 @@ jobs:
         # script file, so without this every step on this machine dies with UnauthorizedAccess — which is
         # how the laptop came back on 2026-09-16. setup-test-laptop.ps1 sets the policy too; this makes
         # the workflow independent of whether anyone remembered to.
-        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        #
+        # -NoProfile because the runner signs in as the laptop's own account: a profile script there runs
+        # before every step and is a place a job could leave code for the next one. The runner still
+        # starts each step with $ErrorActionPreference = 'stop' and ends it with the last exit code, as
+        # it does for the plain `powershell` shell, because it keys that on the program's name.
+        # Actions are pinned by commit, as in ci.yml: a moved tag would otherwise run on this machine.
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: client
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The laptop's work directory outlives the job. A token left in .git/config there is a token
           # the next job can read.
@@ -217,7 +223,7 @@ jobs:
       # vanish and the job still went green.
       - name: Skip gate
         if: always()
-        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: ${{ github.workspace }}
         run: ./scripts/windows/check-skips.ps1 -Environment laptop-capabilities -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
@@ -276,7 +282,7 @@ jobs:
       # pair exists to survive.
       - name: Upload the report
         if: always() && steps.outbox.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: capability-report
           path: ${{ runner.temp }}/capabilities-outbox
@@ -304,10 +310,10 @@ jobs:
       SCREENTAIL_ALLOW_INPUT_INJECTION: '1'
     defaults:
       run:
-        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: client
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The laptop's work directory outlives the job. A token left in .git/config there is a token
           # the next job can read.
@@ -377,7 +383,7 @@ jobs:
       # this gate it could skip and take the invariant's evidence with it, silently.
       - name: Skip gate
         if: always()
-        shell: powershell -ExecutionPolicy Bypass -Command ". '{0}'"
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         working-directory: ${{ github.workspace }}
         run: ./scripts/windows/check-skips.ps1 -Environment laptop-input -TrxGlob '${{ runner.temp }}/trx/*.trx'
 
@@ -436,7 +442,7 @@ jobs:
 
       - name: Upload measurements
         if: always() && steps.outbox.outcome == 'success'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: input-measurements
           path: ${{ runner.temp }}/measurements-outbox

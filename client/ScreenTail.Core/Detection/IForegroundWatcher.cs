@@ -26,6 +26,7 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
 {
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private ForegroundWindowInfo? _reported;
+    private volatile ForegroundWindowInfo? _latest;
     private long _reportedAt;
 
     /// <summary>
@@ -38,12 +39,24 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
     public ForegroundWindowInfo? Reported => _reported;
 
     /// <summary>
+    /// The last observation offered, reported or held. Safe to read from any thread.
+    ///
+    /// A retitle held for <see cref="TitleSettle"/> is still what is on screen. A scope decision made on
+    /// the reported title stays in force for it until the report goes out, and a browser tab that turned
+    /// into an excluded page inside that time would be photographed under the old tab's decision (INV-6).
+    /// Whoever answers "may this window be photographed now" reads this as well, and decides again when
+    /// it shows a title nobody has decided on (<see cref="UndecidedTitle"/>).
+    /// </summary>
+    public ForegroundWindowInfo? Latest => _latest;
+
+    /// <summary>
     /// Offers an observation. Returns what should be reported, or null for "nothing new". The caller is
     /// expected to offer again after <see cref="TitleSettle"/> when this returns null for a pending window.
     /// </summary>
     public ForegroundWindowInfo? Offer(ForegroundWindowInfo observed)
     {
         ArgumentNullException.ThrowIfNull(observed);
+        _latest = observed;
         if (observed.SameAs(_reported))
         {
             return null;
@@ -64,6 +77,7 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
     public ForegroundWindowInfo? Flush(ForegroundWindowInfo observed)
     {
         ArgumentNullException.ThrowIfNull(observed);
+        _latest = observed;
         return observed.SameAs(_reported) ? null : Accept(observed);
     }
 
@@ -72,5 +86,34 @@ public sealed class ForegroundChangeFilter(TimeProvider? time = null)
         _reported = observed;
         _reportedAt = _time.GetTimestamp();
         return observed;
+    }
+}
+
+/// <summary>
+/// Whether the window a scope decision was made about is now showing a title nobody has decided on
+/// (INV-5, INV-6).
+///
+/// <see cref="ForegroundChangeFilter"/> holds a retitle back for its settle time so a title that rewrites
+/// itself does not become a stream of reports. The scope decision follows the reports, so for that time
+/// it answered for the old title: a browser tab that became a password vault, or a remote tool's window
+/// that moved to another customer's machine, could be photographed under the decision made before.
+/// Deciding again on the newer look costs a dictionary lookup and a few bounded patterns, which is far
+/// cheaper than a frame of the wrong thing.
+/// </summary>
+public static class UndecidedTitle
+{
+    /// <summary>
+    /// The newer look at the decided window to decide on instead, or null when the decision is still about
+    /// what is on screen. Only the same window counts: another window in front is the watcher's to report
+    /// at once, and the capturer already refuses to photograph a window that is not the one decided.
+    /// </summary>
+    /// <param name="decided">The observation the decision in force was made about.</param>
+    /// <param name="latest">The last observation of the window in front, reported or held (<see cref="ForegroundChangeFilter.Latest"/>).</param>
+    public static ForegroundWindowInfo? Newer(ForegroundWindowInfo decided, ForegroundWindowInfo? latest)
+    {
+        ArgumentNullException.ThrowIfNull(decided);
+        return latest is not null && !decided.IsNone && latest.Handle == decided.Handle && !latest.SameAs(decided)
+            ? latest
+            : null;
     }
 }

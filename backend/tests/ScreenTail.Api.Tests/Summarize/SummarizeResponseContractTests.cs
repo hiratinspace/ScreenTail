@@ -13,6 +13,7 @@ using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Providers.Llm;
 using ScreenTail.Api.Summarize;
+using ScreenTail.Api.Tenancy;
 
 namespace ScreenTail.Api.Tests.Summarize;
 
@@ -31,6 +32,7 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
     [Theory]
     [InlineData("ok")]
     [InlineData("rejected")]
+    [InlineData("local_only")]
     [InlineData("cost_cap_reached")]
     [InlineData("invalid")]
     [InlineData("not_configured")]
@@ -46,7 +48,7 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
         };
 
         using var host = Host(model, configured: name != "not_configured", capUsd: name == "cost_cap_reached" ? 0m : null);
-        using var client = await ClientAsync(host);
+        using var client = await ClientAsync(host, localOnlyLocked: name == "local_only");
 
         var request = name == "rejected"
             ? Request().Replace("\"f-0001\"", "\"has a space\"", StringComparison.Ordinal)
@@ -66,6 +68,75 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
         {
             Assert.Null(response.Headers.RetryAfter);
         }
+    }
+
+    [Theory]
+    [InlineData(true, true, HttpStatusCode.Forbidden, 0)]
+    [InlineData(true, false, HttpStatusCode.OK, 1)]
+    [InlineData(false, true, HttpStatusCode.OK, 1)]
+    [InlineData(false, false, HttpStatusCode.OK, 1)]
+    public async Task OnlyALockedLocalOnlyStopsDraftingAndNoModelIsAsked(bool localOnly, bool locked, HttpStatusCode status, int modelCalls)
+    {
+        // 2026-11-15 review. The lock was enforced by the client alone, so a device pointed somewhere else
+        // for its policy, or one that had not fetched it yet, could still have a session drafted in the
+        // cloud. Locked on is refused here too; local-only the technician may switch off, and local-only
+        // locked off, draft as before.
+        var model = Model.Answering(OkDraft());
+        using var host = Host(model);
+        var (tenant, devices) = await SeedAsync(devices: 1);
+        _ = await api.UseAsync(db => Policies.SetAsync(db, tenant.Tenant, 7, localOnly, locked, captureAllWindows: false, TimeProvider.System));
+        using var client = Client(host, tenant, devices[0]);
+
+        using var response = await PostAsync(client, Request());
+
+        Assert.Equal(status, response.StatusCode);
+        Assert.Equal(modelCalls, model.Calls);
+        if (status == HttpStatusCode.Forbidden)
+        {
+            var body = JsonNode.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken))!;
+            Assert.Equal("local_only", body["status"]!.GetValue<string>());
+            Assert.Null(body["draft"]);
+        }
+    }
+
+    [Fact]
+    public async Task TheLatestPolicyDecidesSoALiftedLockDraftsAgain()
+    {
+        var model = Model.Answering(OkDraft());
+        using var host = Host(model);
+        var (tenant, devices) = await SeedAsync(devices: 1);
+        _ = await api.UseAsync(db => Policies.SetAsync(db, tenant.Tenant, 7, localOnly: true, localOnlyLocked: true, captureAllWindows: false, TimeProvider.System));
+        using var client = Client(host, tenant, devices[0]);
+
+        using (var locked = await PostAsync(client, Request()))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, locked.StatusCode);
+        }
+
+        _ = await api.UseAsync(db => Policies.SetAsync(db, tenant.Tenant, 7, localOnly: false, localOnlyLocked: true, captureAllWindows: false, TimeProvider.System));
+        using var lifted = await PostAsync(client, Request());
+
+        Assert.Equal(HttpStatusCode.OK, lifted.StatusCode);
+        Assert.Equal(1, model.Calls);
+    }
+
+    [Fact]
+    public async Task ALockedTenantDoesNotHoldUpAnotherTenant()
+    {
+        var model = Model.Answering(OkDraft());
+        using var host = Host(model);
+        var (lockedTenant, lockedDevices) = await SeedAsync(devices: 1);
+        _ = await api.UseAsync(db => Policies.SetAsync(db, lockedTenant.Tenant, 7, localOnly: true, localOnlyLocked: true, captureAllWindows: false, TimeProvider.System));
+        var (other, otherDevices) = await SeedAsync(devices: 1);
+        using var lockedClient = Client(host, lockedTenant, lockedDevices[0]);
+        using var otherClient = Client(host, other, otherDevices[0]);
+
+        using var refused = await PostAsync(lockedClient, Request());
+        using var drafted = await PostAsync(otherClient, Request());
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, drafted.StatusCode);
+        Assert.Equal(1, model.Calls);
     }
 
     /// <summary>Google's answer to a key it does not recognise: a 400, not a 401.</summary>
@@ -313,9 +384,14 @@ public sealed class SummarizeResponseContractTests(ApiFixture api) : IClassFixtu
                 options => options.HttpMessageHandlerBuilderActions.Add(handler => handler.PrimaryHandler = model)));
         });
 
-    private async Task<HttpClient> ClientAsync(WebApplicationFactory<Program> host)
+    private async Task<HttpClient> ClientAsync(WebApplicationFactory<Program> host, bool localOnlyLocked = false)
     {
         var (tenant, devices) = await SeedAsync(devices: 1);
+        if (localOnlyLocked)
+        {
+            _ = await api.UseAsync(db => Policies.SetAsync(db, tenant.Tenant, 7, localOnly: true, localOnlyLocked: true, captureAllWindows: false, TimeProvider.System));
+        }
+
         return Client(host, tenant, devices[0]);
     }
 

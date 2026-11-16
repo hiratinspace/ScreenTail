@@ -60,7 +60,7 @@ public sealed class HuduProviderTests : IDisposable
         Assert.Single(_api.Requests);
         Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
         Assert.Equal("The Hudu site answered with a redirect, and ScreenTail does not follow redirects.", result.Error.What);
-        Assert.Equal("Check the site address in Settings → Integrations.", result.Error.Todo);
+        Assert.Equal("Ask your owner to check the site address in the web admin.", result.Error.Todo);
     }
 
     [Fact]
@@ -376,6 +376,68 @@ public sealed class HuduProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task ACompanyWithAnIdOrNameLongerThanHuduWritesIsLeftOutAndCounted()
+    {
+        // 2026-11-15 review: the list is held for every tenant in one process, and a site that is not
+        // Hudu could fill each name with megabytes. Such a company is left out, and the log says how many
+        // and never which (INV-10).
+        var log = new ListLogger();
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new
+            {
+                companies = new object[]
+                {
+                    new { id = new string('9', HuduProvider.MaxCompanyIdLength + 1), name = "Padded Id Co" },
+                    new { id = 2, name = "Padded Name Co " + new string('n', HuduProvider.MaxCompanyNameLength) },
+                    new { id = 3, name = new string('m', HuduProvider.MaxCompanyNameLength) },
+                    new { id = 7, name = "Acme Dental" },
+                },
+            }),
+        });
+
+        var result = await Provider(log: log).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(["3", "7"], result.Value!.Select(c => c.Id));
+        var line = Assert.Single(log.Lines);
+        Assert.Contains("listed 2 companies", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Padded", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("Acme", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AFullPageWithACompanyLeftOutIsStillAFullPage()
+    {
+        // The pages are counted as Hudu listed them, so a company left out of the first page does not
+        // make it look like the last.
+        _api.RenamedAt = (_, i) => i == 5 ? new string('x', HuduProvider.MaxCompanyNameLength + 1) : null;
+
+        var result = await Provider().ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(27, result.Value!.Count);
+        Assert.Equal(2, _api.Requests.Count);
+    }
+
+    [Fact]
+    public async Task AListOverItsBudgetOfCharactersIsAnErrorAndNotKept()
+    {
+        var options = new HuduOptions { BackoffBase = TimeSpan.Zero, MaxCompanyListChars = 100 };
+        var cache = new HuduCompanyCache(_time);
+
+        var result = await Provider(cache, options: options).ListCompaniesAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+        Assert.Equal("Hudu listed more company names than ScreenTail reads.", result.Error.What);
+        Assert.Contains("Hudu:MaxCompanyListChars", result.Error.Todo, StringComparison.Ordinal);
+        Assert.False(cache.Keeps("t-1"));
+
+        // The default leaves an ordinary list alone.
+        Assert.True((await Provider().ListCompaniesAsync(TestContext.Current.CancellationToken)).Ok);
+    }
+
+    [Fact]
     public async Task ExactlyTheCapIsStillAList()
     {
         _api.CompanyCount = 100;
@@ -484,14 +546,45 @@ public sealed class HuduProviderTests : IDisposable
         public void Advance(TimeSpan by) => _now += by;
     }
 
-    private HuduProvider Provider(HuduCompanyCache? cache = null, string tenant = "t-1", HuduOptions? options = null, string apiKey = "hudu-api-key-1234") =>
+    private HuduProvider Provider(HuduCompanyCache? cache = null, string tenant = "t-1", HuduOptions? options = null, string apiKey = "hudu-api-key-1234", ListLogger? log = null) =>
         new(
             new HttpClient(_api) { BaseAddress = new Uri("https://acme.huducloud.com/") },
             apiKey,
             options ?? new HuduOptions { BackoffBase = TimeSpan.Zero },
             cache ?? new HuduCompanyCache(_time),
             tenant,
-            _time);
+            _time,
+            log);
+
+    /// <summary>Every line the provider logs, formatted.</summary>
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger<HuduProvider>
+    {
+        private readonly List<string> _lines = [];
+
+        public IReadOnlyList<string> Lines
+        {
+            get
+            {
+                lock (_lines)
+                {
+                    return [.. _lines];
+                }
+            }
+        }
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            lock (_lines)
+            {
+                _lines.Add(formatter(state, exception));
+            }
+        }
+    }
 }
 
 /// <summary>The contract every documentation provider meets (ST-090), run against the recorded Hudu.</summary>

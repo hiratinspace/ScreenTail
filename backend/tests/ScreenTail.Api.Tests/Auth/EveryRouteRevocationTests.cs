@@ -82,9 +82,14 @@ public sealed partial class EveryRouteRevocationTests(ApiFixture api) : IClassFi
         {
             using var request = Request(method, path, BodyTheBinderAccepts(path));
             using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+            // A 403 is the handler's only when it is its own JSON: storing or removing a credential is the
+            // owner's (2026-11-15 review), and the device is told so in words. The policy's 403 has no body.
             var handlerAnswered = response.StatusCode switch
             {
-                HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => false,
+                HttpStatusCode.Unauthorized => false,
+                HttpStatusCode.Forbidden =>
+                    response.Content.Headers.ContentType?.MediaType == "application/json"
+                    && (await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).Contains("owner_only", StringComparison.Ordinal),
                 HttpStatusCode.BadRequest or >= HttpStatusCode.InternalServerError =>
                     response.Content.Headers.ContentType?.MediaType == "application/json",
                 _ => true,

@@ -110,8 +110,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
     {
         ArgumentNullException.ThrowIfNull(sessionEvent);
 
-        // Serialized as the base type so the "type" discriminator is written.
-        var json = JsonSerializer.Serialize<SessionEvent>(sessionEvent, SessionJson.Options);
+        // Serialized as the base type so the "type" discriminator is written. A click is stored without
+        // its screen position unless it points at a frame (WithoutUnframedPosition).
+        var json = JsonSerializer.Serialize<SessionEvent>(WithoutUnframedPosition(sessionEvent), SessionJson.Options);
         return await RunAsync(
             """
             INSERT INTO events (session_id, seq, ts_ms, json)
@@ -1683,16 +1684,29 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
                 ?? throw new InvalidOperationException("A stored event is null.");
 
             // A frame that was purged or is still pending doesn't exist for readers, so neither does the reference.
-            events.Add(sessionEvent switch
+            events.Add(WithoutUnframedPosition(sessionEvent switch
             {
                 ClickEvent { FrameId: { } f } click when !frameIds.Contains(f) => click with { FrameId = null },
                 MarkerEvent { FrameId: { } f } marker when !frameIds.Contains(f) => marker with { FrameId = null },
                 _ => sessionEvent,
-            });
+            }));
         }
 
         return events;
     }
+
+    /// <summary>
+    /// A click with no frame, without its screen position; anything else unchanged (INV-6).
+    ///
+    /// Nothing reads where a click landed except the frame taken for it, which records the cursor itself
+    /// (<see cref="StagedFrame.Cursor"/>). A position kept with no frame is data with no use, and it is not
+    /// always about the window in scope: a click on a background window before it comes to the front, or
+    /// on a window that never takes the foreground (the on-screen keyboard), lands somewhere the scope
+    /// decision did not judge. Applied on write, and on read so sessions recorded before this rule do not
+    /// keep the positions they were written with.
+    /// </summary>
+    private static SessionEvent WithoutUnframedPosition(SessionEvent sessionEvent) =>
+        sessionEvent is ClickEvent { FrameId: null } ? Detection.ScopeDecision.WithoutPosition(sessionEvent) : sessionEvent;
 
     private static DraftNote ScrubDraft(DraftNote draft, HashSet<string> frameIds, HashSet<string> segmentIds) =>
         draft with
