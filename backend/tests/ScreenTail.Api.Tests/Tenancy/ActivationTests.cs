@@ -3,6 +3,8 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
 using ScreenTail.Api.Endpoints;
 using ScreenTail.Api.Tenancy;
@@ -130,6 +132,58 @@ public sealed class ActivationTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         using var garbage = await client.PostAsJsonAsync(new Uri("/v1/devices/token", UriKind.Relative), new RefreshRequest("not-a-token"), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Unauthorized, garbage.StatusCode);
+    }
+
+    [Fact]
+    public void ATokenIsWellFormedOnlyInTheShapeItWasIssuedIn()
+    {
+        // 2026-11-15 review: the exchange refuses anything that could not be a refresh token before it
+        // is hashed. Every token issued is 43 characters of base64url; nothing else is.
+        var issued = Enumerable.Range(0, 200).Select(_ => DeviceTokens.Create()).ToList();
+
+        Assert.Equal(43, DeviceTokens.Length);
+        Assert.All(issued, token => Assert.True(DeviceTokens.IsWellFormed(token), token));
+        var one = issued[0];
+        Assert.False(DeviceTokens.IsWellFormed(null));
+        Assert.False(DeviceTokens.IsWellFormed(string.Empty));
+        Assert.False(DeviceTokens.IsWellFormed(one[..42]));
+        Assert.False(DeviceTokens.IsWellFormed(one + "A"));
+        Assert.False(DeviceTokens.IsWellFormed(one[..42] + "\n"));
+        Assert.False(DeviceTokens.IsWellFormed(one[..42] + "+"));
+        Assert.False(DeviceTokens.IsWellFormed(one[..42] + "="));
+        Assert.False(DeviceTokens.IsWellFormed(new string('a', 4096)));
+    }
+
+    [Theory]
+    [InlineData("short")]
+    [InlineData("AAAAAAAAAAAAAAAAAAAAA AAAAAAAAAAAAAAAAAAAAA")]
+    [InlineData("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")]
+    public async Task ATokenThatIsNotOneWeIssuedIsRefusedLikeARevokedOne(string token)
+    {
+        using var client = api.CreateClient();
+
+        using var refused = await client.PostAsJsonAsync(new Uri("/v1/devices/token", UriKind.Relative), new RefreshRequest(token), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+        Assert.Empty(await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("/v1/devices/activate")]
+    [InlineData("/v1/devices/token")]
+    public async Task BothAnonymousDeviceRoutesReadAtMostSixteenKilobytes(string route)
+    {
+        // 2026-11-15 review: the token exchange had no limit of its own, so it read Kestrel's 30 MB.
+        var endpoint = api.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>().Endpoints
+            .OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Single(e => e.RoutePattern.RawText == route);
+        Assert.Equal(AdminSession.AnonymousBodyLimit, endpoint.Metadata.GetMetadata<Microsoft.AspNetCore.Http.Metadata.IRequestSizeLimitMetadata>()?.MaxRequestBodySize);
+
+        using var client = api.CreateClient();
+        var padded = "{\"refreshToken\":\"" + new string('a', (int)AdminSession.AnonymousBodyLimit) + "\"}";
+        using var tooLarge = await client.PostAsync(new Uri(route, UriKind.Relative), new StringContent(padded, System.Text.Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, tooLarge.StatusCode);
     }
 
     [Fact]

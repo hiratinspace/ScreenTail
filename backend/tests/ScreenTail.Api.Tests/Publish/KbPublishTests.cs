@@ -16,6 +16,7 @@ using ScreenTail.Api.Publish;
 using ScreenTail.Api.Summarize;
 using ScreenTail.Api.Tests.Providers.ConnectWise;
 using ScreenTail.Api.Tests.Providers.Hudu;
+using ScreenTail.Api.Vault;
 
 namespace ScreenTail.Api.Tests.Publish;
 
@@ -342,7 +343,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var (client, _) = await ConnectedClientAsync(host);
         var before = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
 
-        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        using var repointed = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"));
         var after = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
@@ -362,7 +363,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
         var asked = hudu.Requests.Count(IsCompanyList);
 
-        using var rotated = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0000"), TestContext.Current.CancellationToken);
+        using var rotated = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0000"));
         _ = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, rotated.StatusCode);
@@ -383,7 +384,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         using var theirs = await bystander.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
         Assert.Equal("7", (await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId))).DocCompanyId);
 
-        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        using var repointed = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"));
         var posted = hudu.Requests.Count(IsArticle);
         using var second = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
         var published = await second.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
@@ -407,7 +408,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var hudu = new ScriptedHudu { RenamedAt = (site, id) => site == "other.huducloud.com" && id == 7 ? "Zenith Accounting" : null };
         using var host = Host(new ScriptedConnectWise(), hudu);
         var (client, tenantId) = await ConnectedClientAsync(host);
-        using var repointed = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        using var repointed = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"));
         _ = await RememberDirectlyAsync(tenantId, "Acme Dental", "7", "Acme Dental");
 
         using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Acme Dental"), TestContext.Current.CancellationToken);
@@ -630,7 +631,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var (client, tenantId) = await ConnectedClientAsync(host);
         using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
 
-        using var rotated = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest(sameSite, "hudu-key-0000"), TestContext.Current.CancellationToken);
+        using var rotated = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest(sameSite, "hudu-key-0000"));
 
         Assert.Equal(HttpStatusCode.NoContent, rotated.StatusCode);
         Assert.Equal("9", (await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == tenantId))).DocCompanyId);
@@ -647,9 +648,9 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
         var asked = hudu.Requests.Count(IsCompanyList);
 
-        using var removed = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var removed = await client.RemoveIntegrationAsOwnerAsync(api, "hudu");
         var left = await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId));
-        using var back = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+        using var back = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"));
         var list = await client.GetFromJsonAsync<CompanyMappingsResponse>(Companies, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
@@ -666,7 +667,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var (client, tenantId) = await ConnectedClientAsync(host);
         using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
 
-        using var refused = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("http://other.huducloud.com", "hudu-key-9999"), TestContext.Current.CancellationToken);
+        using var refused = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("http://other.huducloud.com", "hudu-key-9999"));
 
         Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
         Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
@@ -685,7 +686,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
             return await db.SaveChangesAsync();
         });
 
-        using var connected = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+        using var connected = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"));
 
         Assert.Equal(HttpStatusCode.NoContent, connected.StatusCode);
         Assert.Equal(0, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
@@ -700,11 +701,277 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var (client, tenantId) = await ConnectedClientAsync(host);
         using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
 
-        using var removed = await client.DeleteAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), TestContext.Current.CancellationToken);
-        using var back = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://eu.myconnectwise.net", "acme+PUB:PRIV-0000"), TestContext.Current.CancellationToken);
+        using var removed = await client.RemoveIntegrationAsOwnerAsync(api, "connectwise");
+        using var back = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://eu.myconnectwise.net", "acme+PUB:PRIV-0000"));
 
         Assert.Equal(HttpStatusCode.NoContent, removed.StatusCode);
         Assert.Equal(1, await api.UseAsync(db => db.CompanyMappings.CountAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task EveryCredentialAndMappingChangeIsShownToTheOwnerWithWhoMadeIt()
+    {
+        // 2026-11-15 review. Technicians keep choosing mappings while they publish; the owner sees each
+        // one, and every connect and replace, by who and when, and never a credential.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var unmapped = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Nowhere%20Inc", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var mappedAgain = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var repointed = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-9999"));
+
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        using var read = await owner.GetAsync(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+        var body = await read.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var answer = JsonSerializer.Deserialize<AdminIntegrationsResponse>(body, JsonSerializerOptions.Web)!;
+
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, unmapped.StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, repointed.StatusCode);
+        var cw = answer.Integrations.Single(i => i.Provider == "connectwise");
+        Assert.Equal(new ChangedBy("owner", OwnerRoutes.OwnerName, null), cw.ConnectedBy);
+        Assert.Equal(
+            ["hudu replaced", "hudu mappings_cleared", "hudu mapped", "hudu unmapped", "hudu mapped", "hudu connected", "connectwise connected"],
+            answer.Changes.Select(c => $"{c.Provider} {c.Action}"));
+        var technician = new ChangedBy("technician", "A Technician", "TECH-LAPTOP");
+        Assert.Equal(technician, answer.Changes[2].By);
+        Assert.Equal(("Nowhere Inc", "9"), (answer.Changes[2].PsaCompany, answer.Changes[2].DocCompanyId));
+        Assert.Equal(technician, answer.Changes[3].By);
+        Assert.Equal("Nowhere Inc", answer.Changes[3].PsaCompany);
+        Assert.All(answer.Changes.Where(c => c.Action is "replaced" or "mappings_cleared" or "connected"), c => Assert.Equal("owner", c.By.Kind));
+        foreach (var secret in new[] { "hudu-key-5678", "hudu-key-9999", "5678", "9999", "PRIV-1234" })
+        {
+            Assert.DoesNotContain(secret, body, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task TheSameMappingSentOverAndOverIsRecordedOnce()
+    {
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        for (var i = 0; i < 3; i++)
+        {
+            using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        }
+
+        Assert.Equal(1, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+    }
+
+    [Fact]
+    public async Task AFloodFromOneDeviceIsRefusedAtTheThirtyFirstChangeAndCannotBuryItsFirst()
+    {
+        // A hostile or broken device: thirty map and unmap changes in ten minutes, then 429 with a
+        // sentence and Retry-After, nothing changed. Its first change to the company is still recorded.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var first = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        var firstRecord = await api.UseAsync(db => db.IntegrationChanges.SingleAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped));
+        for (var i = 1; i < MappingChangeLimit.PerDevice; i++)
+        {
+            using var flood = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", i % 2 == 0 ? "7" : "8"), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, flood.StatusCode);
+        }
+
+        using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "9"), TestContext.Current.CancellationToken);
+        using var refusedUnmap = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+        Assert.Equal((HttpStatusCode)429, refused.StatusCode);
+        Assert.Equal((HttpStatusCode)429, refusedUnmap.StatusCode);
+        Assert.NotNull(refused.Headers.RetryAfter);
+        Assert.Contains("too_many_mapping_changes", body, StringComparison.Ordinal);
+        Assert.Contains("choose the company again", body, StringComparison.Ordinal);
+        Assert.Equal("8", await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId).Select(m => m.DocCompanyId).SingleAsync()));
+        Assert.Equal(MappingChangeLimit.PerDevice, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+        Assert.True(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.Id == firstRecord.Id)));
+
+        // Two refusals in the window, one owner-visible row naming the device.
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var answer = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+        var slowed = Assert.Single(answer!.Changes, c => c.Action == IntegrationChanges.DeviceSlowed);
+        Assert.Equal("technician", slowed.By.Kind);
+        Assert.NotNull(slowed.By.Device);
+    }
+
+    [Fact]
+    public async Task OldMappingRecordsGoByAgeKeepingTheLatestForEachCompanyAndTheOwnerIsToldHowMany()
+    {
+        // Pruned by age, not by count: a record older than MappingsKeptFor goes unless it is the latest for
+        // a company that is mapped now. A company mapped then unmapped keeps nothing past that age.
+        // Credential changes are never pruned. The owner sees one row saying how many went.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        var now = DateTimeOffset.UtcNow;
+        IntegrationChange Old(string company, int daysAgo, string action = IntegrationChanges.Mapped) =>
+            new() { Id = Guid.NewGuid(), TenantId = tenantId, At = now.AddDays(-daysAgo), Provider = "hudu", Action = action, PsaCompany = company };
+        var supersededA = Old("Old A", 300);
+        var latestA = Old("Old A", 250);
+        var onlyB = Old("Old B", 400);
+        var olderRecent = Old("Recent C", 200);
+        var recentC = Old("Recent C", 10);
+        var oldConnect = Old("ignored", 500, IntegrationChanges.Replaced);
+        var goneMapped = Old("Gone D", 300);
+        var goneUnmapped = Old("Gone D", 250, IntegrationChanges.Unmapped);
+        CompanyMapping Current(string company) =>
+            new() { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = company, DocCompanyId = "7", DocCompanyName = "Acme Dental Group", Confidence = "manual", CreatedAt = now.AddDays(-250) };
+        _ = await api.UseAsync(db =>
+        {
+            db.IntegrationChanges.AddRange(supersededA, latestA, onlyB, olderRecent, recentC, oldConnect, goneMapped, goneUnmapped);
+            db.CompanyMappings.AddRange(Current("Old A"), Current("Old B"), Current("Recent C"));
+            return db.SaveChangesAsync();
+        });
+
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var answer = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        var left = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId).Select(c => c.Id).ToListAsync());
+        Assert.DoesNotContain(supersededA.Id, left);
+        Assert.DoesNotContain(olderRecent.Id, left);
+        Assert.Contains(latestA.Id, left);
+        Assert.Contains(onlyB.Id, left);
+        Assert.Contains(recentC.Id, left);
+        Assert.Contains(oldConnect.Id, left);
+        Assert.DoesNotContain(goneMapped.Id, left);
+        Assert.DoesNotContain(goneUnmapped.Id, left);
+        var summary = Assert.Single(answer!.Changes, c => c.Action == IntegrationChanges.MappingsPruned);
+        Assert.Equal(4, summary.Removed);
+        Assert.Equal("screentail", summary.By.Kind);
+    }
+
+    [Fact]
+    public async Task AMappingClearedAndMatchedByNameAgainIsNotCreditedToWhoeverChoseItBefore()
+    {
+        // "Chosen by" names a person only for a mapping made by hand, by a record no older than the
+        // mapping and after the latest clearing; else "Matched by name".
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var acme = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        using var beta = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Beta Law", "7"), TestContext.Current.CancellationToken);
+        using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Beta Law", "7"), TestContext.Current.CancellationToken);
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var before = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        // The site changed (mappings cleared), then publishing matched both names again by itself.
+        var later = DateTimeOffset.UtcNow.AddMinutes(1);
+        _ = await api.UseAsync(async db =>
+        {
+            db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = later, Provider = "hudu", Action = IntegrationChanges.MappingsCleared });
+            _ = await db.SaveChangesAsync();
+            return await db.CompanyMappings.Where(m => m.TenantId == tenantId)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.Confidence, "exact").SetProperty(m => m.CreatedAt, later.AddMinutes(1)));
+        });
+        var after = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        // A manual mapping whose only record is older than the mapping: not credited either.
+        _ = await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId && m.PsaCompany == "Acme Dental")
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.Confidence, "manual")));
+        var older = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        Assert.All(before!.Mappings, m => Assert.Equal("technician", m.SetBy?.Kind));
+        Assert.All(after!.Mappings, m => Assert.Null(m.SetBy));
+        Assert.Null(Assert.Single(older!.Mappings, m => m.PsaCompany == "Acme Dental").SetBy);
+    }
+
+    [Fact]
+    public async Task TheOwnerSeesEveryCompanysCurrentMappingAndWhoChoseItHoweverManyChangesCameAfter()
+    {
+        // A burst of later changes must not hide a mapping from the owner: beside the recent list, every
+        // current mapping is shown with who chose it and when.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var acme = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 0; i < IntegrationChanges.Shown + 5; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = DateTimeOffset.UtcNow.AddSeconds(i + 1), Provider = "hudu", Action = IntegrationChanges.Unmapped, PsaCompany = $"Other {i}" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var answer = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, acme.StatusCode);
+        Assert.Equal(IntegrationChanges.Shown, answer!.Changes.Count);
+        Assert.DoesNotContain(answer.Changes, c => c.PsaCompany == "Acme Dental");
+        var mapping = Assert.Single(answer.Mappings);
+        Assert.Equal(("Acme Dental", "7"), (mapping.PsaCompany, mapping.DocCompanyId));
+        Assert.Equal("technician", mapping.SetBy?.Kind);
+    }
+
+    [Fact]
+    public async Task ADevicePastItsNewCompaniesForTheDayIsRefusedInWordsAndMayStillRemapAKnownOne()
+    {
+        // The PSA company is a name the device sends and the PSA has no company lookup, so a device may
+        // name only so many companies with no mapping each day. Remapping one already mapped is not limited.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var known = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        var deviceId = await api.UseAsync(db => db.Devices.Where(d => d.TenantId == tenantId).Select(d => d.Id).SingleAsync());
+        var limit = host.Services.GetRequiredService<MappingChangeLimit>();
+        for (var i = 1; i < MappingChangeLimit.NewCompaniesPerDevice; i++)
+        {
+            Assert.True(limit.TryTakeNewCompany(deviceId, $"Company {i}"));
+        }
+
+        using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Brand New Co", "7"), TestContext.Current.CancellationToken);
+        using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "8"), TestContext.Current.CancellationToken);
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, known.StatusCode);
+        Assert.Equal((HttpStatusCode)429, refused.StatusCode);
+        Assert.Contains("too_many_new_companies", body, StringComparison.Ordinal);
+        Assert.Contains("500 new PSA companies today", body, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId && m.PsaCompany == "Brand New Co")));
+    }
+
+    [Fact]
+    public async Task NoMappingRecordYoungerThanTheRetentionIsRemovedHoweverManyThereAre()
+    {
+        // No count backstop: in-retention evidence stays whatever the traffic; only age removes records.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        var now = DateTimeOffset.UtcNow;
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 0; i < 6000; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = now.AddDays(-170).AddSeconds(i), Provider = "hudu", Action = IntegrationChanges.Mapped, PsaCompany = "Acme Dental", DocCompanyId = "7" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "8"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        Assert.Equal(6001, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+        Assert.False(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.MappingsPruned)));
+    }
+
+    [Fact]
+    public async Task AnotherTenantsChangesAreNotShown()
+    {
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (mine, myTenant) = await ConnectedClientAsync(host);
+        var (_, theirTenant) = await ConnectedClientAsync(host);
+        using var mapped = await mine.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+
+        using var theirOwner = await host.OwnerClientAsync(api, theirTenant);
+        var theirs = await theirOwner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(theirs!.Changes, c => c.Action == "mapped");
+        Assert.Equal(2, theirs.Changes.Count);
+        Assert.Equal(1, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == myTenant && c.Action == "mapped")));
     }
 
     private static bool IsCompanyList(HttpRequestMessage request) => request.RequestUri!.AbsolutePath.EndsWith("/api/v1/companies", StringComparison.Ordinal);
@@ -762,10 +1029,10 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var (tenantId, userId, deviceId) = await SeedAsync();
         var client = host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var cw = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var cw = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
         if (hudu)
         {
-            using var h = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+            using var h = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"));
         }
 
         return (client, tenantId);

@@ -64,16 +64,41 @@ public static class IntegrationNames
 
     private const string Pointer = " in Settings → Integrations";
 
+    private const string AskOwner = "Ask your owner to ";
+
     /// <summary>
-    /// The backend's words, as they read on the Integrations page itself (Spec v0.6.8). Its errors end by
-    /// sending the technician to "Settings → Integrations", which is right on the publish pane and wrong
-    /// here, where they already are: the card says what to do on it instead. A rejected key is changed
-    /// with the card's Change; anything else the backend points here for is done "on this page".
+    /// The backend's words, as they read on the Integrations page itself (Spec v0.6.8, v0.6.15). Its errors
+    /// end by sending the technician to "Settings → Integrations" to fix something there, which is right on
+    /// the publish pane and wrong here, where they already are and where nothing can be changed: integration
+    /// credentials can only be changed by the tenant owner, in the web admin. So the sentence that points
+    /// here asks the owner instead: "Update it in Settings → Integrations." reads "Ask your owner to update
+    /// it in the web admin."
     /// </summary>
     [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(message))]
-    public static string? OnThisPage(string? message) => message?
-        .Replace("Update it" + Pointer + ".", "Press Change and enter a new key.", StringComparison.Ordinal)
-        .Replace(Pointer, " on this page", StringComparison.Ordinal);
+    public static string? OnThisPage(string? message)
+    {
+        if (message is null)
+        {
+            return null;
+        }
+
+        var at = message.IndexOf(Pointer, StringComparison.Ordinal);
+        while (at >= 0)
+        {
+            // The pointer ends an instruction ("Check the site address in Settings → Integrations."): that
+            // sentence, from its start, becomes the owner's to do.
+            var start = message.LastIndexOf(". ", at, StringComparison.Ordinal);
+            start = start < 0 ? 0 : start + 2;
+            var instruction = message[start..at];
+            var asked = instruction.Length == 0
+                ? "Ask your owner in the web admin"
+                : AskOwner + char.ToLowerInvariant(instruction[0]) + instruction[1..] + " in the web admin";
+            message = string.Concat(message.AsSpan(0, start), asked, message.AsSpan(at + Pointer.Length));
+            at = message.IndexOf(Pointer, start + asked.Length, StringComparison.Ordinal);
+        }
+
+        return message;
+    }
 }
 
 /// <summary>"Test connection"'s answer, in words either way (Spec §4: what happened, then what to do).</summary>
@@ -89,16 +114,13 @@ public sealed record CompanyMappingsPage(IReadOnlyList<CompanyChoice> Companies,
 /// <summary>
 /// What Settings → Integrations asks the service for (ST-082). Over the pipe in the running application
 /// (<see cref="PipeIntegrations"/>); a fake in tests. A null list means the service did not answer; a
-/// string from an action is the reason it was refused, null when it was done.
+/// string from an action is the reason it was refused, null when it was done. There is no way to store or
+/// remove a credential here: integration credentials can only be changed by the tenant owner, in the web
+/// admin.
 /// </summary>
 public interface IIntegrationsGateway
 {
     Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default);
-
-    /// <summary>Stores or replaces the credential. It is never read back; the list shows its last four.</summary>
-    Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default);
-
-    Task<string?> RemoveAsync(string provider, CancellationToken ct = default);
 
     Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default);
 
@@ -110,20 +132,22 @@ public interface IIntegrationsGateway
 }
 
 /// <summary>
-/// One provider's card (Spec §5 S7). Connected or not; the fields open when there is nothing saved and
-/// after Change, and close again once a credential is stored. The secret parts live here only between
-/// typing and saving: the moment the backend has taken them they are cleared, and the card shows the
-/// hint the backend shows.
-///
-/// ConnectWise's credential is three things the technician copies from three places, joined the way
-/// ConnectWise's Basic auth wants them (<c>companyId+publicKey:privateKey</c>); the card takes the
-/// three and joins them, because asking for the joined form is asking for a typo.
+/// One provider's card (Spec §5 S7), read only. Integration credentials can only be changed by the
+/// tenant owner, in the web admin, so the card shows whether the provider is connected, its site, the
+/// credential's last four as the backend shows them, when it was last checked and what went wrong, and
+/// offers Test connection, which checks the credential the backend holds. Nothing secret is ever here.
 /// </summary>
 public sealed class IntegrationCard
 {
     public const string ConnectWiseProvider = "connectwise";
 
     public const string HuduProvider = "hudu";
+
+    /// <summary>A connected card's line under its status: who changes it, and where.</summary>
+    public const string OwnerManages = "Your owner manages this connection in the web admin.";
+
+    /// <summary>A card with nothing connected: who connects it, and where.</summary>
+    public const string OwnerConnects = "Not connected. Your owner connects it in the web admin.";
 
     private readonly IIntegrationsGateway _gateway;
 
@@ -141,27 +165,15 @@ public sealed class IntegrationCard
 
     public bool Connected { get; private set; }
 
-    /// <summary>Fields shown: nothing saved yet, or Change was pressed.</summary>
-    public bool Editing { get; private set; } = true;
+    /// <summary>The site as the backend has it; empty with nothing connected.</summary>
+    public string SiteUrl { get; private set; } = string.Empty;
 
-    public string SiteUrl { get; set; } = string.Empty;
-
-    /// <summary>"••••1234" once saved; empty before.</summary>
+    /// <summary>"••••1234" with a credential; empty without one.</summary>
     public string SecretHint { get; private set; } = string.Empty;
 
     public DateTimeOffset? LastCheckedAt { get; private set; }
 
     public string? LastError { get; private set; }
-
-    // ConnectWise's three parts. Cleared the moment they are stored.
-    public string CompanyId { get; set; } = string.Empty;
-
-    public string PublicKey { get; set; } = string.Empty;
-
-    public string PrivateKey { get; set; } = string.Empty;
-
-    // Hudu's one.
-    public string ApiKey { get; set; } = string.Empty;
 
     /// <summary>The last Test connection, or null before one; its words go in <see cref="CheckResult"/>.</summary>
     public bool? CheckOk { get; private set; }
@@ -170,38 +182,8 @@ public sealed class IntegrationCard
 
     public bool Busy { get; private set; }
 
-    /// <summary>Why the fields cannot be saved as they are, or null. The backend's refusal lands here too.</summary>
-    public string? Problem => _refusal ?? Validate();
-
-    public bool CanSave => Editing && Problem is null && !Busy;
-
-    /// <summary>Why the fields cannot be saved as they are, leaving out the backend's last refusal, which a new save may not repeat.</summary>
-    internal string? Unsavable => Validate();
-
-    /// <summary>
-    /// A site or key is being typed, Change was pressed on a saved card, or a save is on its way. Reading
-    /// the card again would put it back to what is saved, so the shell does not on a reconnect.
-    /// </summary>
-    public bool HasUnsavedEdits =>
-        Busy
-        || (Editing && (Connected
-            || !string.IsNullOrWhiteSpace(SiteUrl)
-            || !string.IsNullOrWhiteSpace(CompanyId)
-            || !string.IsNullOrWhiteSpace(PublicKey)
-            || !string.IsNullOrWhiteSpace(PrivateKey)
-            || !string.IsNullOrWhiteSpace(ApiKey)));
-
-    /// <summary>
-    /// What Settings' Save bar counts as a change on this card: a key typed, or a site that differs from
-    /// the saved one. Change pressed with nothing typed is not one; neither is a save on its way.
-    /// </summary>
-    public bool HasPendingChange =>
-        Editing && !Busy
-        && (!string.IsNullOrWhiteSpace(CompanyId)
-            || !string.IsNullOrWhiteSpace(PublicKey)
-            || !string.IsNullOrWhiteSpace(PrivateKey)
-            || !string.IsNullOrWhiteSpace(ApiKey)
-            || !string.Equals(SiteUrl.Trim().TrimEnd('/'), _savedSite, StringComparison.Ordinal));
+    /// <summary>Test connection checks what the backend holds, so there is something to check only once connected.</summary>
+    public bool CanCheck => Connected && !Busy;
 
     public string Status => Connected
         ? LastError is null
@@ -209,89 +191,22 @@ public sealed class IntegrationCard
             : "Connected · the last check failed"
         : "Not connected";
 
-    private string? _refusal;
-
-    /// <summary>The site as the backend has it, or empty with nothing saved.</summary>
-    private string _savedSite = string.Empty;
+    /// <summary>Who changes the connection, and where: the tenant owner, in the web admin.</summary>
+    public string OwnerLine => Connected ? OwnerManages : OwnerConnects;
 
     internal void Load(IntegrationDetail? detail)
     {
         Connected = detail is not null;
-        Editing = detail is null;
         SiteUrl = detail?.SiteUrl ?? string.Empty;
-        _savedSite = SiteUrl.Trim().TrimEnd('/');
         SecretHint = detail?.SecretHint ?? string.Empty;
         LastCheckedAt = detail?.LastCheckedAt;
         LastError = IntegrationNames.OnThisPage(detail?.LastError);
-        _refusal = null;
-    }
-
-    /// <summary>
-    /// Forgets what was typed and puts the card back as saved (Settings' Undo changes): a connected card
-    /// closes its fields again; one with nothing saved stays open and empty. The service is asked nothing.
-    /// </summary>
-    public void Undo()
-    {
-        SiteUrl = _savedSite;
-        CompanyId = string.Empty;
-        PublicKey = string.Empty;
-        PrivateKey = string.Empty;
-        ApiKey = string.Empty;
-        Editing = !Connected;
-        _refusal = null;
-    }
-
-    /// <summary>Reveals the fields again. The site stays; the secret was never here to reveal.</summary>
-    public void Change()
-    {
-        Editing = true;
-        _refusal = null;
-    }
-
-    /// <summary>Stores the credential. False, with <see cref="Problem"/> saying why, when it could not be.</summary>
-    public async Task<bool> SaveAsync(CancellationToken ct = default)
-    {
-        _refusal = null;
-        if (!CanSave)
+        if (!Connected)
         {
-            return false;
+            // The owner disconnected it: a check of a credential that is gone says nothing now.
+            CheckOk = null;
+            CheckResult = null;
         }
-
-        var site = SiteUrl.Trim().TrimEnd('/');
-        var secret = IsConnectWise
-            ? ComposeConnectWise(CompanyId, PublicKey, PrivateKey)
-            : ApiKey.Trim();
-
-        Busy = true;
-        try
-        {
-            _refusal = IntegrationNames.OnThisPage(await _gateway.StoreAsync(Provider, site, secret, ct).ConfigureAwait(false));
-        }
-        finally
-        {
-            Busy = false;
-        }
-
-        if (_refusal is not null)
-        {
-            return false;
-        }
-
-        // Stored: the parts are cleared now, not when the card closes, so a window left open does not
-        // hold a private key in memory for the afternoon.
-        SiteUrl = site;
-        _savedSite = site;
-        SecretHint = "••••" + secret[Math.Max(0, secret.Length - 4)..];
-        CompanyId = string.Empty;
-        PublicKey = string.Empty;
-        PrivateKey = string.Empty;
-        ApiKey = string.Empty;
-        Connected = true;
-        Editing = false;
-        LastError = null;
-        CheckOk = null;
-        CheckResult = null;
-        return true;
     }
 
     public async Task<CheckOutcome> CheckAsync(CancellationToken ct = default)
@@ -311,72 +226,11 @@ public sealed class IntegrationCard
         }
     }
 
-    public async Task<bool> RemoveAsync(CancellationToken ct = default)
-    {
-        _refusal = IntegrationNames.OnThisPage(await _gateway.RemoveAsync(Provider, ct).ConfigureAwait(false));
-        if (_refusal is not null)
-        {
-            return false;
-        }
-
-        Load(null);
-        CheckOk = null;
-        CheckResult = null;
-        return true;
-    }
-
-    /// <summary><c>companyId+publicKey:privateKey</c>, the company lower-cased as ConnectWise's sign-in wants it.</summary>
-    internal static string ComposeConnectWise(string companyId, string publicKey, string privateKey) =>
-        $"{companyId.Trim().ToLowerInvariant()}+{publicKey.Trim()}:{privateKey.Trim()}";
-
-    private string? Validate()
-    {
-        if (!Uri.TryCreate(SiteUrl.Trim(), UriKind.Absolute, out var site) || site.Scheme != Uri.UriSchemeHttps)
-        {
-            return IsConnectWise
-                ? "The site must be an https address, like https://na.myconnectwise.net."
-                : "The site must be an https address, like https://acme.huducloud.com.";
-        }
-
-        if (!IsConnectWise)
-        {
-            return string.IsNullOrWhiteSpace(ApiKey) ? "The API key is missing. Paste it into the box above." : null;
-        }
-
-        if (string.IsNullOrWhiteSpace(CompanyId))
-        {
-            return "The company ID is the one typed on ConnectWise's sign-in screen.";
-        }
-
-        if (string.IsNullOrWhiteSpace(PublicKey))
-        {
-            return "The public key is on the API member's API Keys tab.";
-        }
-
-        if (string.IsNullOrWhiteSpace(PrivateKey))
-        {
-            return "The private key is shown once when the API key is created.";
-        }
-
-        foreach (var part in new[] { CompanyId.Trim(), PublicKey.Trim(), PrivateKey.Trim() })
-        {
-            if (part.Any(char.IsWhiteSpace))
-            {
-                return "The company ID and keys cannot contain spaces.";
-            }
-
-            if (part.Contains('+', StringComparison.Ordinal) || part.Contains(':', StringComparison.Ordinal))
-            {
-                return "The company ID and keys cannot contain '+' or ':'.";
-            }
-        }
-
-        return null;
-    }
 }
 
 /// <summary>
-/// Settings → Integrations (ST-082, Spec §5 S7): a card per provider and the company mapping table.
+/// Settings → Integrations (ST-082, Spec §5 S7): a read-only card per provider and the company mapping
+/// table, which technicians still keep.
 /// The mapping table exists only with Hudu connected, because it maps into Hudu's companies; without it
 /// there is nothing to list and the service is not asked.
 /// </summary>
@@ -408,9 +262,6 @@ public sealed class IntegrationsPanel
 
     /// <summary>Why the screen is not showing the truth, or null: the service did not answer, or the mappings could not be read.</summary>
     public string? Notice { get; private set; }
-
-    /// <summary>Either card holds something unsaved (<see cref="IntegrationCard.HasUnsavedEdits"/>).</summary>
-    public bool HasUnsavedEdits => ConnectWise.HasUnsavedEdits || Hudu.HasUnsavedEdits;
 
     public async Task LoadAsync(CancellationToken ct = default)
     {

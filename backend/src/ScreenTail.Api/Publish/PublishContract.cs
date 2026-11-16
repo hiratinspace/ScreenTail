@@ -39,7 +39,10 @@ public sealed record PublishBundle
     [JsonPropertyName("billable")]
     public bool Billable { get; init; } = true;
 
-    /// <summary>Who reviewed it, for the footer. A display name, never an email.</summary>
+    /// <summary>
+    /// Accepted for older clients and ignored: the footer names the token's user, so one device cannot
+    /// sign a note with another technician's name (2026-11-15 review). The shipped client sends null.
+    /// </summary>
     [JsonPropertyName("reviewer")]
     public string? Reviewer { get; init; }
 

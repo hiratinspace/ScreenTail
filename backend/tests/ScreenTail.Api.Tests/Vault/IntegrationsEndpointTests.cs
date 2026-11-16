@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using ScreenTail.Api.Auth;
@@ -25,10 +26,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/connectwise", UriKind.Relative),
-            new StoreIntegrationRequest("https://na.myconnectwise.net", Secret),
-            TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", Secret));
         using var get = await client.GetAsync(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
         var body = await get.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var list = await get.Content.ReadFromJsonAsync<IntegrationsResponse>(TestContext.Current.CancellationToken);
@@ -47,10 +45,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
     {
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/hudu", UriKind.Relative),
-            new StoreIntegrationRequest("https://acme.huducloud.com", Secret),
-            TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", Secret));
 
         var stored = await api.UseAsync(db => db.Integrations.SingleAsync(i => i.TenantId == tenantId && i.Provider == "hudu"));
 
@@ -66,10 +61,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
     {
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/connectwise", UriKind.Relative),
-            new StoreIntegrationRequest("https://na.myconnectwise.net", Secret),
-            TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", Secret));
 
         using var scope = api.Services.CreateScope();
         var vault = scope.ServiceProvider.GetRequiredService<IIntegrationVault>();
@@ -87,10 +79,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (otherTenant, otherUser, otherDevice) = await SeedAsync();
         using var mine = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
         using var theirs = Client(api.Issuer.ForDevice(otherTenant, otherUser, otherDevice).Token);
-        using var put = await mine.PutAsJsonAsync(
-            new Uri("/v1/integrations/connectwise", UriKind.Relative),
-            new StoreIntegrationRequest("https://na.myconnectwise.net", Secret),
-            TestContext.Current.CancellationToken);
+        using var put = await mine.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", Secret));
 
         var list = await theirs.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
         using var scope = api.Services.CreateScope();
@@ -105,11 +94,11 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
     {
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var first = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://a.huducloud.com", "old-key-0001"), TestContext.Current.CancellationToken);
-        using var second = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://a.huducloud.com", "new-key-0002"), TestContext.Current.CancellationToken);
+        using var first = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://a.huducloud.com", "old-key-0001"));
+        using var second = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://a.huducloud.com", "new-key-0002"));
 
         var afterReplace = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
-        using var delete = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var delete = await client.RemoveIntegrationAsOwnerAsync(api, "hudu");
         var afterDelete = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
 
         Assert.Equal("••••0002", Assert.Single(afterReplace!.Integrations).Secret);
@@ -127,11 +116,11 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (otherTenant, otherUser, otherDevice) = await SeedAsync();
         using var mine = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
         using var theirs = Client(api.Issuer.ForDevice(otherTenant, otherUser, otherDevice).Token);
-        using var put = await mine.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", Secret), TestContext.Current.CancellationToken);
+        using var put = await mine.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", Secret));
         var before = await api.UseAsync(db => db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == tenantId));
 
-        using var removed = await theirs.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
-        using var replaced = await theirs.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://elsewhere.huducloud.com", "their-key-0000"), TestContext.Current.CancellationToken);
+        using var removed = await theirs.RemoveIntegrationAsOwnerAsync(api, "hudu");
+        using var replaced = await theirs.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://elsewhere.huducloud.com", "their-key-0000"));
         var after = await api.UseAsync(db => db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == tenantId));
         using var scope = api.Services.CreateScope();
         var vault = scope.ServiceProvider.GetRequiredService<IIntegrationVault>();
@@ -154,23 +143,125 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var removed = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var removed = await client.RemoveIntegrationAsOwnerAsync(api, "hudu");
 
         Assert.Equal(HttpStatusCode.NotFound, removed.StatusCode);
     }
 
+    [Theory]
+    [InlineData("Connect%20Wise!")]
+    [InlineData("aa")]
+    [InlineData("ab")]
+    [InlineData("connectwise2")]
+    [InlineData("demo-psa")]
+    [InlineData("HUDU")]
+    public async Task OnlyConnectWiseAndHuduAreProviderNames(string provider)
+    {
+        // 2026-11-15 review: any other name used to make a row of its own. Now every route, the owner's
+        // and the device's, refuses it in words, and nothing is stored.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var owner = await api.OwnerClientAsync(api, tenantId);
+        var request = new StoreIntegrationRequest("https://na.myconnectwise.net", Secret);
+
+        using var ownerPut = await owner.PutAsJsonAsync(new Uri($"/v1/admin/integrations/{provider}", UriKind.Relative), request, TestContext.Current.CancellationToken);
+        using var ownerDelete = await owner.DeleteAsync(new Uri($"/v1/admin/integrations/{provider}", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var ownerCheck = await owner.PostAsync(new Uri($"/v1/admin/integrations/{provider}/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        using var devicePut = await client.PutAsJsonAsync(new Uri($"/v1/integrations/{provider}", UriKind.Relative), request, TestContext.Current.CancellationToken);
+        using var deviceCheck = await client.PostAsync(new Uri($"/v1/integrations/{provider}/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+
+        foreach (var response in new[] { ownerPut, ownerDelete, ownerCheck, devicePut, deviceCheck })
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.Contains("bad_provider", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        }
+
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
     [Fact]
-    public async Task AProviderNameThatIsNotANameIsRefused()
+    public async Task ADeviceCannotStoreOrRemoveACredential()
+    {
+        // 2026-11-15 review, owner decision: only the owner changes a credential. A device is told so in
+        // words a client of any age can show, and the stored credential is untouched by either call.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var stored = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", Secret));
+        var before = await api.UseAsync(db => db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == tenantId));
+
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://attacker.example.com", "other+PUB:PRIV-0000"), TestContext.Current.CancellationToken);
+        using var putHudu = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0001"), TestContext.Current.CancellationToken);
+        using var delete = await client.DeleteAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), TestContext.Current.CancellationToken);
+        var after = await api.UseAsync(db => db.Integrations.AsNoTracking().Where(i => i.TenantId == tenantId).ToListAsync());
+
+        Assert.Equal(HttpStatusCode.NoContent, stored.StatusCode);
+        foreach (var refused in new[] { put, putHudu, delete })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+            using var body = JsonDocument.Parse(await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            Assert.Equal("owner_only", body.RootElement.GetProperty("error").GetString());
+            Assert.Contains("web admin", body.RootElement.GetProperty("message").GetString(), StringComparison.Ordinal);
+        }
+
+        var row = Assert.Single(after);
+        Assert.Equal("https://na.myconnectwise.net", row.SiteUrl);
+        Assert.Equal(before.SecretCiphertext, row.SecretCiphertext);
+        Assert.False(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.TenantId == tenantId && c.DeviceId == deviceId)));
+    }
+
+    [Fact]
+    public async Task ADeviceCanStillTestTheStoredCredential()
+    {
+        // Testing what is stored changes nothing but the last-checked time, so devices keep it.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var check = await client.PostAsync(new Uri("/v1/integrations/hudu/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, check.StatusCode);
+        Assert.Contains("not_connected", await check.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ACredentialOrSiteOverItsLimitIsRefused()
     {
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var response = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/Connect%20Wise!", UriKind.Relative),
-            new StoreIntegrationRequest("https://x", "k"),
-            TestContext.Current.CancellationToken);
+        using var longSecret = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", new string('k', IntegrationsEndpoint.SecretMax + 1)));
+        using var longSite = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com/" + new string('a', IntegrationsEndpoint.SiteUrlMax), "hudu-key-0001"));
+        using var atTheLimit = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", new string('k', IntegrationsEndpoint.SecretMax)));
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, longSecret.StatusCode);
+        Assert.Contains("secret_too_long", await longSecret.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.BadRequest, longSite.StatusCode);
+        Assert.Contains("site_url_too_long", await longSite.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.NoContent, atTheLimit.StatusCode);
+    }
+
+    [Fact]
+    public async Task ABodyOverSixteenKilobytesIsNotRead()
+    {
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        var huge = new StoreIntegrationRequest("https://acme.huducloud.com", new string('k', 20 * 1024));
+
+        using var ownerPut = await client.StoreIntegrationAsOwnerAsync(api, "hudu", huge);
+        using var devicePut = await client.PutAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), Sized(huge), TestContext.Current.CancellationToken);
+        using var mapping = await client.PutAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), Sized(new MapCompanyRequest(new string('a', 20 * 1024), "7")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, ownerPut.StatusCode);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, devicePut.StatusCode);
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, mapping.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
+    /// <summary>JSON with its length said up front, as a browser or HttpClient sends a buffered body.</summary>
+    private static ByteArrayContent Sized<T>(T value)
+    {
+        var content = new ByteArrayContent(JsonSerializer.SerializeToUtf8Bytes(value, JsonSerializerOptions.Web));
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        return content;
     }
 
     [Theory]
@@ -201,10 +292,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var response = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/hudu", UriKind.Relative),
-            new StoreIntegrationRequest(site, "hudu-key-0001"),
-            TestContext.Current.CancellationToken);
+        using var response = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest(site, "hudu-key-0001"));
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var list = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
 
@@ -236,10 +324,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/connectwise", UriKind.Relative),
-            new StoreIntegrationRequest(siteUrl, Secret),
-            TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest(siteUrl, Secret));
         var body = await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
@@ -253,8 +338,9 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsync(
-            new Uri("/v1/integrations/hudu", UriKind.Relative),
+        using var owner = await api.OwnerClientAsync(api, tenantId);
+        using var put = await owner.PutAsync(
+            new Uri("/v1/admin/integrations/hudu", UriKind.Relative),
             new StringContent("{\"secret\":\"hudu-key-0001\"}", Encoding.UTF8, "application/json"),
             TestContext.Current.CancellationToken);
         var body = await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
@@ -271,10 +357,10 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         // secret stay exactly as they were.
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var good = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", Secret), TestContext.Current.CancellationToken);
+        using var good = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", Secret));
         Assert.Equal(HttpStatusCode.NoContent, good.StatusCode);
 
-        using var downgrade = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("http://na.myconnectwise.net", "other-secret-0000"), TestContext.Current.CancellationToken);
+        using var downgrade = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("http://na.myconnectwise.net", "other-secret-0000"));
         var stored = await api.UseAsync(db => db.Integrations.SingleAsync(i => i.TenantId == tenantId));
 
         Assert.Equal(HttpStatusCode.BadRequest, downgrade.StatusCode);
@@ -326,10 +412,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var response = await client.PutAsJsonAsync(
-            new Uri("/v1/integrations/connectwise", UriKind.Relative),
-            new StoreIntegrationRequest(site, Secret),
-            TestContext.Current.CancellationToken);
+        using var response = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest(site, Secret));
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
@@ -345,7 +428,7 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest(siteUrl, Secret), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest(siteUrl, Secret));
 
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         Assert.True(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
@@ -358,9 +441,41 @@ public sealed class IntegrationsEndpointTests(ApiFixture api) : IClassFixture<Ap
 
         using var get = await client.GetAsync(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
         using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://x", "k"), TestContext.Current.CancellationToken);
+        using var ownerPut = await client.PutAsJsonAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://x", "k"), TestContext.Current.CancellationToken);
+        using var ownerList = await client.GetAsync(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, get.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, put.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, ownerPut.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, ownerList.StatusCode);
+    }
+
+    [Fact]
+    public async Task ADeviceTokenDoesNotOpenTheOwnersRoutes()
+    {
+        // The owner's routes read the admin cookie alone; a device's bearer token is not an owner.
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+
+        using var put = await client.PutAsJsonAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0001"), TestContext.Current.CancellationToken);
+        using var delete = await client.DeleteAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, put.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, delete.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
+    }
+
+    [Fact]
+    public async Task AnOwnerWriteWithoutTheCsrfHeaderIsRefused()
+    {
+        var (tenantId, _, _) = await SeedAsync();
+        using var owner = await api.OwnerClientAsync(api, tenantId);
+        _ = owner.DefaultRequestHeaders.Remove(AdminSession.CsrfHeader);
+
+        using var put = await owner.PutAsJsonAsync(new Uri("/v1/admin/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-0001"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.Forbidden, put.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
     }
 
     private HttpClient Client(string token)
@@ -396,7 +511,7 @@ public sealed class UnconfiguredVaultTests(UnconfiguredVaultTests.NoVaultFixture
         using var client = api.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://x", "k-0001"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://x", "k-0001"));
         var problem = await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var list = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
 

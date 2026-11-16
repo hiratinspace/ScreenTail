@@ -151,7 +151,31 @@ public sealed class InstallerAuthoringTests
         {
             var scheduled = Package().Descendants(Wix + sequence).Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == "RefuseInstallFolder");
             Assert.Equal("CostFinalize", (string?)scheduled.Attribute("After"));
-            Assert.Equal("NOT Installed AND INSTALLFOLDER ~<> EXPECTEDINSTALLFOLDER", (string?)scheduled.Attribute("Condition"));
+            Assert.Equal("INSTALLFOLDER ~<> EXPECTEDINSTALLFOLDER", (string?)scheduled.Attribute("Condition"));
+        }
+    }
+
+    [Fact]
+    public void TheInstallFolderIsCheckedOnUninstallAndRepairToo()
+    {
+        // An uninstall and a repair run the installed service from [INSTALLFOLDER] as the system account
+        // as well, so the check is not limited to a first install. A correct installation is always in
+        // the expected folder, so its own uninstall and repair pass the same condition.
+        foreach (var sequence in new[] { "InstallUISequence", "InstallExecuteSequence" })
+        {
+            var scheduled = Package().Descendants(Wix + sequence).Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == "RefuseInstallFolder");
+            Assert.DoesNotContain("Installed", (string?)scheduled.Attribute("Condition"), StringComparison.Ordinal);
+            Assert.DoesNotContain("REMOVE", (string?)scheduled.Attribute("Condition"), StringComparison.Ordinal);
+        }
+
+        // Every step that runs a program from the install folder as the system account comes after the
+        // check in the same sequence: the check is right after CostFinalize, and they are before RemoveFiles.
+        foreach (var id in new[] { "RemoveUserData", "ReleaseForUpgrade" })
+        {
+            var command = Package().Descendants(Wix + "SetProperty").Single(p => (string?)p.Attribute("Id") == id);
+            Assert.StartsWith("\"[INSTALLFOLDER]", (string?)command.Attribute("Value"), StringComparison.Ordinal);
+            var scheduled = Package().Descendants(Wix + "InstallExecuteSequence").Elements(Wix + "Custom").Single(c => (string?)c.Attribute("Action") == id);
+            Assert.Equal("RemoveFiles", (string?)scheduled.Attribute("Before"));
         }
     }
 

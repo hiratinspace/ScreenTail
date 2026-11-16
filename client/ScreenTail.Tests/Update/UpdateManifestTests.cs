@@ -179,8 +179,11 @@ public sealed class UpdateManifestTests : IDisposable
     public void AManifestSignedForOneChannelIsRefusedOnTheOther(string signedFor, UpdateChannel device)
     {
         // The channel is inside the signed bytes, so a pilot release cannot be served to stable devices
-        // by copying its manifest to the stable path, nor the other way round.
-        var verdict = Read(Envelope(_signer, Payload(edit: p => p["channel"] = signedFor)), _signer.Public, device);
+        // by copying its manifest to the stable path, nor the other way round. Each is signed here by the
+        // key the trust file holds for its own channel, so only the device's channel refuses it.
+        Assert.True(UpdateChannels.TryParse(signedFor, out var keyChannel));
+        using var signer = new TestSigner("channel-key", keyChannel);
+        var verdict = Read(Envelope(signer, Payload(edit: p => p["channel"] = signedFor)), signer.Public, device);
 
         Assert.Equal(ManifestOutcome.Refused, verdict.Outcome);
         Assert.Equal(UpdateManifestReader.WrongChannel, verdict.Reason);
@@ -189,9 +192,60 @@ public sealed class UpdateManifestTests : IDisposable
     [Fact]
     public void APilotManifestIsReadOnThePilotChannel()
     {
-        var verdict = Read(Envelope(_signer, Payload(edit: p => p["channel"] = "pilot")), _signer.Public, UpdateChannel.Pilot);
+        using var pilot = new TestSigner("pilot-key", UpdateChannel.Pilot);
+        var verdict = Read(Envelope(pilot, Payload(edit: p => p["channel"] = "pilot")), pilot.Public, UpdateChannel.Pilot);
 
         Assert.Equal(ManifestOutcome.Offer, verdict.Outcome);
+    }
+
+    [Theory]
+    [InlineData(UpdateChannel.Stable)]
+    [InlineData(UpdateChannel.Pilot)]
+    public void AStableManifestSignedWithThePilotKeyIsRefused(UpdateChannel device)
+    {
+        // 2026-11-15 review: each key is trusted for one channel. A change to the step that signs pilot,
+        // making it sign "channel":"stable" with the pilot key, gives a manifest no installation believes,
+        // whichever channel it follows.
+        using var pilot = new TestSigner("pilot-key", UpdateChannel.Pilot);
+        using var stable = new TestSigner("stable-key", UpdateChannel.Stable);
+        var trust = Trust(pilot.Public, stable.Public);
+
+        var verdict = UpdateManifestReader.Read(Envelope(pilot, Payload()), trust, device, "x64", Installed);
+
+        Assert.Equal(ManifestOutcome.Refused, verdict.Outcome);
+        Assert.Equal(UpdateManifestReader.KeyNotForChannel, verdict.Reason);
+        Assert.Null(verdict.Manifest);
+    }
+
+    [Theory]
+    [InlineData(UpdateChannel.Stable)]
+    [InlineData(UpdateChannel.Pilot)]
+    public void APilotManifestSignedWithTheStableKeyIsRefused(UpdateChannel device)
+    {
+        using var pilot = new TestSigner("pilot-key", UpdateChannel.Pilot);
+        using var stable = new TestSigner("stable-key", UpdateChannel.Stable);
+        var trust = Trust(pilot.Public, stable.Public);
+
+        var verdict = UpdateManifestReader.Read(Envelope(stable, Payload(edit: p => p["channel"] = "pilot")), trust, device, "x64", Installed);
+
+        Assert.Equal(ManifestOutcome.Refused, verdict.Outcome);
+        Assert.Equal(UpdateManifestReader.KeyNotForChannel, verdict.Reason);
+    }
+
+    [Fact]
+    public void EachChannelsOwnKeyIsBelievedOnThatChannel()
+    {
+        using var pilot = new TestSigner("pilot-key", UpdateChannel.Pilot);
+        using var stable = new TestSigner("stable-key", UpdateChannel.Stable);
+        var trust = Trust(pilot.Public, stable.Public);
+
+        var onStable = UpdateManifestReader.Read(Envelope(stable, Payload()), trust, UpdateChannel.Stable, "x64", Installed);
+        var onPilot = UpdateManifestReader.Read(Envelope(pilot, Payload(edit: p => p["channel"] = "pilot")), trust, UpdateChannel.Pilot, "x64", Installed);
+
+        Assert.Equal(ManifestOutcome.Offer, onStable.Outcome);
+        Assert.Equal(UpdateChannel.Stable, onStable.Manifest!.Channel);
+        Assert.Equal(ManifestOutcome.Offer, onPilot.Outcome);
+        Assert.Equal(UpdateChannel.Pilot, onPilot.Manifest!.Channel);
     }
 
     public static TheoryData<string, byte[]> NotAnEnvelope() => new()

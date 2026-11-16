@@ -36,8 +36,10 @@
     With -Verify it signs nothing and checks the finished build instead: every file's signature is one
     Windows accepts; both executables have one and the same signing certificate; everything else in the
     payload is signed by that same publisher or arrived signed by Microsoft; the MSI, the setup program
-    and its engine are signed by that publisher; and every signature of ours carries a timestamp. An
-    unsigned build passes with a notice, unless SCREENTAIL_REQUIRE_SIGNING=1.
+    and its engine are signed by that publisher; and every signature of ours carries a timestamp. With
+    the Artifact Signing settings in its environment, every signature of ours must also carry Artifact
+    Signing's identity-validation usage, which installed builds compare updates by. An unsigned build
+    passes with a notice, unless SCREENTAIL_REQUIRE_SIGNING=1.
 
     It prints file names and the signing mode, never a credential. The signing tools run by absolute
     path: signtool from the Windows SDK, and Microsoft's Artifact Signing client at the version and
@@ -119,6 +121,21 @@ function Get-ArtifactSigningDlib([string]$Into) {
     return $dlib
 }
 
+function Test-ValidationUsage($Certificate) {
+    # True when the certificate carries an extended key usage under Artifact Signing's identity-validation
+    # arc, the one thing every certificate it issues for this publisher shares.
+    foreach ($extension in $Certificate.Extensions) {
+        if ($extension -is [System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]) {
+            foreach ($usage in $extension.EnhancedKeyUsages) {
+                if ([string]$usage.Value -like '1.3.6.1.4.1.311.97.*') {
+                    return $true
+                }
+            }
+        }
+    }
+    return $false
+}
+
 function Test-Build([string[]]$Files) {
     # The finished build, checked as a whole: what the peer checks and Windows will see.
     $mine = @('ScreenTail.Service.exe', 'ScreenTail.UI.exe')
@@ -160,6 +177,11 @@ function Test-Build([string[]]$Files) {
         if ($subject -eq $publisher) {
             if (-not $signature.TimeStamperCertificate) {
                 throw "$name was signed without a timestamp. An untimestamped signature stops verifying when its certificate expires."
+            }
+            # Installed builds accept an update from Artifact Signing's rotating certificates only by its
+            # identity-validation usage (PublisherIdentity), so a release signed that way must carry it.
+            if ($mode -eq 'artifact-signing' -and -not (Test-ValidationUsage $signature.SignerCertificate)) {
+                throw "$name was signed by Artifact Signing without an identity-validation usage (1.3.6.1.4.1.311.97.*), so installed builds would refuse it as an update."
             }
             $ours++
         } elseif (-not ($inPayload -and $subject -match 'O=Microsoft Corporation')) {

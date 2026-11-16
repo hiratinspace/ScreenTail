@@ -81,12 +81,15 @@
          ordinary users can change, and the uninstall would run the service from there as the system
          account. The expected folder comes from the environment, not from a property the same command
          line could set. Checked once the folders are resolved, in both sequences, so a silent install
-         refuses too. -->
+         refuses too. Checked for every run, not only a first install: an uninstall or a repair runs the
+         installed service from [INSTALLFOLDER] as the system account too, so a command line that names
+         another folder there is refused the same way. A correct installation is always in this folder, so
+         its uninstall and repair pass. -->
     <SetProperty Id="EXPECTEDINSTALLFOLDER" Value="[%ProgramW6432]\ScreenTail\" Before="CostInitialize" Sequence="both" />
     <CustomAction Id="RefuseInstallFolder"
-                  Error="ScreenTail installs only into its folder under Program Files. Remove INSTALLFOLDER from the command line and install again." />
+                  Error="ScreenTail lives only in its folder under Program Files. Remove INSTALLFOLDER from the command line and try again." />
     <InstallUISequence>
-      <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="NOT Installed AND INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
+      <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
     </InstallUISequence>
 
     <!-- Everything the publish produced, as it is laid out: both executables side by side at the top,
@@ -214,7 +217,7 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="NOT Installed AND INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
+      <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
       <Custom Action="RemoveUserData" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
       <Custom Action="ReleaseForUpgrade" Before="RemoveFiles" Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />
     </InstallExecuteSequence>

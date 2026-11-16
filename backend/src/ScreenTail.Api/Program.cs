@@ -210,6 +210,10 @@ var vault = builder.Configuration.GetSection(VaultOptions.Section).Get<VaultOpti
 builder.Services.AddSingleton(vault);
 builder.Services.AddScoped<IIntegrationVault, IntegrationVault>();
 
+// 2026-11-15 review. Once at startup, credentials stored before secrets were bound to their row are sealed
+// again bound (Vault:UpgradeOnStart, on by default). docs/security/key-rotation.md.
+builder.Services.AddHostedService<VaultSweep>();
+
 // Security check 2026-10-14. A tenant chooses its provider's site, so the PSA and documentation clients
 // connect only to public addresses, checked at connect time (PublicNetwork). The option that lifts this
 // is for Development and tests; anywhere else the service refuses to start with it on.
@@ -231,6 +235,7 @@ builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 var hudu = builder.Configuration.GetSection(HuduOptions.Section).Get<HuduOptions>() ?? new HuduOptions();
 builder.Services.AddSingleton(hudu);
 builder.Services.AddSingleton<HuduCompanyCache>();
+builder.Services.AddSingleton<MappingChangeLimit>();
 builder.Services.AddHttpClient(nameof(HuduProvider), ProviderHttp.Configure)
     .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();
@@ -366,7 +371,50 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
         scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
         scope.ServiceProvider.GetRequiredService<VaultOptions>(),
         scope.ServiceProvider.GetRequiredService<TimeProvider>());
-    Console.WriteLine($"rotated {rotated} credential(s) to master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    Console.WriteLine($"rotated {rotated.Changed} credential(s) to master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    foreach (var refused in rotated.RefusedLegacy)
+    {
+        Console.WriteLine($"refused legacy row {refused}: Vault:AllowLegacyRows is off, so it was left as it is");
+    }
+
+    foreach (var unopened in rotated.Unopenable)
+    {
+        Console.WriteLine($"legacy row {unopened} does not open under the key it names, so it was left as it is: ask the owner to connect that integration again");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
+
+// 2026-11-15 review. Seals every credential stored before secrets were bound to their row again, in the
+// bound form, and exits without listening. Each such row is also upgraded the first time it is opened;
+// this does the rest at once. A second run prints 0. docs/security/key-rotation.md.
+if (args.Contains("--upgrade-vault-rows", StringComparer.Ordinal))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var upgraded = await KeyRotation.UpgradeLegacyAsync(
+        scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
+        scope.ServiceProvider.GetRequiredService<VaultOptions>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>());
+    Console.WriteLine($"upgraded {upgraded.Changed} credential(s) to the bound form under master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    foreach (var refused in upgraded.RefusedLegacy)
+    {
+        Console.WriteLine($"refused legacy row {refused}: Vault:AllowLegacyRows is off, so it was left as it is");
+    }
+
+    foreach (var unopened in upgraded.Unopenable)
+    {
+        Console.WriteLine($"legacy row {unopened} does not open under the key it names, so it was left as it is: ask the owner to connect that integration again");
+        Environment.ExitCode = 1;
+    }
+
+    // Counted, not worked out: a row under a key this deployment does not hold is not opened above.
+    var left = await scope.ServiceProvider.GetRequiredService<ScreenTailContext>().Integrations.CountAsync(i => i.BindingVersion < Envelope.BindingVersion);
+    Console.WriteLine($"legacy rows left: {left}");
+    if (left > 0)
+    {
+        Environment.ExitCode = 1;
+    }
+
     return;
 }
 
@@ -412,6 +460,7 @@ app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseDraftingConcurrency();
+app.UsePublishConcurrency();
 
 // Liveness only: checks no dependencies and returns no data (INV-7, INV-10).
 app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")));
@@ -439,7 +488,7 @@ _ = app.MapGroup("/v1/devices").AllowAnonymous().MapDevices();
 // Mapped beside the device group, not inside it, so no device policy applies here and no owner policy
 // applies there.
 _ = app.MapGroup("/v1/admin").AllowAnonymous().WithMetadata(new RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit)).MapAdminSession();
-_ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin();
+_ = app.MapGroup("/v1/admin").RequireAuthorization(OwnerPolicy.Name).MapAdmin().MapAdminIntegrations();
 
 var v1 = app.MapGroup("/v1").RequireAuthorization(CallerPolicy.Name);
 _ = v1.MapMe();

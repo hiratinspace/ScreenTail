@@ -66,15 +66,127 @@ public sealed class UpdateTrustTests
         Assert.Throws<FormatException>(() => UpdateTrust.Parse(File(spki: Convert.ToBase64String(rsa.ExportSubjectPublicKeyInfo()))));
     }
 
-    private static string File(string? feed = "https://updates.screentail.example/feed/", string host = "downloads.screentail.example", string? spki = null, TestSigner? signer = null)
+    [Fact]
+    public void EachKeyIsReadWithTheOneChannelItIsTrustedFor()
+    {
+        using var pilot = new TestSigner("pilot-1", UpdateChannel.Pilot);
+        using var stable = new TestSigner("stable-1", UpdateChannel.Stable);
+
+        var trust = UpdateTrust.Parse(File(keys: [KeyEntry(pilot), KeyEntry(stable)]));
+
+        Assert.Equal(UpdateChannel.Pilot, trust.Keys.Single(k => k.Id == "pilot-1").Channel);
+        Assert.Equal(UpdateChannel.Stable, trust.Keys.Single(k => k.Id == "stable-1").Channel);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("all")]
+    [InlineData("Stable")]
+    [InlineData("pilot,stable")]
+    public void AKeyWithoutExactlyOneChannelIsRefused(string? channel)
+    {
+        // The trust file says which channel each key may sign for, and nothing else is guessed at: a key
+        // with no channel, or one that names both, would let one key sign both channels.
+        using var signer = new TestSigner();
+        var entry = KeyEntry(signer);
+        if (channel is null)
+        {
+            _ = entry.Remove("channel");
+        }
+        else
+        {
+            entry["channel"] = channel;
+        }
+
+        Assert.Throws<FormatException>(() => UpdateTrust.Parse(File(keys: [entry])));
+    }
+
+    [Fact]
+    public void AKeyChannelThatIsNotAStringIsRefused()
+    {
+        using var signer = new TestSigner();
+        var entry = KeyEntry(signer);
+        entry["channel"] = new JsonArray("pilot", "stable");
+
+        Assert.Throws<FormatException>(() => UpdateTrust.Parse(File(keys: [entry])));
+    }
+
+    [Fact]
+    public void OneKeyListedForBothChannelsIsRefused()
+    {
+        // The same public key under two ids, one per channel, is one key trusted for both.
+        using var signer = new TestSigner();
+        var asPilot = KeyEntry(signer);
+        asPilot["id"] = "as-pilot";
+        asPilot["channel"] = "pilot";
+        var asStable = KeyEntry(signer);
+        asStable["id"] = "as-stable";
+        asStable["channel"] = "stable";
+
+        Assert.Throws<FormatException>(() => UpdateTrust.Parse(File(keys: [asPilot, asStable])));
+    }
+
+    [Fact]
+    public void OneIdForTwoKeysIsRefused()
+    {
+        using var pilot = new TestSigner("same-id", UpdateChannel.Pilot);
+        using var stable = new TestSigner("same-id", UpdateChannel.Stable);
+
+        Assert.Throws<FormatException>(() => UpdateTrust.Parse(File(keys: [KeyEntry(pilot), KeyEntry(stable)])));
+    }
+
+    [Fact]
+    public void TheRepositoryTrustFileHasTheChannelShapeEvenWhileEmpty()
+    {
+        // shared/release/update-trust.json, as committed: it parses with the strict reader (or the build
+        // would check for nothing without saying why), and it documents that each key names its channel.
+        var path = Path.Combine(RepositoryRoot(), "shared", "release", "update-trust.json");
+        var text = System.IO.File.ReadAllText(path);
+
+        var trust = UpdateTrust.Parse(text);
+        Assert.False(trust.Configured);
+        Assert.Contains("channel", JsonNode.Parse(text)!["_comment"]!.ToJsonString(), StringComparison.Ordinal);
+        Assert.All(JsonNode.Parse(text)!["keys"]!.AsArray(), k => Assert.NotNull(k!["channel"]));
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !System.IO.File.Exists(Path.Combine(directory.FullName, "shared", "release", "update-trust.json")))
+        {
+            directory = directory.Parent;
+        }
+
+        return directory?.FullName ?? throw new DirectoryNotFoundException("shared/release/update-trust.json was not found above the test binary.");
+    }
+
+    private static JsonObject KeyEntry(TestSigner signer)
+    {
+        var key = signer.Public;
+        return new JsonObject { ["id"] = key.Id, ["channel"] = key.Channel.ToWire(), ["spki"] = Convert.ToBase64String(key.SubjectPublicKeyInfo) };
+    }
+
+    private static string File(string? feed = "https://updates.screentail.example/feed/", string host = "downloads.screentail.example", string? spki = null, TestSigner? signer = null, JsonObject[]? keys = null)
     {
         using var made = signer is null ? new TestSigner() : null;
-        var key = (signer ?? made)!.Public;
+        var entry = KeyEntry((signer ?? made)!);
+        if (spki is not null)
+        {
+            entry["spki"] = spki;
+        }
+
+        var list = new JsonArray();
+        foreach (var key in keys ?? [entry])
+        {
+            list.Add(key);
+        }
+
         return new JsonObject
         {
             ["feed"] = feed,
             ["packageHosts"] = new JsonArray(host),
-            ["keys"] = new JsonArray(new JsonObject { ["id"] = key.Id, ["spki"] = spki ?? Convert.ToBase64String(key.SubjectPublicKeyInfo) }),
+            ["keys"] = list,
         }.ToJsonString();
     }
 }

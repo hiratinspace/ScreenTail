@@ -76,6 +76,35 @@ public sealed class EnvelopeTests
     }
 
     [Fact]
+    public void ABoundSecretOpensOnlyWithItsOwnBinding()
+    {
+        // 2026-11-15 review: the tenant, provider and host are associated data, so the same sealed bytes
+        // under the right key still refuse to open for any other row, or with no binding at all.
+        var tenant = Guid.NewGuid();
+        var binding = Envelope.BindingFor(tenant, "connectwise", "https://na.myconnectwise.net");
+        var sealed_ = Envelope.Seal(Secret, Master, binding);
+
+        Assert.Equal(Secret, Envelope.Open(sealed_, Master, binding));
+        Assert.Equal(Secret, Envelope.Open(sealed_, Master, Envelope.BindingFor(tenant, "connectwise", "HTTPS://NA.myconnectwise.net/v4_6_release/")));
+        Assert.ThrowsAny<CryptographicException>(() => Envelope.Open(sealed_, Master));
+        Assert.ThrowsAny<CryptographicException>(() => Envelope.Open(sealed_, Master, Envelope.BindingFor(Guid.NewGuid(), "connectwise", "https://na.myconnectwise.net")));
+        Assert.ThrowsAny<CryptographicException>(() => Envelope.Open(sealed_, Master, Envelope.BindingFor(tenant, "hudu", "https://na.myconnectwise.net")));
+        Assert.ThrowsAny<CryptographicException>(() => Envelope.Open(sealed_, Master, Envelope.BindingFor(tenant, "connectwise", "https://evil.example.com")));
+        Assert.ThrowsAny<CryptographicException>(() => Envelope.Open(sealed_, Master, Envelope.BindingFor(tenant, "connectwise", "https://na.myconnectwise.net:8443")));
+    }
+
+    [Fact]
+    public void RewrappingKeepsTheBinding()
+    {
+        var next = RandomNumberGenerator.GetBytes(32);
+        var binding = Envelope.BindingFor(Guid.NewGuid(), "hudu", "https://acme.huducloud.com");
+        var rewrapped = Envelope.Rewrap(Envelope.Seal(Secret, Master, binding), Master, next);
+
+        Assert.Equal(Secret, Envelope.Open(rewrapped, next, binding));
+        Assert.ThrowsAny<CryptographicException>(() => Envelope.Open(rewrapped, next));
+    }
+
+    [Fact]
     public void AKeyIdIsNotTheKey()
     {
         // Stored beside every row so rotation knows which master key wrapped it. Short, one-way, and the

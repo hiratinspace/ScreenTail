@@ -20,7 +20,7 @@ namespace ScreenTail.Api.Tests.Providers.ConnectWise;
 
 /// <summary>
 /// The provider a tenant gets is built from the credential the vault holds for it, and nothing else
-/// (ST-091 with ST-009). No credential, no provider; the client sees "Connect a PSA to publish".
+/// (ST-091 with ST-009). No credential, no provider; the client is told the owner connects one in the web admin.
 /// </summary>
 public sealed class ConnectWiseFactoryTests : IAsyncDisposable
 {
@@ -116,7 +116,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         using var host = HostWith(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
 
         using var response = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
         var found = await response.Content.ReadFromJsonAsync<TicketSearchResponse>(TestContext.Current.CancellationToken);
@@ -139,6 +139,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Contains("no_psa", body, StringComparison.Ordinal);
+        Assert.Equal("No PSA is connected, so tickets cannot be searched. Your owner connects one in the web admin.", System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("message").GetString());
     }
 
     [Fact]
@@ -148,14 +149,14 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         using var host = HostWith(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG"));
 
         using var response = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
         var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Contains("unauthenticated", body, StringComparison.Ordinal);
-        Assert.Contains("Settings", body, StringComparison.Ordinal);
+        Assert.Contains("web admin", body, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -167,7 +168,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         using var host = HostWith(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
 
         using var response = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
         var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
@@ -185,7 +186,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         using var host = HostWith(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
 
         using var response = await client.GetAsync(new Uri("/v1/psa/tickets", UriKind.Relative), TestContext.Current.CancellationToken);
         var found = await response.Content.ReadFromJsonAsync<TicketSearchResponse>(TestContext.Current.CancellationToken);
@@ -216,7 +217,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
         using var host = HostWith(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         _ = await api.UseAsync(db => db.Devices
             .Where(d => d.Id == deviceId)

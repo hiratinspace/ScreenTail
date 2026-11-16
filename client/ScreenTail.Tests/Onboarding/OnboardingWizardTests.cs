@@ -154,7 +154,46 @@ public sealed class OnboardingWizardTests
         wizard.Skip();
 
         Assert.Equal(OnboardingStep.TryIt, wizard.Step);
-        Assert.Empty(integrations.Stored);
+        Assert.Equal(1, integrations.Listed);
+    }
+
+    [Fact]
+    public async Task ConnectShowsWhatIsConnectedAndContinuesWithNothingToType()
+    {
+        // Spec v0.6.15 S8 step 5: integration credentials can only be changed by the tenant owner, in the
+        // web admin. The step reads what is connected and can be continued as well as skipped.
+        var integrations = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)],
+        };
+        var wizard = Wizard(integrations: integrations);
+        wizard.Go(OnboardingStep.Connect);
+        await wizard.LoadStepAsync();
+
+        Assert.True(wizard.Integrations.ConnectWise.Connected);
+        Assert.Equal(IntegrationCard.OwnerManages, wizard.Integrations.ConnectWise.OwnerLine);
+        Assert.False(wizard.Integrations.Hudu.Connected);
+        Assert.Null(wizard.Blocker);
+        Assert.True(wizard.CanContinue);
+        Assert.True(wizard.CanSkip);
+
+        wizard.Next();
+        Assert.Equal(OnboardingStep.TryIt, wizard.Step);
+    }
+
+    [Fact]
+    public void ConnectSaysTheOwnerConnectsTheIntegrations()
+    {
+        Assert.Equal("Your owner connects ConnectWise and Hudu in the web admin. You can publish once they have.", OnboardingWizard.ConnectByOwner);
+        Assert.DoesNotContain('—', OnboardingWizard.ConnectByOwner);
+        Assert.DoesNotContain('!', OnboardingWizard.ConnectByOwner);
+    }
+
+    [Fact]
+    public void TheStepsAreStillSevenWithConnectFifth()
+    {
+        Assert.Equal(7, Wizard().StepCount);
+        Assert.Equal(4, (int)OnboardingStep.Connect);
     }
 
     [Fact]
@@ -290,17 +329,15 @@ public sealed class OnboardingWizardTests
 
     private sealed class FakeIntegrations : IIntegrationsGateway
     {
-        public List<string> Stored { get; } = [];
+        public IReadOnlyList<IntegrationDetail> Rows { get; set; } = [];
 
-        public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<IntegrationDetail>?>([]);
+        public int Listed { get; private set; }
 
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
+        public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default)
         {
-            Stored.Add(provider);
-            return Task.FromResult<string?>(null);
+            Listed++;
+            return Task.FromResult<IReadOnlyList<IntegrationDetail>?>(Rows);
         }
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) => Task.FromResult(new CheckOutcome(true, "Connected."));
 

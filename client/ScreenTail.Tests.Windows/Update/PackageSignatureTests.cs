@@ -47,17 +47,25 @@ public sealed class PackageSignatureTests : IDisposable
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
-    public void TwoFilesFromOnePublisherAreTheSamePublisherWhateverTheirLeaf()
+    public void WithoutAnIdentityValidationTwoFilesAreOnePublisherOnlyUnderOneKey()
     {
-        // The host resolver and the muxer are signed separately, sometimes on different days. Whether or
-        // not their leaves differ, the identity is the publisher's and must compare equal.
+        // The host resolver and the muxer are signed separately, sometimes on different days. Microsoft's
+        // certificates carry no Artifact Signing identity-validation usage, so the subject alone does not
+        // decide: they compare as one publisher exactly when the same key signed both. (A ScreenTail
+        // release carries that usage, and its rotating leaves compare by it; the Mac suite holds that.)
         var fxr = Directory.GetFiles(Path.Combine(Path.GetDirectoryName(Dotnet)!, "host", "fxr"), "hostfxr.dll", SearchOption.AllDirectories).First();
         var muxer = Authenticode.Publisher(Dotnet);
         var resolver = Authenticode.Publisher(fxr);
 
         Assert.NotNull(muxer);
         Assert.NotNull(resolver);
-        Assert.Null(PublisherIdentity.Mismatch(muxer, resolver));
+        Assert.Matches("^[0-9a-f]{64}$", muxer.PublicKeySha256);
+        Assert.Matches("^[0-9a-f]{64}$", resolver.PublicKeySha256);
+        var expected = muxer.Subject == resolver.Subject
+            && (muxer.ValidationOids.Count > 0
+                ? muxer.ValidationOids.SetEquals(resolver.ValidationOids)
+                : muxer.PublicKeySha256 == resolver.PublicKeySha256);
+        Assert.Equal(expected, PublisherIdentity.Mismatch(muxer, resolver) is null);
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
@@ -140,7 +148,7 @@ public sealed class PackageSignatureTests : IDisposable
         // holds its handle.
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var package = Encoding.ASCII.GetBytes(new string('m', 8192));
-        var trust = new UpdateTrust(new Uri("https://updates.screentail.example/feed/"), new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "downloads.screentail.example" }, [new UpdateKey("k", signer.ExportSubjectPublicKeyInfo())]);
+        var trust = new UpdateTrust(new Uri("https://updates.screentail.example/feed/"), new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "downloads.screentail.example" }, [new UpdateKey("k", UpdateChannel.Stable, signer.ExportSubjectPublicKeyInfo())]);
         var feed = new Feed(Manifest(signer, package), package);
         var updatesFolder = Path.Combine(_dir, "Updates");
         using var updates = new UpdateService(
