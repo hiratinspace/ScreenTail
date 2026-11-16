@@ -169,11 +169,14 @@ public sealed class DeviceSignInEgressTests
         Assert.Equal(0, far.PublishRequests);
     }
 
-    [Fact]
-    public async Task ASignInThatFailsLeavesTheGatewaysOwnRefusal()
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "The backend answered 503 when this device signed in.")]
+    [InlineData(HttpStatusCode.Unauthorized, DeviceSession.RevokedStanding)]
+    public async Task ASignInThatFailsSaysWhyRatherThanNotEnrolled(HttpStatusCode status, string expected)
     {
-        // The backend does not answer the sign-in: the publish is refused in the words it always used.
-        var far = new TokenBackend { TokenStatus = HttpStatusCode.ServiceUnavailable };
+        // An activated device is enrolled. A backend that is down, or a device that was revoked, used to
+        // read as "not enrolled yet" here, which sends a technician looking for an invite they already used.
+        var far = new TokenBackend { TokenStatus = status };
         using var http = new HttpClient(new EgressGuard(Policy(localOnly: true, enforced: true), far)) { BaseAddress = Backend };
         var device = new DeviceSession(http, Activated(), time: new ManualTime(T0));
         var gateway = SigningInPsaGateway.For(new PsaGateway(http, () => device.CurrentToken), device);
@@ -181,8 +184,80 @@ public sealed class DeviceSignInEgressTests
         var answer = await gateway.PublishAsync(Wire(), TestContext.Current.CancellationToken);
 
         Assert.False(answer.Ok);
-        Assert.Contains("not enrolled", answer.Refusal, StringComparison.Ordinal);
+        Assert.Equal(expected, answer.Refusal);
         Assert.Equal(0, far.PublishRequests);
+    }
+
+    [Fact]
+    public async Task ABackendThatDoesNotAnswerTheSignInIsSaidToNotAnswerWithinTheSignInsOwnTimeout()
+    {
+        // The client's own timeout is a hundred seconds; a technician waiting on Publish is told sooner.
+        var far = new SilentBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: true, enforced: true), far)) { BaseAddress = Backend };
+        var time = new FiringTime(T0);
+        var device = new DeviceSession(http, Activated(), time: time);
+        var gateway = SigningInPsaGateway.For(new PsaGateway(http, () => device.CurrentToken), device);
+
+        var answer = await gateway.PublishAsync(Wire(), TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        Assert.Equal(DeviceSession.NotAnswered, answer.Refusal);
+        Assert.Contains(DeviceSession.SignInTimeout, time.Asked);
+    }
+
+    [Fact]
+    public async Task ADeviceNeverActivatedStillHearsTheGatewaysOwnWords()
+    {
+        var far = new TokenBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: true, enforced: true), far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, new DeviceSessionTests.InMemoryCredentials(), time: new ManualTime(T0));
+        var gateway = SigningInPsaGateway.For(new PsaGateway(http, () => device.CurrentToken), device);
+
+        var answer = await gateway.PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.Contains("not enrolled", answer.Refusal, StringComparison.Ordinal);
+        Assert.Equal(0, far.TokenRequests);
+    }
+
+    [Fact]
+    public async Task SignInsThatArriveTogetherShareOneRequest()
+    {
+        // A publish, the policy fetch and the timer in the same second buy one token, not three.
+        var far = new HeldTokenBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: false), far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, Activated(), time: new ManualTime(T0));
+        var ct = TestContext.Current.CancellationToken;
+
+        var publish = device.SignInAsync(EgressPurpose.Publish, ct);
+        await far.Arrived(1).WaitAsync(TimeSpan.FromSeconds(30), ct);
+        var policy = device.EnsureTokenAsync(EgressPurpose.Policy, ct);
+        var background = device.RefreshAsync(ct);
+        far.Release();
+
+        Assert.Equal("access-1", (await publish).Token);
+        Assert.Equal("access-1", await policy);
+        Assert.True(await background);
+        Assert.Equal(1, far.Requests);
+    }
+
+    [Fact]
+    public async Task ASignInForAPublishDoesNotWaitOnABackgroundRenewal()
+    {
+        // A background renewal is the one local-only may refuse where it would let a publish's sign-in
+        // through, so a publish arriving while one is in flight sends its own rather than share its answer.
+        var far = new HeldTokenBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: false), far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, Activated(), time: new ManualTime(T0));
+        var ct = TestContext.Current.CancellationToken;
+
+        var background = device.RefreshAsync(ct);
+        await far.Arrived(1).WaitAsync(TimeSpan.FromSeconds(30), ct);
+        var publish = device.SignInAsync(EgressPurpose.Publish, ct);
+        await far.Arrived(2).WaitAsync(TimeSpan.FromSeconds(30), ct);
+        far.Release();
+
+        Assert.True(await background);
+        Assert.NotNull((await publish).Token);
+        Assert.Equal(2, far.Requests);
     }
 
     [Theory]
@@ -342,6 +417,71 @@ public sealed class DeviceSignInEgressTests
         }
 
         private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body) };
+    }
+
+    /// <summary>A backend that takes the request and never answers it.</summary>
+    private sealed class SilentBackend : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            throw new InvalidOperationException("unreachable");
+        }
+    }
+
+    /// <summary>Answers each sign-in with a token, but only once the test releases them all.</summary>
+    private sealed class HeldTokenBackend : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource[] _arrived = [new(TaskCreationOptions.RunContinuationsAsynchronously), new(TaskCreationOptions.RunContinuationsAsynchronously)];
+        private int _requests;
+
+        public int Requests => Volatile.Read(ref _requests);
+
+        /// <summary>Completes once the <paramref name="nth"/> request (1 or 2) has arrived.</summary>
+        public Task Arrived(int nth) => _arrived[nth - 1].Task;
+
+        public void Release() => _release.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var n = Interlocked.Increment(ref _requests);
+            if (n <= _arrived.Length)
+            {
+                _ = _arrived[n - 1].TrySetResult();
+            }
+
+            await _release.Task.WaitAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { accessToken = $"access-{n}", expiresAt = T0.AddHours(1) }) };
+        }
+    }
+
+    /// <summary>A clock standing still whose timers fire at once, and which remembers what they were set for.</summary>
+    private sealed class FiringTime(DateTimeOffset now) : TimeProvider
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<TimeSpan> _asked = new();
+
+        public IReadOnlyCollection<TimeSpan> Asked => _asked;
+
+        public override DateTimeOffset GetUtcNow() => now;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            _asked.Enqueue(dueTime);
+            _ = ThreadPool.QueueUserWorkItem(_ => callback(state));
+            return new Never();
+        }
+
+        private sealed class Never : ITimer
+        {
+            public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+
+            public void Dispose()
+            {
+            }
+
+            public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        }
     }
 
     private sealed class NoCache : IPolicyCache

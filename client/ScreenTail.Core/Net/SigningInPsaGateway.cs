@@ -9,78 +9,65 @@ namespace ScreenTail.Core.Net;
 /// ticket, opened Integrations. Under local-only the background renewal does not run (INV-8), so after a
 /// long idle the access token in hand has run out; each call here asks for a fresh one first, on behalf
 /// of the publish, which local-only lets out. With a token that has not run out nothing extra is sent.
-/// A sign-in that fails changes nothing: the inner gateway then says the device is not signed in, in the
-/// words it always used.
+///
+/// A sign-in that fails for an activated device answers with the sign-in's own reason (the backend did
+/// not answer, the device was revoked) rather than letting the gateway say the device is not enrolled,
+/// which it is. A device that was never activated still hears the gateway's own words.
 /// </summary>
-public sealed class SigningInPsaGateway(IPsaGateway inner, Func<CancellationToken, Task> signIn) : IPsaGateway
+/// <param name="signIn">Signs in; returns the refusal to answer with, or null to go on to the gateway.</param>
+public sealed class SigningInPsaGateway(IPsaGateway inner, Func<CancellationToken, Task<string?>> signIn) : IPsaGateway
 {
     private readonly IPsaGateway _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-    private readonly Func<CancellationToken, Task> _signIn = signIn ?? throw new ArgumentNullException(nameof(signIn));
+    private readonly Func<CancellationToken, Task<string?>> _signIn = signIn ?? throw new ArgumentNullException(nameof(signIn));
 
     /// <summary>Signs in through <paramref name="device"/> on behalf of a publish.</summary>
     public static SigningInPsaGateway For(IPsaGateway inner, DeviceSession device)
     {
         ArgumentNullException.ThrowIfNull(device);
-        return new SigningInPsaGateway(inner, ct => device.EnsureTokenAsync(EgressPurpose.Publish, ct));
+        return new SigningInPsaGateway(inner, async ct =>
+        {
+            var signedIn = await device.SignInAsync(EgressPurpose.Publish, ct).ConfigureAwait(false);
+            return signedIn.Token is null && device.Activated ? signedIn.Refusal : null;
+        });
     }
 
-    public async Task<GatewayAnswer<IReadOnlyList<IntegrationInfo>>> IntegrationsAsync(CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.IntegrationsAsync(ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<IReadOnlyList<IntegrationInfo>>> IntegrationsAsync(CancellationToken ct = default) =>
+        ThenAsync(_inner.IntegrationsAsync, ct);
 
-    public async Task<GatewayAnswer<IReadOnlyList<TicketRow>>> SearchTicketsAsync(string query, CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.SearchTicketsAsync(query, ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<IReadOnlyList<TicketRow>>> SearchTicketsAsync(string query, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.SearchTicketsAsync(query, c), ct);
 
-    public async Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.PublishAsync(bundle, ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<IReadOnlyList<PublishOutcomeRow>>> PublishAsync(PublishWire bundle, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.PublishAsync(bundle, c), ct);
 
-    public async Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.CompanyMappingsAsync(ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<CompanyMappingsAnswer>> CompanyMappingsAsync(CancellationToken ct = default) =>
+        ThenAsync(_inner.CompanyMappingsAsync, ct);
 
-    public async Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.MapCompanyAsync(psaCompany, docCompanyId, ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<bool>> MapCompanyAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.MapCompanyAsync(psaCompany, docCompanyId, c), ct);
 
-    public async Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.IntegrationDetailsAsync(ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default) =>
+        ThenAsync(_inner.IntegrationDetailsAsync, ct);
 
-    public async Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.StoreIntegrationAsync(provider, siteUrl, secret, ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.StoreIntegrationAsync(provider, siteUrl, secret, c), ct);
 
-    public async Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.RemoveIntegrationAsync(provider, ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.RemoveIntegrationAsync(provider, c), ct);
 
-    public async Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default)
-    {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.CheckIntegrationAsync(provider, ct).ConfigureAwait(false);
-    }
+    public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.CheckIntegrationAsync(provider, c), ct);
 
-    public async Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default)
+    public Task<GatewayAnswer<bool>> UnmapCompanyAsync(string psaCompany, CancellationToken ct = default) =>
+        ThenAsync(c => _inner.UnmapCompanyAsync(psaCompany, c), ct);
+
+    private async Task<GatewayAnswer<T>> ThenAsync<T>(Func<CancellationToken, Task<GatewayAnswer<T>>> call, CancellationToken ct)
     {
-        await _signIn(ct).ConfigureAwait(false);
-        return await _inner.UnmapCompanyAsync(psaCompany, ct).ConfigureAwait(false);
+        if (await _signIn(ct).ConfigureAwait(false) is { } refusal)
+        {
+            return GatewayAnswer.Refused<T>(refusal);
+        }
+
+        return await call(ct).ConfigureAwait(false);
     }
 }

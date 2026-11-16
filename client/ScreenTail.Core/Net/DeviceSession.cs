@@ -20,6 +20,10 @@ public interface IDeviceCredentials
 
 public sealed record ActivatedDeviceRow(string TenantName, Guid DeviceId);
 
+/// <param name="Token">The bearer token to send, or null when there is none.</param>
+/// <param name="Refusal">Why there is none, in words a technician can read. Null when there is a token.</param>
+public sealed record DeviceSignIn(string? Token, string? Refusal);
+
 /// <summary>ST-010 AC3: seven days from the last answer. A number the diagnostics show, not a switch capture trips on.</summary>
 public static class OfflineGrace
 {
@@ -49,6 +53,16 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     private static readonly TimeSpan Margin = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const string ErasedRefusal = "Everything on this device is being deleted, so it was not activated.";
+    private const string ErasedSignIn = "Everything on this device is being deleted, so it did not sign in.";
+
+    /// <summary>How long a sign-in waits for the backend before saying it did not answer.</summary>
+    public static readonly TimeSpan SignInTimeout = TimeSpan.FromSeconds(20);
+
+    /// <summary>What a sign-in the backend did not answer says, in place of "not enrolled".</summary>
+    public const string NotAnswered = "The backend did not answer, so this device could not sign in. Try again in a moment.";
+
+    /// <summary>What the device card says, and a sign-in the backend refused, once access was revoked.</summary>
+    public const string RevokedStanding = "This device's access was revoked. Ask your admin for a new invite.";
 
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
     private readonly IDeviceCredentials _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
@@ -57,6 +71,15 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     private string? _access;
     private DateTimeOffset _accessExpires;
     private volatile bool _erased;
+    private Task<string?>? _signingIn;
+    private EgressPurpose? _signingInFor;
+
+    /// <summary>
+    /// What the device card says, and an activation is refused with, when no backend address is configured
+    /// for a reason the technician cannot fix: an installed build whose administrator has not set the
+    /// address (<see cref="DeploymentAddresses"/>). Null keeps the plain wording.
+    /// </summary>
+    public string? NoBackendNote { get; init; }
 
     public bool Activated => _credentials.Load() is not null;
 
@@ -101,7 +124,12 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         {
             if (Revoked)
             {
-                return "This device's access was revoked. Ask your admin for a new invite.";
+                return RevokedStanding;
+            }
+
+            if (_http.BaseAddress is null && NoBackendNote is { } note)
+            {
+                return note;
             }
 
             if (_credentials.Load() is not { } credential)
@@ -124,7 +152,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     {
         if (_http.BaseAddress is null)
         {
-            return GatewayAnswer.Refused<ActivatedDeviceRow>("No backend is configured, so this device cannot be activated.");
+            return GatewayAnswer.Refused<ActivatedDeviceRow>(NoBackendNote ?? "No backend is configured, so this device cannot be activated.");
         }
 
         if (_erased)
@@ -188,14 +216,16 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     /// Buys a new access token on the background schedule. False when there was nothing to buy it with, or
     /// the backend said no or nothing, or local-only mode refused a renewal nobody asked for (INV-8).
     /// </summary>
-    public Task<bool> RefreshAsync(CancellationToken ct = default) => RefreshCoreAsync(onBehalfOf: null, ct);
+    public async Task<bool> RefreshAsync(CancellationToken ct = default) =>
+        await SharedSignInAsync(onBehalfOf: null, ct).ConfigureAwait(false) is null;
 
     /// <summary>
     /// Buys a new access token for <paramref name="onBehalfOf"/>: <see cref="EgressPurpose.Publish"/> when the
     /// technician pressed something, <see cref="EgressPurpose.Policy"/> before a policy fetch. Under local-only
     /// those are the only renewals that go (2026-11-15 review).
     /// </summary>
-    public Task<bool> RefreshAsync(EgressPurpose onBehalfOf, CancellationToken ct = default) => RefreshCoreAsync(onBehalfOf, ct);
+    public async Task<bool> RefreshAsync(EgressPurpose onBehalfOf, CancellationToken ct = default) =>
+        await SharedSignInAsync(onBehalfOf, ct).ConfigureAwait(false) is null;
 
     /// <summary>
     /// The token to send for <paramref name="onBehalfOf"/>, renewed first when the one in hand has run out
@@ -203,31 +233,96 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     /// renewal does not run there, so the token the publish needs is bought when the publish asks for it.
     /// Null when there is none to send (not activated, revoked, or the backend did not answer).
     /// </summary>
-    public async Task<string?> EnsureTokenAsync(EgressPurpose onBehalfOf, CancellationToken ct = default)
+    public async Task<string?> EnsureTokenAsync(EgressPurpose onBehalfOf, CancellationToken ct = default) =>
+        (await SignInAsync(onBehalfOf, ct).ConfigureAwait(false)).Token;
+
+    /// <summary>
+    /// <see cref="EnsureTokenAsync"/>, with the reason when there is no token: the backend did not answer,
+    /// the device was revoked, local-only refused it. A caller that would otherwise say "not enrolled" says
+    /// this instead (2026-11-15 review).
+    /// </summary>
+    public async Task<DeviceSignIn> SignInAsync(EgressPurpose onBehalfOf, CancellationToken ct = default)
     {
         if (CurrentToken is { } current)
         {
-            return current;
+            return new DeviceSignIn(current, null);
         }
 
+        string? refusal;
         try
         {
-            _ = await RefreshCoreAsync(onBehalfOf, ct).ConfigureAwait(false);
+            refusal = await SharedSignInAsync(onBehalfOf, ct).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // A credential save that throws comes after the new token is held; the caller still gets it.
         catch (Exception ex) when (ex is not OperationCanceledException)
 #pragma warning restore CA1031
         {
+            refusal = null;
         }
 
-        return CurrentToken;
+        return CurrentToken is { } token
+            ? new DeviceSignIn(token, null)
+            : new DeviceSignIn(null, refusal ?? NotAnswered);
     }
 
-    private async Task<bool> RefreshCoreAsync(EgressPurpose? onBehalfOf, CancellationToken ct)
+    /// <summary>
+    /// One sign-in at a time, which a caller arriving meanwhile waits for rather than sending its own: a
+    /// publish, the policy fetch and the timer in the same second buy one token, not three. A sign-in on
+    /// behalf of something does not wait on a background renewal, which local-only may refuse where it
+    /// would not refuse that one. The sign-in is bounded by <see cref="SignInTimeout"/> rather than by the
+    /// first caller's token, so one caller giving up does not cancel it for the others.
+    /// </summary>
+    /// <returns>Null when a new token was bought; otherwise why not, in words a technician can read.</returns>
+    private async Task<string?> SharedSignInAsync(EgressPurpose? onBehalfOf, CancellationToken ct)
     {
-        if (_erased || _credentials.Load() is not { } credential || _http.BaseAddress is null)
+        TaskCompletionSource<string?>? mine = null;
+        Task<string?> running;
+        lock (_gate)
         {
-            return false;
+            if (_signingIn is { IsCompleted: false } inFlight && (onBehalfOf is null || _signingInFor is not null))
+            {
+                running = inFlight;
+            }
+            else
+            {
+                mine = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _signingIn = running = mine.Task;
+                _signingInFor = onBehalfOf;
+            }
+        }
+
+        if (mine is not null)
+        {
+            try
+            {
+                mine.SetResult(await RefreshCoreAsync(onBehalfOf).ConfigureAwait(false));
+            }
+#pragma warning disable CA1031 // Handed on to every caller waiting on it, this one included, by the await below.
+            catch (Exception ex)
+#pragma warning restore CA1031
+            {
+                mine.SetException(ex);
+            }
+        }
+
+        return await running.WaitAsync(ct).ConfigureAwait(false);
+    }
+
+    private async Task<string?> RefreshCoreAsync(EgressPurpose? onBehalfOf)
+    {
+        if (_erased)
+        {
+            return ErasedSignIn;
+        }
+
+        if (_credentials.Load() is not { } credential)
+        {
+            return "This device is not activated yet. Enter the code from your invite.";
+        }
+
+        if (_http.BaseAddress is null)
+        {
+            return NoBackendNote ?? "No backend is configured, so this device cannot sign in.";
         }
 
         // Its own purpose, never Publish: the background renewal used to go out under Publish, so local-only
@@ -239,14 +334,22 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         }
 
         request.Content = JsonContent.Create(new RefreshBody(credential.RefreshToken), options: Json);
+
+        // A sign-in in front of a publish is waited on by the technician: twenty seconds, not the client's
+        // hundred, before saying the backend did not answer.
+        using var timeout = new CancellationTokenSource(SignInTimeout, _time);
         HttpResponseMessage response;
         try
         {
-            response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            response = await _http.SendAsync(request, timeout.Token).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested) || ex is EgressBlockedException)
+        catch (EgressBlockedException blocked)
         {
-            return false;
+            return blocked.Message;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            return NotAnswered;
         }
 
         using (response)
@@ -255,36 +358,40 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
             {
                 Revoked = true;
                 Forget();
-                return false;
+                return RevokedStanding;
             }
 
             if (response.StatusCode != HttpStatusCode.OK)
             {
-                return false;
+                return $"The backend answered {(int)response.StatusCode} when this device signed in.";
             }
 
             TokenAnswer? answer;
             try
             {
-                answer = await response.Content.ReadFromJsonAsync<TokenAnswer>(Json, ct).ConfigureAwait(false);
+                answer = await response.Content.ReadFromJsonAsync<TokenAnswer>(Json, timeout.Token).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
-                return false;
+                answer = null;
+            }
+            catch (OperationCanceledException)
+            {
+                return NotAnswered;
             }
 
             if (answer is null || string.IsNullOrEmpty(answer.AccessToken))
             {
-                return false;
+                return "The backend answered something this version does not understand.";
             }
 
             if (!Keep(credential with { LastContactAt = _time.GetUtcNow() }, answer.AccessToken, answer.ExpiresAt))
             {
-                return false;
+                return ErasedSignIn;
             }
 
             Revoked = false;
-            return true;
+            return null;
         }
     }
 
