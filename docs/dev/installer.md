@@ -205,7 +205,8 @@ nobody signed never updates itself either.
 - The download's size and SHA-256. Then, just before Windows Installer starts, the same again through
   a handle that stops the file being changed, renamed or deleted, plus its Authenticode signature, its
   timestamp and its publisher, compared by identity (subject and Artifact Signing's validation EKU), not
-  by leaf certificate.
+  by leaf certificate. A build signed with a store certificate, which has no validation EKU, updates only
+  to a package signed with the same key: a renewal with a new key is installed by hand once.
 - Never during a session: Install is refused while recording, and no session starts while Windows
   Installer runs.
 

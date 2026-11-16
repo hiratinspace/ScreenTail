@@ -51,13 +51,30 @@ public sealed class PublisherIdentityTests
     }
 
     [Fact]
-    public void WithoutAValidationOidTheSubjectDecides()
+    public void WithoutAValidationOidTheSubjectAloneIsNotEnough()
     {
-        // A certificate from the Windows store (a hardware token) carries no Artifact Signing OID.
+        // A certificate from the Windows store (a hardware token) carries no Artifact Signing OID, and its
+        // subject is text any trusted authority may write. Another key under the same subject is someone
+        // else, whatever the subject says.
         using var first = Certificate(Ours);
-        using var renewed = Certificate(Ours);
+        using var lookalike = Certificate(Ours);
 
-        Assert.Null(PublisherIdentity.Mismatch(PublisherIdentity.From(first, true), PublisherIdentity.From(renewed, true)));
+        Assert.NotNull(PublisherIdentity.Mismatch(PublisherIdentity.From(first, true), PublisherIdentity.From(lookalike, true)));
+    }
+
+    [Fact]
+    public void WithoutAValidationOidTheSameKeyUnderTheSameSubjectIsTheSamePublisher()
+    {
+        // A renewal that keeps the key (a new certificate for the same hardware token key) still updates.
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var first = Certificate(Ours, key);
+        using var renewed = Certificate(Ours, key);
+        using var renamed = Certificate("CN=Somebody Else, O=Somebody Else, C=US", key);
+        var running = PublisherIdentity.From(first, true);
+
+        Assert.NotEqual(first.Thumbprint, renewed.Thumbprint);
+        Assert.Null(PublisherIdentity.Mismatch(running, PublisherIdentity.From(renewed, true)));
+        Assert.NotNull(PublisherIdentity.Mismatch(running, PublisherIdentity.From(renamed, true)));
     }
 
     [Fact]
@@ -95,6 +112,11 @@ public sealed class PublisherIdentityTests
     private static X509Certificate2 Certificate(string subject, params string[] usages)
     {
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        return Certificate(subject, key, usages);
+    }
+
+    private static X509Certificate2 Certificate(string subject, ECDsa key, params string[] usages)
+    {
         var request = new CertificateRequest(subject, key, HashAlgorithmName.SHA256);
         if (usages.Length > 0)
         {

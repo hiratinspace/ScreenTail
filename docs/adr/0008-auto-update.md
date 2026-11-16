@@ -152,7 +152,8 @@ in the Privacy document, which is saved whole.
   the verified manifest; `WinVerifyTrust` checks its Authenticode signature through the same handle; and
   its publisher must be the running service's, **by identity, not by leaf thumbprint**: the signing
   certificate's subject, plus Artifact Signing's identity-validation EKU (`1.3.6.1.4.1.311.97.*`) when
-  the running build carries one, with a timestamp required. Only then is `C:\Windows\System32\msiexec.exe`
+  the running build carries one, or the same public key when it carries none (a certificate from the
+  Windows store), never the subject alone; with a timestamp required. Only then is `C:\Windows\System32\msiexec.exe`
   started by full path, without a shell, as `/i <package> /passive /norestart`; Windows Installer raises
   the UAC prompt for the per-machine package. The handle is held until it exits.
 - **A build nobody signed never updates itself:** there is no publisher to compare with.
