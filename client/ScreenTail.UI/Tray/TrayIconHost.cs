@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Runtime.Versioning;
+using System.Windows.Threading;
 using ScreenTail.Core.Notifications;
 using ScreenTail.Core.Shell;
 using ScreenTail.Shared.Ipc;
@@ -260,7 +261,46 @@ public sealed class TrayIconHost : IDisposable
     /// <summary>Whether <see cref="Dispose"/> has run, for the shell's quit tests.</summary>
     internal bool Disposed { get; private set; }
 
+    /// <summary>
+    /// Takes the icon and its menu down, on the UI thread they belong to.
+    ///
+    /// Called from another thread (the shell's quit tests do, to make the pill's close throw), it used to
+    /// dispose the menu there while the UI thread was repainting it from a change already queued: Windows
+    /// Forms' layout then read an item the other thread had just removed and threw on the UI thread, which
+    /// left the shell's quit test waiting a minute for a thread that never finished (hosted run, 2026-11-14).
+    /// So it asks the UI thread, ahead of anything queued, and waits. A UI thread that does not take it
+    /// within a few seconds (blocked, or shut down) gets the old behaviour, so the icon is never left in the
+    /// notification area.
+    /// </summary>
     public void Dispose()
+    {
+        if (!_dispatcher.CheckAccess() && DisposedOnTheUiThread())
+        {
+            return;
+        }
+
+        DisposeHere();
+    }
+
+    private bool DisposedOnTheUiThread()
+    {
+        var operation = _dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(DisposeHere));
+        var status = operation.Wait(TimeSpan.FromSeconds(5));
+        if (status == DispatcherOperationStatus.Pending && operation.Abort())
+        {
+            return false;
+        }
+
+        // Started, or finished: once started it runs to the end, so wait for that.
+        if (status != DispatcherOperationStatus.Aborted)
+        {
+            status = operation.Wait();
+        }
+
+        return status == DispatcherOperationStatus.Completed;
+    }
+
+    private void DisposeHere()
     {
         if (Disposed)
         {
