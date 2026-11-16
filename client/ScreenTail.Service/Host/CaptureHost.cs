@@ -449,7 +449,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             logger,
             sessionPolicy,
             Platform.Clipboard.ClipboardText.ReadOnce,
-            () => captureStore.Load().AutoStart);
+            () => captureStore.Load().AutoStart,
+            latest: () => foreground.Latest);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
         // brings a new policy (ST-047) or the technician saves (ST-081, ST-080). The policy decides
