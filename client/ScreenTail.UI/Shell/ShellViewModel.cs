@@ -333,12 +333,9 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
                         _ = settings.Privacy.LoadAsync(_closing);
                     }
 
-                    if (!step.KeepEdits || !settings.Integrations.HasUnsavedEdits)
-                    {
-                        _ = settings.Integrations.LoadAsync(_closing);
-                    }
-
-                    // Nothing on the Updates card is typed, so it is always read again.
+                    // Nothing on the Integrations cards (read only, the owner manages them) or the Updates
+                    // card is typed, so they are always read again.
+                    _ = settings.Integrations.LoadAsync(_closing);
                     _ = settings.Updates.LoadAsync(_closing);
                 }
 

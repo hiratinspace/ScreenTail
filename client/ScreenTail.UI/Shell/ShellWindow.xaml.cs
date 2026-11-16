@@ -458,10 +458,6 @@ public partial class ShellWindow : Window
                 new("hudu", "https://docs.contosomsp.com", "••••c09d", new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 31, 0, TimeSpan.Zero), "Hudu rejected the API key. Update it in Settings → Integrations."),
             ]);
 
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) => Task.FromResult<string?>(null);
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) => Task.FromResult<string?>(null);
-
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
             Task.FromResult(new CheckOutcome(true, $"Connected to {(provider == "hudu" ? "https://docs.contosomsp.com" : "https://na.myconnectwise.net")}."));
 

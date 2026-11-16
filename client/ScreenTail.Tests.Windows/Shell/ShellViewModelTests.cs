@@ -94,6 +94,10 @@ public sealed class ShellViewModelTests
         state.Connected(new CaptureStateSnapshot { State = CaptureStates.Idle });
         Assert.Equal(2, gateways.LoadsOf("privacy"));
         Assert.Equal(3, gateways.LoadsOf("capture"));
+
+        // Integrations' cards are read only (the owner manages them in the web admin), so there is never
+        // an edit to keep and every reconnect reads them.
+        Assert.Equal(3, gateways.LoadsOf("integrations"));
     }
 
     [Fact]
@@ -201,12 +205,6 @@ public sealed class ShellViewModelTests
             throw new InvalidOperationException("not under test");
 
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Count<IReadOnlyList<IntegrationDetail>>("integrations");
-
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
-            throw new InvalidOperationException("not under test");
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) =>
-            throw new InvalidOperationException("not under test");
 
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
             throw new InvalidOperationException("not under test");

@@ -260,67 +260,52 @@ public sealed class SettingsPageTests
     }
 
     [Fact]
-    public async Task AnIntegrationBeingFilledInIsPendingAndSavedWithThePage()
+    public void IntegrationsIsNotASectionOfTheSaveBar()
     {
-        var gateways = new Gateways();
-        var integrations = new IntegrationsPanel(gateways.Integrations);
-        await integrations.LoadAsync();
-        var page = new SettingsPage([new IntegrationsSection(integrations)]);
+        // Spec v0.6.15: integration credentials can only be changed by the tenant owner, in the web admin,
+        // so an Integrations card can never be an unsaved change and has no section on the bar.
+        var sections = typeof(ISettingsSection).Assembly.GetTypes()
+            .Where(t => typeof(ISettingsSection).IsAssignableFrom(t) && !t.IsInterface)
+            .Select(t => t.Name);
 
-        // A card opened with nothing typed is not a change.
-        Assert.False(page.HasPendingChanges);
-
-        integrations.Hudu.SiteUrl = "https://acme.huducloud.com";
-        Assert.Equal(["Hudu"], page.Sections[0].Changes);
-        integrations.Hudu.ApiKey = "abcd1234";
-
-        Assert.True(await page.SaveAsync());
-
-        Assert.Equal(("hudu", "https://acme.huducloud.com", "abcd1234"), gateways.Integrations.Stored);
-        Assert.True(integrations.Hudu.Connected);
-        Assert.False(page.HasPendingChanges);
+        Assert.DoesNotContain(sections, name => name.Contains("Integration", StringComparison.Ordinal));
     }
 
     [Fact]
-    public async Task AnIntegrationThatIsNotFilledInIsNamedAndTheOtherCardStillSaves()
-    {
-        var gateways = new Gateways();
-        var integrations = new IntegrationsPanel(gateways.Integrations);
-        await integrations.LoadAsync();
-        var page = new SettingsPage([new IntegrationsSection(integrations)]);
-
-        integrations.ConnectWise.SiteUrl = "https://na.myconnectwise.net";
-        integrations.Hudu.SiteUrl = "https://acme.huducloud.com";
-        integrations.Hudu.ApiKey = "abcd1234";
-
-        Assert.False(await page.SaveAsync());
-
-        Assert.Equal("hudu", gateways.Integrations.Stored?.Provider);
-        Assert.Equal(["ConnectWise Manage"], page.Sections[0].Changes);
-        Assert.StartsWith("Integrations was not saved. ConnectWise Manage: The company ID", page.FailureMessage, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task UndoOnAConnectedCardClosesItAndForgetsWhatWasTyped()
+    public async Task TestConnectionAndTheCompanyMappingActAtOnceAndLeaveTheBarHidden()
     {
         var gateways = new Gateways();
         gateways.Integrations.Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••1234", null, null, null)];
         var integrations = new IntegrationsPanel(gateways.Integrations);
         await integrations.LoadAsync();
-        var page = new SettingsPage([new IntegrationsSection(integrations)]);
+        var (page, _, _, _, _) = await LoadedAsync(gateways: gateways);
 
-        integrations.Hudu.Change();
+        _ = await integrations.Hudu.CheckAsync();
+        Assert.Null(await integrations.MapAsync("Acme Dental", "7"));
+
+        Assert.Equal(["hudu"], gateways.Integrations.Checked);
+        Assert.Equal(("Acme Dental", "7"), gateways.Integrations.Mapped);
         Assert.False(page.HasPendingChanges);
-        integrations.Hudu.ApiKey = "new-key";
-        Assert.True(page.HasPendingChanges);
+        Assert.Equal(SaveBarState.Hidden, page.State);
+        Assert.Equal(0, page.PendingIn("Integrations"));
+    }
+
+    [Fact]
+    public async Task UndoLeavesTheIntegrationsCardsAsTheBackendHasThem()
+    {
+        var gateways = new Gateways();
+        gateways.Integrations.Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••1234", null, null, null)];
+        var integrations = new IntegrationsPanel(gateways.Integrations);
+        await integrations.LoadAsync();
+        var (page, _, privacy, _, _) = await LoadedAsync(gateways: gateways);
+        privacy.Telemetry = true;
 
         page.Undo();
 
-        Assert.False(integrations.Hudu.Editing);
-        Assert.Equal(string.Empty, integrations.Hudu.ApiKey);
+        Assert.True(integrations.Hudu.Connected);
         Assert.Equal("https://acme.huducloud.com", integrations.Hudu.SiteUrl);
+        Assert.Equal("••••1234", integrations.Hudu.SecretHint);
         Assert.False(page.HasPendingChanges);
-        Assert.Null(gateways.Integrations.Stored);
     }
 
     [Fact]
@@ -470,23 +455,25 @@ public sealed class SettingsPageTests
     {
         public IReadOnlyList<IntegrationDetail> Rows { get; set; } = [];
 
-        public (string Provider, string Site, string Secret)? Stored { get; private set; }
+        public List<string> Checked { get; } = [];
+
+        public (string Psa, string Doc)? Mapped { get; private set; }
 
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<IntegrationDetail>?>(Rows);
 
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
+        public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default)
         {
-            Stored = (provider, siteUrl, secret);
-            return Task.FromResult<string?>(null);
+            Checked.Add(provider);
+            return Task.FromResult(new CheckOutcome(true, "ok"));
         }
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) => Task.FromResult<string?>(null);
-
-        public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) => Task.FromResult(new CheckOutcome(true, "ok"));
 
         public Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default) => Task.FromResult<CompanyMappingsPage?>(new CompanyMappingsPage([], []));
 
-        public Task<string?> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) => Task.FromResult<string?>(null);
+        public Task<string?> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default)
+        {
+            Mapped = (psaCompany, docCompanyId);
+            return Task.FromResult<string?>(null);
+        }
 
         public Task<string?> UnmapAsync(string psaCompany, CancellationToken ct = default) => Task.FromResult<string?>(null);
     }
