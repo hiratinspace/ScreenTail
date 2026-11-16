@@ -157,6 +157,86 @@ public sealed class PublishConcurrencyTests(ApiFixture api) : IClassFixture<ApiF
         clients.ForEach(client => client.Dispose());
     }
 
+    [Fact]
+    public async Task OverKestrelARefusedPublishWithALargeSlowBodyStillGetsItsRefusal()
+    {
+        // 2026-11-15 review of the gate: Kestrel drains a body the application left unread for about
+        // five seconds and then drops the connection, so a large publish on a slow uplink saw a reset,
+        // which the client reads as "may have landed", instead of the busy answer. The real server, and a
+        // body that takes longer than that to arrive after it is refused.
+        var psa = new HoldingPsa();
+        using var host = Host(psa);
+        host.UseKestrel(options => options.Listen(System.Net.IPAddress.Loopback, 0));
+        host.StartServer();
+        var address = new Uri(host.Services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>().Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()!.Addresses.First());
+        var tenant = Guid.NewGuid();
+        var who = await SeedAsync(tenant);
+        using var client = new HttpClient { BaseAddress = address, Timeout = TimeSpan.FromSeconds(60) };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", api.Issuer.ForDevice(tenant, who.User, who.Device).Token);
+
+        var held = Enumerable.Range(0, PublishConcurrency.PerDevice).Select(_ => client.PostAsJsonAsync(Route, Bundle(), TestContext.Current.CancellationToken)).ToList();
+        await psa.WaitForAsync(PublishConcurrency.PerDevice);
+
+        // Six megabytes at about 640 KB a second: some ten seconds of upload. Without the body read into
+        // nothing first, this failed after about seven with a broken pipe. Smaller bodies fit in the
+        // loopback socket's buffers and do not show it.
+        using var slow = new ThrottledContent(6 * 1024 * 1024, chunk: 64 * 1024, pause: TimeSpan.FromMilliseconds(100));
+        using var refused = await client.PostAsync(Route, slow, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+        Assert.Equal("busy", JsonDocument.Parse(await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("error").GetString());
+        Assert.Equal(slow.Length, slow.Sent);
+
+        psa.Release();
+        foreach (var response in await Task.WhenAll(held))
+        {
+            response.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task APublishWhosePsaThrowsGivesItsPlaceBack()
+    {
+        var gate = new PublishConcurrency();
+        var psa = new HoldingPsa { Throws = true };
+        using var host = Host(psa, gate);
+        var tenant = Guid.NewGuid();
+        using var client = Client(host, tenant, await SeedAsync(tenant));
+
+        var broken = Enumerable.Range(0, PublishConcurrency.PerDevice).Select(_ => client.PostAsJsonAsync(Route, Bundle(), TestContext.Current.CancellationToken)).ToList();
+        await psa.WaitForAsync(PublishConcurrency.PerDevice);
+        psa.Release();
+        foreach (var response in await Task.WhenAll(broken))
+        {
+            response.Dispose();
+        }
+
+        await Until(() => gate.Tracked == 0);
+        await BothPlacesAreFreeAsync(client, psa);
+    }
+
+    [Fact]
+    public async Task APublishTheClientGaveUpOnGivesItsPlaceBack()
+    {
+        var gate = new PublishConcurrency();
+        var psa = new HoldingPsa();
+        using var host = Host(psa, gate);
+        var tenant = Guid.NewGuid();
+        using var client = Client(host, tenant, await SeedAsync(tenant));
+
+        using (var giveUp = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken))
+        {
+            var abandoned = client.PostAsJsonAsync(Route, Bundle(), giveUp.Token);
+            await psa.WaitForAsync(1);
+            Assert.Equal(2, gate.Tracked);
+            await giveUp.CancelAsync();
+            _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => abandoned);
+        }
+
+        await Until(() => gate.Tracked == 0);
+        await BothPlacesAreFreeAsync(client, psa);
+    }
+
     private static PublishBundle Bundle() => new()
     {
         SessionId = "s-0001",
@@ -177,8 +257,48 @@ public sealed class PublishConcurrencyTests(ApiFixture api) : IClassFixture<ApiF
         Frames = [],
     };
 
-    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(HoldingPsa psa) => api.WithWebHostBuilder(builder =>
-        builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Scoped<IPsaProviderFactory>(_ => psa))));
+    private Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Host(HoldingPsa psa, PublishConcurrency? gate = null) => api.WithWebHostBuilder(builder =>
+        builder.ConfigureTestServices(services =>
+        {
+            _ = services.Replace(ServiceDescriptor.Scoped<IPsaProviderFactory>(_ => psa));
+            if (gate is not null)
+            {
+                _ = services.AddSingleton(gate);
+            }
+        }));
+
+    /// <summary>Waits until the condition holds, failing the test after half a minute rather than hanging the run.</summary>
+    private static async Task Until(Func<bool> condition)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        while (!condition())
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
+    /// <summary>
+    /// Both of the device's places are free: two publishes from it are held by the PSA at once, then
+    /// released, and both land.
+    /// </summary>
+    private static async Task BothPlacesAreFreeAsync(HttpClient client, HoldingPsa psa)
+    {
+        psa.Rearm();
+        var before = psa.Notes;
+        var two = Enumerable.Range(0, PublishConcurrency.PerDevice).Select(_ => client.PostAsJsonAsync(Route, Bundle(), TestContext.Current.CancellationToken)).ToList();
+        await psa.WaitForAsync(before + PublishConcurrency.PerDevice);
+        psa.Release();
+        foreach (var response in await Task.WhenAll(two))
+        {
+            using (response)
+            {
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                var landed = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement.GetProperty("results")[0];
+                Assert.True(landed.GetProperty("ok").GetBoolean());
+            }
+        }
+    }
 
     private HttpClient Client(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> host, Guid tenant, (Guid User, Guid Device) who)
     {
@@ -205,17 +325,59 @@ public sealed class PublishConcurrencyTests(ApiFixture api) : IClassFixture<ApiF
         return (userId, deviceId);
     }
 
-    /// <summary>A PSA whose notes wait until <see cref="Release"/>: a slow site, as slow as the test makes it.</summary>
+    /// <summary>A body of <see cref="Length"/> bytes sent a chunk at a time with a pause between: a slow uplink.</summary>
+    private sealed class ThrottledContent(int length, int chunk, TimeSpan pause) : HttpContent
+    {
+        private long _sent;
+
+        public int Length => length;
+
+        public long Sent => Interlocked.Read(ref _sent);
+
+        protected override async Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext? context)
+        {
+            var buffer = new byte[chunk];
+            Array.Fill(buffer, (byte)' ');
+            for (var left = length; left > 0; left -= chunk)
+            {
+                var size = Math.Min(chunk, left);
+                await stream.WriteAsync(buffer.AsMemory(0, size));
+                await stream.FlushAsync();
+                _ = Interlocked.Add(ref _sent, size);
+                await Task.Delay(pause);
+            }
+        }
+
+        protected override bool TryComputeLength(out long size)
+        {
+            size = length;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// A PSA whose notes wait until <see cref="Release"/>: a slow site, as slow as the test makes it. With
+    /// <see cref="Throws"/> set, a released note throws instead of landing.
+    /// </summary>
     private sealed class HoldingPsa : IPsaProviderFactory, IPsaProvider
     {
-        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _notes;
 
         public string Name => "connectwise";
 
         public int Notes => Volatile.Read(ref _notes);
 
-        public void Release() => _release.TrySetResult();
+        public bool Throws { get; set; }
+
+        public void Release() => Volatile.Read(ref _release).TrySetResult();
+
+        /// <summary>Holds the notes that arrive from now on, until the next <see cref="Release"/>.</summary>
+        public void Rearm()
+        {
+            Throws = false;
+            Volatile.Write(ref _release, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        }
 
         public async Task WaitForAsync(int notes)
         {
@@ -237,9 +399,12 @@ public sealed class PublishConcurrencyTests(ApiFixture api) : IClassFixture<ApiF
 
         public async Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
         {
+            var release = Volatile.Read(ref _release);
             _ = Interlocked.Increment(ref _notes);
-            await _release.Task.WaitAsync(ct);
-            return ProviderResult.Success(new PublishedNote("90001", null));
+            await release.Task.WaitAsync(ct);
+            return Throws
+                ? throw new InvalidOperationException("The PSA's client broke.")
+                : ProviderResult.Success(new PublishedNote("90001", null));
         }
 
         public Task<ProviderResult<PublishedNote>> AddTimeEntryAsync(TimeEntry entry, CancellationToken ct = default) => Task.FromResult(ProviderResult.Success(new PublishedNote("70001", null)));

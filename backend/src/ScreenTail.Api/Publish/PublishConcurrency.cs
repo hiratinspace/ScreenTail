@@ -92,8 +92,9 @@ public sealed class PublishConcurrency
     {
         ArgumentNullException.ThrowIfNull(app);
 
-        // One gate per application: a test host gets its own.
-        var gate = new PublishConcurrency();
+        // One gate per application: a test host gets its own. Nothing registers one in production; a
+        // test that wants to watch the count registers its own.
+        var gate = app.ApplicationServices.GetService<PublishConcurrency>() ?? new PublishConcurrency();
         return app.Use(async (context, next) =>
         {
             if (context.GetEndpoint()?.Metadata.GetMetadata<GatedEndpoint>() is null)
@@ -112,6 +113,13 @@ public sealed class PublishConcurrency
             using var lease = gate.TryEnter(who.TenantId, who.DeviceId, out var refusal);
             if (lease is null)
             {
+                // The body is read into nothing first, holding no place and no memory, so a slow upload
+                // gets this answer rather than a dropped connection (UnreadBody).
+                if (!await Endpoints.UnreadBody.DiscardAsync(context).ConfigureAwait(false))
+                {
+                    return;
+                }
+
                 // The shape of every other refusal on this route ({error, message}), which is what the
                 // client reads its sentence from.
                 context.Response.Headers.RetryAfter = RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
