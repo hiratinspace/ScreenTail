@@ -15,18 +15,34 @@ without the rows changing shape. Today the master key is configuration, because 
 the provider and the site's host and port as AES-GCM associated data, and the row records this in
 `BindingVersion` (1). A bound row opens only for that tenant, provider and host: copied onto another
 tenant's row, another provider or another host, it is refused with a message naming the row, and is
-never tried any other way. Rows stored before then are marked 0 (legacy) by the migration and open
-without a binding; each is sealed again in the bound form the first time the vault opens it, and these
-also upgrade every legacy row at once:
-```bash
-dotnet run --project src/ScreenTail.Api -- --upgrade-vault-rows
-```
-It prints how many rows it upgraded; a second run prints `upgraded 0`. `--rotate-vault-keys` upgrades
-legacy rows too. `BindingVersion` is a database column, so someone who can write the database can mark a
-row legacy again: the guarantee covers rows written or upgraded since this change while legacy rows are
-still accepted. Once `--upgrade-vault-rows` prints `upgraded 0`, set `Vault:AllowLegacyRows` to `false`
-(default `true`) and restart: a row marked legacy is then refused rather than opened, which closes that
-gap. Changing a site's host needs the credential stored again, which the owner's route asks for anyway.
+never tried any other way.
+
+**Legacy rows, and what to do after the first start.** Legacy rows exist only from before this change:
+the migration marks every row stored until then `0` (legacy), and nothing in the service writes one
+since. They still open without a binding, and are sealed again in the bound form:
+- **on the first start** after the upgrade, by a sweep that upgrades every legacy row and records
+  (table `vault_state`) that none is left (`Vault:UpgradeOnStart`, default `true`);
+- the first time the vault opens one, if a request comes before the sweep;
+- by `--upgrade-vault-rows` (prints how many; a second run prints `upgraded 0`) and by
+  `--rotate-vault-keys`, for an operator who prefers to run it by hand:
+  ```bash
+  dotnet run --project src/ScreenTail.Api -- --upgrade-vault-rows
+  ```
+
+Once a sweep has found none left, a row marked legacy was written by something other than the service.
+Reads, the rotation and later sweeps then refuse it and leave it as it is, and the sweep logs a warning
+with its row id and tenant id (nothing else). The owner reconnects that integration in the web admin.
+
+**After that first start, set `Vault:AllowLegacyRows=false`** (default `true`) and restart. Legacy rows
+are then refused everywhere, by reads, the sweep and the rotation alike, whatever `vault_state` says.
+
+**The limit, stated plainly.** `BindingVersion` and `vault_state` are database fields. Against someone
+who can write the database, the protection covers bound rows: a bound row moved to another tenant,
+provider or host does not open, and marking it legacy does not help, since its tag still covers the
+binding it was sealed with. A row planted in the legacy form (with a secret sealed under the master key
+and no binding) is refused once the sweep has run and `vault_state` is left alone, and always once
+`Vault:AllowLegacyRows` is `false`. Before either, it would open. Changing a site's host needs the
+credential stored again, which the owner's route asks for anyway.
 
 **When to rotate.** On a schedule the security lead sets (quarterly is ordinary), and immediately if the
 key may have been seen: a laptop with the secrets store lost, a config dump pasted somewhere, a person

@@ -148,7 +148,13 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
         // run is what moves it. A row under a key this deployment does not hold is an error worth its
         // own words, because the alternative is a provider call with garbage.
         var masterKey = KeyFor(row.KeyId);
-        var secret = Open(row, masterKey, options.AllowLegacyRows);
+
+        // Legacy rows only exist from before the binding. Once the startup sweep has found none left, a
+        // row marked legacy was written since, by something other than this service, and is not opened.
+        var allowLegacy = options.AllowLegacyRows
+            && (row.BindingVersion >= Envelope.BindingVersion
+                || !await db.VaultStates.AsNoTracking().AnyAsync(s => s.Id == VaultState.Only && s.LegacyRowsClearedAt != null, ct).ConfigureAwait(false));
+        var secret = Open(row, masterKey, allowLegacy);
         try
         {
             if (row.BindingVersion < Envelope.BindingVersion)
@@ -189,7 +195,7 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
 
         if (!allowLegacy)
         {
-            throw new VaultRowRefusedException($"The stored {row.Provider} credential in row {row.Id} was sealed before credentials were bound to their row, and Vault:AllowLegacyRows is off. The owner can connect it again in the web admin.");
+            throw new VaultRowRefusedException($"The stored {row.Provider} credential in row {row.Id} is marked as sealed before credentials were bound to their row, and such rows are no longer accepted (Vault:AllowLegacyRows is off, or every such row was already upgraded). The owner can connect it again in the web admin.");
         }
 
         return Envelope.Open(sealed_, masterKey);

@@ -29,7 +29,7 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         using var host = HostWith(cw, new ScriptedHudu());
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
 
         using var response = await client.PostAsync(new Uri("/v1/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
@@ -51,7 +51,7 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         using var host = HostWith(cw, new ScriptedHudu());
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG-0000"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG-0000"));
 
         using var response = await client.PostAsync(new Uri("/v1/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
@@ -70,7 +70,7 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         using var host = HostWith(new ScriptedConnectWise(), hudu);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-key-5678"));
 
         using var response = await client.PostAsync(new Uri("/v1/integrations/hudu/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
         var check = await response.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);

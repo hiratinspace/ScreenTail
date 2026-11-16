@@ -574,7 +574,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         using var host = Host(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         _ = await api.UseAsync(db => db.Devices
             .Where(d => d.Id == deviceId)
@@ -726,7 +726,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     {
         var (tenantId, userId, deviceId) = await SeedAsync(displayName);
         var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token, streamed);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         return client;
     }

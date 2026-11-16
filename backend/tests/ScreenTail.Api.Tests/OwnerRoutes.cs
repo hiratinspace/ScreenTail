@@ -54,13 +54,6 @@ internal static class OwnerRoutes
             _ = await db.SaveChangesAsync();
             return made;
         });
-
-        var csrf = AdminSession.NewCsrf();
-        var (token, _) = api.Issuer.ForOwner(tenantId, owner.Id, owner.SessionVersion, csrf, TimeSpan.FromHours(1));
-        var client = host.CreateClient(new() { HandleCookies = false });
-        client.DefaultRequestHeaders.Add("Cookie", $"{AdminSession.CookieName}={token}");
-        client.DefaultRequestHeaders.Add(AdminSession.CsrfHeader, csrf);
-        return client;
     }
 
     /// <summary><c>PUT /v1/admin/integrations/{provider}</c> as the tenant's owner.</summary>

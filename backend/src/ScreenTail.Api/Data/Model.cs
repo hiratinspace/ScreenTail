@@ -245,6 +245,19 @@ public sealed class IntegrationChange
     public string? DocCompanyName { get; set; }
 }
 
+/// <summary>
+/// The vault's own state, one row (2026-11-15 review): when the startup sweep first found no legacy
+/// integration row left. A legacy row seen after that was written after the change, not before it.
+/// </summary>
+public sealed class VaultState
+{
+    public const int Only = 1;
+
+    public int Id { get; set; }
+
+    public DateTimeOffset? LegacyRowsClearedAt { get; set; }
+}
+
 public sealed class Integration
 {
     public Guid Id { get; set; }

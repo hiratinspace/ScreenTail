@@ -521,6 +521,19 @@ namespace ScreenTail.Api.Data.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("ScreenTail.Api.Data.VaultState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LegacyRowsClearedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("vault_state", (string)null);
+                });
+
             modelBuilder.Entity("ScreenTail.Api.Data.Device", b =>
                 {
                     b.HasOne("ScreenTail.Api.Data.User", "User")

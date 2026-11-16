@@ -12,7 +12,7 @@ using ScreenTail.Api.Data;
 namespace ScreenTail.Api.Data.Migrations
 {
     [DbContext(typeof(ScreenTailContext))]
-    [Migration("20261116054318_IntegrationChangesAndVaultBinding")]
+    [Migration("20261116054826_IntegrationChangesAndVaultBinding")]
     partial class IntegrationChangesAndVaultBinding
     {
         /// <inheritdoc />
@@ -522,6 +522,19 @@ namespace ScreenTail.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("ScreenTail.Api.Data.VaultState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LegacyRowsClearedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("vault_state", (string)null);
                 });
 
             modelBuilder.Entity("ScreenTail.Api.Data.Device", b =>

@@ -210,6 +210,10 @@ var vault = builder.Configuration.GetSection(VaultOptions.Section).Get<VaultOpti
 builder.Services.AddSingleton(vault);
 builder.Services.AddScoped<IIntegrationVault, IntegrationVault>();
 
+// 2026-11-15 review. Once at startup, credentials stored before secrets were bound to their row are sealed
+// again bound (Vault:UpgradeOnStart, on by default). docs/security/key-rotation.md.
+builder.Services.AddHostedService<VaultSweep>();
+
 // Security check 2026-10-14. A tenant chooses its provider's site, so the PSA and documentation clients
 // connect only to public addresses, checked at connect time (PublicNetwork). The option that lifts this
 // is for Development and tests; anywhere else the service refuses to start with it on.
@@ -366,7 +370,11 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
         scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
         scope.ServiceProvider.GetRequiredService<VaultOptions>(),
         scope.ServiceProvider.GetRequiredService<TimeProvider>());
-    Console.WriteLine($"rotated {rotated} credential(s) to master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    Console.WriteLine($"rotated {rotated.Changed} credential(s) to master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    foreach (var refused in rotated.RefusedLegacy)
+    {
+        Console.WriteLine($"refused legacy row {refused}: Vault:AllowLegacyRows is off, so it was left as it is");
+    }
     return;
 }
 
@@ -380,7 +388,11 @@ if (args.Contains("--upgrade-vault-rows", StringComparer.Ordinal))
         scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
         scope.ServiceProvider.GetRequiredService<VaultOptions>(),
         scope.ServiceProvider.GetRequiredService<TimeProvider>());
-    Console.WriteLine($"upgraded {upgraded} credential(s) to the bound form under master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    Console.WriteLine($"upgraded {upgraded.Changed} credential(s) to the bound form under master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    foreach (var refused in upgraded.RefusedLegacy)
+    {
+        Console.WriteLine($"refused legacy row {refused}: Vault:AllowLegacyRows is off, so it was left as it is");
+    }
     return;
 }
 

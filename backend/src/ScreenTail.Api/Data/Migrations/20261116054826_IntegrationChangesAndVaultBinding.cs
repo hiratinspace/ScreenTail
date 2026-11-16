@@ -39,6 +39,18 @@ namespace ScreenTail.Api.Data.Migrations
                     table.PrimaryKey("PK_integration_changes", x => x.Id);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "vault_state",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "integer", nullable: false),
+                    LegacyRowsClearedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_vault_state", x => x.Id);
+                });
+
             migrationBuilder.CreateIndex(
                 name: "IX_integration_changes_TenantId_At",
                 table: "integration_changes",
@@ -50,6 +62,9 @@ namespace ScreenTail.Api.Data.Migrations
         {
             migrationBuilder.DropTable(
                 name: "integration_changes");
+
+            migrationBuilder.DropTable(
+                name: "vault_state");
 
             migrationBuilder.DropColumn(
                 name: "BindingVersion",

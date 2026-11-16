@@ -140,6 +140,10 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Summarization:Provider", SummarizationOptions.Gemini);
         builder.UseSetting("Vault:MasterKey", VaultMasterKey ?? string.Empty);
 
+        // The startup sweep would race InitializeAsync's EnsureCreated for a database with no tables yet.
+        // VaultSweepTests run it directly.
+        builder.UseSetting("Vault:UpgradeOnStart", "false");
+
         // ST-099. Owner sign-in is off unless a test's host switches it on (AdminApiFixture), whatever a
         // developer keeps in user secrets, and no host in this suite can fetch Google's keys.
         builder.UseSetting("Admin:GoogleClientId", string.Empty);

@@ -32,6 +32,8 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
     public DbSet<IntegrationChange> IntegrationChanges => Set<IntegrationChange>();
 
+    public DbSet<VaultState> VaultStates => Set<VaultState>();
+
     public DbSet<Invite> Invites => Set<Invite>();
 
     public DbSet<Policy> Policies => Set<Policy>();
@@ -157,6 +159,13 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
             // The owner's page: one tenant's latest changes, newest first.
             change.HasIndex(c => new { c.TenantId, c.At });
+        });
+
+        modelBuilder.Entity<VaultState>(state =>
+        {
+            state.ToTable("vault_state");
+            state.HasKey(s => s.Id);
+            state.Property(s => s.Id).ValueGeneratedNever();
         });
 
         modelBuilder.Entity<Invite>(invite =>
