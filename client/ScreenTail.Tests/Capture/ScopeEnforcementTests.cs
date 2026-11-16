@@ -170,6 +170,23 @@ public sealed class ScopeEnforcementTests
     }
 
     [Fact]
+    public void TheStricterOfTwoDecisionsIsTheOneThatForbidsFrames()
+    {
+        // For a title not reported yet: it may tighten the decision in force, never loosen it.
+        var inScope = new ScopeDecision(CaptureScope.RemoteTool, "rdp", RemoteToolKind.Rdp, "Capturing: Remote Desktop", 11);
+        var excluded = new ScopeDecision(CaptureScope.Excluded, "vaults", null, "Not capturing: Password vaults in a browser is excluded.", 11);
+        var otherInScope = new ScopeDecision(CaptureScope.AdminTool, null, null, "Capturing: notepad (all windows)", 11);
+        var outOfScope = new ScopeDecision(CaptureScope.OutOfScope, null, null, "Not capturing: outlook", 11);
+
+        Assert.Same(excluded, ScopeDecision.Stricter(inScope, excluded));
+        Assert.Same(excluded, ScopeDecision.Stricter(excluded, inScope));
+
+        // Equally strict: the newer, which says why in words about what is on screen.
+        Assert.Same(otherInScope, ScopeDecision.Stricter(inScope, otherInScope));
+        Assert.Same(outOfScope, ScopeDecision.Stricter(excluded, outOfScope));
+    }
+
+    [Fact]
     public void InScopeClicksAreAdmittedAsTheyAre()
     {
         var inScope = new ScopePolicy(Registry).Decide(Window("mstsc", handle: 11));

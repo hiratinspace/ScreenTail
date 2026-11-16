@@ -606,6 +606,49 @@ public sealed class SessionStoreTests : IAsyncDisposable
         Assert.Equal(Core.Sessions.SessionStateNames.Published, (await upgraded.GetSessionSummaryAsync("published", TestContext.Current.CancellationToken))!.State);
     }
 
+    [Fact]
+    public async Task AClickWithNoFrameIsStoredWithoutItsPosition()
+    {
+        // INV-6: nothing reads where a click with no frame landed, and the position may be about a window
+        // the scope decision never judged. Its time and button stay on the timeline.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+
+        Assert.True(await store.AppendEventAsync("s1", new ClickEvent { TsMs = 10, X = 812, Y = 440, Button = MouseButton.Right }));
+
+        var click = Assert.Single((await store.LoadSessionAsync("s1"))!.Events.OfType<ClickEvent>());
+        Assert.Null(click.X);
+        Assert.Null(click.Y);
+        Assert.Equal(MouseButton.Right, click.Button);
+        Assert.Equal(10, click.TsMs);
+
+        await using var raw = await OpenRawAsync();
+        await using var command = raw.CreateCommand();
+        command.CommandText = "SELECT json FROM events WHERE session_id = 's1';";
+        var json = (string)(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+        Assert.DoesNotContain("\"x\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AClickWrittenWithAPositionBeforeTheRuleIsReadWithoutIt()
+    {
+        // Sessions recorded before positions were dropped still hold them on disk; they are not read back.
+        var store = await OpenAsync();
+        await store.CreateSessionAsync(Session("s1"));
+        await store.DisposeAsync();
+        _stores.Remove(store);
+
+        await using (var raw = await OpenRawAsync())
+        {
+            await RawAsync(raw, """INSERT INTO events (session_id, seq, ts_ms, json) VALUES ('s1', 0, 10, '{"type":"click","ts_ms":10,"x":812,"y":440,"button":"left"}');""");
+        }
+
+        var reopened = await OpenAsync();
+        var click = Assert.Single((await reopened.LoadSessionAsync("s1"))!.Events.OfType<ClickEvent>());
+        Assert.Null(click.X);
+        Assert.Null(click.Y);
+    }
+
     /// <summary>The store's own file opened directly, for putting it back to an older schema.</summary>
     private async Task<SqliteConnection> OpenRawAsync()
     {

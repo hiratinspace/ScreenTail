@@ -102,21 +102,18 @@ public static class WindowCover
     /// remote-tool window the technician made translucent, for instance (INV-6). Such a sample is skipped,
     /// as a covered one is.
     ///
-    /// A window drawn at less than full opacity shows what is behind it everywhere; one with a colour key
-    /// shows it through every pixel of that colour. A layered window whose blend cannot be read draws itself
-    /// with per-pixel alpha, which is how custom-shaped windows draw their rounded corners and shadows; that
-    /// is not refused, because refusing it would refuse every frame of such an application for a few pixels
-    /// at its edge, and there is nothing to read that would tell the two apart.
+    /// A window drawn at less than full opacity shows what is behind it everywhere, and that is refused.
+    ///
+    /// Two other ways of being see-through are not, and are a known limit. A colour key makes every pixel
+    /// of one colour a hole, which is how WinForms (<c>TransparencyKey</c>) and skinned applications cut
+    /// their rounded corners and shaped edges: ScreenConnect's client is WinForms, and refusing a colour key
+    /// would risk losing every frame of an in-scope tool for a few pixels at its edge. A layered window
+    /// whose blend cannot be read draws itself with per-pixel alpha, usually for the same corners and
+    /// shadows, and there is nothing to read that would tell the two apart. Both go once the grab is of the
+    /// window itself rather than the screen.
     /// </summary>
-    public static bool ShowsWhatIsBehind(TargetLayering target)
-    {
-        if (!target.Layered || !target.AttributesKnown)
-        {
-            return false;
-        }
-
-        return target.ColorKey || (target.Alpha && target.Opacity < byte.MaxValue);
-    }
+    public static bool ShowsWhatIsBehind(TargetLayering target) =>
+        target is { Layered: true, AttributesKnown: true, Alpha: true } && target.Opacity < byte.MaxValue;
 
     /// <summary>
     /// Whether any of the windows above the target covers it. A walk that was cut short says covered:

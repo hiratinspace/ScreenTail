@@ -329,6 +329,26 @@ public sealed class ScreenshotTests
     }
 
     [Fact]
+    public void AWindowInFrontWithAColourKeyIsStillCaptured()
+    {
+        // WinForms' TransparencyKey and skinned apps cut shaped corners with a colour key, and ScreenConnect's
+        // client is WinForms. Refusing a colour key could lose every frame of an in-scope tool, so only a
+        // window drawn below full opacity is refused (a known limit, WindowCover.ShowsWhatIsBehind).
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail colour-keyed target");
+        window.RequireForeground();
+        using var capturer = new ScreenshotCapturer();
+
+        // Magenta, a colour nothing in the test window is painted in.
+        Assert.True(window.DrawWithColourKey(0x00FF00FF), "the colour key could not be set, so nothing below would mean anything");
+        Thread.Sleep(150);
+        Assert.True(window.IsForeground || window.TakeForeground(TimeSpan.FromSeconds(2)), "the target lost the foreground");
+
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(0, capturer.SkippedSeeThrough);
+    }
+
+    [Fact]
     public void ATopmostWindowBesideTheWindowInFrontOrOfItsOwnAppIsNoReasonToSkip()
     {
         // The controls for the test above. Beside the window rather than over it, a topmost window is not

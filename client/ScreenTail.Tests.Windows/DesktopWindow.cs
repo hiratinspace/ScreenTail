@@ -396,7 +396,15 @@ internal sealed class DesktopWindow : IDisposable
     /// Draws the whole window at this opacity (255 opaque), as a tool's own transparency setting does, so
     /// whatever lies behind it shows through. Set on the window's own thread; false when Windows refused it.
     /// </summary>
-    public bool DrawAtOpacity(byte opacity)
+    public bool DrawAtOpacity(byte opacity) => Layer(0, opacity, LWA_ALPHA);
+
+    /// <summary>
+    /// Makes one colour of the window a hole, as WinForms' TransparencyKey and skinned apps do for shaped
+    /// corners. Set on the window's own thread; false when Windows refused it.
+    /// </summary>
+    public bool DrawWithColourKey(uint colourKey) => Layer(colourKey, 255, LWA_COLORKEY);
+
+    private bool Layer(uint colourKey, byte opacity, uint flags)
     {
         var done = new ManualResetEventSlim();
         var set = false;
@@ -404,7 +412,7 @@ internal sealed class DesktopWindow : IDisposable
         {
             var style = (long)GetWindowLongPtr(Handle, GWL_EXSTYLE);
             _ = SetWindowLongPtr(Handle, GWL_EXSTYLE, new IntPtr(style | WS_EX_LAYERED));
-            set = SetLayeredWindowAttributes(Handle, 0, opacity, LWA_ALPHA);
+            set = SetLayeredWindowAttributes(Handle, colourKey, opacity, flags);
             done.Set();
         });
         return done.Wait(TimeSpan.FromSeconds(5)) && set;
@@ -728,6 +736,7 @@ internal sealed class DesktopWindow : IDisposable
     private static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint colorKey, byte alpha, uint flags);
 
     private const long WS_EX_LAYERED = 0x00080000;
+    private const uint LWA_COLORKEY = 0x00000001;
     private const uint LWA_ALPHA = 0x00000002;
 
     [DllImport("user32.dll", SetLastError = true)]

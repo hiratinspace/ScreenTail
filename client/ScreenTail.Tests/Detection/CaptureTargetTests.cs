@@ -83,8 +83,15 @@ public sealed class CaptureTargetTests
         Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, opacity)));
 
     [Fact]
-    public void AWindowInFrontWithAColourKeyShowsWhatIsBehindIt() =>
-        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0)));
+    public void AWindowInFrontWithOnlyAColourKeyIsNotRefused()
+    {
+        // WinForms TransparencyKey and skinned apps cut shaped corners with a colour key, and ScreenConnect's
+        // client is WinForms: refusing it could lose every frame of an in-scope tool. A known limit.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0)));
+
+        // A colour key with the whole window also drawn translucent is still refused for the translucency.
+        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: true, Opacity: 200)));
+    }
 
     [Fact]
     public void AnOpaqueWindowInFrontShowsNothingBehindIt()

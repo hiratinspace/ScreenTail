@@ -21,7 +21,7 @@ namespace ScreenTail.Service.Capture;
 /// Windows.Graphics.Capture and a slow encode argues for WIC; without it, either change is a guess.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapturer, IDisposable
+internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? logger = null) : IScreenshotCapturer, IDisposable
 {
     private static readonly ImageCodecInfo JpegCodec =
         ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
@@ -40,6 +40,10 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private bool _disposed;
     private long _skippedCovered;
     private long _skippedSeeThrough;
+
+    // The windows a see-through skip has been logged for, so a translucent window costs one log line and
+    // not one per click. Cleared when it grows, which at worst repeats a line.
+    private readonly HashSet<nint> _seeThroughLogged = [];
 
     // Reused under the lock by the covered check, so it allocates nothing per capture once warm.
     private readonly List<WindowAbove> _above = new(64);
@@ -88,11 +92,13 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
                 return null;
             }
 
-            // The same for what lies under it: a window drawn translucent or with a colour key lets the
-            // window behind show through, and that one may be excluded (INV-6, WindowCover).
-            if (WindowCover.ShowsWhatIsBehind(LayeringOf(window)))
+            // The same for what lies under it: a window drawn translucent lets the window behind show
+            // through, and that one may be excluded (INV-6, WindowCover).
+            var layering = LayeringOf(window);
+            if (WindowCover.ShowsWhatIsBehind(layering))
             {
                 _ = Interlocked.Increment(ref _skippedSeeThrough);
+                LogSeeThroughOnce(window, layering.Opacity);
                 return null;
             }
 
@@ -247,6 +253,51 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
         return WindowCover.AnyCovers(target, _above, walkComplete: above == IntPtr.Zero);
     }
+
+    /// <summary>
+    /// Says once per window that its frames are being skipped for translucency, so a tool that loses its
+    /// frames this way is visible in the log rather than quietly empty. The process name and the opacity,
+    /// never the title (INV-10).
+    /// </summary>
+    private void LogSeeThroughOnce(IntPtr window, byte opacity)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
+        if (_seeThroughLogged.Count >= 64)
+        {
+            _seeThroughLogged.Clear();
+        }
+
+        if (!_seeThroughLogged.Add(window))
+        {
+            return;
+        }
+
+        // Computed into a local first, as CaptureHost does: the analyzer objects to work in a logging call's
+        // arguments, even behind the IsEnabled guard above.
+        _ = GetWindowThreadProcessId(window, out var processId);
+        var process = ProcessNameOf(processId);
+        LogSeeThrough(logger, process, opacity);
+    }
+
+    private static string ProcessNameOf(uint processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            return process.ProcessName;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            return "unknown";
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No frames of {Process} while it is drawn see-through (opacity {Opacity} of 255): what is behind it would be in the frame. Logged once per window.")]
+    private static partial void LogSeeThrough(ILogger logger, string process, byte opacity);
 
     /// <summary>How the window in front is blended with what is behind it, read from its styles (<see cref="TargetLayering"/>).</summary>
     private static TargetLayering LayeringOf(IntPtr window)

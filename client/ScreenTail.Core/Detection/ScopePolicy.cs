@@ -89,6 +89,20 @@ public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToo
     }
 
     /// <summary>
+    /// The stricter of two decisions about one window: the one that forbids frames when only one does
+    /// (frames, typing, narration and click positions all follow <see cref="MayCaptureFrames"/>), otherwise
+    /// the newer. For a title not reported yet, which may tighten what is in force but not loosen it.
+    /// </summary>
+    /// <param name="inForce">The decision in force.</param>
+    /// <param name="newer">The decision for the newer look at the same window.</param>
+    public static ScopeDecision Stricter(ScopeDecision inForce, ScopeDecision newer)
+    {
+        ArgumentNullException.ThrowIfNull(inForce);
+        ArgumentNullException.ThrowIfNull(newer);
+        return !inForce.MayCaptureFrames && newer.MayCaptureFrames ? inForce : newer;
+    }
+
+    /// <summary>
     /// A click with its position removed; any other event unchanged. For when nothing is known about the
     /// window in front, which is not a reason to keep where the mouse was.
     /// </summary>

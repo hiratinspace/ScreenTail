@@ -448,8 +448,40 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.False(coordinator.CurrentScope?.MayCaptureFrames);
         Assert.Equal(CaptureScope.Excluded, coordinator.CurrentScope?.Scope);
 
-        // Back to the decided title: frames again, with nothing reported in between.
+        // Back to the reported title: frames again, with nothing reported in between.
         latest = tickets;
+        Assert.True(coordinator.CurrentScope?.MayCaptureFrames);
+    }
+
+    [Fact]
+    public async Task AnUnreportedTitleTightensTheDecisionButOnlyTheReportLoosensIt()
+    {
+        // A title on its way somewhere passes through others. Tab to the vault (excluded), then on to a
+        // page in scope, both inside the settle time: the vault's "no frames" stands until the page is
+        // reported, rather than loosening on a title nobody has seen settle.
+        var ct = TestContext.Current.CancellationToken;
+        ForegroundWindowInfo? latest = null;
+        var vaults = ExclusionList.Load("""
+            { "version": "test", "processes": [], "url_fragments": [],
+              "title_patterns": [{ "id": "vaults", "display_name": "Password vaults in a browser", "pattern": "(?i)\\bvault\\b" }] }
+            """);
+        var coordinator = await CoordinatorAsync(
+            ct,
+            options: new ScopeOptions { CaptureAllWindows = true, Exclusions = vaults },
+            latest: () => latest);
+
+        var tickets = Window(handle: 555, process: "chrome", title: "Tickets - Google Chrome") with { BrowserTabTitle = "Tickets" };
+        latest = tickets;
+        await coordinator.HandleAsync(tickets, ct);
+
+        latest = Window(handle: 555, process: "chrome", title: "Bitwarden Web vault - Google Chrome") with { BrowserTabTitle = "Bitwarden Web vault" };
+        Assert.False(coordinator.CurrentScope?.MayCaptureFrames);
+
+        var docs = Window(handle: 555, process: "chrome", title: "Docs - Google Chrome") with { BrowserTabTitle = "Docs" };
+        latest = docs;
+        Assert.False(coordinator.CurrentScope?.MayCaptureFrames);
+
+        await coordinator.HandleAsync(docs, ct);
         Assert.True(coordinator.CurrentScope?.MayCaptureFrames);
     }
 

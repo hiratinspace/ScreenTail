@@ -96,7 +96,8 @@ internal sealed partial class AutoSessionCoordinator
     /// to the next window the technician happens to move to (INV-5, INV-11). Made again, too, when the
     /// window decided on has since been retitled and the watcher is still holding the new title back to
     /// let it settle: a tab that became an excluded page is not photographed under the old tab's decision
-    /// for those 250 ms (INV-6, <see cref="UndecidedTitle"/>). When nothing changed this is a reference
+    /// for those 250 ms (INV-6, <see cref="UndecidedTitle"/>). Such a title can only tighten the decision;
+    /// it loosens when the report arrives. When nothing changed this is a reference
     /// comparison and a title comparison, so the capture loops pay almost nothing for it.
     /// </summary>
     public ScopeDecision? CurrentScope
@@ -265,7 +266,7 @@ internal sealed partial class AutoSessionCoordinator
         bool worthRecording;
         lock (_gate)
         {
-            _decided = new Decided(decision, window, options);
+            _decided = new Decided(decision, window, options, window);
             worthRecording = TakeRecording(decision);
         }
 
@@ -403,9 +404,13 @@ internal sealed partial class AutoSessionCoordinator
     /// The decision in force, made again if the policy changed since it was made or the window it is about
     /// has a newer title the watcher has not reported yet. Call under the gate.
     ///
-    /// Only the decision moves. The timeline's focus entry still waits for the report, so a title that
-    /// rewrites itself does not write an entry per rewrite; what it may not do is be photographed or have
-    /// its typing counted under a decision about a title it no longer shows.
+    /// On a title not reported yet the decision can only tighten: the stricter of the one in force and the
+    /// new title's is kept (<see cref="ScopeDecision.Stricter"/>), and it loosens when the report arrives
+    /// (<see cref="HandleAsync"/>) or the window shows the reported title again. A title on its way
+    /// somewhere may not be photographed on the strength of where it is passing through.
+    ///
+    /// The timeline hears of a change made here at the next auto-stop tick (<see cref="TickOnceAsync"/>)
+    /// or at the report, whichever comes first, not once per rewrite of the title.
     /// </summary>
     private Decided Redecided()
     {
@@ -417,7 +422,13 @@ internal sealed partial class AutoSessionCoordinator
             return decided;
         }
 
-        var next = new Decided(_policy.Decide(window), window, options);
+        var decision = _policy.Decide(window);
+        if (!window.SameAs(decided.Reported))
+        {
+            decision = ScopeDecision.Stricter(decided.Decision, decision);
+        }
+
+        var next = new Decided(decision, window, options, decided.Reported);
         _decided = next;
         return next;
     }
@@ -440,8 +451,11 @@ internal sealed partial class AutoSessionCoordinator
     private static bool IsRunning(SessionState state) =>
         state is SessionState.Recording or SessionState.Paused or SessionState.Suppressed;
 
-    /// <summary>A scope decision, the window it is about, and the policy it was made under.</summary>
-    private sealed record Decided(ScopeDecision Decision, ForegroundWindowInfo Window, ScopeOptions Options);
+    /// <summary>
+    /// A scope decision, the window it is about, the policy it was made under, and the last look at that
+    /// window the watcher reported (the same as <paramref name="Window"/> unless a retitle is still settling).
+    /// </summary>
+    private sealed record Decided(ScopeDecision Decision, ForegroundWindowInfo Window, ScopeOptions Options, ForegroundWindowInfo Reported);
 
     [LoggerMessage(
         Level = LogLevel.Warning,

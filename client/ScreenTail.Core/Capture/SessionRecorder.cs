@@ -25,11 +25,19 @@ namespace ScreenTail.Core.Capture;
 /// the out-of-scope drop could be deleted and the whole suite stayed green (weaknesses P0-4). The hooks
 /// and the screen grab are still Windows-only and still behind interfaces; the decisions are here.
 /// </summary>
+/// <param name="foreground">
+/// The window in front now, as Windows says, or null when the caller cannot ask. A click's position is
+/// kept only while the window in front is the one the scope decision judged: a click on a background
+/// window brings it forward only after it lands, and a window that never takes the foreground (the
+/// on-screen keyboard) is clicked while another is in front, so in both the position is about a window
+/// nobody judged (INV-6).
+/// </param>
 public sealed class SessionRecorder(
     SessionMachine machine,
     IScreenshotCapturer capturer,
     Func<ScopeDecision?> currentScope,
-    ClickDebouncer? debouncer = null)
+    ClickDebouncer? debouncer = null,
+    Func<nint>? foreground = null)
 {
     private readonly ClickDebouncer _debouncer = debouncer ?? new ClickDebouncer();
     private readonly InputSignalReader _reader = new();
@@ -157,10 +165,15 @@ public sealed class SessionRecorder(
                 continue;
             }
 
-            // A click in a window that may not be photographed is written without where it landed (INV-6),
-            // and gets no frame: the window it landed in is the one that was judged, whatever is in front
-            // by the time a picture could be taken.
+            // A click in a window that may not be photographed loses where it landed (INV-6) and gets no
+            // frame, and so does one made while the window in front is not the one judged. The store keeps
+            // no position for a click without a frame either; the frame records the cursor itself.
             var admitted = scope?.Admit(sessionEvent) ?? ScopeDecision.WithoutPosition(sessionEvent);
+            if (admitted is ClickEvent && foreground is not null && foreground() != scope?.Window)
+            {
+                admitted = ScopeDecision.WithoutPosition(admitted);
+            }
+
             _ = await machine.TryRecordEventAsync(admitted, ct).ConfigureAwait(false);
             if (admitted is ClickEvent { X: { } x, Y: { } y } click)
             {
