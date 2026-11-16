@@ -321,7 +321,7 @@ msiexec /i ScreenTail.msi BACKENDURL=https://screentail.example.com /qn /noresta
   `HKEY_LOCAL_MACHINE\SOFTWARE\ScreenTail`, value `BackendUrl` (a string), which only an administrator can
   change, and ignores the `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN` variables those development
   builds use. "Installed" means running from `ScreenTail` under the machine's Program Files, the one folder
-  the package installs into. `BACKENDURL` on the `msiexec` line writes it, and is read only when the
+  the package installs into, or being the signed `ScreenTail.Service.exe` wherever it runs. `BACKENDURL` on the `msiexec` line writes it, and is read only when the
   package is installed or upgraded: an upgrade or a repair without it keeps the value already there, and a
   new `BACKENDURL` replaces it. `ScreenTail-Setup.exe` does not pass it on yet, so with the setup program,
   or to change the address in place without reinstalling, write the value with your RMM tool or Group

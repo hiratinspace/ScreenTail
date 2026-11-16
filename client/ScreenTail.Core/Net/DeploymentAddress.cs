@@ -30,8 +30,8 @@ public sealed record DeploymentAddress(Uri? Backend, AddressOrigin Origin, bool 
 /// so a locked local-only is only as strong as the place the address is read from. A per-user
 /// environment variable is a setting the technician, or anything running as them, can change; an
 /// installed build reads the address only from the machine-wide setting, which only an administrator
-/// can write, and ignores the variables. Development builds (anything not running from the install folder)
-/// keep the variables, because the test loop, the demo and the end-to-end run are built on them, with
+/// can write, and ignores the variables. Development builds (unsigned, and not running from the install
+/// folder) keep the variables, because the test loop, the demo and the end-to-end run are built on them, with
 /// the machine setting as their fallback.
 ///
 /// The same rule holds for <c>SCREENTAIL_DEVICE_TOKEN</c>: an installed build is enrolled with an
@@ -60,7 +60,7 @@ public static class DeploymentAddresses
     /// <summary>Added when the same build also found SCREENTAIL_BACKEND set, which it does not read.</summary>
     public const string EnvironmentNotRead = " An installed copy does not read SCREENTAIL_BACKEND.";
 
-    /// <param name="installed">Running from the install folder under Program Files (<see cref="InstalledAt"/>).</param>
+    /// <param name="installed">An installed build (<see cref="Installed"/>).</param>
     /// <param name="machine">The machine-wide setting, or null when there is none.</param>
     /// <param name="environment">Reads an environment variable by name.</param>
     public static DeploymentAddress Resolve(bool installed, string? machine, Func<string, string?> environment)
@@ -97,12 +97,43 @@ public static class DeploymentAddresses
     /// <summary>The folder the installer puts ScreenTail in, under the machine's 64-bit Program Files.</summary>
     public const string InstallFolderName = "ScreenTail";
 
+    /// <summary>The service's own executable (its apphost), as the package ships it.</summary>
+    public const string ServiceExecutableName = "ScreenTail.Service.exe";
+
+    /// <summary>
+    /// Whether the running service is an installed build, which reads its address only from the machine.
+    /// It is when it runs from the install folder (<see cref="InstalledAt"/>), and also when it is the
+    /// shipped, signed service executable started from anywhere else: a copy of the release taken out of
+    /// Program Files into a folder the technician can write must not read the variables either, or the
+    /// lock is as weak as before (2026-11-15 re-review). A development build is unsigned and keeps them,
+    /// and <c>dotnet ScreenTail.Service.dll</c> is never installed, because the process is the .NET host.
+    ///
+    /// Any valid signature counts for now. Once a ScreenTail publisher identity ships, pin it here (its
+    /// thumbprint or identity-validation usage, as <c>PublisherIdentity.Mismatch</c> compares), so a
+    /// rebuilt executable signed by someone else is not taken for a release.
+    /// </summary>
+    /// <param name="processPath">The running process's image (<c>Environment.ProcessPath</c>).</param>
+    /// <param name="programFiles">As <see cref="InstalledAt"/> takes it.</param>
+    /// <param name="carriesSignature">Whether that image carries a valid Authenticode signature. Asked only for the service's own executable.</param>
+    public static bool Installed(string? processPath, string? programFiles, Func<string, bool> carriesSignature)
+    {
+        ArgumentNullException.ThrowIfNull(carriesSignature);
+        if (InstalledAt(processPath, programFiles))
+        {
+            return true;
+        }
+
+        return !string.IsNullOrEmpty(processPath)
+            && string.Equals(Path.GetFileName(processPath), ServiceExecutableName, StringComparison.OrdinalIgnoreCase)
+            && carriesSignature(processPath);
+    }
+
     /// <summary>
     /// True when <paramref name="executable"/> sits inside <c>ScreenTail</c> under
     /// <paramref name="programFiles"/>: the one folder the package installs into (its RefuseInstallFolder
-    /// step refuses any other) and one only an administrator can write. Decided by location and not by
-    /// signature: any Authenticode signer would pass a signature check, the .NET host under Program Files
-    /// included, and there is no shipped publisher identity to compare against yet.
+    /// step refuses any other) and one only an administrator can write. Decided by location: a signature
+    /// on its own would pass any signer, the .NET host under Program Files included, so
+    /// <see cref="Installed"/> counts one only for the service's own executable.
     /// </summary>
     /// <param name="programFiles">
     /// The machine's Program Files, from the known folder (<c>Environment.SpecialFolder.ProgramFiles</c> in

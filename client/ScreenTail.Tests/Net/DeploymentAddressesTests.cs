@@ -153,6 +153,41 @@ public sealed class DeploymentAddressesTests
         Assert.Equal(installed, DeploymentAddresses.InstalledAt(executable, "/Program Files"));
     }
 
+    [Theory]
+    [InlineData(@"/Users/tech/Downloads/ScreenTail/ScreenTail.Service.exe", true, true)]
+    [InlineData(@"/Users/tech/Downloads/ScreenTail/screentail.service.EXE", true, true)]
+    [InlineData(@"/Users/tech/Downloads/ScreenTail/ScreenTail.Service.exe", false, false)]
+    [InlineData(@"/Program Files/dotnet/dotnet.exe", true, false)]
+    [InlineData(@"/Users/tech/dotnet/dotnet.exe", true, false)]
+    [InlineData(@"/Users/tech/Downloads/ScreenTail/Other.exe", true, false)]
+    [InlineData(@"/Program Files/ScreenTail/ScreenTail.Service.exe", false, true)]
+    [InlineData(null, true, false)]
+    public void TheSignedServiceExecutableCountsAsInstalledWhereverItRuns(string? processPath, bool carriesSignature, bool installed)
+    {
+        // A copy of the signed release taken out of Program Files into a folder the technician can write
+        // must not read SCREENTAIL_BACKEND (2026-11-15 re-review). The .NET host is signed too, so only the
+        // service's own executable counts: `dotnet ScreenTail.Service.dll` is never installed, and an
+        // unsigned development build keeps the variables.
+        Assert.Equal(installed, DeploymentAddresses.Installed(processPath, "/Program Files", _ => carriesSignature));
+    }
+
+    [Fact]
+    public void TheSignatureIsAskedOnlyOfTheServicesOwnExecutable()
+    {
+        var asked = new List<string>();
+        bool Signed(string path)
+        {
+            asked.Add(path);
+            return true;
+        }
+
+        _ = DeploymentAddresses.Installed("/Users/tech/dotnet/dotnet.exe", "/Program Files", Signed);
+        _ = DeploymentAddresses.Installed("/Program Files/ScreenTail/ScreenTail.Service.exe", "/Program Files", Signed);
+        _ = DeploymentAddresses.Installed("/Users/tech/ScreenTail.Service.exe", "/Program Files", Signed);
+
+        Assert.Equal(["/Users/tech/ScreenTail.Service.exe"], asked);
+    }
+
     [Fact]
     public void WithNoProgramFilesNothingCountsAsInstalled()
     {
