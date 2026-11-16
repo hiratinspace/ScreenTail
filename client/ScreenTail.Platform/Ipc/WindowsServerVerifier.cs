@@ -17,8 +17,8 @@ namespace ScreenTail.Platform.Ipc;
 /// defeated without touching capture at all.
 ///
 /// The rule is the same one ADR-0003 already states, read the other way round: the process on the far end
-/// must be Authenticode-signed by our publisher or, in an unsigned dev build, live in the same
-/// directory as this executable.
+/// must live in the same directory as this executable and, in a signed build, be Authenticode-signed by
+/// our publisher as well.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsServerVerifier : IServerVerifier
@@ -68,11 +68,18 @@ public sealed class WindowsServerVerifier : IServerVerifier
         if (_publisherThumbprint is not null)
         {
             var serverThumbprint = Authenticode.VerifiedSignerThumbprint(server);
-            return serverThumbprint is not null && CryptographicOperations.FixedTimeEquals(
+            if (serverThumbprint is null || !CryptographicOperations.FixedTimeEquals(
                 Convert.FromHexString(serverThumbprint),
-                Convert.FromHexString(_publisherThumbprint))
-                ? null
-                : "unsigned_or_other_publisher";
+                Convert.FromHexString(_publisherThumbprint)))
+            {
+                return "unsigned_or_other_publisher";
+            }
+
+            // Signed by us is not enough on its own: the signature covers the executable and not the
+            // libraries it loads from its folder, so a genuine copy of the service run from a folder the
+            // user can write to is not our service. The installer puts both executables in one folder
+            // under Program Files (2026-11-15 review).
+            return PeerDirectory.Same(serverExecutable, _uiExecutable) ? null : "signed_outside_ui_directory";
         }
 
         // Only a build that carries no signature at all may fall back to the directory rule. Our own
@@ -85,11 +92,7 @@ public sealed class WindowsServerVerifier : IServerVerifier
             return "own_signature_unverifiable";
         }
 
-        var sameDirectory = string.Equals(
-            Path.GetDirectoryName(server),
-            Path.GetDirectoryName(_uiExecutable),
-            StringComparison.OrdinalIgnoreCase);
-        return sameDirectory ? null : "dev_build_outside_ui_directory";
+        return PeerDirectory.Same(serverExecutable, _uiExecutable) ? null : "dev_build_outside_ui_directory";
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

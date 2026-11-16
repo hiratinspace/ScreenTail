@@ -8,9 +8,9 @@ namespace ScreenTail.Platform.Ipc;
 
 /// <summary>
 /// ADR-0003 rule 2: the connecting process's executable must be Authenticode-signed by the same publisher
-/// as the service. When the service itself is unsigned (a development build), the client executable must
-/// sit in the service's own directory instead. Reasons returned here go into audit rows, so they name
-/// the rule, never the path.
+/// as the service and sit in the service's own directory. When the service itself is unsigned (a
+/// development build), the directory alone decides. Reasons returned here go into audit rows, so they
+/// name the rule, never the path.
 ///
 /// "Signed by" means <see cref="Authenticode"/> verified the signature against the file's contents, not
 /// that a matching certificate was found in it. See there for why that distinction is the whole point.
@@ -60,11 +60,18 @@ public sealed class WindowsClientVerifier : IClientVerifier
         if (_publisherThumbprint is not null)
         {
             var clientThumbprint = Authenticode.VerifiedSignerThumbprint(client);
-            return clientThumbprint is not null && CryptographicOperations.FixedTimeEquals(
+            if (clientThumbprint is null || !CryptographicOperations.FixedTimeEquals(
                 Convert.FromHexString(clientThumbprint),
-                Convert.FromHexString(_publisherThumbprint))
-                ? null
-                : "unsigned_or_other_publisher";
+                Convert.FromHexString(_publisherThumbprint)))
+            {
+                return "unsigned_or_other_publisher";
+            }
+
+            // Signed by us is not enough on its own: the signature covers the executable and not the
+            // libraries it loads from its folder, so a genuine copy run from a folder the user can write
+            // to is not our UI. The installer puts both executables in one folder under Program Files
+            // (2026-11-15 review).
+            return PeerDirectory.Same(clientExecutable, _serviceExecutable) ? null : "signed_outside_service_directory";
         }
 
         // Only a build that carries no signature at all may fall back to the directory rule. Our own
@@ -77,11 +84,7 @@ public sealed class WindowsClientVerifier : IClientVerifier
             return "own_signature_unverifiable";
         }
 
-        var sameDirectory = string.Equals(
-            Path.GetDirectoryName(client),
-            Path.GetDirectoryName(_serviceExecutable),
-            StringComparison.OrdinalIgnoreCase);
-        return sameDirectory ? null : "dev_build_outside_service_directory";
+        return PeerDirectory.Same(clientExecutable, _serviceExecutable) ? null : "dev_build_outside_service_directory";
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]
