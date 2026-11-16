@@ -746,6 +746,41 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
+    public async Task TheSameMappingSentOverAndOverIsRecordedOnceAndMappingRecordsAreCapped()
+    {
+        // A device in a loop must not grow the record without end: a repeat of the latest change adds
+        // nothing, and only the newest MappingsKept map and unmap records stay. Credential changes stay.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        for (var i = 0; i < 3; i++)
+        {
+            using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        }
+
+        var repeated = await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped));
+        var start = DateTimeOffset.UtcNow.AddDays(-30);
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 0; i < IntegrationChanges.MappingsKept + 50; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = start.AddMinutes(i), Provider = "hudu", Action = IntegrationChanges.Unmapped, PsaCompany = $"Old {i}" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Somewhere Ltd", "9"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, repeated);
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        var kept = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId && (c.Action == IntegrationChanges.Mapped || c.Action == IntegrationChanges.Unmapped)).Select(c => c.PsaCompany).ToListAsync());
+        Assert.Equal(IntegrationChanges.MappingsKept, kept.Count);
+        Assert.Contains("Somewhere Ltd", kept);
+        Assert.DoesNotContain("Old 0", kept);
+        Assert.Equal(2, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Connected)));
+    }
+
+    [Fact]
     public async Task AnotherTenantsChangesAreNotShown()
     {
         using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());

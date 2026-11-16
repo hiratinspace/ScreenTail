@@ -203,6 +203,30 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Assert.False(time.Retryable);
     }
 
+    [Fact]
+    public async Task ACredentialTheVaultRefusesIsADestinationThatSaysWhyNotAServerError()
+    {
+        // 2026-11-15 review: a stored row the vault will not open (here its site no longer matches what
+        // the secret was sealed for) answers each destination in words, sends nothing, and is not retried.
+        var cw = new ScriptedConnectWise();
+        using var host = Host(cw);
+        using var client = await ConnectedClientAsync(host);
+        var tenantId = OwnerRoutes.TenantOf(client);
+        _ = await api.UseAsync(db => db.Integrations.Where(i => i.TenantId == tenantId).ExecuteUpdateAsync(set => set.SetProperty(i => i.SiteUrl, "https://eu.myconnectwise.net")));
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle(), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(cw.Requests);
+        Assert.All(published!.Results, r =>
+        {
+            Assert.False(r.Ok);
+            Assert.False(r.Retryable);
+            Assert.Contains("Ask your owner to connect it again in the web admin.", r.Error, StringComparison.Ordinal);
+        });
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.TooManyRequests, 180L, true, "ConnectWise is rate-limiting requests. Try again in 3 minutes.")]
     [InlineData(HttpStatusCode.ServiceUnavailable, null, false, "ConnectWise did not confirm the request, so it may have been saved. Check ConnectWise before publishing again, so nothing is added twice.")]

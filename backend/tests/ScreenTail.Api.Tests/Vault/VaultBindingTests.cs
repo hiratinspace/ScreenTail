@@ -95,7 +95,7 @@ public sealed class VaultBindingTests : IAsyncDisposable
 
         _ = await db.Integrations.ExecuteUpdateAsync(set => set.SetProperty(i => i.BindingVersion, 0), TestContext.Current.CancellationToken);
 
-        _ = await Assert.ThrowsAnyAsync<CryptographicException>(() => Vault(db).RevealAsync(tenant, "connectwise", TestContext.Current.CancellationToken));
+        _ = await Assert.ThrowsAsync<VaultRowRefusedException>(() => Vault(db).RevealAsync(tenant, "connectwise", TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -249,6 +249,92 @@ public sealed class VaultBindingTests : IAsyncDisposable
         }
     }
 
+    [Fact]
+    public async Task ASweepGoesOnPastALegacyRowThatDoesNotOpenAndDoesNotRecordTheVaultClear()
+    {
+        // One damaged legacy row must not stop every start, nor let the vault be recorded clear while it
+        // is still there.
+        var good = Guid.NewGuid();
+        var bad = Guid.NewGuid();
+        await using var db = await OpenAsync();
+        await SeedLegacyAsync(db, good, "connectwise", "https://na.myconnectwise.net", Secret, _key);
+        await SeedLegacyAsync(db, bad, "hudu", "https://acme.huducloud.com", "hudu-key-0002", _key);
+        var damaged = await db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == bad, TestContext.Current.CancellationToken);
+        var flipped = damaged.SecretCiphertext!.ToArray();
+        flipped[0] ^= 0xFF;
+        _ = await db.Integrations.Where(i => i.Id == damaged.Id).ExecuteUpdateAsync(set => set.SetProperty(i => i.SecretCiphertext, flipped), TestContext.Current.CancellationToken);
+        var options = new VaultOptions { MasterKey = Convert.ToBase64String(_key) };
+        var log = new RecordingLogger();
+
+        var first = await VaultSweep.SweepAsync(db, options, TimeProvider.System, log, TestContext.Current.CancellationToken);
+        var second = await VaultSweep.SweepAsync(db, options, TimeProvider.System, log, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, first.Upgraded);
+        Assert.Equal([damaged.Id], first.NotOpened);
+        Assert.Equal([damaged.Id], second.NotOpened);
+        Assert.Null((await db.VaultStates.AsNoTracking().SingleOrDefaultAsync(TestContext.Current.CancellationToken))?.LegacyRowsClearedAt);
+        Assert.Equal(Envelope.BindingVersion, (await db.Integrations.AsNoTracking().SingleAsync(i => i.TenantId == good, TestContext.Current.CancellationToken)).BindingVersion);
+        Assert.Equal(flipped, (await db.Integrations.AsNoTracking().SingleAsync(i => i.Id == damaged.Id, TestContext.Current.CancellationToken)).SecretCiphertext);
+        Assert.All(log.Lines.Where(l => l.Level == LogLevel.Warning), l =>
+        {
+            Assert.Contains(damaged.Id.ToString(), l.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("acme", l.Text, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.Equal(2, log.Lines.Count(l => l.Level == LogLevel.Warning));
+    }
+
+    [Fact]
+    public async Task ALegacyRowUnderAKeyThisDeploymentDoesNotHoldIsReportedAndKeepsTheVaultFromBeingRecordedClear()
+    {
+        var tenant = Guid.NewGuid();
+        await using var db = await OpenAsync();
+        await SeedLegacyAsync(db, tenant, "hudu", "https://acme.huducloud.com", "hudu-key-0002", RandomNumberGenerator.GetBytes(32));
+        var row = await db.Integrations.AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
+        var log = new RecordingLogger();
+
+        var swept = await VaultSweep.SweepAsync(db, new VaultOptions { MasterKey = Convert.ToBase64String(_key) }, TimeProvider.System, log, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, swept.Upgraded);
+        Assert.Equal([row.Id], swept.NotOpened);
+        Assert.Null((await db.VaultStates.AsNoTracking().SingleOrDefaultAsync(TestContext.Current.CancellationToken))?.LegacyRowsClearedAt);
+        Assert.Contains(log.Lines, l => l.Level == LogLevel.Warning && l.Text.Contains(row.Id.ToString(), StringComparison.Ordinal) && l.Text.Contains(tenant.ToString(), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task AnUpgradeRunDoesNotOverwriteACredentialTheOwnerStoredWhileItRan()
+    {
+        // The rewrite reads the legacy rows, then writes each. A store landing between the two is newer,
+        // so the row is written only if it is still the one that was read.
+        var tenant = Guid.NewGuid();
+        var meanwhile = new StoreAfterTheRead();
+        await using var db = await OpenAsync(meanwhile);
+        await SeedLegacyAsync(db, tenant, "connectwise", "https://na.myconnectwise.net", Secret, _key);
+        var options = new VaultOptions { MasterKey = Convert.ToBase64String(_key) };
+        meanwhile.Armed = true;
+
+        var rewrite = await KeyRotation.UpgradeLegacyAsync(db, options, TimeProvider.System, TestContext.Current.CancellationToken);
+
+        Assert.True(meanwhile.Fired);
+        Assert.Equal(0, rewrite.Changed);
+        var row = await db.Integrations.AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("NEW1", row.SecretHint);
+        Assert.Equal(StoreAfterTheRead.Nonce, row.SecretNonce);
+    }
+
+    [Fact]
+    public async Task TheSchemeIsPartOfTheBindingAndAReadRefusesASiteThatIsNotHttps()
+    {
+        var tenant = Guid.NewGuid();
+        await using var db = await OpenAsync();
+        await Vault(db).StoreAsync(tenant, "hudu", "https://acme.huducloud.com", "hudu-key-0001", TestContext.Current.CancellationToken);
+        _ = await db.Integrations.ExecuteUpdateAsync(set => set.SetProperty(i => i.SiteUrl, "http://acme.huducloud.com:443"), TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(Envelope.BindingFor(tenant, "hudu", "https://acme.huducloud.com"), Envelope.BindingFor(tenant, "hudu", "http://acme.huducloud.com:443"));
+        var refused = await Assert.ThrowsAsync<VaultRowRefusedException>(() => Vault(db).RevealAsync(tenant, "hudu", TestContext.Current.CancellationToken));
+        Assert.Contains("https", refused.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("hudu-key", refused.Message, StringComparison.Ordinal);
+    }
+
     internal static async Task SeedLegacyAsync(ScreenTailContext db, Guid tenant, string provider, string site, string secret, byte[] key)
     {
         // Exactly what the vault wrote before the binding: no associated data, BindingVersion 0.
@@ -285,7 +371,7 @@ public sealed class VaultBindingTests : IAsyncDisposable
     private IntegrationVault Vault(ScreenTailContext db, bool allowLegacy = true) =>
         new(db, new VaultOptions { MasterKey = Convert.ToBase64String(_key), AllowLegacyRows = allowLegacy }, TimeProvider.System);
 
-    private async Task<ScreenTailContext> OpenAsync(SeenCommands? commands = null)
+    private async Task<ScreenTailContext> OpenAsync(IInterceptor? commands = null)
     {
         if (_connection.State != System.Data.ConnectionState.Open)
         {
@@ -317,6 +403,33 @@ public sealed class VaultBindingTests : IAsyncDisposable
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
             Lines.Add((logLevel, formatter(state, exception)));
+    }
+
+    /// <summary>Once armed, stores a newer credential on the row right after the first read of the integrations table finishes, as an owner's store landing mid-run would.</summary>
+    private sealed class StoreAfterTheRead : DbCommandInterceptor
+    {
+        public static readonly byte[] Nonce = Enumerable.Repeat((byte)7, 12).ToArray();
+
+        public bool Armed { get; set; }
+
+        public bool Fired { get; private set; }
+
+        public override InterceptionResult DataReaderDisposing(DbCommand command, DataReaderDisposingEventData eventData, InterceptionResult result)
+        {
+            if (Armed && !Fired && command.CommandText.Contains("FROM \"integrations\"", StringComparison.Ordinal))
+            {
+                Fired = true;
+                using var store = command.Connection!.CreateCommand();
+                store.CommandText = "UPDATE \"integrations\" SET \"SecretHint\" = 'NEW1', \"SecretNonce\" = $nonce, \"BindingVersion\" = 1";
+                var nonce = store.CreateParameter();
+                nonce.ParameterName = "$nonce";
+                nonce.Value = Nonce;
+                _ = store.Parameters.Add(nonce);
+                _ = store.ExecuteNonQuery();
+            }
+
+            return base.DataReaderDisposing(command, eventData, result);
+        }
     }
 
     /// <summary>Every SQL text the context runs, so a test can see which columns a query names.</summary>

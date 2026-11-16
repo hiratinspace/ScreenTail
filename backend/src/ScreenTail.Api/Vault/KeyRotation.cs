@@ -6,7 +6,8 @@ namespace ScreenTail.Api.Vault;
 
 /// <param name="Changed">Rows rewrapped under the current key or sealed again in the bound form.</param>
 /// <param name="RefusedLegacy">Legacy rows left exactly as they were because <c>Vault:AllowLegacyRows</c> is off. Ids only.</param>
-public sealed record VaultRewrite(int Changed, IReadOnlyList<Guid> RefusedLegacy);
+/// <param name="Unopenable">Legacy rows that did not open under the key they name, left as they are and reported. Ids only.</param>
+public sealed record VaultRewrite(int Changed, IReadOnlyList<Guid> RefusedLegacy, IReadOnlyList<Guid> Unopenable);
 
 /// <summary>
 /// Rotating the master key (ST-009 AC3). Every row wrapped under <c>Vault:PreviousMasterKey</c> is rewrapped
@@ -69,60 +70,74 @@ public static class KeyRotation
             .ConfigureAwait(false);
         var changed = 0;
         var refused = new List<Guid>();
+        var unopenable = new List<Guid>();
         foreach (var row in rows)
         {
             var key = row.KeyId == fromId ? previous! : current;
+            Sealed written;
             if (row.BindingVersion >= Envelope.BindingVersion)
             {
                 // Bound already: only the data key changes hands, the secret is not opened.
-                var rewrapped = Envelope.Rewrap(
+                written = Envelope.Rewrap(
                     new Sealed(row.SecretCiphertext!, row.SecretNonce!, row.DataKeyWrapped!, row.DataKeyNonce!, row.KeyId!),
                     key,
                     current);
-                row.DataKeyWrapped = rewrapped.WrappedKey;
-                row.DataKeyNonce = rewrapped.KeyNonce;
-                row.KeyId = rewrapped.KeyId;
-                row.RotatedAt = now;
-                changed++;
-                continue;
             }
-
-            if (!allowLegacy)
+            else if (!allowLegacy)
             {
                 refused.Add(row.Id);
                 continue;
             }
+            else
+            {
+                byte[] secret;
+                try
+                {
+                    secret = IntegrationVault.Open(row, key, allowLegacy: true);
+                }
+                catch (VaultRowRefusedException)
+                {
+                    // Reported and left as it is; the rest go on (one bad row must not stop every start).
+                    unopenable.Add(row.Id);
+                    continue;
+                }
 
-            byte[] secret;
-            try
-            {
-                secret = IntegrationVault.Open(row, key, allowLegacy: true);
-            }
-            catch (CryptographicException e)
-            {
-                // Nothing has been saved yet, so stopping here leaves every row as it was.
-                throw new InvalidOperationException($"The {row.Provider} credential in row {row.Id} does not open under master key {row.KeyId}, so nothing was changed. Store that credential again, then run this again.", e);
+                try
+                {
+                    written = Envelope.Seal(secret, current, Envelope.BindingFor(row.TenantId, row.Provider, row.SiteUrl));
+                }
+                finally
+                {
+                    CryptographicOperations.ZeroMemory(secret);
+                }
             }
 
-            try
+            if (await WriteIfUnchangedAsync(db, row, written, now, ct).ConfigureAwait(false))
             {
-                var bound = Envelope.Seal(secret, current, Envelope.BindingFor(row.TenantId, row.Provider, row.SiteUrl));
-                row.SecretCiphertext = bound.Ciphertext;
-                row.SecretNonce = bound.Nonce;
-                row.DataKeyWrapped = bound.WrappedKey;
-                row.DataKeyNonce = bound.KeyNonce;
-                row.KeyId = bound.KeyId;
-                row.BindingVersion = Envelope.BindingVersion;
-                row.RotatedAt = now;
                 changed++;
-            }
-            finally
-            {
-                CryptographicOperations.ZeroMemory(secret);
             }
         }
 
-        _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        return new VaultRewrite(changed, refused);
+        return new VaultRewrite(changed, refused, unopenable);
     }
+
+    /// <summary>
+    /// Writes a row's new sealed columns only if it is still the row that was read (same id, nonce, key and
+    /// form), as <see cref="IntegrationVault.UpgradeAsync"/> does: a credential the owner stored in between
+    /// is newer and is kept, never overwritten with the old one.
+    /// </summary>
+    private static async Task<bool> WriteIfUnchangedAsync(ScreenTailContext db, Integration row, Sealed written, DateTimeOffset now, CancellationToken ct) =>
+        await db.Integrations
+            .Where(i => i.Id == row.Id && i.BindingVersion == row.BindingVersion && i.KeyId == row.KeyId && i.SecretNonce == row.SecretNonce)
+            .ExecuteUpdateAsync(
+                set => set
+                    .SetProperty(i => i.SecretCiphertext, written.Ciphertext)
+                    .SetProperty(i => i.SecretNonce, written.Nonce)
+                    .SetProperty(i => i.DataKeyWrapped, written.WrappedKey)
+                    .SetProperty(i => i.DataKeyNonce, written.KeyNonce)
+                    .SetProperty(i => i.KeyId, written.KeyId)
+                    .SetProperty(i => i.BindingVersion, Envelope.BindingVersion)
+                    .SetProperty(i => i.RotatedAt, now),
+                ct)
+            .ConfigureAwait(false) > 0;
 }

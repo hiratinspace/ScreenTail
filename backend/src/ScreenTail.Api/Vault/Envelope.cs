@@ -103,16 +103,16 @@ public static class Envelope
     }
 
     /// <summary>
-    /// What a row's secret is bound to: a version tag, the tenant, the provider, and the site's host and
-    /// port, lower-cased. The path is left out, so the same site written with or without a trailing slash
-    /// is the same site; another host needs the secret stored again, which the owner's route asks for
-    /// anyway.
+    /// What a row's secret is bound to: a version tag, the tenant, the provider, and the site's scheme, host
+    /// and port, lower-cased (the scheme too, so a row moved to plain http does not open). The path is
+    /// left out, so the same site written with or without a trailing slash is the same site; another host
+    /// needs the secret stored again, which the owner's route asks for anyway.
     /// </summary>
     public static byte[] BindingFor(Guid tenantId, string provider, string? siteUrl)
     {
         ArgumentNullException.ThrowIfNull(provider);
         var host = Uri.TryCreate(siteUrl?.Trim(), UriKind.Absolute, out var site)
-            ? string.Create(CultureInfo.InvariantCulture, $"{site.IdnHost.ToLowerInvariant()}:{site.Port}")
+            ? string.Create(CultureInfo.InvariantCulture, $"{site.Scheme}://{site.IdnHost.ToLowerInvariant()}:{site.Port}")
             : string.Empty;
         return Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"screentail-vault-binding-v1\n{tenantId:D}\n{provider}\n{host}"));
     }

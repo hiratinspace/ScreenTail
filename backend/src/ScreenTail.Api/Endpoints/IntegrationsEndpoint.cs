@@ -106,7 +106,7 @@ public static class IntegrationsEndpoint
             .WithSummary("Refused: only the tenant's owner removes a credential, from the web admin.");
 
         group.MapPost("/integrations/{provider}/check", (string provider, Caller who, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct) =>
-            CheckAsync(who.TenantId, provider, db, psa, docs, time, ct))
+            CheckAsync(who.TenantId, provider, forOwner: false, db, psa, docs, time, ct))
         .WithName("CheckIntegration")
         .WithSummary("Tests the tenant's stored credential for a provider and records when and how it went.");
 
@@ -145,7 +145,7 @@ public static class IntegrationsEndpoint
                             row.ConnectedAt,
                             row.LastCheckedAt,
                             row.LastCheckedAt is null ? null : row.LastError is null ? "ok" : "failed",
-                            row.LastError,
+                            VaultRefusal.ForOwner(row.LastError),
                             connected.TryGetValue(k.Provider, out var last) ? by(last) : null);
                 })],
                 [.. changes.Select(c => new AdminIntegrationChange(c.At, c.Provider, c.Action, by(c), c.PsaCompany, c.DocCompanyId, c.DocCompanyName))]));
@@ -165,7 +165,7 @@ public static class IntegrationsEndpoint
         .WithSummary("Forgets the tenant's credential for ConnectWise or Hudu.");
 
         group.MapPost("/integrations/{provider}/check", (string provider, AdminCaller owner, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct) =>
-            CheckAsync(owner.TenantId, provider, db, psa, docs, time, ct))
+            CheckAsync(owner.TenantId, provider, forOwner: true, db, psa, docs, time, ct))
         .WithName("AdminCheckIntegration")
         .WithSummary("Tests the tenant's stored credential for ConnectWise or Hudu and records when and how it went.");
 
@@ -300,7 +300,7 @@ public static class IntegrationsEndpoint
         return removed ? Results.NoContent() : Results.NotFound(new { error = "not_connected", message = "There is nothing connected to remove." });
     }
 
-    private static async Task<IResult> CheckAsync(Guid tenantId, string provider, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct)
+    private static async Task<IResult> CheckAsync(Guid tenantId, string provider, bool forOwner, ScreenTailContext db, IPsaProviderFactory psa, IDocProviderFactory docs, TimeProvider time, CancellationToken ct)
     {
         if (!IsKnown(provider))
         {
@@ -324,7 +324,8 @@ public static class IntegrationsEndpoint
         row.LastCheckedAt = time.GetUtcNow();
         row.LastError = result.Ok ? null : message;
         _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
-        return Results.Ok(new IntegrationCheckResponse(result.Ok, message, row.LastCheckedAt.Value));
+        // Stored as a technician reads it (devices list it); the owner is told what to do, not to ask the owner.
+        return Results.Ok(new IntegrationCheckResponse(result.Ok, forOwner ? VaultRefusal.ForOwner(message)! : message, row.LastCheckedAt.Value));
     }
 
     /// <summary>
@@ -344,7 +345,7 @@ public static class IntegrationsEndpoint
 
     /// <summary>The row exists but the factory found no credential: removed between the two reads, or the vault cannot open it.</summary>
     private static ProviderResult<bool> Gone() =>
-        ProviderResult.Failure<bool>(new ProviderError(ProviderErrorKind.Unavailable, "The stored credential could not be opened.", "Your owner can connect it again in the web admin, Integrations."));
+        ProviderResult.Failure<bool>(VaultRefusal.Error);
 
     /// <summary>The demo PSA and knowledge base, named so nobody can take them for ConnectWise or Hudu. No credential, so no last four.</summary>
     private static readonly IReadOnlyList<IntegrationRow> DemoRows =

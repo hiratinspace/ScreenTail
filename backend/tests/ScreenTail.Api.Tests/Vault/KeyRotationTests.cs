@@ -88,7 +88,7 @@ public sealed class KeyRotationTests : IAsyncDisposable
         await using (var db = await OpenAsync())
         {
             var dropped = new IntegrationVault(db, Options(current: _new), TimeProvider.System);
-            var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => dropped.RevealAsync(tenant, "connectwise", TestContext.Current.CancellationToken));
+            var thrown = await Assert.ThrowsAsync<VaultRowRefusedException>(() => dropped.RevealAsync(tenant, "connectwise", TestContext.Current.CancellationToken));
             Assert.Contains(Envelope.KeyIdOf(_old), thrown.Message, StringComparison.Ordinal);
         }
     }

@@ -375,6 +375,12 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
     {
         Console.WriteLine($"refused legacy row {refused}: Vault:AllowLegacyRows is off, so it was left as it is");
     }
+
+    foreach (var unopened in rotated.Unopenable)
+    {
+        Console.WriteLine($"legacy row {unopened} does not open under the key it names, so it was left as it is: ask the owner to connect that integration again");
+        Environment.ExitCode = 1;
+    }
     return;
 }
 
@@ -393,6 +399,21 @@ if (args.Contains("--upgrade-vault-rows", StringComparer.Ordinal))
     {
         Console.WriteLine($"refused legacy row {refused}: Vault:AllowLegacyRows is off, so it was left as it is");
     }
+
+    foreach (var unopened in upgraded.Unopenable)
+    {
+        Console.WriteLine($"legacy row {unopened} does not open under the key it names, so it was left as it is: ask the owner to connect that integration again");
+        Environment.ExitCode = 1;
+    }
+
+    // Counted, not worked out: a row under a key this deployment does not hold is not opened above.
+    var left = await scope.ServiceProvider.GetRequiredService<ScreenTailContext>().Integrations.CountAsync(i => i.BindingVersion < Envelope.BindingVersion);
+    Console.WriteLine($"legacy rows left: {left}");
+    if (left > 0)
+    {
+        Environment.ExitCode = 1;
+    }
+
     return;
 }
 

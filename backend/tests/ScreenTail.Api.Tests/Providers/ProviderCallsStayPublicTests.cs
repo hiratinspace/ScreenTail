@@ -42,7 +42,7 @@ public sealed class ProviderCallsStayPublicTests(ApiFixture api) : IClassFixture
         Assert.Equal(0, await listener.ConnectionsBeforeNowAsync(TestContext.Current.CancellationToken));
         Assert.False(check!.Ok);
         Assert.Contains("private network", check.Message, StringComparison.Ordinal);
-        Assert.Contains("Settings", check.Message, StringComparison.Ordinal);
+        Assert.Contains("web admin", check.Message, StringComparison.Ordinal);
     }
 
     [Fact]

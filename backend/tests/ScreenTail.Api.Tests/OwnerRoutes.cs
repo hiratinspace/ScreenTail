@@ -95,13 +95,20 @@ internal static class OwnerRoutes
         return await device.SendAsync(message, TestContext.Current.CancellationToken);
     }
 
+    /// <summary>The tenant a device client's bearer token is for.</summary>
+    public static Guid TenantOf(HttpClient device)
+    {
+        ArgumentNullException.ThrowIfNull(device);
+        var bearer = device.DefaultRequestHeaders.Authorization?.Parameter
+            ?? throw new InvalidOperationException("The client carries no device token to read the tenant from.");
+        return Guid.Parse(new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(bearer).GetClaim(ScreenTailClaims.TenantId).Value);
+    }
+
     private static async Task<HttpRequestMessage> AsOwnerAsync(HttpClient device, ApiFixture api, HttpMethod method, string provider)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(api);
-        var bearer = device.DefaultRequestHeaders.Authorization?.Parameter
-            ?? throw new InvalidOperationException("The client carries no device token to read the tenant from.");
-        var tenantId = Guid.Parse(new Microsoft.IdentityModel.JsonWebTokens.JsonWebToken(bearer).GetClaim(ScreenTailClaims.TenantId).Value);
+        var tenantId = TenantOf(device);
         var owner = await OwnerAsync(api, tenantId);
         var csrf = AdminSession.NewCsrf();
         var (token, _) = api.Issuer.ForOwner(tenantId, owner.Id, owner.SessionVersion, csrf, TimeSpan.FromHours(1));

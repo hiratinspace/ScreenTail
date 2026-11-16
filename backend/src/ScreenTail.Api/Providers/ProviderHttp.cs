@@ -115,7 +115,7 @@ public static class ProviderHttp
             return Outcome.Failed(new ProviderError(
                 ProviderErrorKind.Invalid,
                 $"The {providerName} site is on a private network, and ScreenTail only calls public addresses.",
-                "Enter the provider's public address in Settings → Integrations."));
+                "Ask your owner to enter the provider's public address in the web admin."));
         }
         catch (Exception ex) when (ex is HttpRequestException || (ex is TaskCanceledException && !ct.IsCancellationRequested))
         {
@@ -159,7 +159,7 @@ public static class ProviderHttp
                 return Outcome.Failed(new ProviderError(
                     ProviderErrorKind.Invalid,
                     $"The {providerName} site answered with a redirect, and ScreenTail does not follow redirects.",
-                    "Check the site address in Settings → Integrations."));
+                    "Ask your owner to check the site address in the web admin."));
             }
 
             var failed = failure(response.StatusCode, body, response.Headers.RetryAfter);
@@ -292,12 +292,12 @@ public static class ProviderHttp
         : new ProviderError(
             ProviderErrorKind.Invalid,
             $"The {providerName} site answered with something that is not its API.",
-            "Check the site address in Settings → Integrations.");
+            "Ask your owner to check the site address in the web admin.");
 
     private static ProviderError TooLarge(string providerName) => new(
         ProviderErrorKind.Invalid,
         $"The {providerName} site sent an answer larger than ScreenTail accepts.",
-        "Check the site address in Settings → Integrations.");
+        "Ask your owner to check the site address in the web admin.");
 
     /// <summary>GET and HEAD read; everything else this code sends writes.</summary>
     private static bool IsSafe(HttpMethod method) => method == HttpMethod.Get || method == HttpMethod.Head;

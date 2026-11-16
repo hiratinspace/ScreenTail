@@ -144,6 +144,13 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
             return null;
         }
 
+        // The rule StoreAsync applies, applied again to what is read: a site edited to plain http (or with a
+        // password in it) since is not where a credential is sent.
+        if (!IsHttpsSite(row.SiteUrl))
+        {
+            throw new VaultRowRefusedException($"The stored {row.Provider} credential in row {row.Id} is for a site that is not an absolute https address, so it was not used. The owner can connect it again in the web admin.");
+        }
+
         // Mid-rotation a row may still be under the previous key; it opens either way, and the rotation
         // run is what moves it. A row under a key this deployment does not hold is an error worth its
         // own words, because the alternative is a provider call with garbage.
@@ -198,7 +205,15 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
             throw new VaultRowRefusedException($"The stored {row.Provider} credential in row {row.Id} is marked as sealed before credentials were bound to their row, and such rows are no longer accepted (Vault:AllowLegacyRows is off, or every such row was already upgraded). The owner can connect it again in the web admin.");
         }
 
-        return Envelope.Open(sealed_, masterKey);
+        try
+        {
+            return Envelope.Open(sealed_, masterKey);
+        }
+        catch (CryptographicException e)
+        {
+            // A bound row relabelled legacy lands here too: it does not open without its binding.
+            throw new VaultRowRefusedException($"The stored {row.Provider} credential in row {row.Id} does not open, so it was not used. The owner can connect it again in the web admin.", e);
+        }
     }
 
     /// <summary>
@@ -264,6 +279,6 @@ public sealed class IntegrationVault(ScreenTailContext db, VaultOptions options,
             }
         }
 
-        throw new InvalidOperationException($"The credential is wrapped under master key {keyId}, which this deployment does not hold.");
+        throw new VaultRowRefusedException($"The credential is wrapped under master key {keyId}, which this deployment does not hold.");
     }
 }

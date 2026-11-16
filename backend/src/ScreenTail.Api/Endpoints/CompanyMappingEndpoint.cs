@@ -87,7 +87,7 @@ public static class CompanyMappingEndpoint
             await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
             {
                 var mapped = await new CompanyMappings(db, who.TenantId, time).RememberAsync(request.PsaCompany, company, "manual", ct).ConfigureAwait(false);
-                IntegrationChanges.Record(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Mapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), mapped.PsaCompany, mapped.DocCompanyId, mapped.DocCompanyName);
+                await IntegrationChanges.RecordMappingAsync(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Mapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), mapped.PsaCompany, mapped.DocCompanyId, mapped.DocCompanyName, ct).ConfigureAwait(false);
                 _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
                 await transaction.CommitAsync(ct).ConfigureAwait(false);
             }
@@ -111,7 +111,7 @@ public static class CompanyMappingEndpoint
                 return Results.NotFound();
             }
 
-            IntegrationChanges.Record(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Unmapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), psaCompany.Trim());
+            await IntegrationChanges.RecordMappingAsync(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Unmapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), psaCompany.Trim(), ct: ct).ConfigureAwait(false);
             _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
             await transaction.CommitAsync(ct).ConfigureAwait(false);
             return Results.NoContent();

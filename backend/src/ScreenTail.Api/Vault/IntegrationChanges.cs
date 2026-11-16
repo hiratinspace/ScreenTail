@@ -64,6 +64,66 @@ public static class IntegrationChanges
         });
     }
 
+    /// <summary>How many map and unmap records a tenant keeps; older ones are dropped. Credential changes are all kept.</summary>
+    public const int MappingsKept = 500;
+
+    /// <summary>
+    /// Records a technician's map or unmap, unless the tenant's latest change is this same one (the same
+    /// person and device, the same companies): a device that sends the same mapping over and over adds
+    /// one row, not one per request. Then drops the tenant's map and unmap records past
+    /// <see cref="MappingsKept"/>, oldest first, so the table cannot grow without end. The caller saves.
+    /// </summary>
+    public static async Task RecordMappingAsync(
+        ScreenTailContext db,
+        Guid tenantId,
+        string provider,
+        string action,
+        ChangeActor by,
+        DateTimeOffset at,
+        string? psaCompany,
+        string? docCompanyId = null,
+        string? docCompanyName = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(by);
+        var latest = await db.IntegrationChanges.AsNoTracking()
+            .Where(c => c.TenantId == tenantId)
+            .OrderByDescending(c => c.At)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+        var repeat = latest is not null
+            && latest.Provider == provider
+            && latest.Action == action
+            && latest.OwnerId == by.OwnerId
+            && latest.UserId == by.UserId
+            && latest.DeviceId == by.DeviceId
+            && latest.PsaCompany == psaCompany
+            && latest.DocCompanyId == docCompanyId
+            && latest.DocCompanyName == docCompanyName;
+        if (!repeat)
+        {
+            Record(db, tenantId, provider, action, by, at, psaCompany, docCompanyId, docCompanyName);
+        }
+
+        // The oldest kept: everything older than it goes. The one being added is not saved yet, so one
+        // fewer is kept here and the save brings it back to MappingsKept.
+        var oldestKept = await db.IntegrationChanges.AsNoTracking()
+            .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped))
+            .OrderByDescending(c => c.At)
+            .Skip(MappingsKept - (repeat ? 1 : 2))
+            .Select(c => (DateTimeOffset?)c.At)
+            .FirstOrDefaultAsync(ct)
+            .ConfigureAwait(false);
+        if (oldestKept is { } cutoff)
+        {
+            _ = await db.IntegrationChanges
+                .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped) && c.At < cutoff)
+                .ExecuteDeleteAsync(ct)
+                .ConfigureAwait(false);
+        }
+    }
+
     /// <summary>The tenant's latest changes, newest first.</summary>
     public static Task<List<IntegrationChange>> LatestAsync(ScreenTailContext db, Guid tenantId, CancellationToken ct = default)
     {

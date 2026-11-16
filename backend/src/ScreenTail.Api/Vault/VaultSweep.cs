@@ -7,7 +7,8 @@ namespace ScreenTail.Api.Vault;
 /// <param name="Upgraded">Legacy rows sealed again in the bound form.</param>
 /// <param name="Suspect">Legacy rows found after an earlier sweep had found none left, so written since: warned about, not rewritten.</param>
 /// <param name="Refused">Legacy rows left as they were because <c>Vault:AllowLegacyRows</c> is off.</param>
-public sealed record VaultSweepResult(int Upgraded, IReadOnlyList<Guid> Suspect, IReadOnlyList<Guid> Refused);
+/// <param name="NotOpened">Legacy rows that did not open, or are under a key this deployment does not hold: warned about, left as they are, and the vault is not recorded clear while any is left.</param>
+public sealed record VaultSweepResult(int Upgraded, IReadOnlyList<Guid> Suspect, IReadOnlyList<Guid> Refused, IReadOnlyList<Guid> NotOpened);
 
 /// <summary>
 /// The startup sweep (2026-11-15 review): once, when the service starts, every integration row sealed
@@ -65,16 +66,29 @@ public sealed partial class VaultSweep(IServiceScopeFactory scopes, VaultOptions
                 LegacyAfterClear(logger, row.Id, row.TenantId);
             }
 
-            return new VaultSweepResult(0, [.. legacy.Select(r => r.Id)], []);
+            return new VaultSweepResult(0, [.. legacy.Select(r => r.Id)], [], []);
         }
 
-        var rewrite = legacy.Count == 0 ? new VaultRewrite(0, []) : await KeyRotation.UpgradeLegacyAsync(db, options, time, ct).ConfigureAwait(false);
+        var rewrite = legacy.Count == 0 ? new VaultRewrite(0, [], []) : await KeyRotation.UpgradeLegacyAsync(db, options, time, ct).ConfigureAwait(false);
         foreach (var id in rewrite.RefusedLegacy)
         {
             LegacyRefused(logger, id, legacy.Single(r => r.Id == id).TenantId);
         }
 
-        if (rewrite.RefusedLegacy.Count == 0)
+        // Counted again rather than worked out: a row under a key this deployment does not hold is neither
+        // upgraded nor refused, and one that does not open is reported and passed over, and either way it
+        // is still legacy. The vault is recorded clear only when the database says none is left.
+        var left = await db.Integrations.AsNoTracking()
+            .Where(i => i.BindingVersion < Envelope.BindingVersion)
+            .Select(i => new { i.Id, i.TenantId })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        foreach (var row in left.Where(r => !rewrite.RefusedLegacy.Contains(r.Id)))
+        {
+            LegacyNotOpened(logger, row.Id, row.TenantId);
+        }
+
+        if (left.Count == 0)
         {
             if (state is null)
             {
@@ -86,7 +100,7 @@ public sealed partial class VaultSweep(IServiceScopeFactory scopes, VaultOptions
             _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
         }
 
-        return new VaultSweepResult(legacy.Count - rewrite.RefusedLegacy.Count, [], rewrite.RefusedLegacy);
+        return new VaultSweepResult(rewrite.Changed, [], rewrite.RefusedLegacy, [.. left.Where(r => !rewrite.RefusedLegacy.Contains(r.Id)).Select(r => r.Id)]);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Vault sweep: {Count} integration credential(s) stored before secrets were bound to their row were sealed again in the bound form.")]
@@ -97,6 +111,9 @@ public sealed partial class VaultSweep(IServiceScopeFactory scopes, VaultOptions
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Vault sweep: integration row {RowId} of tenant {TenantId} was sealed before secrets were bound to their row and Vault:AllowLegacyRows is off, so it was not changed or opened.")]
     private static partial void LegacyRefused(ILogger logger, Guid rowId, Guid tenantId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Vault sweep: integration row {RowId} of tenant {TenantId} was sealed before secrets were bound to their row and does not open under the keys this deployment holds, so it was left as it is. Ask the owner to connect that integration again.")]
+    private static partial void LegacyNotOpened(ILogger logger, Guid rowId, Guid tenantId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Vault sweep did not finish ({ExceptionType}). Legacy rows are still upgraded as they are opened.")]
     private static partial void SweepFailed(ILogger logger, string exceptionType);

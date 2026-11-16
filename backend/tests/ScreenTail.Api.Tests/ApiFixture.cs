@@ -141,7 +141,7 @@ public class ApiFixture : WebApplicationFactory<Program>, IAsyncLifetime
         builder.UseSetting("Vault:MasterKey", VaultMasterKey ?? string.Empty);
 
         // The startup sweep would race InitializeAsync's EnsureCreated for a database with no tables yet.
-        // VaultSweepTests run it directly.
+        // VaultBindingTests run the sweep itself (VaultSweep.SweepAsync) on a database of their own.
         builder.UseSetting("Vault:UpgradeOnStart", "false");
 
         // ST-099. Owner sign-in is off unless a test's host switches it on (AdminApiFixture), whatever a
