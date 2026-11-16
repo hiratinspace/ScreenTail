@@ -487,7 +487,7 @@ Before this a slow backend call (a publish, a ticket search) held up the HUD's `
 
 ## Authentication
 
-Details in ADR-0003. In short: the pipe admits only the same user; the service checks the client executable (signed by the same publisher, or same directory for unsigned dev builds); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
+Details in ADR-0003. In short: the pipe admits only the same user, and the service's first pipe instance claims the name, so a name another process already holds stops the service from listening (it logs a warning, an error if the name stays held, and retries) rather than sharing the name; the service checks the client executable (in the service's own directory, and in a signed build also signed by the same publisher); the UI checks the pipe server the same way before writing the token; and the client presents the per-service-run token from `%LOCALAPPDATA%\ScreenTail\ipc.token`, a file only that user can read. Rejections are audit-logged as `ipc_rejected_<reason>`, nothing else.
 
 ## Reattach
 
