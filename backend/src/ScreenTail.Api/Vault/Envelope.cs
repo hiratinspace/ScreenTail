@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace ScreenTail.Api.Vault;
 
@@ -16,13 +18,24 @@ public sealed record Sealed(byte[] Ciphertext, byte[] Nonce, byte[] WrappedKey, 
 /// untouched, and a cloud KMS can take the outer layer over without the rows changing shape. GCM because
 /// a credential decrypted with one flipped bit is a credential a provider would send: authentication is
 /// the point, not an extra.
+///
+/// The secret's layer also authenticates where the row says it belongs (<see cref="BindingFor"/>): the
+/// tenant, the provider and the site's host go in as associated data, so a sealed secret copied onto
+/// another tenant's row, another provider or another host no longer opens. Each row records which form it
+/// is in; rows sealed before the binding existed carry none, and <see cref="IntegrationVault"/> seals them
+/// again in the bound form the first time it opens them (as do <c>--upgrade-vault-rows</c> and the key
+/// rotation).
 /// </summary>
 public static class Envelope
 {
     private const int NonceBytes = 12;
     private const int TagBytes = 16;
 
-    public static Sealed Seal(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> masterKey)
+    /// <summary>What a row sealed with <see cref="BindingFor"/> records in <c>BindingVersion</c>. 0 is a row sealed with no binding.</summary>
+    public const int BindingVersion = 1;
+
+    /// <param name="binding">What the secret is bound to (<see cref="BindingFor"/>); empty for none.</param>
+    public static Sealed Seal(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> masterKey, ReadOnlySpan<byte> binding = default)
     {
         RequireKey(masterKey);
         var dataKey = RandomNumberGenerator.GetBytes(VaultOptions.KeyBytes);
@@ -31,9 +44,9 @@ public static class Envelope
             var nonce = RandomNumberGenerator.GetBytes(NonceBytes);
             var keyNonce = RandomNumberGenerator.GetBytes(NonceBytes);
             return new Sealed(
-                Encrypt(dataKey, nonce, plaintext),
+                Encrypt(dataKey, nonce, plaintext, binding),
                 nonce,
-                Encrypt(masterKey, keyNonce, dataKey),
+                Encrypt(masterKey, keyNonce, dataKey, default),
                 keyNonce,
                 KeyIdOf(masterKey));
         }
@@ -43,15 +56,16 @@ public static class Envelope
         }
     }
 
-    /// <exception cref="CryptographicException">The wrong master key, or a byte that was changed.</exception>
-    public static byte[] Open(Sealed envelope, ReadOnlySpan<byte> masterKey)
+    /// <param name="binding">The binding it was sealed with; empty for a row sealed with none.</param>
+    /// <exception cref="CryptographicException">The wrong master key, the wrong binding, or a byte that was changed.</exception>
+    public static byte[] Open(Sealed envelope, ReadOnlySpan<byte> masterKey, ReadOnlySpan<byte> binding = default)
     {
         ArgumentNullException.ThrowIfNull(envelope);
         RequireKey(masterKey);
-        var dataKey = Decrypt(masterKey, envelope.KeyNonce, envelope.WrappedKey);
+        var dataKey = Decrypt(masterKey, envelope.KeyNonce, envelope.WrappedKey, default);
         try
         {
-            return Decrypt(dataKey, envelope.Nonce, envelope.Ciphertext);
+            return Decrypt(dataKey, envelope.Nonce, envelope.Ciphertext, binding);
         }
         finally
         {
@@ -59,18 +73,18 @@ public static class Envelope
         }
     }
 
-    /// <summary>Rotation: the data key changes hands, the secret does not move.</summary>
+    /// <summary>Rotation: the data key changes hands, the secret (and its binding) does not move.</summary>
     public static Sealed Rewrap(Sealed envelope, ReadOnlySpan<byte> oldMasterKey, ReadOnlySpan<byte> newMasterKey)
     {
         ArgumentNullException.ThrowIfNull(envelope);
         RequireKey(newMasterKey);
-        var dataKey = Decrypt(oldMasterKey, envelope.KeyNonce, envelope.WrappedKey);
+        var dataKey = Decrypt(oldMasterKey, envelope.KeyNonce, envelope.WrappedKey, default);
         try
         {
             var keyNonce = RandomNumberGenerator.GetBytes(NonceBytes);
             return envelope with
             {
-                WrappedKey = Encrypt(newMasterKey, keyNonce, dataKey),
+                WrappedKey = Encrypt(newMasterKey, keyNonce, dataKey, default),
                 KeyNonce = keyNonce,
                 KeyId = KeyIdOf(newMasterKey),
             };
@@ -88,15 +102,30 @@ public static class Envelope
         return Convert.ToHexStringLower(SHA256.HashData(masterKey))[..16];
     }
 
-    private static byte[] Encrypt(ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> plaintext)
+    /// <summary>
+    /// What a row's secret is bound to: a version tag, the tenant, the provider, and the site's scheme, host
+    /// and port, lower-cased (the scheme too, so a row moved to plain http does not open). The path is
+    /// left out, so the same site written with or without a trailing slash is the same site; another host
+    /// needs the secret stored again, which the owner's route asks for anyway.
+    /// </summary>
+    public static byte[] BindingFor(Guid tenantId, string provider, string? siteUrl)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        var host = Uri.TryCreate(siteUrl?.Trim(), UriKind.Absolute, out var site)
+            ? string.Create(CultureInfo.InvariantCulture, $"{site.Scheme}://{site.IdnHost.ToLowerInvariant()}:{site.Port}")
+            : string.Empty;
+        return Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"screentail-vault-binding-v1\n{tenantId:D}\n{provider}\n{host}"));
+    }
+
+    private static byte[] Encrypt(ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> associatedData)
     {
         using var aes = new AesGcm(key, TagBytes);
         var output = new byte[plaintext.Length + TagBytes];
-        aes.Encrypt(nonce, plaintext, output.AsSpan(0, plaintext.Length), output.AsSpan(plaintext.Length));
+        aes.Encrypt(nonce, plaintext, output.AsSpan(0, plaintext.Length), output.AsSpan(plaintext.Length), associatedData);
         return output;
     }
 
-    private static byte[] Decrypt(ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> sealedBytes)
+    private static byte[] Decrypt(ReadOnlySpan<byte> key, ReadOnlySpan<byte> nonce, ReadOnlySpan<byte> sealedBytes, ReadOnlySpan<byte> associatedData)
     {
         if (sealedBytes.Length < TagBytes)
         {
@@ -105,7 +134,7 @@ public static class Envelope
 
         using var aes = new AesGcm(key, TagBytes);
         var plaintext = new byte[sealedBytes.Length - TagBytes];
-        aes.Decrypt(nonce, sealedBytes[..plaintext.Length], sealedBytes[plaintext.Length..], plaintext);
+        aes.Decrypt(nonce, sealedBytes[..plaintext.Length], sealedBytes[plaintext.Length..], plaintext, associatedData);
         return plaintext;
     }
 

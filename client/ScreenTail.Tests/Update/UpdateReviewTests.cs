@@ -339,9 +339,13 @@ public sealed class UpdateReviewTests : IDisposable
 
     private static PublisherIdentity Identity(string subject)
     {
+        // A new key every time, as Artifact Signing's rotating leaves have, with the identity-validation
+        // usage that makes two of them the same publisher.
         using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        using var certificate = new System.Security.Cryptography.X509Certificates.CertificateRequest(subject, key, HashAlgorithmName.SHA256)
-            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(subject, key, HashAlgorithmName.SHA256);
+        request.CertificateExtensions.Add(new System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension(
+            [new Oid(PublisherIdentity.ArtifactSigningOidPrefix + "1.12345.1")], critical: false));
+        using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
         return PublisherIdentity.From(certificate, timestamped: true);
     }
 

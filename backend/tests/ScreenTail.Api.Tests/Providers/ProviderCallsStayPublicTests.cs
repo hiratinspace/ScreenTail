@@ -42,7 +42,7 @@ public sealed class ProviderCallsStayPublicTests(ApiFixture api) : IClassFixture
         Assert.Equal(0, await listener.ConnectionsBeforeNowAsync(TestContext.Current.CancellationToken));
         Assert.False(check!.Ok);
         Assert.Contains("private network", check.Message, StringComparison.Ordinal);
-        Assert.Contains("Settings", check.Message, StringComparison.Ordinal);
+        Assert.Contains("web admin", check.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public sealed class ProviderCallsStayPublicTests(ApiFixture api) : IClassFixture
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(service, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
 
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://localhost:8443", "hudu-key-0001"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://localhost:8443", "hudu-key-0001"));
 
         Assert.Equal(System.Net.HttpStatusCode.NoContent, put.StatusCode);
     }

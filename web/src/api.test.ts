@@ -83,6 +83,51 @@ describe('httpApi', () => {
     expect((refused as ApiError).message).toBe('Not on the list.');
   });
 
+  it('connects, tests and disconnects an integration as the owner, with the CSRF value on each change', async () => {
+    const sent = backend([
+      { status: 200, body: { status: 'signed_in', csrf: 'the-csrf', expiresAt: 'x', owner: {}, tenant: {} } },
+      { status: 200, body: { integrations: [], changes: [] } },
+      { status: 204 },
+      { status: 200, body: { ok: false, message: 'ConnectWise refused the key.', checkedAt: 'x' } },
+      { status: 204 },
+    ]);
+    const api = httpApi();
+    await api.signIn('t');
+
+    expect(await api.integrations()).toEqual({ integrations: [], changes: [] });
+    await api.connectIntegration('connectwise', 'https://na.myconnectwise.example', 'acme+pub:priv');
+    expect(await api.checkIntegration('connectwise')).toEqual({ ok: false, message: 'ConnectWise refused the key.', checkedAt: 'x' });
+    await api.disconnectIntegration('hudu');
+
+    expect(sent[1]!.url).toBe('/v1/admin/integrations');
+    expect(header(sent[1]!, 'X-ScreenTail-CSRF')).toBeUndefined();
+    expect([sent[2]!.init.method, sent[2]!.url]).toEqual(['PUT', '/v1/admin/integrations/connectwise']);
+    expect(JSON.parse(sent[2]!.init.body as string)).toEqual({ siteUrl: 'https://na.myconnectwise.example', secret: 'acme+pub:priv' });
+    expect([sent[3]!.init.method, sent[3]!.url]).toEqual(['POST', '/v1/admin/integrations/connectwise/check']);
+    expect([sent[4]!.init.method, sent[4]!.url]).toEqual(['DELETE', '/v1/admin/integrations/hudu']);
+    for (const change of sent.slice(2)) {
+      expect(header(change, 'X-ScreenTail-CSRF')).toBe('the-csrf');
+    }
+  });
+
+  it('turns a 401 on an integrations write into the signed-out sentence', async () => {
+    backend([{ status: 401 }]);
+
+    const refused = await httpApi().connectIntegration('hudu', 'https://acme.huducloud.example', 'k').catch((e: unknown) => e);
+
+    expect((refused as ApiError).status).toBe(401);
+    expect((refused as ApiError).message).toBe('Your session has ended. Sign in again.');
+  });
+
+  it('turns a bare 413 into a sentence', async () => {
+    backend([{ status: 413 }]);
+
+    const refused = await httpApi().connectIntegration('hudu', 'https://acme.huducloud.example', 'k').catch((e: unknown) => e);
+
+    expect((refused as ApiError).status).toBe(413);
+    expect((refused as ApiError).message).toBe('What you entered is too long to save. Check it and try again.');
+  });
+
   it('forgets the CSRF value on sign-out', async () => {
     const sent = backend([
       { status: 200, body: { status: 'signed_in', csrf: 'the-csrf', expiresAt: 'x', owner: {}, tenant: {} } },

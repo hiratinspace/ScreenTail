@@ -8,7 +8,9 @@ namespace ScreenTail.Core.Settings;
 /// Settings → Integrations' gateway, over the pipe (ST-082). The UI never talks to the backend: each
 /// call is a command the service answers from the backend, and a refusal comes back as the reason.
 /// "Test connection" is asked once and its refusal read off the same reply; asking again to learn the
-/// words would call the provider twice (S-36).
+/// words would call the provider twice (S-36). It never sends <c>store_integration</c> or
+/// <c>remove_integration</c>: integration credentials can only be changed by the tenant owner, in the web
+/// admin, and the service answers those commands, from an older UI, with the backend's refusal.
 /// </summary>
 public sealed class PipeIntegrations(CaptureConnection connection) : IIntegrationsGateway
 {
@@ -21,12 +23,6 @@ public sealed class PipeIntegrations(CaptureConnection connection) : IIntegratio
             ? null
             : [.. listed.Integrations.Select(i => new IntegrationDetail(i.Provider, i.SiteUrl, i.Secret, i.ConnectedAt, i.LastCheckedAt, i.LastError))];
     }
-
-    public async Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
-        Refusal(await _connection.SendAsync(id => new StoreIntegrationCommand { RequestId = id, Provider = provider, SiteUrl = siteUrl, Secret = secret }, ct).ConfigureAwait(false));
-
-    public async Task<string?> RemoveAsync(string provider, CancellationToken ct = default) =>
-        Refusal(await _connection.SendAsync(id => new RemoveIntegrationCommand { RequestId = id, Provider = provider }, ct).ConfigureAwait(false));
 
     public async Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default)
     {

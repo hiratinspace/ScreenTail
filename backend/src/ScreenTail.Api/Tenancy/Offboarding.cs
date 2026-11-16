@@ -27,6 +27,7 @@ public static class Offboarding
         rows += await db.SessionMetrics.Where(m => m.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Policies.Where(p => p.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.CompanyMappings.Where(m => m.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        rows += await db.IntegrationChanges.Where(c => c.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Integrations.Where(i => i.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Invites.Where(i => i.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);
         rows += await db.Devices.Where(d => d.TenantId == tenantId).ExecuteDeleteAsync(ct).ConfigureAwait(false);

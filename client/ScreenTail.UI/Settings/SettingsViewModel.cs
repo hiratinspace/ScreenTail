@@ -64,21 +64,21 @@ public sealed partial class SettingsViewModel : ObservableObject
         Integrations = integrations ?? throw new ArgumentNullException(nameof(integrations));
         Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
         Updates = updates ?? throw new ArgumentNullException(nameof(updates));
-        integrations.UsePageSave();
-        Page = new SettingsPage([capture.Section, privacy.Section, integrations.Section, appearance.Section, updates.Section]);
+        // Integrations is not on the Save bar: its cards are read only (the owner manages them in the web
+        // admin), and Test connection and the company mapping act at once.
+        Page = new SettingsPage([capture.Section, privacy.Section, appearance.Section, updates.Section]);
         Sections =
         [
             new SettingsNavItem("Activation", "Activation"),
             new SettingsNavItem(capture.Section.Name, "Capture"),
             new SettingsNavItem(privacy.Section.Name, "Privacy"),
-            new SettingsNavItem(integrations.Section.Name, "Integrations"),
+            new SettingsNavItem("Integrations", "Integrations"),
             new SettingsNavItem(appearance.Section.Name, "Appearance"),
             new SettingsNavItem(updates.Section.Name, "Updates"),
         ];
         SelectedSection = Sections[0];
         capture.Edited += (_, _) => Show();
         privacy.Edited += (_, _) => Show();
-        integrations.Edited += (_, _) => Show();
         appearance.Edited += (_, _) => Show();
         updates.Edited += (_, _) => Show();
         Show();
@@ -189,6 +189,33 @@ public sealed partial class SettingsViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>A section asked for from elsewhere, kept until the page is on screen to bring it into view.</summary>
+    public string? PendingSection { get; private set; }
+
+    /// <summary>
+    /// Opens the page at a section (Review's "See integrations" asks for Integrations). The pane brings it
+    /// into view now if it is on screen, or when it loads.
+    /// </summary>
+    public void Show(string key)
+    {
+        if (Sections.FirstOrDefault(s => s.Key == key) is not { } item)
+        {
+            return;
+        }
+
+        SelectedSection = item;
+        PendingSection = key;
+        JumpRequested?.Invoke(this, key);
+    }
+
+    /// <summary>The section <see cref="Show"/> asked for, once.</summary>
+    public string? TakePendingSection()
+    {
+        var key = PendingSection;
+        PendingSection = null;
+        return key;
+    }
+
     /// <summary>The bar's link: the section it names, brought into view with focus in it.</summary>
     [RelayCommand]
     private void GoTo(string? key)
@@ -202,13 +229,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         JumpRequested?.Invoke(this, item.Key);
     }
 
-    private async Task ShowSectionsAsync()
+    private Task ShowSectionsAsync()
     {
         Capture.Refresh();
         Privacy.Refresh();
         Appearance.Refresh();
         Updates.Refresh();
-        await Integrations.RefreshAsync().ConfigureAwait(true);
+        return Task.CompletedTask;
     }
 
     private void Show()

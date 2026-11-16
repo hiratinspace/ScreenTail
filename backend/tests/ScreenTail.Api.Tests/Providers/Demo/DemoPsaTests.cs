@@ -91,14 +91,18 @@ public sealed class DemoPsaTests(ApiFixture api) : IClassFixture<ApiFixture>
     public async Task NoCredentialCanBeStoredUnderADemoName(string provider)
     {
         // In any environment: a row stored as demo-psa would make a real tenant's integration look like
-        // the demo in the client.
+        // the demo in the client. Only connectwise and hudu are provider names now (2026-11-15 review),
+        // so a demo name is refused as any other name is, on the owner's route and the device's.
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Client(api, Token(tenantId, userId, deviceId));
 
-        using var put = await client.PutAsJsonAsync(new Uri($"/v1/integrations/{provider}", UriKind.Relative), new StoreIntegrationRequest("https://example.com", "key-0001"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, provider, new StoreIntegrationRequest("https://example.com", "key-0001"));
+        using var devicePut = await client.PutAsJsonAsync(new Uri($"/v1/integrations/{provider}", UriKind.Relative), new StoreIntegrationRequest("https://example.com", "key-0001"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, put.StatusCode);
-        Assert.Contains("reserved_provider", await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Contains("bad_provider", await put.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.BadRequest, devicePut.StatusCode);
+        Assert.False(await api.UseAsync(db => db.Integrations.AnyAsync(i => i.TenantId == tenantId)));
     }
 
     [Fact]
@@ -362,8 +366,8 @@ public sealed class DemoPsaTests(ApiFixture api) : IClassFixture<ApiFixture>
 
         using var map = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), new MapCompanyRequest("Acme Dental", "demo-kb-1"), TestContext.Current.CancellationToken);
         using var unmap = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
-        using var store = await client.PutAsJsonAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-0002"), TestContext.Current.CancellationToken);
-        using var remove = await client.DeleteAsync(new Uri("/v1/integrations/hudu", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var store = await client.StoreIntegrationAsOwnerAsync(api, "hudu", new StoreIntegrationRequest("https://other.huducloud.com", "hudu-key-0002"));
+        using var remove = await client.RemoveIntegrationAsOwnerAsync(api, "hudu");
         var listed = await client.GetFromJsonAsync<CompanyMappingsResponse>(new Uri("/v1/integrations/hudu/companies", UriKind.Relative), TestContext.Current.CancellationToken);
 
         foreach (var refused in new[] { map, unmap, store, remove })

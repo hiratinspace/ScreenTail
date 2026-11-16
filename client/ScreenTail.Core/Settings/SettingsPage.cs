@@ -49,7 +49,9 @@ public sealed record PendingChange(string Section, string Change);
 /// section that cannot be saved, or that the service refuses, is named with its reason and keeps its
 /// changes pending, while the others commit. Undo puts every section back without asking the service.
 /// A field the admin's policy locked never counts as a change (INV-11): each section compares what it
-/// would save, and a locked field always saves as it was.
+/// would save, and a locked field always saves as it was. Integrations is not a section here: its cards
+/// are read only (integration credentials can only be changed by the tenant owner, in the web admin), and
+/// Test connection and the company mapping act at once.
 /// </summary>
 public sealed class SettingsPage
 {
@@ -300,52 +302,6 @@ public sealed class PrivacySection(PrivacyPanel panel) : ISettingsSection
         await _panel.SaveAsync(ct).ConfigureAwait(false) ? null : _panel.Problem ?? "The capture service did not save the settings. Try again.";
 
     public void Undo() => _panel.Undo();
-}
-
-/// <summary>
-/// Settings → Integrations on the page's Save bar (ST-082): a card with a key typed or its site changed is
-/// a change, stored by <see cref="IntegrationCard.SaveAsync"/>. Test connection, Remove and the company
-/// mapping act at once, as they did, and are never on the bar.
-/// </summary>
-public sealed class IntegrationsSection(IntegrationsPanel panel) : ISettingsSection
-{
-    private readonly IntegrationsPanel _panel = panel ?? throw new ArgumentNullException(nameof(panel));
-
-    public string Name => "Integrations";
-
-    public IReadOnlyList<string> Changes => [.. _panel.Cards.Where(c => c.HasPendingChange).Select(c => c.Title)];
-
-    /// <summary>Always null: each card is checked as it is saved, so one that is not filled in does not hold back the other.</summary>
-    public string? Problem => null;
-
-    /// <summary>Each changed card is stored on its own, so one that is refused does not hold back the other.</summary>
-    public async Task<string?> SaveAsync(CancellationToken ct = default)
-    {
-        var refusals = new List<string>();
-        foreach (var card in _panel.Cards.Where(c => c.HasPendingChange).ToList())
-        {
-            if (card.Unsavable is { } unsavable)
-            {
-                refusals.Add($"{card.Title}: {unsavable}");
-                continue;
-            }
-
-            if (!await card.SaveAsync(ct).ConfigureAwait(false))
-            {
-                refusals.Add($"{card.Title}: {card.Problem ?? "the backend did not store it. Try again."}");
-            }
-        }
-
-        return refusals.Count == 0 ? null : string.Join(" ", refusals);
-    }
-
-    public void Undo()
-    {
-        foreach (var card in _panel.Cards)
-        {
-            card.Undo();
-        }
-    }
 }
 
 /// <summary>

@@ -64,7 +64,8 @@ is ECDSA P-256 with SHA-256 over exactly those bytes, so there is no canonical f
 
 **The client refuses, and logs with a fixed sentence of its own (never the manifest's text), anything
 that fails any of these, in this order:** the envelope's shape and size (64 KB at most); a key id it
-knows; the signature, with a public key compiled into the client; then the payload's shape, its channel,
+knows; the signature, with a public key compiled into the client; then the payload's shape, its channel
+(which must be the one channel the signing key is trusted for, and the device's),
 its architecture, a SHA-256 of 64 lowercase hex characters, a size from 1 byte to 512 MB, a package URL
 that is HTTPS on the default port with no user information on one of the compiled-in package hosts, a
 version not older than the installed one (a downgrade), not older than the newest this installation has
@@ -78,6 +79,13 @@ has no in-box implementation, so P-256 is the one curve both ends have without a
 the public keys. ScreenTail.Core embeds it, so nothing on the machine can redirect the feed or add a key;
 CI's signing step reads the same file and checks every manifest against it before uploading. **It ships
 empty**: a build without a feed or a key makes no update request at all and says so in Settings.
+
+**One key per channel** (2026-11-15 security review). Each key in the file names the one channel it is
+trusted for, `pilot` or `stable`, and a manifest signed with it is believed only when the manifest is for
+that channel. The same key may not be listed twice. So channel separation does not rest on a script in
+the repository: a change on main that made the pilot step sign `"channel":"stable"` would still sign
+with the pilot key, and every installation refuses that manifest. The two keys sit behind two Azure
+identities, each federated to one GitHub environment and allowed to sign with its own key only.
 
 ### The request, and the egress guard
 
@@ -152,7 +160,8 @@ in the Privacy document, which is saved whole.
   the verified manifest; `WinVerifyTrust` checks its Authenticode signature through the same handle; and
   its publisher must be the running service's, **by identity, not by leaf thumbprint**: the signing
   certificate's subject, plus Artifact Signing's identity-validation EKU (`1.3.6.1.4.1.311.97.*`) when
-  the running build carries one, with a timestamp required. Only then is `C:\Windows\System32\msiexec.exe`
+  the running build carries one, or the same public key when it carries none (a certificate from the
+  Windows store), never the subject alone; with a timestamp required. Only then is `C:\Windows\System32\msiexec.exe`
   started by full path, without a shell, as `/i <package> /passive /norestart`; Windows Installer raises
   the UAC prompt for the per-machine package. The handle is held until it exits.
 - **A build nobody signed never updates itself:** there is no publisher to compare with.
@@ -170,11 +179,12 @@ later; it would then serve the signed file and nothing else.
 
 **Builds are signed for pilot only.** One step in the existing signing job (`installer-sign`), after
 every Authenticode signature has been checked: `installer/update-manifest.ps1 -Channel pilot` builds the
-pilot manifest for the signed MSI, asks Azure Key Vault to sign its digest with the release key (ES256)
-through the job's own OIDC token and the same federated app registration, verifies the signature against
-the trust file's keys on Windows PowerShell 5.1, and writes it. The channel is a required parameter with
-no default and no "all", and a build may not name stable. The private key never leaves Key Vault. Until
-`SCREENTAIL_UPDATE_KEY` and `SCREENTAIL_UPDATE_BASE` are set on the `signing` environment it signs
+pilot manifest for the signed MSI, asks Azure Key Vault to sign its digest with the pilot key (ES256)
+through the job's own OIDC token and the pilot app registration, verifies the signature against the
+trust file's pilot keys on Windows PowerShell 5.1, and writes it. The channel is a required parameter
+with no default and no "all", and a build may not name stable. A run refuses to sign while it can see
+the other channel's settings. The private keys never leave Key Vault. Until
+`SCREENTAIL_UPDATE_PILOT_KEY` and `SCREENTAIL_UPDATE_BASE` are set on the `signing` environment it signs
 nothing, with a notice, like `sign.ps1` without a certificate; the unsigned job runs the same step on
 every pull request. The pilot manifest is its own artifact, kept 90 days so a later promotion can read it.
 
@@ -185,8 +195,9 @@ GitHub what that run is and stops unless it is this repository's ci.yml, started
 building this repository's own code (its head repository, not a fork's), and successful
 (`installer/check-pilot-run.ps1`, with the job's read-only token). Then it downloads
 that run's pilot manifest (a JSON file; nothing from the earlier run is executed) and the script signs,
-for stable, exactly what it describes, after checking that it verifies with the client's own keys, says
-pilot and carries the version typed. **It fails closed**: the script refuses unless
+for stable with the stable key and the stable app registration, exactly what it describes, after
+checking that it verifies with a key the client trusts for pilot, says pilot and carries the version
+typed. **It fails closed**: the script refuses unless
 `SCREENTAIL_STABLE_RELEASE` is `true`, a variable that exists only on the owner's protected environment
 (an environment GitHub creates on first use, without reviewers, does not have it), and Azure issues the
 vault token only to an environment it was told to trust. The stable manifest is uploaded for a day, for
@@ -207,8 +218,10 @@ trigger, permission, filter, gate or skip budget of an existing job moved.
 2. **Local-only default:** no update checks under local-only unless the admin allows it (fail closed).
 3. **Defaults:** stable channel, chosen by the technician unless the admin locks it; a check every 24
    hours; 0 hours means off.
-4. **Key custody:** an Azure Key Vault ES256 key (Premium, HSM-backed, recommended), signed only from the
-   `signing` environment through OIDC, with a role that allows `sign` and nothing else.
+4. **Key custody:** two Azure Key Vault ES256 keys (Premium, HSM-backed, recommended), one per channel:
+   the pilot key signed only from the `signing` environment and the stable key only from
+   `release-stable`, each through OIDC with its own app registration and a role on its own key that
+   allows `sign` and nothing else.
 5. **Hosting:** a static HTTPS location under ST-007, with its host names compiled in.
 6. **Promotion:** every signed build on main is signed for pilot only; stable is signed only by
    `promote-stable.yml` in the `release-stable` environment, behind the owner's required reviewers.
@@ -229,30 +242,34 @@ trigger, permission, filter, gate or skip budget of an existing job moved.
 
 ## Owner steps
 
-1. **Azure Key Vault:** create a vault (Premium for an HSM-backed key) and an EC P-256 key, purpose sign
-   only. Give the existing signing app registration a role on that key that allows only
+The full list, with the exact variable names, is in `docs/dev/installer.md` ("Switch it on").
+
+1. **Azure Key Vault:** create a vault (Premium for HSM-backed keys) and **two** EC P-256 keys, purpose
+   sign only: one for pilot, one for stable. Note each key identifier **with its version**.
+2. **Azure, two app registrations for the manifests:** a pilot one with a federated credential for
+   environment `signing`, and a stable one with a federated credential for environment `release-stable`
+   (subject `repo:hiratinspace/ScreenTail:environment:release-stable`). Give each a role that allows only
    `Microsoft.KeyVault/vaults/keys/sign/action` (a custom role; *Key Vault Crypto User* also works but
-   allows more). Note the key identifier **with its version**.
-2. **The public key:** export it as base64 DER SubjectPublicKeyInfo (`az keyvault key download --encoding
-   DER` then base64) and add it to `shared/release/update-trust.json` with an id, in a reviewed pull
-   request.
-3. **Hosting (ST-007):** an HTTPS location for `<feed>pilot/win-x64.json`, `<feed>stable/win-x64.json` and
+   allows more) on its own key, and nothing on the other key.
+3. **The public keys:** export each as base64 DER SubjectPublicKeyInfo (`az keyvault key download
+   --encoding DER` then base64) and add both to `shared/release/update-trust.json`, each with an id and
+   its channel (`"channel": "pilot"` or `"stable"`), in a reviewed pull request.
+4. **Hosting (ST-007):** an HTTPS location for `<feed>pilot/win-x64.json`, `<feed>stable/win-x64.json` and
    `<base><version>/ScreenTail.msi`. Put the feed URL and the package host names in the trust file in the
    same pull request.
-4. **GitHub, `signing` environment variables:** `SCREENTAIL_UPDATE_KEY` (the versioned key identifier)
-   and `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in a slash).
-5. **GitHub, *Settings → Environments → New environment*: `release-stable`.** Mandatory before any
+5. **GitHub, `signing` environment variables:** `SCREENTAIL_UPDATE_PILOT_KEY` (the pilot key's versioned
+   identifier), `SCREENTAIL_UPDATE_PILOT_CLIENT_ID` (the pilot app registration) and
+   `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in a slash).
+6. **GitHub, *Settings → Environments → New environment*: `release-stable`.** Mandatory before any
    promotion: *Deployment branches and tags* set to `main` only; *Required reviewers* (the owner);
-   environment **variables** `SCREENTAIL_STABLE_RELEASE` = `true`, `SCREENTAIL_UPDATE_KEY`,
-   `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` (the same values as on `signing`). In Azure, add a second
-   federated credential to the signing app registration for entity type *Environment*, name
-   `release-stable` (subject `repo:hiratinspace/ScreenTail:environment:release-stable`). Until all of this
-   exists the promotion fails closed. **Never set `SCREENTAIL_STABLE_RELEASE` at repository or
-   organisation level**: a job that finds no such variable on its environment falls back to those, so a
-   value there would open the gate wherever the job ran.
-6. **Each pilot release:** from the signing run's artifacts, upload `ScreenTail.msi` to `<base><version>/`
+   environment **variables** `SCREENTAIL_STABLE_RELEASE` = `true`, `SCREENTAIL_UPDATE_STABLE_KEY`,
+   `SCREENTAIL_UPDATE_STABLE_CLIENT_ID` (the stable app registration) and `AZURE_TENANT_ID`. Until all
+   of this exists the promotion fails closed. **Never set any of these at repository or organisation
+   level**: a job that finds no such variable on its environment falls back to those, so a value there
+   would put one channel's settings in the other's job, or open the gate wherever the job ran.
+7. **Each pilot release:** from the signing run's artifacts, upload `ScreenTail.msi` to `<base><version>/`
    and `pilot/win-x64.json` to the feed; check it first with `installer/update-manifest.ps1 -Verify`.
-7. **Each promotion to stable:** *Actions → promote-stable → Run workflow* on main, with that ci run's id
+8. **Each promotion to stable:** *Actions → promote-stable → Run workflow* on main, with that ci run's id
    and the version; approve it as the environment's reviewer; upload the `stable/win-x64.json` it produces
    (artifact `screentail-stable-manifest`, kept one day) to the feed.
 

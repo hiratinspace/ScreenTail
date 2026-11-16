@@ -488,7 +488,7 @@ public sealed class LiveShell : IAsyncDisposable
         var draftPending = loaded.DraftPending;
 
         // The publish pane's delegates, over the pipe. What the tenant has connected is asked now, once,
-        // so the pane opens saying "Connect a PSA to publish" or ready, not guessing. The mapping prompt's
+        // so the pane opens saying "Ask your owner to connect a PSA to publish" or ready, not guessing. The mapping prompt's
         // two calls (ST-097) ride the same connection.
         var publisher = new PipePublisher(_connection);
         var integrations = await publisher.IntegrationsAsync(ct).ConfigureAwait(true);
@@ -497,7 +497,7 @@ public sealed class LiveShell : IAsyncDisposable
             integrations,
             publisher.SearchAsync,
             publisher.PublishAsync,
-            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync),
+            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapRefusedAsync),
             draftPending: draftPending,
             earlierOutcomes: PipePublisher.Earlier(loaded.PublishOutcomes),
             reloadEarlier: c => publisher.EarlierAsync(sessionId, c));
@@ -539,7 +539,7 @@ public sealed class LiveShell : IAsyncDisposable
 
             // The receipt's Next to check reads History's rows and opens one the way a History row does.
             next: new NextSessions(ListSessionsAsync, _state.OpenSession),
-            openSettings: () => _state.Navigate(ShellView.Settings));
+            openSettings: () => _state.NavigateToSettings("Integrations"));
     }
 
     /// <summary>

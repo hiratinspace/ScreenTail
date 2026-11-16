@@ -112,6 +112,13 @@ public sealed class DraftingConcurrency
             using var lease = gate.TryEnter(who.TenantId, who.DeviceId, out var refusal);
             if (lease is null)
             {
+                // Read into nothing first, so a slow upload gets the busy answer the outbox queues on
+                // rather than a dropped connection (UnreadBody, 2026-11-15 review).
+                if (!await UnreadBody.DiscardAsync(context).ConfigureAwait(false))
+                {
+                    return;
+                }
+
                 await Results.Json(new SummarizeResponse("busy", refusal), statusCode: StatusCodes.Status429TooManyRequests)
                     .ExecuteAsync(context)
                     .ConfigureAwait(false);

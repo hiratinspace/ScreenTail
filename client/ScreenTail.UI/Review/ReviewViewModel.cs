@@ -33,7 +33,7 @@ public sealed class ReviewViewModel : IAsyncDisposable
     /// </param>
     /// <param name="discardBlocked">Why Discard may not be asked about now (the session is still being captured), or null.</param>
     /// <param name="next">History's rows and the way to open one, for the receipt's Next to check (Spec v0.6.0 §5 S3).</param>
-    /// <param name="openSettings">Opens Settings, for "Connect a PSA to publish".</param>
+    /// <param name="openSettings">Opens Settings, for "See integrations".</param>
     public ReviewViewModel(
         Session session,
         IReviewFrames? frames,

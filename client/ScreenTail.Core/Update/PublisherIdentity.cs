@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
 namespace ScreenTail.Core.Update;
@@ -12,6 +13,12 @@ namespace ScreenTail.Core.Update;
 /// Signing writes into each certificate's extended key usage (an OID under
 /// <see cref="ArtifactSigningOidPrefix"/>). Both are compared; the thumbprint is kept for the log only.
 ///
+/// A certificate with no such OID (one from the Windows store, such as a hardware token) has nothing but
+/// its subject that a renewal keeps, and a subject is text that any trusted authority may write for an
+/// organisation of the same name. So for such a build the subject is not enough: the package must also be
+/// signed with the same public key as the running build. A renewal that keeps the key updates as before;
+/// one with a new key is installed by hand, once.
+///
 /// A subject is just text until Windows has walked the chain to a root it trusts, so a
 /// <see cref="PublisherIdentity"/> is only ever built after that check has passed (the Windows reader
 /// returns null otherwise). That is what stops a self-signed certificate with our subject passing.
@@ -20,7 +27,11 @@ namespace ScreenTail.Core.Update;
 /// <param name="ValidationOids">The certificate's extended key usages under <see cref="ArtifactSigningOidPrefix"/>.</param>
 /// <param name="Thumbprint">The leaf's thumbprint. For the log; never compared.</param>
 /// <param name="Timestamped">The signature carries a timestamp, so it outlives its short-lived certificate.</param>
-public sealed record PublisherIdentity(string Subject, IReadOnlySet<string> ValidationOids, string Thumbprint, bool Timestamped)
+/// <param name="PublicKeySha256">
+/// SHA-256 of the certificate's SubjectPublicKeyInfo, lowercase hex. Compared only when the running build
+/// carries no identity-validation OID.
+/// </param>
+public sealed record PublisherIdentity(string Subject, IReadOnlySet<string> ValidationOids, string Thumbprint, bool Timestamped, string PublicKeySha256)
 {
     /// <summary>Microsoft's arc for Artifact Signing's identity-validation EKUs.</summary>
     public const string ArtifactSigningOidPrefix = "1.3.6.1.4.1.311.97.";
@@ -40,7 +51,8 @@ public sealed record PublisherIdentity(string Subject, IReadOnlySet<string> Vali
             }
         }
 
-        return new PublisherIdentity(signer.Subject, oids, signer.Thumbprint, timestamped);
+        var key = Convert.ToHexStringLower(SHA256.HashData(signer.PublicKey.ExportSubjectPublicKeyInfo()));
+        return new PublisherIdentity(signer.Subject, oids, signer.Thumbprint, timestamped, key);
     }
 
     /// <summary>
@@ -68,9 +80,12 @@ public sealed record PublisherIdentity(string Subject, IReadOnlySet<string> Vali
 
         // The identity, never the leaf: a new certificate from the same validated publisher is the same
         // publisher. Where the running build carries an identity-validation OID, the package must carry
-        // exactly the same ones, so a same-named organisation validated separately is someone else.
+        // exactly the same ones, so a same-named organisation validated separately is someone else. Where
+        // it carries none, the subject alone would be a text match, so the key must be the same too.
         var samePublisher = string.Equals(running.Subject, package.Subject, StringComparison.Ordinal)
-            && (running.ValidationOids.Count == 0 || running.ValidationOids.SetEquals(package.ValidationOids));
+            && (running.ValidationOids.Count > 0
+                ? running.ValidationOids.SetEquals(package.ValidationOids)
+                : string.Equals(running.PublicKeySha256, package.PublicKeySha256, StringComparison.Ordinal));
         return samePublisher
             ? null
             : "The downloaded package was signed by someone other than this installation's publisher, so it was not installed.";

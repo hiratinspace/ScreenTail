@@ -229,7 +229,7 @@ public partial class ShellWindow : Window
 
                 // The receipt's Next to check over the sample rows; opening one is the store's, as in the app.
                 next: new Review.Publish.NextSessions(_ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()), state.OpenSession),
-                openSettings: () => state.Navigate(ShellView.Settings))),
+                openSettings: () => state.NavigateToSettings("Integrations"))),
             // Discard wired, so History's table shows Bulk discard held while the sample session records
             // (Spec §4): the reason is said beside the button and nothing is asked. Nothing is ever sent.
             history: () => new HistoryViewModel(
@@ -457,10 +457,6 @@ public partial class ShellWindow : Window
                 new("connectwise", "https://na.myconnectwise.net", "••••7Qa2", new DateTimeOffset(2026, 9, 20, 9, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 30, 0, TimeSpan.Zero), null),
                 new("hudu", "https://docs.contosomsp.com", "••••c09d", new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 31, 0, TimeSpan.Zero), "Hudu rejected the API key. Update it in Settings → Integrations."),
             ]);
-
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) => Task.FromResult<string?>(null);
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
             Task.FromResult(new CheckOutcome(true, $"Connected to {(provider == "hudu" ? "https://docs.contosomsp.com" : "https://na.myconnectwise.net")}."));

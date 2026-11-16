@@ -2,6 +2,13 @@
 
 const absolute = new Intl.DateTimeFormat('en', { dateStyle: 'medium', timeStyle: 'short' });
 
+const day = new Intl.DateTimeFormat('en', { dateStyle: 'medium' });
+
+/** A date on its own, for a sentence such as "Connected on Nov 15, 2026". */
+export function absoluteDate(iso: string): string {
+  return day.format(new Date(iso));
+}
+
 export function absoluteTime(iso: string): string {
   return absolute.format(new Date(iso));
 }

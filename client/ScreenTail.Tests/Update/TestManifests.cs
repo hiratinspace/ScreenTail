@@ -14,11 +14,18 @@ internal sealed class TestSigner : IDisposable
 {
     private readonly ECDsa _key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 
-    public TestSigner(string id = "test-key") => Id = id;
+    public TestSigner(string id = "test-key", UpdateChannel channel = UpdateChannel.Stable)
+    {
+        Id = id;
+        Channel = channel;
+    }
 
     public string Id { get; }
 
-    public UpdateKey Public => new(Id, _key.ExportSubjectPublicKeyInfo());
+    /// <summary>The channel the trust file trusts this key for. Stable, like the test payload, unless a test says otherwise.</summary>
+    public UpdateChannel Channel { get; }
+
+    public UpdateKey Public => new(Id, Channel, _key.ExportSubjectPublicKeyInfo());
 
     public byte[] Sign(byte[] message) =>
         _key.SignData(message, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);

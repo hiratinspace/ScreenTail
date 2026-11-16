@@ -187,7 +187,16 @@ key, that key under the deployment's master key, AES-GCM at both layers. `GET /v
 the last four characters of each; nothing over HTTP ever returns a credential, and provider workers
 read them in process through `IIntegrationVault`. A credential is stored only for an absolute https site
 with no user name or password in the address: the site is where the credential is sent, and the vault
-itself refuses anything else, not only the endpoint.
+itself refuses anything else, not only the endpoint. Each secret is bound to its row (tenant, provider
+and site host as associated data), so a sealed secret moved to another row does not open.
+
+Only the tenant's owner stores, replaces or removes a credential, from the web admin
+(`PUT`/`DELETE /v1/admin/integrations/{provider}`, plus `POST .../check`), for `connectwise` and `hudu`
+only, with the secret capped at 4096 characters, the site at 500 and the body at 16 KB. A device's
+`PUT`/`DELETE /v1/integrations/{provider}` answers `403` with `owner_only` and a sentence to show; devices
+still list integrations, test the stored credential and map companies. Every credential and mapping
+change is recorded in `integration_changes` (who, when, provider, companies; never a secret) and shown on
+the owner's Integrations page. docs/security/key-rotation.md covers the vault's keys and legacy rows.
 
 The master key is configuration and has no default. Without it the service starts, lists what it has,
 and refuses to store a credential with `501 not_configured`:
