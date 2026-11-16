@@ -25,7 +25,7 @@ public sealed record DeploymentAddress(Uri? Backend, AddressOrigin Origin, bool 
 /// so a locked local-only is only as strong as the place the address is read from. A per-user
 /// environment variable is a setting the technician, or anything running as them, can change; an
 /// installed build reads the address only from the machine-wide setting, which only an administrator
-/// can write, and ignores the variables. Development builds (unsigned, not installed under Program Files)
+/// can write, and ignores the variables. Development builds (anything not running from the install folder)
 /// keep the variables, because the test loop, the demo and the end-to-end run are built on them, with
 /// the machine setting as their fallback.
 ///
@@ -48,7 +48,7 @@ public static class DeploymentAddresses
     /// <summary>The value under <see cref="MachineKey"/> holding the backend address.</summary>
     public const string MachineValue = "BackendUrl";
 
-    /// <param name="installed">Signed by the publisher, or running from the Program Files install folder.</param>
+    /// <param name="installed">Running from the install folder under Program Files (<see cref="InstalledAt"/>).</param>
     /// <param name="machine">The machine-wide setting, or null when there is none.</param>
     /// <param name="environment">Reads an environment variable by name.</param>
     public static DeploymentAddress Resolve(bool installed, string? machine, Func<string, string?> environment)
@@ -76,34 +76,30 @@ public static class DeploymentAddresses
         return installed ? null : () => environment(DeviceTokenVariable);
     }
 
+    /// <summary>The folder the installer puts ScreenTail in, under the machine's 64-bit Program Files.</summary>
+    public const string InstallFolderName = "ScreenTail";
+
     /// <summary>
-    /// True when <paramref name="executable"/> sits inside one of <paramref name="programFolders"/>, which is
-    /// where the installer puts ScreenTail and where only an administrator can write.
+    /// True when <paramref name="executable"/> sits inside <c>ScreenTail</c> under
+    /// <paramref name="programFiles"/>: the one folder the package installs into (its RefuseInstallFolder
+    /// step refuses any other) and one only an administrator can write. Decided by location and not by
+    /// signature: any Authenticode signer would pass a signature check, the .NET host under Program Files
+    /// included, and there is no shipped publisher identity to compare against yet.
     /// </summary>
-    public static bool UnderProgramFiles(string? executable, params string?[] programFolders)
+    /// <param name="programFiles">
+    /// The machine's Program Files, from the known folder (<c>Environment.SpecialFolder.ProgramFiles</c> in
+    /// a 64-bit process), never from <c>%ProgramW6432%</c>: a per-user variable can override that one.
+    /// </param>
+    public static bool InstalledAt(string? executable, string? programFiles)
     {
-        ArgumentNullException.ThrowIfNull(programFolders);
-        if (string.IsNullOrEmpty(executable))
+        if (string.IsNullOrEmpty(executable) || string.IsNullOrEmpty(programFiles))
         {
             return false;
         }
 
         var full = Path.GetFullPath(executable);
-        foreach (var folder in programFolders)
-        {
-            if (string.IsNullOrEmpty(folder))
-            {
-                continue;
-            }
-
-            var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
-            if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-
-        return false;
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(programFiles, InstallFolderName))) + Path.DirectorySeparatorChar;
+        return full.StartsWith(root, StringComparison.OrdinalIgnoreCase);
     }
 
     private static Uri? Parse(string? value) =>

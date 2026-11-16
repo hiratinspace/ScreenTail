@@ -120,19 +120,16 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
         // Where this deployment's backend is (2026-11-15 review). The address decides where the egress
         // allowlist points and where the tenant's policy comes from, so a locked local-only is only as
-        // strong as the place it is read from. An installed build (signed by the publisher, or running from
-        // its Program Files folder) reads it only from the machine-wide setting the installer writes,
-        // which only an administrator can change, and ignores SCREENTAIL_BACKEND and
-        // SCREENTAIL_DEVICE_TOKEN. A development build keeps the variables, which the test loop, the demo
-        // and the end-to-end run set for the service's process alone. DeploymentAddressesTests pins it.
+        // strong as the place it is read from. An installed build (running from ScreenTail's folder under
+        // Program Files, decided by location and not by signature) reads it only from the machine-wide
+        // setting the installer writes, which only an administrator can change, and ignores
+        // SCREENTAIL_BACKEND and SCREENTAIL_DEVICE_TOKEN. A development build keeps the variables, which
+        // the test loop, the demo and the end-to-end run set for the service's process alone.
+        // DeploymentAddressesTests pins it.
         //
         // Unset is the ordinary case and not an error. The queue keeps the work, Review says the session
         // could not be drafted, and the screenshots and transcript are still there (Spec §5 S3).
-        var runningPublisher = PackageSignature.Running();
-        var installed = runningPublisher is not null || DeploymentAddresses.UnderProgramFiles(
-            serviceExecutable,
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+        var installed = DeploymentAddresses.InstalledAt(serviceExecutable, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
         var address = DeploymentAddresses.Resolve(installed, MachineBackend.Read(), Environment.GetEnvironmentVariable);
         var backend = address.Backend;
         LogAddress(logger, installed, address.Origin, address.EnvironmentIgnored);
@@ -313,6 +310,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         UpdatePolicy UpdatePolicyNow() => UpdatePolicies.Resolve(policySync.Current, updatePreferences.Load());
         // One definition of a session in progress: the same states that keep Settings' meter off the microphone.
         bool SessionBusy() => MicrophoneMeter.HeldBy(machine.State);
+        var runningPublisher = PackageSignature.Running();
         using var updates = new UpdateService(
             new HttpClient(EgressGuard.ForUpdates(egressPolicy)) { Timeout = TimeSpan.FromMinutes(30) },
             UpdateTrust.Shipped,

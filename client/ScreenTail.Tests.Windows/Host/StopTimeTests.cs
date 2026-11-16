@@ -600,9 +600,11 @@ public sealed class StopTimeTests : IAsyncDisposable
     private static extern int GetWindowText(IntPtr window, [Out] char[] text, int max);
 
     /// <summary>
-    /// The service reads its backend address and a fallback device token from the environment. A token set
-    /// for the whole account on the laptop must never send this test's host to a real backend, so both are
-    /// cleared for this process while the test runs and put back after it.
+    /// The service reads its backend address and a fallback device token from the environment when it is
+    /// not running from ScreenTail's install folder under Program Files, which this test's in-process host
+    /// never is (DeploymentAddresses.InstalledAt). A token set for the whole account on the laptop must
+    /// never send this test's host to a real backend, so both are cleared for this process while the test
+    /// runs and put back after it.
     /// </summary>
     private void WithoutTheBackend()
     {

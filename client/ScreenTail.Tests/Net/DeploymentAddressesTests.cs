@@ -107,14 +107,24 @@ public sealed class DeploymentAddressesTests
     [Theory]
     [InlineData(@"/Program Files/ScreenTail/ScreenTail.Service.exe", true)]
     [InlineData(@"/program files/screentail/ScreenTail.Service.exe", true)]
-    [InlineData(@"/Program Files (x86)/ScreenTail/ScreenTail.Service.exe", true)]
+    [InlineData(@"/Program Files/dotnet/dotnet.exe", false)]
+    [InlineData(@"/Program Files (x86)/ScreenTail/ScreenTail.Service.exe", false)]
+    [InlineData(@"/Program Files/ScreenTailExtra/ScreenTail.Service.exe", false)]
     [InlineData(@"/Users/tech/AppData/Local/ScreenTail.Dev/demo/app/ScreenTail.Service.exe", false)]
-    [InlineData(@"/Program Files Extra/ScreenTail.Service.exe", false)]
-    [InlineData(@"/Program Files/../Users/tech/ScreenTail.Service.exe", false)]
+    [InlineData(@"/Program Files/ScreenTail/../../Users/tech/ScreenTail.Service.exe", false)]
     [InlineData(null, false)]
-    public void OnlyAnExecutableInsideProgramFilesCountsAsInstalled(string? executable, bool installed)
+    public void OnlyAnExecutableInsideTheInstallFolderCountsAsInstalled(string? executable, bool installed)
     {
-        Assert.Equal(installed, DeploymentAddresses.UnderProgramFiles(executable, "/Program Files", "/Program Files (x86)", null));
+        // By location, not by signature: any signer would pass a signature check, the .NET host under
+        // Program Files included, and so would a test host running in-process.
+        Assert.Equal(installed, DeploymentAddresses.InstalledAt(executable, "/Program Files"));
+    }
+
+    [Fact]
+    public void WithNoProgramFilesNothingCountsAsInstalled()
+    {
+        Assert.False(DeploymentAddresses.InstalledAt("/Program Files/ScreenTail/ScreenTail.Service.exe", null));
+        Assert.False(DeploymentAddresses.InstalledAt("/Program Files/ScreenTail/ScreenTail.Service.exe", string.Empty));
     }
 
     private static Func<string, string?> Environment(string? backend, string? token) => name => name switch
