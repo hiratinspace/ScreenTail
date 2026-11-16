@@ -125,12 +125,14 @@ services:
         target: Summarization__ApiKey
     tmpfs:
       - /tmp
-    # A ceiling, not a reservation, so that if the API's memory ever runs away it is the API that is
-    # stopped (and restarted), not PostgreSQL or the host. .NET reads the limit and collects harder as it
-    # nears it. 1.5 GB of the guide's 2 GB host: the API idles at a few hundred MB at most, and a full
-    # burst of one tenant's gated drafts and publishes at their largest bodies stays under it, while
-    # PostgreSQL and Caddy keep the rest. Raise SCREENTAIL_API_MEMORY in .env on a larger host.
-    mem_limit: ${SCREENTAIL_API_MEMORY:-1536m}
+    # A backstop, not a guarantee: a ceiling (not a reservation) so that an API whose memory runs away
+    # is the container stopped and restarted, rather than the host swapping. .NET caps its heap at 75%
+    # of the limit by default, 1.5 GB here, which is above the rough 1.2 GB that one tenant's full
+    # burst of gated drafts and publishes at their largest bodies would take; the gates are per tenant,
+    # so no fixed figure covers every tenant bursting at once. On the guide's 2 GB host this equals the
+    # host, so it does not keep memory for PostgreSQL there: on a larger host set SCREENTAIL_API_MEMORY
+    # in .env to leave PostgreSQL and Caddy a gigabyte or more. docs/dev/deploy.md says why 2g.
+    mem_limit: ${SCREENTAIL_API_MEMORY:-2g}
     # No ports: the proxy is the only way in. The edge network is also the API's way out (Google's keys,
     # the drafting model, each tenant's PSA); the data network has no way out at all.
     networks:
