@@ -163,6 +163,9 @@ namespace ScreenTail.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("BindingVersion")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset?>("ConnectedAt")
                         .HasColumnType("timestamp with time zone");
 

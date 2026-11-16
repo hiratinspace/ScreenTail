@@ -22,6 +22,14 @@ public sealed class VaultOptions
 
     public string PreviousMasterKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether a row sealed before secrets were bound to their row may still be opened (2026-11-15
+    /// review). On by default so nothing stored before then stops working; each such row is sealed again
+    /// bound on its first open. Once <c>--upgrade-vault-rows</c> reports none left, turn it off, and a
+    /// row marked legacy is refused rather than opened. docs/security/key-rotation.md.
+    /// </summary>
+    public bool AllowLegacyRows { get; set; } = true;
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(MasterKey);
 
     public byte[] CurrentKey() => Decode(MasterKey, nameof(MasterKey));

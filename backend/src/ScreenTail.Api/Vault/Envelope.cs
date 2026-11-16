@@ -21,14 +21,18 @@ public sealed record Sealed(byte[] Ciphertext, byte[] Nonce, byte[] WrappedKey, 
 ///
 /// The secret's layer also authenticates where the row says it belongs (<see cref="BindingFor"/>): the
 /// tenant, the provider and the site's host go in as associated data, so a sealed secret copied onto
-/// another tenant's row, another provider or another host no longer opens. Rows sealed before the binding
-/// existed carry none; <see cref="IntegrationVault"/> still opens them, and the key rotation rewrites them
-/// into the bound form.
+/// another tenant's row, another provider or another host no longer opens. Each row records which form it
+/// is in; rows sealed before the binding existed carry none, and <see cref="IntegrationVault"/> seals them
+/// again in the bound form the first time it opens them (as do <c>--upgrade-vault-rows</c> and the key
+/// rotation).
 /// </summary>
 public static class Envelope
 {
     private const int NonceBytes = 12;
     private const int TagBytes = 16;
+
+    /// <summary>What a row sealed with <see cref="BindingFor"/> records in <c>BindingVersion</c>. 0 is a row sealed with no binding.</summary>
+    public const int BindingVersion = 1;
 
     /// <param name="binding">What the secret is bound to (<see cref="BindingFor"/>); empty for none.</param>
     public static Sealed Seal(ReadOnlySpan<byte> plaintext, ReadOnlySpan<byte> masterKey, ReadOnlySpan<byte> binding = default)

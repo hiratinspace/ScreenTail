@@ -370,6 +370,20 @@ if (args.Contains("--rotate-vault-keys", StringComparer.Ordinal))
     return;
 }
 
+// 2026-11-15 review. Seals every credential stored before secrets were bound to their row again, in the
+// bound form, and exits without listening. Each such row is also upgraded the first time it is opened;
+// this does the rest at once. A second run prints 0. docs/security/key-rotation.md.
+if (args.Contains("--upgrade-vault-rows", StringComparer.Ordinal))
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    var upgraded = await KeyRotation.UpgradeLegacyAsync(
+        scope.ServiceProvider.GetRequiredService<ScreenTailContext>(),
+        scope.ServiceProvider.GetRequiredService<VaultOptions>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>());
+    Console.WriteLine($"upgraded {upgraded} credential(s) to the bound form under master key {Envelope.KeyIdOf(vault.CurrentKey())}");
+    return;
+}
+
 // ST-099 hardening. Every answer, refusals and errors included, says it is not to be rendered, framed,
 // sniffed or followed by a referrer (ADR-0009).
 app.UseSecurityHeaders();

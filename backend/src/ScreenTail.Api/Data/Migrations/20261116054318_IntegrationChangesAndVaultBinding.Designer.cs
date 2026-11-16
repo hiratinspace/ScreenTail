@@ -12,8 +12,8 @@ using ScreenTail.Api.Data;
 namespace ScreenTail.Api.Data.Migrations
 {
     [DbContext(typeof(ScreenTailContext))]
-    [Migration("20261116053924_IntegrationChanges")]
-    partial class IntegrationChanges
+    [Migration("20261116054318_IntegrationChangesAndVaultBinding")]
+    partial class IntegrationChangesAndVaultBinding
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -165,6 +165,9 @@ namespace ScreenTail.Api.Data.Migrations
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
+
+                    b.Property<int>("BindingVersion")
+                        .HasColumnType("integer");
 
                     b.Property<DateTimeOffset?>("ConnectedAt")
                         .HasColumnType("timestamp with time zone");

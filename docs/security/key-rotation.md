@@ -11,6 +11,23 @@ secret itself never decrypted into a new ciphertext, and a cloud KMS can take th
 without the rows changing shape. Today the master key is configuration, because there is no cloud yet
 (ST-007).
 
+**Each secret is bound to its row.** Since 2026-11-15 the secret's layer is sealed with the tenant id,
+the provider and the site's host and port as AES-GCM associated data, and the row records this in
+`BindingVersion` (1). A bound row opens only for that tenant, provider and host: copied onto another
+tenant's row, another provider or another host, it is refused with a message naming the row, and is
+never tried any other way. Rows stored before then are marked 0 (legacy) by the migration and open
+without a binding; each is sealed again in the bound form the first time the vault opens it, and these
+also upgrade every legacy row at once:
+```bash
+dotnet run --project src/ScreenTail.Api -- --upgrade-vault-rows
+```
+It prints how many rows it upgraded; a second run prints `upgraded 0`. `--rotate-vault-keys` upgrades
+legacy rows too. `BindingVersion` is a database column, so someone who can write the database can mark a
+row legacy again: the guarantee covers rows written or upgraded since this change while legacy rows are
+still accepted. Once `--upgrade-vault-rows` prints `upgraded 0`, set `Vault:AllowLegacyRows` to `false`
+(default `true`) and restart: a row marked legacy is then refused rather than opened, which closes that
+gap. Changing a site's host needs the credential stored again, which the owner's route asks for anyway.
+
 **When to rotate.** On a schedule the security lead sets (quarterly is ordinary), and immediately if the
 key may have been seen: a laptop with the secrets store lost, a config dump pasted somewhere, a person
 with access leaving.
@@ -55,11 +72,16 @@ finished; put the previous key back and repeat step 4.
 ## What this does not cover
 
 - **The provider's own key.** Rotating our master key does not change the ConnectWise or Hudu
-  credential itself. Rotating those is done at the provider and then stored here again with
-  `PUT /v1/integrations/{provider}`.
-- **Who may store a credential.** Any device of the tenant may, until ST-010 brings roles.
+  credential itself. Rotating those is done at the provider and then stored here again by the tenant's
+  owner, in the web admin's Integrations page (`PUT /v1/admin/integrations/{provider}`).
+- **Who may store a credential.** Only the tenant's owner, from the web admin (signed-in session and
+  CSRF header). A technician's device lists what is connected, tests the stored credential and chooses
+  company mappings while publishing; asked to store or remove a credential it is refused with
+  `403 owner_only`. Every credential and mapping change is recorded (who, when, which provider, which
+  companies, never a secret) and shown on the owner's Integrations page.
 
 Exercised by `backend/tests/ScreenTail.Api.Tests/Vault/KeyRotationTests.cs`, which does steps 2 to 5 in
 memory: a row under the previous key opens before the rewrap and a new one goes under the current key
-(step 3), every row opens under the current key alone after it (steps 4 and 5), and a row under a key the
-deployment no longer holds is refused with that key's id.
+(step 3), every row opens under the current key alone after it (steps 4 and 5), a row under a key the
+deployment no longer holds is refused with that key's id, and legacy rows are sealed again bound. The
+binding itself is exercised by `Vault/VaultBindingTests.cs`.

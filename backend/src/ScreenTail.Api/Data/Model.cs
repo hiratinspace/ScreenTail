@@ -276,6 +276,14 @@ public sealed class Integration
     [MaxLength(16)]
     public string? KeyId { get; set; }
 
+    /// <summary>
+    /// How the secret is bound to this row (2026-11-15 review): 0 for a row sealed before the binding
+    /// existed, <see cref="Vault.Envelope.BindingVersion"/> for one sealed with the tenant, provider and
+    /// site host as associated data. A bound row is only ever opened bound. A legacy row is opened
+    /// without it and sealed again in the bound form on that first open.
+    /// </summary>
+    public int BindingVersion { get; set; }
+
     public DateTimeOffset? RotatedAt { get; set; }
 
     public DateTimeOffset? ConnectedAt { get; set; }

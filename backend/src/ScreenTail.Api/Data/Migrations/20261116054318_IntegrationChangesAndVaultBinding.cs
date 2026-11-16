@@ -6,11 +6,18 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace ScreenTail.Api.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class IntegrationChanges : Migration
+    public partial class IntegrationChangesAndVaultBinding : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AddColumn<int>(
+                name: "BindingVersion",
+                table: "integrations",
+                type: "integer",
+                nullable: false,
+                defaultValue: 0);
+
             migrationBuilder.CreateTable(
                 name: "integration_changes",
                 columns: table => new
@@ -43,6 +50,10 @@ namespace ScreenTail.Api.Data.Migrations
         {
             migrationBuilder.DropTable(
                 name: "integration_changes");
+
+            migrationBuilder.DropColumn(
+                name: "BindingVersion",
+                table: "integrations");
         }
     }
 }
