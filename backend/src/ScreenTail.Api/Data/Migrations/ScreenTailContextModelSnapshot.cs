@@ -163,6 +163,9 @@ namespace ScreenTail.Api.Data.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("BindingVersion")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset?>("ConnectedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -214,6 +217,64 @@ namespace ScreenTail.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("integrations", (string)null);
+                });
+
+            modelBuilder.Entity("ScreenTail.Api.Data.IntegrationChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DocCompanyId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("DocCompanyName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("PsaCompany")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("Removed")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_integration_changes_one_pruned_row")
+                        .HasFilter("\"Action\" = 'mappings_pruned'");
+
+                    b.HasIndex("TenantId", "At");
+
+                    b.ToTable("integration_changes", (string)null);
                 });
 
             modelBuilder.Entity("ScreenTail.Api.Data.Invite", b =>
@@ -466,6 +527,19 @@ namespace ScreenTail.Api.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("ScreenTail.Api.Data.VaultState", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("LegacyRowsClearedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("vault_state", (string)null);
                 });
 
             modelBuilder.Entity("ScreenTail.Api.Data.Device", b =>

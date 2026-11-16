@@ -75,6 +75,7 @@ public sealed class ShellState
     private CaptureStateSnapshot? _capture;
     private ShellView _view = ShellView.Review;
     private string? _reviewing;
+    private string? _settingsSection;
 
     /// <summary>Raised after every change, with everything a view needs. Handlers must not block.</summary>
     public event Action<ShellSnapshot>? Changed;
@@ -182,6 +183,24 @@ public sealed class ShellState
     public void Lost() => Set(() => _connection = ServiceConnection.Unavailable);
 
     public void Navigate(ShellView view) => Set(() => _view = view);
+
+    /// <summary>Settings, opened at one of its sections (Review's "See integrations" opens Integrations, not the first section).</summary>
+    public void NavigateToSettings(string section) => Set(() =>
+    {
+        _settingsSection = section;
+        _view = ShellView.Settings;
+    });
+
+    /// <summary>The section <see cref="NavigateToSettings"/> asked for, once: the next call answers null.</summary>
+    public string? TakeSettingsSection()
+    {
+        lock (_gate)
+        {
+            var section = _settingsSection;
+            _settingsSection = null;
+            return section;
+        }
+    }
 
     private void Set(Action change)
     {

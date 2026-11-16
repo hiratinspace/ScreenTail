@@ -50,14 +50,12 @@ it refused and nothing else from the response (`backend/src/ScreenTail.Api/Provi
    It must be reachable at a public internet address: the backend refuses a site on its own machine or
    a private network, when it is stored and again when it is called.
 
-Stored once, from Settings → Integrations (the card takes the three parts and joins them) or by hand
-over the device's authenticated connection to the backend, and never returned:
-
-```bash
-curl -X PUT "$BACKEND/v1/integrations/connectwise" \
-  -H "Authorization: Bearer $SCREENTAIL_DEVICE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"siteUrl":"https://na.myconnectwise.net","secret":"acme+PUBLICKEY:PRIVATEKEY"}'
-```
+Stored once, by the tenant's owner from the web admin's Integrations page (Connect ConnectWise Manage:
+the form takes the site and the three parts and joins them), and never returned. Behind it is
+`PUT /v1/admin/integrations/connectwise` with
+`{"siteUrl":"https://na.myconnectwise.net","secret":"acme+PUBLICKEY:PRIVATEKEY"}`, on the owner's
+signed-in session with its CSRF header. A technician's device cannot store or remove it
+(`403 owner_only`) and sees the connection read-only in Settings → Integrations.
 
 `GET /v1/integrations` then shows `connectwise`, the site, and `••••` plus the last four characters.
 
@@ -66,6 +64,16 @@ curl -X PUT "$BACKEND/v1/integrations/connectwise" \
 **`ConnectWise:ClientId`**: the clientId ConnectWise issues per integration vendor at
 developer.connectwise.com. It is ours, not the tenant's, set once per deployment like the vault's master
 key. Without it every call is refused before it is sent, with a message naming the setting.
+
+**Accepted (2026-11-15 security review): the clientId goes to whichever site a tenant stores.** It is
+sent on every call, so a tenant that stores a site it controls sees it. ScreenTail does not limit
+ConnectWise calls to ConnectWise's own hosts, because ConnectWise PSA also runs on premises under each
+customer's own domain, and an allowlist would lock those tenants out. The clientId is a public
+identifier of the integration, not an access credential: it names the vendor to ConnectWise for
+support and usage, and it reads and writes nothing without a tenant's own API member keys, which are
+never sent anywhere but the site they were stored with. If it ever leaked in a way that mattered, it
+is replaced at developer.connectwise.com and set again as `ConnectWise:ClientId`; no tenant has to
+change anything.
 
 ## The sandbox check
 
@@ -80,7 +88,7 @@ there is one:
    ```
    Expect open tickets whose summary contains the word, newest first, each with its company. A number
    returns that ticket first. `pr` is refused with `query_too_short`; a wrong key comes back as
-   `psa_unauthenticated` with "Update it in Settings → Integrations."
+   `psa_unauthenticated` with "Ask your ScreenTail owner to update the ConnectWise connection in the web admin."
 4. Publish (ST-093, ST-094): the note, its attachments and the time entry appear on the ticket and the
    response carries their ids. Two field names are written from the API documentation and not yet
    seen working: check that an Internal note's screenshots are not visible in the customer portal

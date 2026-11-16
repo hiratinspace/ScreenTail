@@ -166,8 +166,9 @@ public sealed class PublishCommands(
         {
             MapCompanyCommand map => await _gateway.MapCompanyAsync(map.PsaCompany, map.DocCompanyId, ct).ConfigureAwait(false),
             UnmapCompanyCommand unmap => await _gateway.UnmapCompanyAsync(unmap.PsaCompany, ct).ConfigureAwait(false),
-            StoreIntegrationCommand store => await _gateway.StoreIntegrationAsync(store.Provider, store.SiteUrl, store.Secret, ct).ConfigureAwait(false),
-            RemoveIntegrationCommand remove => await _gateway.RemoveIntegrationAsync(remove.Provider, ct).ConfigureAwait(false),
+            // Only the owner stores or removes a credential, in the web admin (2026-11-15 review). An older
+            // UI may still send these: refused here, so the secret it carries never leaves this machine.
+            StoreIntegrationCommand or RemoveIntegrationCommand => GatewayAnswer.Refused<bool>(PsaGateway.OwnerOnly),
             _ => null,
         };
         if (acted is { } answer)

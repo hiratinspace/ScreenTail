@@ -110,14 +110,14 @@
                                 </StackPanel>
                             </Button>
 
-                            <!-- No PSA connected: Publish is replaced, not disabled, by the way to connect one (Spec §5 S3). -->
+                            <!-- No PSA connected: Publish is replaced, not disabled, by the way to see what the owner has connected (Spec §5 S3). -->
                             <Button Grid.Column="3"
                                     Style="{StaticResource Button.Secondary}"
-                                    Content="Connect a PSA to publish"
+                                    Content="See integrations"
                                     Command="{Binding Publish.OpenSettingsCommand}"
                                     Visibility="{Binding Publish.ConnectVisibility}"
-                                    AutomationProperties.Name="Connect a PSA to publish"
-                                    AutomationProperties.HelpText="Opens Settings. Connect one under Integrations." />
+                                    AutomationProperties.Name="See integrations"
+                                    AutomationProperties.HelpText="Opens Settings, Integrations. Your owner connects a PSA in the web admin." />
                         </Grid>
 
                         <!-- Beside Publish: why it waits, read out as it changes (v0.4.3), and what is still open. -->
@@ -137,7 +137,7 @@
                                            Style="{StaticResource Text.Secondary}"
                                            FontSize="{DynamicResource Size.sm}"
                                            TextAlignment="Right"
-                                           Text="No PSA connected. Nothing can be published until one is connected in Settings, under Integrations." />
+                                           Text="No PSA connected. Your owner connects one in the web admin, then you can publish." />
                             </StackPanel>
                             <StackPanel Margin="0,4,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
                                 <controls:Glyph Style="{StaticResource Icon}"

@@ -532,20 +532,27 @@ jobs:
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
+      # The Artifact Signing settings (names, not credentials) tell the check which mode signed the build,
+      # so it can require the identity-validation usage installed builds compare updates by.
       - name: Check every signature (timestamped, one publisher)
         env:
           SCREENTAIL_REQUIRE_SIGNING: '1'
+          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
-      # ST-113: the pilot manifest for the signed MSI, signed by the Key Vault key through this
-      # job's OIDC token and checked against the client's compiled-in keys before it is written.
-      # Skipped with a notice until SCREENTAIL_UPDATE_KEY and SCREENTAIL_UPDATE_BASE are set on the
-      # signing environment. Publishing them is the owner's step (docs/dev/installer.md, "Updates").
+      # ST-113: the pilot manifest for the signed MSI, signed by the pilot Key Vault key through this
+      # job's OIDC token, as the pilot identity, and checked against the keys the client trusts for
+      # pilot before it is written. The client refuses a stable manifest signed by the pilot key, and
+      # the stable key and identity are only in release-stable (promote-stable.yml). Skipped with a
+      # notice until SCREENTAIL_UPDATE_PILOT_KEY and SCREENTAIL_UPDATE_BASE are set on the signing
+      # environment. Setting them up is the owner's step (docs/dev/installer.md, "Updates").
       - name: Write and sign the pilot update manifest (stable is signed only by promote-stable.yml)
         env:
-          SCREENTAIL_UPDATE_KEY: ${{ vars.SCREENTAIL_UPDATE_KEY }}
+          SCREENTAIL_UPDATE_PILOT_KEY: ${{ vars.SCREENTAIL_UPDATE_PILOT_KEY }}
+          SCREENTAIL_UPDATE_PILOT_CLIENT_ID: ${{ vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID }}
           SCREENTAIL_UPDATE_BASE: ${{ vars.SCREENTAIL_UPDATE_BASE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Upload the signed installer
         id: signed
@@ -680,7 +687,7 @@ jobs:
           PGPASSWORD: ci-only-not-a-secret
         run: |
           missing=0
-          for table in tenants users owners devices invites integrations company_mappings policies session_metrics draft_costs weekly_tenant_metrics; do
+          for table in tenants users owners devices invites integrations integration_changes vault_state company_mappings policies session_metrics draft_costs weekly_tenant_metrics; do
             if ! psql -h localhost -U postgres -d screentail -tAc "select to_regclass('public.$table')" | grep -q "^$table$"; then
               echo "::error::The migrations did not create '$table'."
               missing=1

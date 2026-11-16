@@ -224,6 +224,12 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             answer => [.. answer.Integrations.Select(i => new IntegrationDetailRow(i.Provider, i.SiteUrl ?? string.Empty, i.Secret ?? string.Empty, i.ConnectedAt, i.LastCheckedAt, i.LastError))],
             ct);
 
+    /// <summary>
+    /// Integration credentials can only be changed by the tenant owner, in the web admin: the backend
+    /// answers a device's store and remove with 403 <c>owner_only</c>. Kept so the
+    /// <c>store_integration</c> and <c>remove_integration</c> commands still have an answer, which is that
+    /// refusal in the backend's words (<see cref="OwnerOnly"/> when it gave none); nothing is thrown.
+    /// </summary>
     public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
         SendAsync(
             () =>
@@ -235,6 +241,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             (response, _) => Task.FromResult(response.IsSuccessStatusCode ? GatewayAnswer.Of(true) : null),
             ct);
 
+    /// <summary>Refused by the backend for a device, as <see cref="StoreIntegrationAsync"/> is.</summary>
     public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default) =>
         SendAsync(
             () => EgressRequest.For(HttpMethod.Delete, new Uri("v1/integrations/" + Uri.EscapeDataString(provider ?? string.Empty), UriKind.Relative), EgressPurpose.Publish),
@@ -400,7 +407,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
         {
             var problem = await response.Content.ReadFromJsonAsync<Problem>(Json, ct).ConfigureAwait(false);
             return problem is { Error: "no_psa" or "no_docs" or "not_configured" }
-                ? problem.Message is { Length: > 0 } message ? message : "Connect a PSA to publish."
+                ? problem.Message is { Length: > 0 } message ? message : "No PSA is connected. Your owner connects one in the web admin."
                 : null;
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException or HttpRequestException or IOException)
@@ -408,6 +415,9 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             return null;
         }
     }
+
+    /// <summary>What a device is told when it asks to change an integration and the backend gave no sentence of its own.</summary>
+    internal const string OwnerOnly = "Your ScreenTail owner manages this connection in the web admin. Ask them to connect or change it there.";
 
     /// <summary>The backend's own sentence when it sent one; the status in words when it did not.</summary>
     private static async Task<string> RefusalAsync(HttpResponseMessage response, CancellationToken ct)
@@ -419,6 +429,13 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
             {
                 return message;
             }
+
+            // Not "this device may not publish": the device is enrolled and may publish, it only may not
+            // change what the owner connected.
+            if (problem?.Error == "owner_only")
+            {
+                return OwnerOnly;
+            }
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)
         {
@@ -428,7 +445,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
         return response.StatusCode switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "This device may not publish. Its enrolment was revoked or its token expired.",
-            HttpStatusCode.NotImplemented => "Connect a PSA to publish.",
+            HttpStatusCode.NotImplemented => "No PSA is connected. Your owner connects one in the web admin.",
             _ => $"The backend answered {(int)response.StatusCode}.",
         };
     }

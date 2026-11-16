@@ -101,12 +101,6 @@ public partial class ShellWindow
             throw new InvalidOperationException("Settings has no view model to change.");
         }
 
-        // Remove's question on the ConnectWise card (v0.6.11), asked on the card, then put away.
-        settings.Integrations.ConnectWise.AskRemoveCommand.Execute(null);
-        await SettleAsync();
-        await SettingsSectionsAsync("settings-remove-question", only: "integrations");
-        settings.Integrations.ConnectWise.KeepConnectionCommand.Execute(null);
-
         Pend(settings);
         await SettleAsync();
         if (settings.BarVisibility != Visibility.Visible)
@@ -143,14 +137,15 @@ public partial class ShellWindow
         }
     }
 
-    /// <summary>A change in every section the Save bar covers, as a technician would make them.</summary>
+    /// <summary>
+    /// A change in every section the Save bar covers, as a technician would make them. Integrations is not
+    /// one: its cards are read only (the owner manages them in the web admin).
+    /// </summary>
     private static void Pend(Settings.SettingsViewModel settings)
     {
         settings.Capture.AutoStart = !settings.Capture.AutoStart;
         settings.Capture.Sensitivity = settings.Capture.Sensitivity == "high" ? "low" : "high";
         settings.Privacy.Telemetry = !settings.Privacy.Telemetry;
-        settings.Integrations.Hudu.ChangeCommand.Execute(null);
-        settings.Integrations.Hudu.SiteUrl = "https://docs.contosomsp.com/kb";
         settings.Appearance.Light = true;
         if (settings.Updates.ChannelEditable)
         {
@@ -159,13 +154,13 @@ public partial class ShellWindow
         }
     }
 
-    private async Task SettingsSectionsAsync(string prefix, string? only = null)
+    private async Task SettingsSectionsAsync(string prefix)
     {
         foreach (var theme in RenderThemes.All)
         {
             RenderThemeApplier.Apply(theme, Application.Current.Resources);
             await SettleAsync();
-            foreach (var (name, type) in SettingsSections.Where(s => only is null || s.Name == only))
+            foreach (var (name, type) in SettingsSections)
             {
                 var natural = WindowRenderer.Lay(this);
                 var pane = Find(this, element => type.IsInstanceOfType(element)) as FrameworkElement;

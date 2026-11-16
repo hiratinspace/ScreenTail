@@ -19,7 +19,17 @@ public static class DeviceTokens
     /// <summary>256 bits. Long enough that brute force is not a threat model, short enough to paste once.</summary>
     public const int Bytes = 32;
 
+    /// <summary>The characters <see cref="Create"/> writes: <see cref="Bytes"/> in unpadded base64url, 43 for 32 bytes.</summary>
+    public const int Length = ((Bytes * 8) + 5) / 6;
+
     public static string Create() => Base64Url(RandomNumberGenerator.GetBytes(Bytes));
+
+    /// <summary>
+    /// Whether a presented token could be one <see cref="Create"/> wrote: exactly <see cref="Length"/>
+    /// characters of the base64url alphabet. Anything else is refused without hashing or a lookup.
+    /// </summary>
+    public static bool IsWellFormed(string? token) =>
+        token is { Length: Length } && token.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
 
     /// <summary>Lower-case hex of the SHA-256. What the database stores, and all it stores.</summary>
     public static string Hash(string token)
