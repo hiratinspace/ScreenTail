@@ -1,5 +1,5 @@
 import { vi, type Mock } from 'vitest';
-import type { AdminApi, Policy, SignedIn, Technicians } from '../api';
+import type { AdminApi, Integrations, Policy, SignedIn, Technicians } from '../api';
 
 export const session: SignedIn = {
   csrf: 'csrf-value',
@@ -47,6 +47,54 @@ export const technicians: Technicians = {
   ],
 };
 
+/** ConnectWise connected by the owner, Hudu not connected, and a few changes, newest first. */
+export const integrations: Integrations = {
+  integrations: [
+    {
+      provider: 'connectwise',
+      name: 'ConnectWise Manage',
+      connected: true,
+      siteUrl: 'https://na.myconnectwise.example',
+      connectedAt: '2026-11-15T10:00:00Z',
+      connectedBy: { kind: 'owner', name: 'Pat Owner', device: null },
+      lastCheckedAt: null,
+      lastResult: null,
+      lastError: null,
+    },
+    {
+      provider: 'hudu',
+      name: 'Hudu',
+      connected: false,
+      siteUrl: null,
+      connectedAt: null,
+      connectedBy: null,
+      lastCheckedAt: null,
+      lastResult: null,
+      lastError: null,
+    },
+  ],
+  changes: [
+    {
+      at: recently,
+      provider: 'hudu',
+      action: 'mapped',
+      by: { kind: 'technician', name: 'Tomas Ortiz', device: 'TECH-LAPTOP' },
+      psaCompany: 'Acme Dental',
+      docCompanyId: '7',
+      docCompanyName: 'Acme Dental Group',
+    },
+    {
+      at: '2026-11-15T10:00:00Z',
+      provider: 'connectwise',
+      action: 'connected',
+      by: { kind: 'owner', name: 'Pat Owner', device: null },
+      psaCompany: null,
+      docCompanyId: null,
+      docCompanyName: null,
+    },
+  ],
+};
+
 export type FakeApi = { [K in keyof AdminApi]: Mock<AdminApi[K]> };
 
 /** The backend, as each test says it answers. Every call is a mock the test can inspect. */
@@ -62,7 +110,10 @@ export function fakeApi(overrides: Partial<{ [K in keyof AdminApi]: AdminApi[K] 
     revokeDevice: vi.fn(async () => undefined),
     policy: vi.fn(async () => defaults),
     setPolicy: vi.fn(async (change) => ({ ...defaults, ...change, version: 'p20261031120000000' })),
-    integrations: vi.fn(async () => []),
+    integrations: vi.fn(async () => integrations),
+    connectIntegration: vi.fn(async () => undefined),
+    disconnectIntegration: vi.fn(async () => undefined),
+    checkIntegration: vi.fn(async () => ({ ok: true, message: 'ScreenTail reached the site and the key works.', checkedAt: recently })),
     download: vi.fn(async () => ({ url: null, message: 'No client download is published for this deployment yet.' })),
   };
   for (const [key, value] of Object.entries(overrides)) {

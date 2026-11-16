@@ -90,15 +90,57 @@ export interface Policy {
 
 export type PolicyChange = Omit<Policy, 'version'> & { confirmAllWindows: boolean };
 
+/** The providers the owner can connect. Integration credentials can only be changed by the tenant owner. */
+export type IntegrationProvider = 'connectwise' | 'hudu';
+
+/** Who made a change: the owner in this admin, or a technician on a device. */
+export interface IntegrationActor {
+  kind: 'owner' | 'technician';
+  /** Null when the backend no longer knows the person's name. */
+  name: string | null;
+  /** The technician's device name; null for the owner. */
+  device: string | null;
+}
+
 export interface Integration {
   provider: string;
   name: string;
   connected: boolean;
   siteUrl: string | null;
   connectedAt: string | null;
+  /** Null when the connection was made before who made it was recorded. */
+  connectedBy: IntegrationActor | null;
   lastCheckedAt: string | null;
   lastResult: 'ok' | 'failed' | null;
   lastError: string | null;
+}
+
+export type IntegrationAction = 'connected' | 'replaced' | 'disconnected' | 'mapped' | 'unmapped' | 'mappings_cleared';
+
+/** One row of the integrations' history, newest first. It never carries a credential. */
+export interface IntegrationChange {
+  at: string;
+  provider: string;
+  action: IntegrationAction;
+  by: IntegrationActor;
+  /** The PSA company, for mapped and unmapped; null otherwise. */
+  psaCompany: string | null;
+  /** The documentation company, for mapped; null otherwise. */
+  docCompanyId: string | null;
+  docCompanyName: string | null;
+}
+
+export interface Integrations {
+  integrations: Integration[];
+  /** At most 20, newest first. */
+  changes: IntegrationChange[];
+}
+
+/** The result of testing the stored credential. A refused credential is ok false, not an error. */
+export interface IntegrationCheck {
+  ok: boolean;
+  message: string;
+  checkedAt: string;
 }
 
 export interface Download {
@@ -135,7 +177,11 @@ export interface AdminApi {
   revokeDevice(id: string): Promise<void>;
   policy(): Promise<Policy>;
   setPolicy(change: PolicyChange): Promise<Policy>;
-  integrations(): Promise<Integration[]>;
+  integrations(): Promise<Integrations>;
+  /** Stores the credential, replacing any stored one. ConnectWise's secret is composed by the caller. */
+  connectIntegration(provider: IntegrationProvider, siteUrl: string, secret: string): Promise<void>;
+  disconnectIntegration(provider: IntegrationProvider): Promise<void>;
+  checkIntegration(provider: IntegrationProvider): Promise<IntegrationCheck>;
   download(): Promise<Download>;
 }
 
@@ -145,6 +191,7 @@ const fallback: Record<number, string> = {
   401: 'Your session has ended. Sign in again.',
   403: 'That was refused. Sign in again and retry.',
   404: 'That item no longer exists. Refresh the page.',
+  413: 'What you entered is too long to save. Check it and try again.',
   429: 'Too many sign-in attempts from this network. Wait a minute and try again.',
   501: 'Sign-in is not set up on this deployment.',
   503: 'ScreenTail could not reach Google. Try again in a minute.',
@@ -230,7 +277,14 @@ export function httpApi(base = ''): AdminApi {
     revokeDevice: (id) => call<void>('POST', `/v1/admin/devices/${encodeURIComponent(id)}/revoke`),
     policy: () => call<Policy>('GET', '/v1/admin/policy'),
     setPolicy: (change) => call<Policy>('PUT', '/v1/admin/policy', change),
-    integrations: async () => (await call<{ integrations: Integration[] }>('GET', '/v1/admin/integrations')).integrations,
+    integrations: async () => {
+      const answer = await call<Partial<Integrations>>('GET', '/v1/admin/integrations');
+      return { integrations: answer.integrations ?? [], changes: answer.changes ?? [] };
+    },
+    connectIntegration: (provider, siteUrl, secret) =>
+      call<void>('PUT', `/v1/admin/integrations/${encodeURIComponent(provider)}`, { siteUrl, secret }),
+    disconnectIntegration: (provider) => call<void>('DELETE', `/v1/admin/integrations/${encodeURIComponent(provider)}`),
+    checkIntegration: (provider) => call<IntegrationCheck>('POST', `/v1/admin/integrations/${encodeURIComponent(provider)}/check`),
     download: () => call<Download>('GET', '/v1/admin/download'),
   };
 }
