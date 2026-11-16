@@ -483,7 +483,9 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle(), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
-        Assert.Contains("no_psa", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        var answer = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+        Assert.Equal("no_psa", answer.GetProperty("error").GetString());
+        Assert.Equal("No PSA is connected. Your owner connects one in the web admin.", answer.GetProperty("message").GetString());
     }
 
     [Theory]
