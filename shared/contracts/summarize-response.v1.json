@@ -74,7 +74,7 @@
       "name": "local_only",
       "http_status": 403,
       "client": "drafted_here",
-      "body": { "status": "local_only", "reason": "Your administrator keeps sessions on the device, so this one is drafted there instead.", "draft": null }
+      "body": { "status": "local_only", "reason": "Your administrator keeps sessions on this device, so ScreenTail drafts them here.", "draft": null }
     },
     {
       "name": "cost_cap_reached",

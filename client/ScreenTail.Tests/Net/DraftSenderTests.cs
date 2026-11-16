@@ -256,7 +256,7 @@ public sealed class DraftSenderTests : IAsyncDisposable
         var time = new ManualTime(At);
         var handler = new RecordingHandler(Answer(
             HttpStatusCode.Forbidden,
-            """{"status":"local_only","reason":"Your administrator keeps sessions on the device, so this one is drafted there instead.","draft":null}"""));
+            """{"status":"local_only","reason":"Your administrator keeps sessions on this device, so ScreenTail drafts them here.","draft":null}"""));
         var sender = Sender(store, handler, time: time);
 
         var first = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
