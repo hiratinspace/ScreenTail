@@ -120,7 +120,7 @@ public sealed class CaptureTargetTests
         Assert.Null(registry.MatchTool(null, string.Empty));
     }
 
-    private static readonly TargetLayering ColourKeyed =new(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0);
+    private static readonly TargetLayering ColourKeyed = new(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0);
 
     [Fact]
     public void AnOpaqueWindowInFrontShowsNothingBehindIt()
