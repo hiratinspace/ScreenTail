@@ -1150,6 +1150,15 @@ public sealed record DiagnosticsReported : IpcEvent
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? NameHookRefusals { get; init; }
 
+    /// <summary>
+    /// Why this installed copy has no backend, when that is something only an administrator can fix: no
+    /// machine-wide address is set (2026-11-15 review, contract v12). Fixed wording, nothing about the
+    /// address or the machine. Absent when there is nothing to say.
+    /// </summary>
+    [JsonPropertyName("backend_note")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BackendNote { get; init; }
+
     [JsonPropertyName("local_only")]
     public required bool LocalOnly { get; init; }
 

@@ -177,7 +177,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             draftHttp,
             new DpapiDeviceCredentials(paths.DeviceCredentials),
             DeploymentAddresses.FallbackToken(installed, Environment.GetEnvironmentVariable),
-            TimeProvider.System);
+            TimeProvider.System)
+        {
+            // An installed copy with no machine-wide address says an administrator sets it, on the device
+            // card and when an activation is refused, rather than a bare "no backend".
+            NoBackendNote = address.AdministratorNote,
+        };
         // The policy fetch waits for a token to fetch with, and the outbox waits for the policy: see
         // StartupOrder. Both are set once and never reset. Under local-only the renewal does not run on
         // its timer (INV-8): a publish and the hourly policy fetch each sign in when they need to.
@@ -381,7 +386,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                     _ = applyCapture(capture);
                 },
                 meter),
-            () => diagnostics(),
+            () => diagnostics() with { BackendNote = address.AdministratorNote },
             _ =>
             {
                 // Written down before the UI is told yes. Everything after this can fail (a file held

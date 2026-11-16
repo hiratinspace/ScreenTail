@@ -34,6 +34,39 @@ public sealed class DeploymentAddressesTests
     }
 
     [Fact]
+    public void AnInstalledBuildWithNoMachineSettingSaysAnAdministratorSetsIt()
+    {
+        var quiet = DeploymentAddresses.Resolve(installed: true, machine: null, Environment(null, null));
+        var ignored = DeploymentAddresses.Resolve(installed: true, machine: null, Environment(Elsewhere, null));
+
+        Assert.Equal(DeploymentAddresses.NoMachineAddress, quiet.AdministratorNote);
+        Assert.Equal(DeploymentAddresses.NoMachineAddress + DeploymentAddresses.EnvironmentNotRead, ignored.AdministratorNote);
+        Assert.DoesNotContain("relay", ignored.AdministratorNote, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ABuildWithAnAddressOrADevelopmentBuildHasNothingToSayToTheAdministrator()
+    {
+        Assert.Null(DeploymentAddresses.Resolve(installed: true, Machine, Environment(Elsewhere, null)).AdministratorNote);
+        Assert.Null(DeploymentAddresses.Resolve(installed: false, machine: null, Environment(null, null)).AdministratorNote);
+    }
+
+    [Fact]
+    public async Task TheDeviceCardAndAnActivationSayAnAdministratorSetsTheAddress()
+    {
+        using var http = new HttpClient();
+        var device = new DeviceSession(http, new DeviceSessionTests.InMemoryCredentials())
+        {
+            NoBackendNote = DeploymentAddresses.NoMachineAddress,
+        };
+
+        var activation = await device.ActivateAsync("ABCD-EFGH", "TECH-01", TestContext.Current.CancellationToken);
+
+        Assert.Equal(DeploymentAddresses.NoMachineAddress, device.Standing);
+        Assert.Equal(DeploymentAddresses.NoMachineAddress, activation.Refusal);
+    }
+
+    [Fact]
     public void AnInstalledBuildWithNothingSetSaysNothingWasIgnored()
     {
         var address = DeploymentAddresses.Resolve(installed: true, Machine, Environment(null, null));

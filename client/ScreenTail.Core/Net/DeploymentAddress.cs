@@ -16,7 +16,12 @@ public enum AddressOrigin
 /// <param name="Backend">The address, or null when none was configured.</param>
 /// <param name="Origin">Where it came from.</param>
 /// <param name="EnvironmentIgnored">An installed build found the environment variables set and did not use them.</param>
-public sealed record DeploymentAddress(Uri? Backend, AddressOrigin Origin, bool EnvironmentIgnored);
+/// <param name="AdministratorNote">
+/// What the technician is told when an installed build has no machine-wide address: only an administrator
+/// can set it, so the device card, an activation and diagnostics say so rather than a bare "no backend".
+/// Null otherwise.
+/// </param>
+public sealed record DeploymentAddress(Uri? Backend, AddressOrigin Origin, bool EnvironmentIgnored, string? AdministratorNote = null);
 
 /// <summary>
 /// Where the capture service learns its backend and, in development, its device token (2026-11-15 review).
@@ -48,6 +53,13 @@ public static class DeploymentAddresses
     /// <summary>The value under <see cref="MachineKey"/> holding the backend address.</summary>
     public const string MachineValue = "BackendUrl";
 
+    /// <summary>An installed build with no machine-wide address: the technician cannot fix it, an administrator can.</summary>
+    public const string NoMachineAddress =
+        "This computer has no backend address set, so sessions are drafted here and nothing can be published. Ask your administrator to set it (BACKENDURL when installing ScreenTail).";
+
+    /// <summary>Added when the same build also found SCREENTAIL_BACKEND set, which it does not read.</summary>
+    public const string EnvironmentNotRead = " An installed copy does not read SCREENTAIL_BACKEND.";
+
     /// <param name="installed">Running from the install folder under Program Files (<see cref="InstalledAt"/>).</param>
     /// <param name="machine">The machine-wide setting, or null when there is none.</param>
     /// <param name="environment">Reads an environment variable by name.</param>
@@ -58,7 +70,13 @@ public static class DeploymentAddresses
         if (installed)
         {
             var set = !string.IsNullOrEmpty(environment(BackendVariable)) || !string.IsNullOrEmpty(environment(DeviceTokenVariable));
-            return new DeploymentAddress(fromMachine, fromMachine is null ? AddressOrigin.None : AddressOrigin.Machine, set);
+            if (fromMachine is null)
+            {
+                var note = string.IsNullOrEmpty(environment(BackendVariable)) ? NoMachineAddress : NoMachineAddress + EnvironmentNotRead;
+                return new DeploymentAddress(null, AddressOrigin.None, set, note);
+            }
+
+            return new DeploymentAddress(fromMachine, AddressOrigin.Machine, set);
         }
 
         if (Parse(environment(BackendVariable)) is { } fromEnvironment)
