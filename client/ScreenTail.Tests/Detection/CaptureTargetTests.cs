@@ -83,15 +83,44 @@ public sealed class CaptureTargetTests
         Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, opacity)));
 
     [Fact]
-    public void AWindowInFrontWithOnlyAColourKeyIsNotRefused()
-    {
+    public void AColourKeyedWindowOfARemoteToolIsAllowed() =>
         // WinForms TransparencyKey and skinned apps cut shaped corners with a colour key, and ScreenConnect's
-        // client is WinForms: refusing it could lose every frame of an in-scope tool. A known limit.
-        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0)));
+        // client is WinForms: refusing it could lose every frame of the tool a session is about. A known
+        // limit: the shaped corners can show a few pixels of what is behind.
+        Assert.False(WindowCover.ShowsWhatIsBehind(ColourKeyed, remoteTool: true));
 
-        // A colour key with the whole window also drawn translucent is still refused for the translucency.
-        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: true, Opacity: 200)));
+    [Fact]
+    public void AColourKeyedWindowOfAnyOtherAppIsRefused()
+    {
+        // A copy of the screen shows what is behind a colour key's holes, not the key colour, so they cannot
+        // be masked afterwards. Under "all windows" an arbitrary colour-keyed app is refused.
+        Assert.True(WindowCover.ShowsWhatIsBehind(ColourKeyed, remoteTool: false));
+        Assert.True(WindowCover.ShowsWhatIsBehind(ColourKeyed));
     }
+
+    [Fact]
+    public void ATranslucentWindowIsRefusedEvenForARemoteTool()
+    {
+        // Opacity below full shows what is behind everywhere, not at the corners; no tool is excused.
+        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, Opacity: 200), remoteTool: true));
+        Assert.True(WindowCover.ShowsWhatIsBehind(ColourKeyed with { Alpha = true, Opacity = 200 }, remoteTool: true));
+    }
+
+    [Fact]
+    public void TheCapturerAsksTheRegistryWhatTheScopePolicyAsks()
+    {
+        // The capturer has a handle, not a ForegroundWindowInfo, so it matches by process and class: the
+        // same lookup that puts a remote tool in scope, not a second list.
+        var registry = Core.Detection.Registry.RemoteToolRegistry.Load(
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json")));
+
+        Assert.NotNull(registry.MatchTool("mstsc", string.Empty));
+        Assert.NotNull(registry.MatchTool("testhost", "ScreenConnect.ScreenTailTestWindow"));
+        Assert.Null(registry.MatchTool("notepad", "Notepad"));
+        Assert.Null(registry.MatchTool(null, string.Empty));
+    }
+
+    private static readonly TargetLayering ColourKeyed =new(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0);
 
     [Fact]
     public void AnOpaqueWindowInFrontShowsNothingBehindIt()

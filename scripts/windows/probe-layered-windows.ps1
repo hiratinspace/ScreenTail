@@ -6,9 +6,11 @@
 .DESCRIPTION
     ScreenTail skips a frame when the window in front is a layered window drawn below full opacity
     (WS_EX_LAYERED with LWA_ALPHA under 255), because what lies behind it would be in the frame. A colour
-    key (LWA_COLORKEY) and per-pixel alpha (UpdateLayeredWindow, where GetLayeredWindowAttributes fails)
-    are allowed. If a remote tool's main window turns out to be drawn below full opacity, its frames are
-    being skipped and the capture service log says so once per window.
+    key (LWA_COLORKEY) is skipped too, except for a remote tool in the shipped registry, which may use one
+    for shaped corners. Per-pixel alpha (UpdateLayeredWindow, where GetLayeredWindowAttributes fails) is
+    allowed. If a remote tool's main window turns out to be drawn below full opacity, its frames are
+    being skipped and the capture service log says so once per window. A colour-keyed browser or admin
+    tool is skipped under every scope; the probe marks those lines too.
 
     Open the tools first (a ScreenConnect session, Remote Desktop, AnyDesk, TeamViewer, Splashtop, Chrome,
     Edge), then run:
@@ -104,7 +106,15 @@ foreach ($window in [LayeredProbe]::Visible()) {
         }
     }
 
-    $skipped = if ($layering -match 'alpha=(\d+)' -and [int]$Matches[1] -lt 255) { '  <-- frames skipped' } else { '' }
+    $browsers = @('chrome', 'msedge', 'firefox', 'brave')
+    $isBrowser = $browsers -contains $process.ProcessName.ToLowerInvariant()
+    $skipped = ''
+    if ($layering -match 'alpha=(\d+)' -and [int]$Matches[1] -lt 255) {
+        $skipped = '  <-- frames skipped (translucent)'
+    } elseif ($layering -match 'colour-key') {
+        # Matched here by process name; the service also matches remote tools by window class.
+        $skipped = if ($isBrowser) { '  <-- frames skipped (colour key, not a remote tool)' } else { '  (colour key, allowed for a remote tool)' }
+    }
     Write-Output ('{0,-28} class={1,-36} {2,-11} {3}{4}' -f $process.ProcessName, $class.ToString(), $size, $layering, $skipped)
     $rows++
 }

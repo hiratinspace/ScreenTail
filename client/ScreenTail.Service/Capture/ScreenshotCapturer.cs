@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Detection.Registry;
 
 namespace ScreenTail.Service.Capture;
 
@@ -21,7 +22,12 @@ namespace ScreenTail.Service.Capture;
 /// Windows.Graphics.Capture and a slow encode argues for WIC; without it, either change is a guess.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? logger = null) : IScreenshotCapturer, IDisposable
+/// <param name="registry">
+/// The shipped remote-tool registry, so a colour-keyed window of a remote tool is not refused for its
+/// shaped corners (<see cref="WindowCover.ShowsWhatIsBehind"/>). Null treats every colour-keyed window as
+/// see-through.
+/// </param>
+internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? logger = null, RemoteToolRegistry? registry = null) : IScreenshotCapturer, IDisposable
 {
     private static readonly ImageCodecInfo JpegCodec =
         ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
@@ -48,6 +54,7 @@ internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? 
     // Reused under the lock by the covered check, so it allocates nothing per capture once warm.
     private readonly List<WindowAbove> _above = new(64);
     private readonly char[] _className = new char[64];
+    private readonly char[] _toolClassName = new char[256];
 
     /// <summary>Samples skipped because another application's window lay over the one in front. A count, for diagnostics.</summary>
     internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
@@ -92,13 +99,14 @@ internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? 
                 return null;
             }
 
-            // The same for what lies under it: a window drawn translucent lets the window behind show
-            // through, and that one may be excluded (INV-6, WindowCover).
+            // The same for what lies under it: a window drawn translucent or with a colour key lets the
+            // window behind show through, and that one may be excluded (INV-6, WindowCover). A remote
+            // tool's colour key is allowed for its shaped corners, so only then is the registry asked.
             var layering = LayeringOf(window);
-            if (WindowCover.ShowsWhatIsBehind(layering))
+            if (WindowCover.ShowsWhatIsBehind(layering, remoteTool: layering.ColorKey && IsRemoteTool(window)))
             {
                 _ = Interlocked.Increment(ref _skippedSeeThrough);
-                LogSeeThroughOnce(window, layering.Opacity);
+                LogSeeThroughOnce(window, layering);
                 return null;
             }
 
@@ -257,9 +265,9 @@ internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? 
     /// <summary>
     /// Says once per window that its frames are being skipped for translucency, so a tool that loses its
     /// frames this way is visible in the log rather than quietly empty. The process name and the opacity,
-    /// never the title (INV-10).
+    /// never the title (INV-10). Says which way it is see-through: an opacity or a colour key.
     /// </summary>
-    private void LogSeeThroughOnce(IntPtr window, byte opacity)
+    private void LogSeeThroughOnce(IntPtr window, TargetLayering layering)
     {
         if (logger is null || !logger.IsEnabled(LogLevel.Information))
         {
@@ -280,7 +288,10 @@ internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? 
         // arguments, even behind the IsEnabled guard above.
         _ = GetWindowThreadProcessId(window, out var processId);
         var process = ProcessNameOf(processId);
-        LogSeeThrough(logger, process, opacity);
+        var how = layering.Alpha && layering.Opacity < byte.MaxValue
+            ? $"opacity {layering.Opacity} of 255"
+            : "a colour key";
+        LogSeeThrough(logger, process, how);
     }
 
     private static string ProcessNameOf(uint processId)
@@ -296,8 +307,22 @@ internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? 
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "No frames of {Process} while it is drawn see-through (opacity {Opacity} of 255): what is behind it would be in the frame. Logged once per window.")]
-    private static partial void LogSeeThrough(ILogger logger, string process, byte opacity);
+    [LoggerMessage(Level = LogLevel.Information, Message = "No frames of {Process} while it is drawn see-through ({How}): what is behind it would be in the frame. Logged once per window.")]
+    private static partial void LogSeeThrough(ILogger logger, string process, string how);
+
+    /// <summary>Whether the window belongs to a remote tool in the shipped registry, by the same match the scope policy uses.</summary>
+    private bool IsRemoteTool(IntPtr window)
+    {
+        if (registry is null)
+        {
+            return false;
+        }
+
+        _ = GetWindowThreadProcessId(window, out var processId);
+        var length = GetClassName(window, _toolClassName, _toolClassName.Length);
+        var className = length > 0 ? new string(_toolClassName, 0, length) : string.Empty;
+        return registry.MatchTool(Detection.WindowsForegroundWatcher.ReadProcess(processId).Name, className) is not null;
+    }
 
     /// <summary>How the window in front is blended with what is behind it, read from its styles (<see cref="TargetLayering"/>).</summary>
     private static TargetLayering LayeringOf(IntPtr window)

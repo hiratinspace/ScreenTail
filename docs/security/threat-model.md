@@ -50,6 +50,14 @@ copy of our own binaries, and the network.
 - **A malicious remote-support tool.** If the tool ScreenTail is watching is itself hostile, it controls
   the screen being captured. Out of scope, and worth saying aloud because the product's whole premise is
   watching one.
+- **What shows through a see-through window in a frame.** Frames are copied off the screen over the
+  window's rectangle, not taken from the window itself. A frame is skipped when another application's
+  window lies over the one in front, when the window in front is drawn below full opacity, and when it
+  has a colour key and is not a remote tool in the shipped registry (`WindowCover`). Two cases are left
+  open on purpose, because refusing them could lose every frame of the tool a session is about: a remote
+  tool's own colour-keyed shaped corners, and windows drawn with per-pixel alpha (usually corners and
+  shadow). Either can show a few pixels of what is behind the window. The full fix is capturing the window
+  itself (PrintWindow or Windows.Graphics.Capture).
 - **Screen content a technician is entitled to see but a customer would not want captured.** This is a
   policy and consent question, handled by scope defaults (INV-5), suppression (INV-6) and the review step
   (INV-3), not by anything in this table.

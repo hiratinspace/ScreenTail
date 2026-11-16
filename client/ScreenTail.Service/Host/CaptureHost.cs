@@ -511,7 +511,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         hookLifetime.Follow(stoppingToken);
 
         // ST-025: clicks become events always, and screenshots only where scope allows.
-        using var capturer = new ScreenshotCapturer(logger: logger);
+        using var capturer = new ScreenshotCapturer(logger: logger, registry: registry);
         var capture = new ClickCaptureLoop(
             machine,
             new WindowsInputHooksAccessor(hooks),

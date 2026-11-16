@@ -102,18 +102,40 @@ public static class WindowCover
     /// remote-tool window the technician made translucent, for instance (INV-6). Such a sample is skipped,
     /// as a covered one is.
     ///
-    /// A window drawn at less than full opacity shows what is behind it everywhere, and that is refused.
+    /// A window drawn at less than full opacity shows what is behind it everywhere, and that is refused,
+    /// whatever the window is.
     ///
-    /// Two other ways of being see-through are not, and are a known limit. A colour key makes every pixel
-    /// of one colour a hole, which is how WinForms (<c>TransparencyKey</c>) and skinned applications cut
-    /// their rounded corners and shaped edges: ScreenConnect's client is WinForms, and refusing a colour key
-    /// would risk losing every frame of an in-scope tool for a few pixels at its edge. A layered window
-    /// whose blend cannot be read draws itself with per-pixel alpha, usually for the same corners and
-    /// shadows, and there is nothing to read that would tell the two apart. Both go once the grab is of the
-    /// window itself rather than the screen.
+    /// A colour key makes every pixel of one colour a hole, and a copy of the screen shows what is behind
+    /// the hole rather than the key colour, so the holes cannot be masked afterwards. It is refused too,
+    /// except for a window of a remote tool in the shipped registry (the list that drives the default
+    /// scope): WinForms (<c>TransparencyKey</c>) and skinned applications cut their rounded corners and
+    /// shaped edges this way, ScreenConnect's client is WinForms, and refusing it would risk losing every
+    /// frame of the tool a session is about. So under the default scope nothing changes for the tools,
+    /// and under "all windows" an arbitrary colour-keyed application is refused. The cost, a known limit:
+    /// the shaped corners of a remote tool's window can show a few pixels of what is behind it.
+    ///
+    /// A layered window whose blend cannot be read draws itself with per-pixel alpha, usually for the same
+    /// corners and shadows, and there is nothing to read that would tell a shadow from a hole; it is not
+    /// refused, the same limit. Both limits go once the grab is of the window itself rather than the screen.
     /// </summary>
-    public static bool ShowsWhatIsBehind(TargetLayering target) =>
-        target is { Layered: true, AttributesKnown: true, Alpha: true } && target.Opacity < byte.MaxValue;
+    /// <param name="target">How the window in front is blended with what is behind it.</param>
+    /// <param name="remoteTool">
+    /// The window belongs to a remote tool the shipped registry names (<see cref="Registry.RemoteToolRegistry.MatchTool(string?, string)"/>).
+    /// </param>
+    public static bool ShowsWhatIsBehind(TargetLayering target, bool remoteTool = false)
+    {
+        if (!target.Layered || !target.AttributesKnown)
+        {
+            return false;
+        }
+
+        if (target.Alpha && target.Opacity < byte.MaxValue)
+        {
+            return true;
+        }
+
+        return target.ColorKey && !remoteTool;
+    }
 
     /// <summary>
     /// Whether any of the windows above the target covers it. A walk that was cut short says covered:
