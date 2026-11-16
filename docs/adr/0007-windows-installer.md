@@ -61,8 +61,9 @@ later version. Moving up is a decision for the owner once there is revenue.
   side with the native libraries and the registry files the service reads. A fixed UpgradeCode, so a
   newer version replaces the old one; a downgrade is refused. **The folder cannot be changed**: the
   package works out the machine's own Program Files from the environment and refuses any
-  `INSTALLFOLDER` that differs, because the uninstall runs the installed service as the system
-  account and that file must sit where only administrators can change it.
+  `INSTALLFOLDER` that differs, on an install, a repair and an uninstall alike, because the uninstall
+  runs the installed service as the system account and that file must sit where only administrators
+  can change it.
 - **`ScreenTail-Setup.exe`**: Microsoft's Visual C++ runtime installer (downloaded at build time and
   checked to be Microsoft-signed), skipped when the same or a newer runtime is there and never removed
   on uninstall because other software shares it, then the MSI. The MSI on its own refuses to install

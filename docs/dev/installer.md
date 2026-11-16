@@ -19,7 +19,9 @@ and nothing tells a user that the program is ours.
 
 The install folder is always `C:\Program Files\ScreenTail` (the machine's own 64-bit Program Files).
 Setting `INSTALLFOLDER` on the command line makes the install fail rather than put ScreenTail somewhere
-ordinary users can change, because the uninstall runs the installed service as the system account.
+ordinary users can change, because the uninstall runs the installed service as the system account. The
+same check runs on an uninstall and a repair: a command line that names another folder there fails too,
+and an ordinary uninstall or repair (no `INSTALLFOLDER`) is unaffected.
 
 ## Build it
 

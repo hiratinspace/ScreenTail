@@ -599,6 +599,17 @@ Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -
 
 Check 'the installed service starts again for the uninstall' (Start-InstalledService)
 
+# --- An uninstall that names another install folder is refused -----------------------------------------
+# The uninstall runs the installed service from the install folder as the system account, so the folder
+# check holds for an uninstall too. Refused right after the folders are resolved, before anything is
+# closed or removed: ScreenTail stays installed and the real uninstall below still works.
+Write-Step 'A silent uninstall that names another install folder is refused'
+$code = Invoke-Msi '/x' $Msi 'uninstall-elsewhere.log' "INSTALLFOLDER=$elsewhere"
+Check 'msiexec /x with INSTALLFOLDER outside Program Files fails' ($code -ne 0) "exit $code"
+Check 'and ScreenTail is still installed' (@(Get-ArpEntries).Count -eq 1)
+Check 'with its service still in Program Files' (Test-Path (Join-Path $installDir 'ScreenTail.Service.exe'))
+Remove-Item $elsewhere -Recurse -Force -ErrorAction SilentlyContinue
+
 # --- A second technician, never signed in, with data and a planted link --------------------------------
 # A real local account with a real profile that has never been used, which is what an MSP's uninstall
 # meets for every technician who is not at their desk. Its data folder gets a key, a credential and a
