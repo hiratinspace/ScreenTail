@@ -768,7 +768,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var (client, tenantId) = await ConnectedClientAsync(host);
         using var first = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
         var firstRecord = await api.UseAsync(db => db.IntegrationChanges.SingleAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped));
-        for (var i = 1; i < IntegrationChanges.MappingChangesPerDevice; i++)
+        for (var i = 1; i < MappingChangeLimit.PerDevice; i++)
         {
             using var flood = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", i % 2 == 0 ? "7" : "8"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.NoContent, flood.StatusCode);
@@ -785,7 +785,7 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Contains("too_many_mapping_changes", body, StringComparison.Ordinal);
         Assert.Contains("choose the company again", body, StringComparison.Ordinal);
         Assert.Equal("8", await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId).Select(m => m.DocCompanyId).SingleAsync()));
-        Assert.Equal(IntegrationChanges.MappingChangesPerDevice, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+        Assert.Equal(MappingChangeLimit.PerDevice, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
         Assert.True(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.Id == firstRecord.Id)));
     }
 
@@ -827,6 +827,65 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var summary = Assert.Single(answer!.Changes, c => c.Action == IntegrationChanges.MappingsPruned);
         Assert.Equal(2, summary.Removed);
         Assert.Equal("screentail", summary.By.Kind);
+    }
+
+    [Fact]
+    public async Task TheOwnerSeesEveryCompanysCurrentMappingAndWhoChoseItHoweverManyChangesCameAfter()
+    {
+        // A burst of later changes must not hide a mapping from the owner: beside the recent list, every
+        // current mapping is shown with who chose it and when.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var acme = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 0; i < IntegrationChanges.Shown + 5; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = DateTimeOffset.UtcNow.AddSeconds(i + 1), Provider = "hudu", Action = IntegrationChanges.Unmapped, PsaCompany = $"Other {i}" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var answer = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, acme.StatusCode);
+        Assert.Equal(IntegrationChanges.Shown, answer!.Changes.Count);
+        Assert.DoesNotContain(answer.Changes, c => c.PsaCompany == "Acme Dental");
+        var mapping = Assert.Single(answer.Mappings);
+        Assert.Equal(("Acme Dental", "7"), (mapping.PsaCompany, mapping.DocCompanyId));
+        Assert.Equal("technician", mapping.SetBy?.Kind);
+    }
+
+    [Fact]
+    public async Task ANewPsaCompanyPastTheCeilingIsRefusedInWordsAndAKnownOneIsNot()
+    {
+        // The PSA company is a name the device sends; each company's latest record is kept, so the
+        // number of names a tenant's record may hold has a ceiling.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var known = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 1; i < IntegrationChanges.CompanyCeiling; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = DateTimeOffset.UtcNow.AddDays(-1), Provider = "hudu", Action = IntegrationChanges.Unmapped, PsaCompany = $"Company {i}" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+
+        using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Brand New Co", "7"), TestContext.Current.CancellationToken);
+        using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "8"), TestContext.Current.CancellationToken);
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, known.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains("too_many_companies", body, StringComparison.Ordinal);
+        Assert.Contains("10,000 PSA companies", body, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId && m.PsaCompany == "Brand New Co")));
     }
 
     [Fact]

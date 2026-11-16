@@ -235,6 +235,7 @@ builder.Services.AddScoped<IPsaProviderFactory, ConnectWiseProviderFactory>();
 var hudu = builder.Configuration.GetSection(HuduOptions.Section).Get<HuduOptions>() ?? new HuduOptions();
 builder.Services.AddSingleton(hudu);
 builder.Services.AddSingleton<HuduCompanyCache>();
+builder.Services.AddSingleton<MappingChangeLimit>();
 builder.Services.AddHttpClient(nameof(HuduProvider), ProviderHttp.Configure)
     .ConfigurePrimaryHttpMessageHandler(() => PublicNetwork.Handler(providerNetwork.AllowPrivateAddresses));
 builder.Services.AddScoped<IDocProviderFactory, HuduProviderFactory>();

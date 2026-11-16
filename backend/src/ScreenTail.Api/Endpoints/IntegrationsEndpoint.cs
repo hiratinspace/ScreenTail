@@ -31,8 +31,13 @@ public sealed record AdminIntegration(string Provider, string Name, bool Connect
 /// <param name="Removed">For <c>mappings_pruned</c>: how many older mapping changes have been removed.</param>
 public sealed record AdminIntegrationChange(DateTimeOffset At, string Provider, string Action, ChangedBy By, string? PsaCompany, string? DocCompanyId, string? DocCompanyName, int? Removed = null);
 
+/// <summary>A PSA company's mapping as it stands, with who set it and when.</summary>
+/// <param name="SetBy">Who chose it by hand; null when ScreenTail matched the name while publishing.</param>
+public sealed record AdminCompanyMapping(string PsaCompany, string DocCompanyId, string DocCompanyName, DateTimeOffset SetAt, ChangedBy? SetBy);
+
 /// <param name="Changes">The latest changes to integrations and company mappings, newest first, at most <see cref="IntegrationChanges.Shown"/>.</param>
-public sealed record AdminIntegrationsResponse(IReadOnlyList<AdminIntegration> Integrations, IReadOnlyList<AdminIntegrationChange> Changes);
+/// <param name="Mappings">Every PSA company's current mapping, by name, so no burst of later changes hides one.</param>
+public sealed record AdminIntegrationsResponse(IReadOnlyList<AdminIntegration> Integrations, IReadOnlyList<AdminIntegrationChange> Changes, IReadOnlyList<AdminCompanyMapping> Mappings);
 
 /// <summary>
 /// The integrations endpoints (ST-009): a credential goes in and is never read back over HTTP.
@@ -130,7 +135,8 @@ public static class IntegrationsEndpoint
                 .ConfigureAwait(false);
             var changes = await IntegrationChanges.LatestAsync(db, owner.TenantId, ct).ConfigureAwait(false);
             var connected = await IntegrationChanges.LastConnectedAsync(db, owner.TenantId, rows.Select(r => r.Provider), ct).ConfigureAwait(false);
-            var by = await IntegrationChanges.NamesAsync(db, owner.TenantId, [.. changes, .. connected.Values], ct).ConfigureAwait(false);
+            var mappings = await IntegrationChanges.CurrentMappingsAsync(db, owner.TenantId, ct).ConfigureAwait(false);
+            var by = await IntegrationChanges.NamesAsync(db, owner.TenantId, [.. changes, .. connected.Values, .. mappings.Select(m => m.SetBy).OfType<IntegrationChange>()], ct).ConfigureAwait(false);
 
             return Results.Ok(new AdminIntegrationsResponse(
                 [.. Known.Select(k =>
@@ -149,7 +155,8 @@ public static class IntegrationsEndpoint
                             VaultRefusal.ForOwner(row.LastError),
                             connected.TryGetValue(k.Provider, out var last) ? by(last) : null);
                 })],
-                [.. changes.Select(c => new AdminIntegrationChange(c.At, c.Provider, c.Action, by(c), c.PsaCompany, c.DocCompanyId, c.DocCompanyName, c.Removed))]));
+                [.. changes.Select(c => new AdminIntegrationChange(c.At, c.Provider, c.Action, by(c), c.PsaCompany, c.DocCompanyId, c.DocCompanyName, c.Removed))],
+                [.. mappings.Select(m => new AdminCompanyMapping(m.Mapping.PsaCompany, m.Mapping.DocCompanyId, m.Mapping.DocCompanyName, m.SetBy?.At ?? m.Mapping.CreatedAt, m.SetBy is { } record ? by(record) : null))]));
         })
         .WithName("AdminIntegrations")
         .WithSummary("Whether ConnectWise and Hudu are connected, who connected them, how their last test went, and the latest changes. No credentials.");

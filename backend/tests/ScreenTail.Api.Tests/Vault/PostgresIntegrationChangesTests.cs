@@ -7,7 +7,7 @@ namespace ScreenTail.Api.Tests.Vault;
 
 /// <summary>
 /// The mapping record's pruning and per-device limit on a real Postgres (2026-11-15 review): both are a
-/// correlated delete and an ordered count, which SQLite and Npgsql translate on their own. Skips without
+/// correlated delete, and the current mappings beside who chose them, which SQLite and Npgsql translate on their own. Skips without
 /// <see cref="PostgresApiFixture.Variable"/>; fails on CI without it.
 /// </summary>
 public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IClassFixture<PostgresApiFixture>
@@ -45,27 +45,26 @@ public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IC
     }
 
     [Fact]
-    public async Task TheDeviceLimitCountsTheWindowOnPostgres()
+    public async Task CurrentMappingsAndTheCompanyCeilingQueriesRunOnPostgres()
     {
         api.RequirePostgres();
         var tenantId = Guid.NewGuid();
-        var deviceId = Guid.NewGuid();
         var now = DateTimeOffset.UtcNow;
+        var chosen = new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = now, Provider = "hudu", Action = IntegrationChanges.Mapped, PsaCompany = "Acme Dental", DocCompanyId = "7", DocCompanyName = "Acme Dental Group" };
         _ = await api.UseAsync(db =>
         {
-            for (var i = 0; i < IntegrationChanges.MappingChangesPerDevice; i++)
-            {
-                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, DeviceId = deviceId, At = now.AddSeconds(-i), Provider = "hudu", Action = IntegrationChanges.Mapped, PsaCompany = $"Company {i}" });
-            }
-
+            db.IntegrationChanges.Add(chosen);
+            db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = "Acme Dental", DocCompanyId = "7", DocCompanyName = "Acme Dental Group", Confidence = "manual", CreatedAt = now });
+            db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = "Borough Legal", DocCompanyId = "9", DocCompanyName = "Borough Legal", Confidence = "exact", CreatedAt = now });
             return db.SaveChangesAsync();
         });
 
-        var wait = await api.UseAsync(db => IntegrationChanges.MappingWaitAsync(db, tenantId, deviceId, now, TestContext.Current.CancellationToken));
-        var otherDevice = await api.UseAsync(db => IntegrationChanges.MappingWaitAsync(db, tenantId, Guid.NewGuid(), now, TestContext.Current.CancellationToken));
+        var current = await api.UseAsync(db => IntegrationChanges.CurrentMappingsAsync(db, tenantId, TestContext.Current.CancellationToken));
+        var atCeiling = await api.UseAsync(db => IntegrationChanges.AtCompanyCeilingAsync(db, tenantId, "New Company", TestContext.Current.CancellationToken));
 
-        Assert.NotNull(wait);
-        Assert.True(wait > TimeSpan.FromMinutes(9), $"waits {wait}");
-        Assert.Null(otherDevice);
+        Assert.Equal(["Acme Dental", "Borough Legal"], current.Select(m => m.Mapping.PsaCompany));
+        Assert.Equal(chosen.Id, current[0].SetBy?.Id);
+        Assert.Null(current[1].SetBy);
+        Assert.False(atCeiling);
     }
 }

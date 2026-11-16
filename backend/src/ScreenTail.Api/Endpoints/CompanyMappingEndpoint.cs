@@ -53,14 +53,14 @@ public static class CompanyMappingEndpoint
         .WithName("ListCompanyMappings")
         .WithSummary("The documentation platform's companies and what this tenant has mapped to them.");
 
-        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, HttpContext http, CancellationToken ct) =>
+        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, MappingChangeLimit limit, HttpContext http, CancellationToken ct) =>
         {
             if (demo.Demo)
             {
                 return IntegrationsEndpoint.DemoOn();
             }
 
-            if (await IntegrationChanges.MappingWaitAsync(db, who.TenantId, who.DeviceId, time.GetUtcNow(), ct).ConfigureAwait(false) is { } wait)
+            if (limit.TryTake(who.DeviceId) is { } wait)
             {
                 return TooMany(http, wait);
             }
@@ -88,6 +88,15 @@ public static class CompanyMappingEndpoint
                 return Results.BadRequest(new { error = "no_such_company", message = "The documentation platform has no company with that id." });
             }
 
+            // The PSA company is a name the device sends, not checked against the PSA, and each company's
+            // latest record is kept: past the ceiling a company not seen before is refused.
+            if (await IntegrationChanges.AtCompanyCeilingAsync(db, who.TenantId, request.PsaCompany.Trim(), ct).ConfigureAwait(false))
+            {
+                return Results.Json(
+                    new { error = "too_many_companies", message = string.Create(CultureInfo.InvariantCulture, $"ScreenTail keeps mappings for up to {IntegrationChanges.CompanyCeiling:N0} PSA companies, and this one would be past that. Map a company already mapped, or ask your ScreenTail owner for help.") },
+                    statusCode: StatusCodes.Status409Conflict);
+            }
+
             // Technicians keep this, since the mapping prompt comes up while they publish; the owner sees
             // each one on the Integrations page (2026-11-15 review). Recorded in the same transaction.
             await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
@@ -104,14 +113,14 @@ public static class CompanyMappingEndpoint
         .WithName("MapCompany")
         .WithSummary("Maps a PSA company to a documentation-platform company, by hand.");
 
-        group.MapDelete("/integrations/hudu/companies/{psaCompany}", async (string psaCompany, Caller who, ScreenTailContext db, DemoOptions demo, TimeProvider time, HttpContext http, CancellationToken ct) =>
+        group.MapDelete("/integrations/hudu/companies/{psaCompany}", async (string psaCompany, Caller who, ScreenTailContext db, DemoOptions demo, TimeProvider time, MappingChangeLimit limit, HttpContext http, CancellationToken ct) =>
         {
             if (demo.Demo)
             {
                 return IntegrationsEndpoint.DemoOn();
             }
 
-            if (await IntegrationChanges.MappingWaitAsync(db, who.TenantId, who.DeviceId, time.GetUtcNow(), ct).ConfigureAwait(false) is { } wait)
+            if (limit.TryTake(who.DeviceId) is { } wait)
             {
                 return TooMany(http, wait);
             }
@@ -146,7 +155,7 @@ public static class CompanyMappingEndpoint
             new
             {
                 error = "too_many_mapping_changes",
-                message = string.Create(CultureInfo.InvariantCulture, $"This PC has changed company mappings {IntegrationChanges.MappingChangesPerDevice} times in {(int)IntegrationChanges.MappingWindow.TotalMinutes} minutes. Wait {minutes} minute{(minutes == 1 ? string.Empty : "s")}, then choose the company again."),
+                message = string.Create(CultureInfo.InvariantCulture, $"This PC has changed company mappings {MappingChangeLimit.PerDevice} times in {(int)MappingChangeLimit.Window.TotalMinutes} minutes. Wait {minutes} minute{(minutes == 1 ? string.Empty : "s")}, then choose the company again."),
             },
             statusCode: StatusCodes.Status429TooManyRequests);
     }

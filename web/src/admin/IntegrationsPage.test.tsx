@@ -103,6 +103,58 @@ describe('IntegrationsPage', () => {
     expect(screen.getByText(/No changes yet/)).toBeDefined();
   });
 
+  it('shows every current company mapping with who chose it, however many changes came after', async () => {
+    const api = fakeApi({
+      integrations: async () => ({
+        integrations: integrations.integrations,
+        changes: Array.from({ length: 30 }, (_, i) => ({
+          at: checked,
+          provider: 'hudu',
+          action: 'unmapped' as const,
+          by: { kind: 'technician' as const, name: null, device: 'DESKTOP-2' },
+          psaCompany: `Other ${i}`,
+          docCompanyId: null,
+          docCompanyName: null,
+        })),
+        mappings: [
+          { psaCompany: 'Acme Dental', docCompanyId: '7', docCompanyName: 'Acme Dental Group', setAt: checked, setBy: { kind: 'technician', name: 'Tomas Ortiz', device: 'TECH-LAPTOP' } },
+          { psaCompany: 'Borough Legal', docCompanyId: '9', docCompanyName: 'Borough Legal', setAt: checked, setBy: null },
+        ],
+      }),
+    });
+    render(<IntegrationsPage api={api} />);
+
+    const table = await screen.findByRole('table', { name: 'Company mappings' });
+    const rows = within(table).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').slice(0, 3).map((c) => c.textContent));
+    expect(rows).toEqual([
+      ['Acme Dental', 'Acme Dental Group', 'Tomas Ortiz (TECH-LAPTOP)'],
+      ['Borough Legal', 'Borough Legal', 'Matched by name'],
+    ]);
+  });
+
+  it('shows the recent changes twenty at a time, so none of the latest hundred drop out of sight', async () => {
+    const changes = Array.from({ length: 45 }, (_, i) => ({
+      at: checked,
+      provider: 'hudu',
+      action: 'unmapped' as const,
+      by: { kind: 'technician' as const, name: null, device: 'DESKTOP-2' },
+      psaCompany: `Company ${i}`,
+      docCompanyId: null,
+      docCompanyName: null,
+    }));
+    const api = fakeApi({ integrations: async () => ({ integrations: integrations.integrations, changes }) });
+    render(<IntegrationsPage api={api} />);
+
+    const table = await screen.findByRole('table', { name: 'Recent changes' });
+    expect(within(table).getAllByRole('row')).toHaveLength(21);
+    fireEvent.click(screen.getByRole('button', { name: 'Show 20 more' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(41);
+    fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }));
+    expect(within(table).getAllByRole('row')).toHaveLength(46);
+    expect(within(table).getByText('Forgot the mapping for Company 44').textContent).toBe('Forgot the mapping for Company 44');
+    expect(screen.queryByRole('button', { name: /more$/ })).toBeNull();
+  });
+
   it('lists recent changes in words, with who made each', async () => {
     const api = fakeApi({
       integrations: async () => ({

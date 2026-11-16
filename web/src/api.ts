@@ -141,8 +141,20 @@ export interface IntegrationChange {
 
 export interface Integrations {
   integrations: Integration[];
-  /** At most 20, newest first. */
+  /** At most 100, newest first. */
   changes: IntegrationChange[];
+  /** Every PSA company's current mapping, by name, with who chose it. */
+  mappings?: CompanyMappingNow[];
+}
+
+/** A PSA company's mapping as it stands. */
+export interface CompanyMappingNow {
+  psaCompany: string;
+  docCompanyId: string;
+  docCompanyName: string;
+  setAt: string;
+  /** Null when ScreenTail matched the name itself while publishing. */
+  setBy: IntegrationActor | null;
 }
 
 /** The result of testing the stored credential. A refused credential is ok false, not an error. */

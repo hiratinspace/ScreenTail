@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObjec
 import {
   ApiError,
   type AdminApi,
+  type CompanyMappingNow,
   type Integration,
   type IntegrationActor,
   type IntegrationChange,
@@ -69,6 +70,7 @@ export function IntegrationsPage({ api }: { api: AdminApi }) {
       <div className="grid">
         {data?.integrations.map((row) => <IntegrationCard key={row.provider} row={row} api={api} onChanged={load} />)}
       </div>
+      {data && <MappingList mappings={data.mappings ?? []} />}
       {data && <ChangeList changes={data.changes} names={names} />}
     </>
   );
@@ -549,7 +551,49 @@ function describeChange(change: IntegrationChange): string {
   }
 }
 
+/** Every PSA company's mapping as it stands, so a burst of later changes never hides one. */
+function MappingList({ mappings }: { mappings: CompanyMappingNow[] }) {
+  return (
+    <section className="card" aria-labelledby="mappings-title">
+      <h2 id="mappings-title" className="section-title">
+        Company mappings
+      </h2>
+      {mappings.length === 0 ? (
+        <p className="empty">No company mappings yet. Each PSA company a technician maps shows here, with who chose it.</p>
+      ) : (
+        <table className="table" aria-labelledby="mappings-title">
+          <thead>
+            <tr>
+              <th scope="col">PSA company</th>
+              <th scope="col">Documentation company</th>
+              <th scope="col">Chosen by</th>
+              <th scope="col">When</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mappings.map((m) => (
+              <tr key={m.psaCompany}>
+                <td>{m.psaCompany}</td>
+                <td>{m.docCompanyName}</td>
+                <td>{m.setBy ? actorName(m.setBy, true) : 'Matched by name'}</td>
+                <td>
+                  <Time at={m.setAt} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+/** How many recent changes show at first, and how many more each "Show more" adds. */
+const changesPage = 20;
+
 function ChangeList({ changes, names }: { changes: IntegrationChange[]; names: Map<string, string> }) {
+  const [shown, setShown] = useState(changesPage);
+  const visible = changes.slice(0, shown);
   return (
     <section className="card" aria-labelledby="changes-title">
       <h2 id="changes-title" className="section-title">
@@ -568,7 +612,7 @@ function ChangeList({ changes, names }: { changes: IntegrationChange[]; names: M
             </tr>
           </thead>
           <tbody>
-            {changes.map((change, i) => (
+            {visible.map((change, i) => (
               <tr key={`${change.at}-${i}`}>
                 <td>
                   <Time at={change.at} />
@@ -580,6 +624,11 @@ function ChangeList({ changes, names }: { changes: IntegrationChange[]; names: M
             ))}
           </tbody>
         </table>
+      )}
+      {changes.length > shown && (
+        <button type="button" className="button secondary" onClick={() => setShown(shown + changesPage)}>
+          Show {Math.min(changesPage, changes.length - shown)} more
+        </button>
       )}
     </section>
   );
