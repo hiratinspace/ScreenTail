@@ -108,6 +108,21 @@
                      KeyPath="yes" />
     </Component>
 
+    <!-- The backend's address, for every user of the machine: msiexec /i ScreenTail.msi BACKENDURL=https://...
+         An installed service reads it only from here, a key an ordinary user cannot change, and ignores
+         SCREENTAIL_BACKEND (DeploymentAddresses). The value already on the machine is read into a property of
+         its own and used only when the command line gives none, so an upgrade or a repair keeps it and a new
+         value given later replaces it. Not given at all, nothing is written, and the service drafts on the
+         device. -->
+    <Property Id="BACKENDURL" Secure="yes" />
+    <Property Id="BACKENDURLKEPT" Secure="yes">
+      <RegistrySearch Id="BackendUrlKept" Root="HKLM" Key="Software\ScreenTail" Name="BackendUrl" Type="raw" Bitness="always64" />
+    </Property>
+    <SetProperty Id="BACKENDURL" Value="[BACKENDURLKEPT]" After="AppSearch" Sequence="both" Condition="NOT BACKENDURL AND BACKENDURLKEPT" />
+    <Component Id="BackendAddress" Directory="INSTALLFOLDER" Condition="BACKENDURL" Guid="{5B0E3C21-7F44-4C8B-9E2D-3A61C9D47B18}">
+      <RegistryValue Root="HKLM" Key="Software\ScreenTail" Name="BackendUrl" Type="string" Value="[BACKENDURL]" KeyPath="yes" />
+    </Component>
+
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut" Guid="{343F2DE9-FFC0-40FC-BCBF-5364C20CBE67}">
         <Shortcut Id="UiShortcut"
@@ -123,6 +138,7 @@
       <ComponentGroupRef Id="Payload" />
       <ComponentRef Id="ServiceAtSignIn" />
       <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="BackendAddress" />
     </Feature>
 
     <!-- A running executable can be neither replaced nor removed. On an upgrade or an uninstall, and on
