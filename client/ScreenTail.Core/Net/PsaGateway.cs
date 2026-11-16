@@ -407,7 +407,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
         {
             var problem = await response.Content.ReadFromJsonAsync<Problem>(Json, ct).ConfigureAwait(false);
             return problem is { Error: "no_psa" or "no_docs" or "not_configured" }
-                ? problem.Message is { Length: > 0 } message ? message : "Connect a PSA to publish."
+                ? problem.Message is { Length: > 0 } message ? message : "No PSA is connected. Your owner connects one in the web admin."
                 : null;
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException or HttpRequestException or IOException)
@@ -445,7 +445,7 @@ public sealed class PsaGateway(HttpClient http, Func<string?> token, IAuditLog? 
         return response.StatusCode switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "This device may not publish. Its enrolment was revoked or its token expired.",
-            HttpStatusCode.NotImplemented => "Connect a PSA to publish.",
+            HttpStatusCode.NotImplemented => "No PSA is connected. Your owner connects one in the web admin.",
             _ => $"The backend answered {(int)response.StatusCode}.",
         };
     }

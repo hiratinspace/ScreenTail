@@ -261,6 +261,21 @@ public sealed class PsaGatewayTests
     }
 
     [Fact]
+    public async Task ANoPsaRefusalWithoutWordsSaysWhoConnectsOne()
+    {
+        // The owner connects integrations in the web admin (2026-11-15), so the fallback says so.
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.NotImplemented)
+        {
+            Content = JsonContent.Create(new { error = "no_psa" }),
+        });
+
+        var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal("No PSA is connected. Your owner connects one in the web admin.", answer.Refusal);
+    }
+
+    [Fact]
     public async Task ABackendThatDoesNotAnswerIsARefusalTheTechnicianCanRead()
     {
         using var handler = new ThrowingHandler();
