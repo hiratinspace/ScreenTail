@@ -127,6 +127,15 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     public async Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(note);
+
+        // The id goes into the route, so it is read as the number ConnectWise's ids are, as the time entry
+        // reads it, and only that number is written into the path or the document (2026-11-15 review).
+        if (TicketNumber(note.TicketId) is not { } ticketId)
+        {
+            return ProviderResult.Failure<PublishedNote>(NotATicketNumber(note.TicketId));
+        }
+
+        var ticket = ticketId.ToString(CultureInfo.InvariantCulture);
         var body = new
         {
             text = note.Body,
@@ -134,7 +143,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             detailDescriptionFlag = !note.Internal,
             customerUpdatedFlag = false,
         };
-        var posted = ProviderHttp.Read(await SendAsync(() => Post($"service/tickets/{note.TicketId}/notes", body), ct).ConfigureAwait(false), ProviderHttp.Id, "ConnectWise", written: true);
+        var posted = ProviderHttp.Read(await SendAsync(() => Post($"service/tickets/{ticket}/notes", body), ct).ConfigureAwait(false), ProviderHttp.Id, "ConnectWise", written: true);
         if (!posted.Ok)
         {
             return ProviderResult.Failure<PublishedNote>(posted.Error!);
@@ -143,7 +152,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         var id = posted.Value!;
         var missing = await AttachmentUploads.UploadAsync(
             note.Attachments,
-            (attachment, token) => SendAsync(() => Document(note.TicketId, attachment, note.Internal), token),
+            (attachment, token) => SendAsync(() => Document(ticket, attachment, note.Internal), token),
             $"The note was published as {id}",
             "The note stays as it is; add the missing screenshots to the ticket by hand rather than publishing the note again.",
             ct).ConfigureAwait(false);
@@ -169,12 +178,9 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
                 "Enter the minutes worked, or untick the time entry."));
         }
 
-        if (!int.TryParse(entry.TicketId, NumberStyles.None, CultureInfo.InvariantCulture, out var ticketId))
+        if (TicketNumber(entry.TicketId) is not { } ticketId)
         {
-            return ProviderResult.Failure<PublishedNote>(new ProviderError(
-                ProviderErrorKind.NotFound,
-                $"ConnectWise ticket ids are numbers and '{entry.TicketId}' is not one.",
-                "Pick the ticket again."));
+            return ProviderResult.Failure<PublishedNote>(NotATicketNumber(entry.TicketId));
         }
 
         var start = entry.StartedAt.ToUniversalTime();
@@ -199,6 +205,15 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
             ? ProviderResult.Success(new PublishedNote(posted.Value!, null))
             : ProviderResult.Failure<PublishedNote>(posted.Error!);
     }
+
+    /// <summary>A ConnectWise ticket id: digits only, no sign, no spaces, no other text.</summary>
+    private static int? TicketNumber(string? ticketId) =>
+        int.TryParse(ticketId, NumberStyles.None, CultureInfo.InvariantCulture, out var number) ? number : null;
+
+    private static ProviderError NotATicketNumber(string? ticketId) => new(
+        ProviderErrorKind.NotFound,
+        $"ConnectWise ticket ids are numbers and '{ticketId}' is not one.",
+        "Pick the ticket again.");
 
     private HttpRequestMessage Get(string route) => Prepare(new HttpRequestMessage(HttpMethod.Get, route));
 

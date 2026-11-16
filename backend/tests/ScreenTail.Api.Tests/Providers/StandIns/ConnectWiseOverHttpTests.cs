@@ -28,7 +28,9 @@ public sealed class ConnectWiseOverHttpTests(ApiFixture api) : IClassFixture<Api
     {
         await using var cw = await StartAsync();
         await using var backend = new StandInBackend(api, cw, hudu: null);
-        await backend.SignInAsync();
+        // The footer names the signed-in technician, which is the bundle's reviewer here (the request's
+        // own reviewer is ignored).
+        await backend.SignInAsync(displayName: StandInBackend.Bundle().Reviewer!);
         var bundle = StandInBackend.Bundle() with { NoteType = noteType, Destinations = ["ticket_note"], Frames = [StandInBackend.Frame("f-1"), StandInBackend.Frame("f-2")] };
 
         var published = await backend.PublishAsync(bundle);
@@ -70,7 +72,7 @@ public sealed class ConnectWiseOverHttpTests(ApiFixture api) : IClassFixture<Api
     {
         await using var cw = await StartAsync();
         await using var backend = new StandInBackend(api, cw, hudu: null);
-        await backend.SignInAsync();
+        await backend.SignInAsync(displayName: StandInBackend.Bundle().Reviewer!);
         var bundle = StandInBackend.Bundle() with { NoteType = noteType, Billable = billable, Destinations = ["time_entry"] };
 
         var published = await backend.PublishAsync(bundle);
