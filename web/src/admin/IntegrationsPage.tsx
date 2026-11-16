@@ -546,6 +546,8 @@ function describeChange(change: IntegrationChange): string {
       const count = change.removed ?? 0;
       return `${count} older mapping ${count === 1 ? 'change' : 'changes'} removed`;
     }
+    case 'device_slowed':
+      return `${change.by.device ?? 'A device'} was slowed down after 30 mapping changes in 10 minutes`;
     default:
       return 'Changed';
   }

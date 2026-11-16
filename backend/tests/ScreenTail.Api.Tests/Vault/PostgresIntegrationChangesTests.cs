@@ -45,7 +45,7 @@ public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IC
     }
 
     [Fact]
-    public async Task CurrentMappingsAndTheCompanyCeilingQueriesRunOnPostgres()
+    public async Task CurrentMappingsBesideWhoChoseThemOnPostgres()
     {
         api.RequirePostgres();
         var tenantId = Guid.NewGuid();
@@ -60,11 +60,9 @@ public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IC
         });
 
         var current = await api.UseAsync(db => IntegrationChanges.CurrentMappingsAsync(db, tenantId, TestContext.Current.CancellationToken));
-        var atCeiling = await api.UseAsync(db => IntegrationChanges.AtCompanyCeilingAsync(db, tenantId, "New Company", TestContext.Current.CancellationToken));
 
         Assert.Equal(["Acme Dental", "Borough Legal"], current.Select(m => m.Mapping.PsaCompany));
         Assert.Equal(chosen.Id, current[0].SetBy?.Id);
         Assert.Null(current[1].SetBy);
-        Assert.False(atCeiling);
     }
 }

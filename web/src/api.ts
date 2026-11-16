@@ -122,7 +122,8 @@ export type IntegrationAction =
   | 'mapped'
   | 'unmapped'
   | 'mappings_cleared'
-  | 'mappings_pruned';
+  | 'mappings_pruned'
+  | 'device_slowed';
 
 /** One row of the integrations' history, newest first. It never carries a credential. */
 export interface IntegrationChange {

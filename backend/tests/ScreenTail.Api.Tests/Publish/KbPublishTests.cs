@@ -787,6 +787,13 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Equal("8", await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId).Select(m => m.DocCompanyId).SingleAsync()));
         Assert.Equal(MappingChangeLimit.PerDevice, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
         Assert.True(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.Id == firstRecord.Id)));
+
+        // Two refusals in the window, one owner-visible row naming the device.
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var answer = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+        var slowed = Assert.Single(answer!.Changes, c => c.Action == IntegrationChanges.DeviceSlowed);
+        Assert.Equal("technician", slowed.By.Kind);
+        Assert.NotNull(slowed.By.Device);
     }
 
     [Fact]
@@ -859,33 +866,54 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task ANewPsaCompanyPastTheCeilingIsRefusedInWordsAndAKnownOneIsNot()
+    public async Task ADevicePastItsNewCompaniesForTheDayIsRefusedInWordsAndMayStillRemapAKnownOne()
     {
-        // The PSA company is a name the device sends; each company's latest record is kept, so the
-        // number of names a tenant's record may hold has a ceiling.
+        // The PSA company is a name the device sends and the PSA has no company lookup, so a device may
+        // name only so many companies with no mapping each day. Remapping one already mapped is not limited.
         using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
         var (client, tenantId) = await ConnectedClientAsync(host);
         using var known = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
-        _ = await api.UseAsync(db =>
+        var deviceId = await api.UseAsync(db => db.Devices.Where(d => d.TenantId == tenantId).Select(d => d.Id).SingleAsync());
+        var limit = host.Services.GetRequiredService<MappingChangeLimit>();
+        for (var i = 1; i < MappingChangeLimit.NewCompaniesPerDevice; i++)
         {
-            for (var i = 1; i < IntegrationChanges.CompanyCeiling; i++)
-            {
-                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = DateTimeOffset.UtcNow.AddDays(-1), Provider = "hudu", Action = IntegrationChanges.Unmapped, PsaCompany = $"Company {i}" });
-            }
-
-            return db.SaveChangesAsync();
-        });
+            Assert.True(limit.TryTakeNewCompany(deviceId, $"Company {i}"));
+        }
 
         using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Brand New Co", "7"), TestContext.Current.CancellationToken);
         using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "8"), TestContext.Current.CancellationToken);
         var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NoContent, known.StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
-        Assert.Contains("too_many_companies", body, StringComparison.Ordinal);
-        Assert.Contains("10,000 PSA companies", body, StringComparison.Ordinal);
+        Assert.Equal((HttpStatusCode)429, refused.StatusCode);
+        Assert.Contains("too_many_new_companies", body, StringComparison.Ordinal);
+        Assert.Contains("500 new PSA companies today", body, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
         Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId && m.PsaCompany == "Brand New Co")));
+    }
+
+    [Fact]
+    public async Task NoMappingRecordYoungerThanTheRetentionIsRemovedHoweverManyThereAre()
+    {
+        // No count backstop: in-retention evidence stays whatever the traffic; only age removes records.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        var now = DateTimeOffset.UtcNow;
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 0; i < 6000; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = now.AddDays(-170).AddSeconds(i), Provider = "hudu", Action = IntegrationChanges.Mapped, PsaCompany = "Acme Dental", DocCompanyId = "7" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "8"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        Assert.Equal(6001, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+        Assert.False(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.MappingsPruned)));
     }
 
     [Fact]

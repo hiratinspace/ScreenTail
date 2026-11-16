@@ -54,4 +54,53 @@ public sealed class MappingChangeLimitTests
         Assert.Null(other);
         Assert.Null(later);
     }
+
+    [Fact]
+    public void OnlyTheFirstRefusalOfAWindowIsTheOneTheOwnerIsToldAbout()
+    {
+        var clock = new Clock();
+        var limit = new MappingChangeLimit(clock);
+        var device = Guid.NewGuid();
+        for (var i = 0; i < MappingChangeLimit.PerDevice; i++)
+        {
+            Assert.Null(limit.TryTake(device));
+        }
+
+        _ = limit.TryTake(device, out var first);
+        _ = limit.TryTake(device, out var second);
+        clock.Now += MappingChangeLimit.Window;
+        for (var i = 0; i < MappingChangeLimit.PerDevice; i++)
+        {
+            Assert.Null(limit.TryTake(device));
+        }
+
+        _ = limit.TryTake(device, out var nextWindow);
+
+        Assert.True(first);
+        Assert.False(second);
+        Assert.True(nextWindow);
+    }
+
+    [Fact]
+    public void ADeviceNamesFiveHundredNewCompaniesADayAndNamingOneAgainTakesNothing()
+    {
+        var clock = new Clock();
+        var limit = new MappingChangeLimit(clock);
+        var device = Guid.NewGuid();
+        for (var i = 0; i < MappingChangeLimit.NewCompaniesPerDevice; i++)
+        {
+            Assert.True(limit.TryTakeNewCompany(device, $"Company {i}"));
+        }
+
+        var past = limit.TryTakeNewCompany(device, "One more");
+        var again = limit.TryTakeNewCompany(device, "Company 3");
+        var other = limit.TryTakeNewCompany(Guid.NewGuid(), "One more");
+        clock.Now += MappingChangeLimit.NewCompanyWindow;
+        var tomorrow = limit.TryTakeNewCompany(device, "One more");
+
+        Assert.False(past);
+        Assert.True(again);
+        Assert.True(other);
+        Assert.True(tomorrow);
+    }
 }

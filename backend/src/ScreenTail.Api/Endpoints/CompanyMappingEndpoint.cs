@@ -60,9 +60,9 @@ public static class CompanyMappingEndpoint
                 return IntegrationsEndpoint.DemoOn();
             }
 
-            if (limit.TryTake(who.DeviceId) is { } wait)
+            if (limit.TryTake(who.DeviceId, out var first) is { } wait)
             {
-                return TooMany(http, wait);
+                return await TooManyAsync(http, db, who, first, wait, time, ct).ConfigureAwait(false);
             }
 
             if (string.IsNullOrWhiteSpace(request.PsaCompany) || request.PsaCompany.Length > 200 || string.IsNullOrWhiteSpace(request.DocCompanyId))
@@ -88,13 +88,16 @@ public static class CompanyMappingEndpoint
                 return Results.BadRequest(new { error = "no_such_company", message = "The documentation platform has no company with that id." });
             }
 
-            // The PSA company is a name the device sends, not checked against the PSA, and each company's
-            // latest record is kept: past the ceiling a company not seen before is refused.
-            if (await IntegrationChanges.AtCompanyCeilingAsync(db, who.TenantId, request.PsaCompany.Trim(), ct).ConfigureAwait(false))
+            // The PSA company is a name the device sends: the PSA has no company lookup to check it against,
+            // and each company's latest record is kept. So a device may name only so many companies that
+            // have no mapping yet each day; remapping one already mapped is not limited this way.
+            var psaCompany = request.PsaCompany.Trim();
+            if (await new CompanyMappings(db, who.TenantId, time).FindAsync(psaCompany, ct).ConfigureAwait(false) is null
+                && !limit.TryTakeNewCompany(who.DeviceId, psaCompany))
             {
                 return Results.Json(
-                    new { error = "too_many_companies", message = string.Create(CultureInfo.InvariantCulture, $"ScreenTail keeps mappings for up to {IntegrationChanges.CompanyCeiling:N0} PSA companies, and this one would be past that. Map a company already mapped, or ask your ScreenTail owner for help.") },
-                    statusCode: StatusCodes.Status409Conflict);
+                    new { error = "too_many_new_companies", message = string.Create(CultureInfo.InvariantCulture, $"This PC has mapped {MappingChangeLimit.NewCompaniesPerDevice} new PSA companies today. Choose a company that is already mapped, or try again tomorrow.") },
+                    statusCode: StatusCodes.Status429TooManyRequests);
             }
 
             // Technicians keep this, since the mapping prompt comes up while they publish; the owner sees
@@ -120,9 +123,9 @@ public static class CompanyMappingEndpoint
                 return IntegrationsEndpoint.DemoOn();
             }
 
-            if (limit.TryTake(who.DeviceId) is { } wait)
+            if (limit.TryTake(who.DeviceId, out var first) is { } wait)
             {
-                return TooMany(http, wait);
+                return await TooManyAsync(http, db, who, first, wait, time, ct).ConfigureAwait(false);
             }
 
             await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
@@ -145,9 +148,17 @@ public static class CompanyMappingEndpoint
     /// <summary>
     /// A device past its mapping changes for the window (2026-11-15 review): 429, Retry-After, and a
     /// sentence the client shows. Nothing is changed, so the technician's choice can be sent again later.
+    /// The window's first refusal is recorded for the owner, once per device per window, so a flood shows
+    /// on the Integrations page and the owner can revoke the device.
     /// </summary>
-    private static IResult TooMany(HttpContext http, TimeSpan wait)
+    private static async Task<IResult> TooManyAsync(HttpContext http, ScreenTailContext db, Caller who, bool first, TimeSpan wait, TimeProvider time, CancellationToken ct)
     {
+        if (first)
+        {
+            IntegrationChanges.RecordSlowed(db, who.TenantId, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow());
+            _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+
         var seconds = (long)Math.Ceiling(wait.TotalSeconds);
         http.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
         var minutes = Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes));

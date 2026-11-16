@@ -70,12 +70,12 @@ public static class IntegrationChanges
     /// <summary>How long a map or unmap record is kept once a later one for the same company explains the current mapping.</summary>
     public static readonly TimeSpan MappingsKeptFor = TimeSpan.FromDays(180);
 
-    /// <summary>
-    /// A backstop: past this many map and unmap records that are not a company's latest, the oldest of
-    /// them go, whatever their age. With <see cref="MappingChangeLimit"/> a single device needs days to
-    /// reach it, and the owner always sees every company's current mapping and who set it.
-    /// </summary>
-    public const int SupersededKept = 5000;
+    /// <summary>A device past its mapping changes for a window (<see cref="MappingChangeLimit"/>): one row per device per window, so the owner sees a flood and can revoke the device.</summary>
+    public const string DeviceSlowed = "device_slowed";
+
+    /// <summary>Adds the owner-visible row for a device refused by the mapping limit. The caller saves.</summary>
+    public static void RecordSlowed(ScreenTailContext db, Guid tenantId, ChangeActor device, DateTimeOffset at) =>
+        Record(db, tenantId, "hudu", DeviceSlowed, device, at);
 
     /// <summary>
     /// Records a technician's map or unmap, unless the tenant's latest change is this same one (the same
@@ -120,9 +120,10 @@ public static class IntegrationChanges
     }
 
     /// <summary>
-    /// Removes map and unmap records older than <see cref="MappingsKeptFor"/>, and past that only the
-    /// oldest beyond <see cref="SupersededKept"/>. Never removed: the latest record for each PSA company
-    /// (it explains the current mapping, however old), and any credential change. What was removed is
+    /// Removes, by age only, map and unmap records older than <see cref="MappingsKeptFor"/> that a later
+    /// one for the same company has replaced, and <see cref="DeviceSlowed"/> rows that old. Nothing younger
+    /// is ever removed, whatever the traffic. Never removed: the latest record for each PSA company (it
+    /// explains the current mapping, however old), and any credential change. What was removed is
     /// counted on one <see cref="MappingsPruned"/> row the owner sees. The caller saves it.
     /// </summary>
     /// <returns>How many records were removed.</returns>
@@ -138,18 +139,10 @@ public static class IntegrationChanges
                 && later.At > c.At));
         var before = now - MappingsKeptFor;
         var removed = await superseded.Where(c => c.At < before).ExecuteDeleteAsync(ct).ConfigureAwait(false);
-
-        // The backstop, oldest first: the newest SupersededKept stay.
-        var oldestKept = await superseded
-            .OrderByDescending(c => c.At)
-            .Skip(SupersededKept - 1)
-            .Select(c => (DateTimeOffset?)c.At)
-            .FirstOrDefaultAsync(ct)
+        removed += await db.IntegrationChanges
+            .Where(c => c.TenantId == tenantId && c.Action == DeviceSlowed && c.At < before)
+            .ExecuteDeleteAsync(ct)
             .ConfigureAwait(false);
-        if (oldestKept is { } cutoff)
-        {
-            removed += await superseded.Where(c => c.At < cutoff).ExecuteDeleteAsync(ct).ConfigureAwait(false);
-        }
 
         if (removed == 0)
         {
@@ -177,26 +170,6 @@ public static class IntegrationChanges
             .OrderByDescending(c => c.At)
             .Take(Shown)
             .ToListAsync(ct);
-    }
-
-    /// <summary>
-    /// How many PSA companies a tenant's mapping records may name. The PSA company is a name the device
-    /// sends, not checked against the PSA, and each company's latest record is never pruned, so without a
-    /// ceiling the record would grow with every new name.
-    /// </summary>
-    public const int CompanyCeiling = 10_000;
-
-    /// <summary>True when <paramref name="psaCompany"/> is a company not yet recorded and the tenant is at <see cref="CompanyCeiling"/>.</summary>
-    public static async Task<bool> AtCompanyCeilingAsync(ScreenTailContext db, Guid tenantId, string psaCompany, CancellationToken ct = default)
-    {
-        ArgumentNullException.ThrowIfNull(db);
-        var named = db.IntegrationChanges.Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped) && c.PsaCompany != null);
-        if (await named.AnyAsync(c => c.PsaCompany == psaCompany, ct).ConfigureAwait(false))
-        {
-            return false;
-        }
-
-        return await named.Select(c => c.PsaCompany).Distinct().CountAsync(ct).ConfigureAwait(false) >= CompanyCeiling;
     }
 
     /// <summary>A current mapping and the record of the person who chose it, if one did.</summary>

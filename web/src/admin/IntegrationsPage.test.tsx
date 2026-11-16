@@ -166,6 +166,7 @@ describe('IntegrationsPage', () => {
           { at: checked, provider: 'connectwise', action: 'replaced', by: { kind: 'owner', name: null, device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
           { at: checked, provider: 'hudu', action: 'disconnected', by: { kind: 'owner', name: 'Pat Owner', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
           { at: checked, provider: 'hudu', action: 'mappings_pruned', by: { kind: 'screentail', name: 'ScreenTail', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null, removed: 12 },
+          { at: checked, provider: 'hudu', action: 'device_slowed', by: { kind: 'technician', name: 'Tomas Ortiz', device: 'TECH-LAPTOP' }, psaCompany: null, docCompanyId: null, docCompanyName: null },
         ],
       }),
     });
@@ -181,6 +182,7 @@ describe('IntegrationsPage', () => {
       ['ConnectWise Manage', 'Credential replaced', 'The owner'],
       ['Hudu', 'Disconnected', 'Pat Owner'],
       ['Hudu', '12 older mapping changes removed', 'ScreenTail'],
+      ['Hudu', 'TECH-LAPTOP was slowed down after 30 mapping changes in 10 minutes', 'Tomas Ortiz (TECH-LAPTOP)'],
     ]);
   });
 
