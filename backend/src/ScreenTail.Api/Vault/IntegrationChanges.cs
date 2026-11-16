@@ -111,7 +111,13 @@ public static class IntegrationChanges
             && latest.PsaCompany == psaCompany
             && latest.DocCompanyId == docCompanyId
             && latest.DocCompanyName == docCompanyName;
-        if (!repeat)
+        if (repeat)
+        {
+            // The same choice again: the one row is moved to now, so it stays no older than the mapping
+            // it chose (CurrentMappingsAsync names the person only then).
+            _ = await db.IntegrationChanges.Where(c => c.Id == latest!.Id).ExecuteUpdateAsync(s => s.SetProperty(c => c.At, at), ct).ConfigureAwait(false);
+        }
+        else
         {
             Record(db, tenantId, provider, action, by, at, psaCompany, docCompanyId, docCompanyName);
         }
@@ -120,25 +126,29 @@ public static class IntegrationChanges
     }
 
     /// <summary>
-    /// Removes, by age only, map and unmap records older than <see cref="MappingsKeptFor"/> that a later
-    /// one for the same company has replaced, and <see cref="DeviceSlowed"/> rows that old. Nothing younger
-    /// is ever removed, whatever the traffic. Never removed: the latest record for each PSA company (it
-    /// explains the current mapping, however old), and any credential change. What was removed is
-    /// counted on one <see cref="MappingsPruned"/> row the owner sees. The caller saves it.
+    /// Removes, by age only, map and unmap records older than <see cref="MappingsKeptFor"/>, and
+    /// <see cref="DeviceSlowed"/> rows that old. Nothing younger is ever removed, whatever the traffic.
+    /// Never removed: the latest record for a PSA company that has a current mapping (it explains that
+    /// mapping, however old), and any credential change. A company with no current mapping keeps nothing
+    /// past that age, so the record is bounded by the per-device limits over <see cref="MappingsKeptFor"/>.
+    /// What was removed is counted on one <see cref="MappingsPruned"/> row the owner sees. The caller saves it.
     /// </summary>
     /// <returns>How many records were removed.</returns>
     public static async Task<int> PruneAsync(ScreenTailContext db, Guid tenantId, DateTimeOffset now, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(db);
-        var superseded = db.IntegrationChanges
-            .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped))
-            .Where(c => db.IntegrationChanges.Any(later =>
-                later.TenantId == c.TenantId
-                && (later.Action == Mapped || later.Action == Unmapped)
-                && later.PsaCompany == c.PsaCompany
-                && later.At > c.At));
         var before = now - MappingsKeptFor;
-        var removed = await superseded.Where(c => c.At < before).ExecuteDeleteAsync(ct).ConfigureAwait(false);
+        var removed = await db.IntegrationChanges
+            .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped) && c.At < before)
+            .Where(c =>
+                db.IntegrationChanges.Any(later =>
+                    later.TenantId == c.TenantId
+                    && (later.Action == Mapped || later.Action == Unmapped)
+                    && later.PsaCompany == c.PsaCompany
+                    && later.At > c.At)
+                || !db.CompanyMappings.Any(m => m.TenantId == c.TenantId && m.PsaCompany == c.PsaCompany))
+            .ExecuteDeleteAsync(ct)
+            .ConfigureAwait(false);
         removed += await db.IntegrationChanges
             .Where(c => c.TenantId == tenantId && c.Action == DeviceSlowed && c.At < before)
             .ExecuteDeleteAsync(ct)
@@ -149,17 +159,44 @@ public static class IntegrationChanges
             return 0;
         }
 
-        var summary = await db.IntegrationChanges.SingleOrDefaultAsync(c => c.TenantId == tenantId && c.Action == MappingsPruned, ct).ConfigureAwait(false);
-        if (summary is null)
-        {
-            summary = new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, Provider = "hudu", Action = MappingsPruned, Removed = 0 };
-            _ = db.IntegrationChanges.Add(summary);
-        }
-
-        summary.Removed = (summary.Removed ?? 0) + removed;
-        summary.At = now;
+        await CountPrunedAsync(db, tenantId, removed, now, ct).ConfigureAwait(false);
         return removed;
     }
+
+    /// <summary>
+    /// Adds to the tenant's one summary row (a unique index says one), counted up in the database itself so
+    /// two prunes at once both add. The first prune inserts it; one that loses that race finds the row the
+    /// other made and adds to it. Inside the caller's transaction EF rolls the failed insert back to its
+    /// own savepoint, so the transaction goes on. This saves the context.
+    /// </summary>
+    internal static async Task CountPrunedAsync(ScreenTailContext db, Guid tenantId, int removed, DateTimeOffset now, CancellationToken ct = default)
+    {
+        if (await AddToSummaryAsync(db, tenantId, removed, now, ct).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        var summary = new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = now, Provider = "hudu", Action = MappingsPruned, Removed = removed };
+        _ = db.IntegrationChanges.Add(summary);
+        try
+        {
+            _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
+        }
+        catch (DbUpdateException)
+        {
+            db.Entry(summary).State = EntityState.Detached;
+            if (!await AddToSummaryAsync(db, tenantId, removed, now, ct).ConfigureAwait(false))
+            {
+                throw;
+            }
+        }
+    }
+
+    private static async Task<bool> AddToSummaryAsync(ScreenTailContext db, Guid tenantId, int removed, DateTimeOffset now, CancellationToken ct) =>
+        await db.IntegrationChanges
+            .Where(c => c.TenantId == tenantId && c.Action == MappingsPruned)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.Removed, c => (c.Removed ?? 0) + removed).SetProperty(c => c.At, now), ct)
+            .ConfigureAwait(false) > 0;
 
     /// <summary>The tenant's latest changes, newest first.</summary>
     public static Task<List<IntegrationChange>> LatestAsync(ScreenTailContext db, Guid tenantId, CancellationToken ct = default)
@@ -176,8 +213,11 @@ public static class IntegrationChanges
     public sealed record CurrentMapping(CompanyMapping Mapping, IntegrationChange? SetBy);
 
     /// <summary>
-    /// Every company mapping as it stands, by PSA company name, each with the latest record that chose it
-    /// (null when ScreenTail matched the name itself while publishing, which is not recorded).
+    /// Every company mapping as it stands, by PSA company name, each with the record of the person who chose
+    /// it. A record names the person only when the mapping was made by hand, the record is no older than
+    /// the mapping, and it comes after the tenant's latest clearing of mappings; otherwise the mapping is
+    /// shown as matched by name (ScreenTail matching it while publishing is not recorded), never as the
+    /// choice of someone whose mapping was since cleared.
     /// </summary>
     public static async Task<List<CurrentMapping>> CurrentMappingsAsync(ScreenTailContext db, Guid tenantId, CancellationToken ct = default)
     {
@@ -196,10 +236,20 @@ public static class IntegrationChanges
                 && later.At > c.At))
             .ToListAsync(ct)
             .ConfigureAwait(false);
+        var cleared = await db.IntegrationChanges.AsNoTracking()
+            .Where(c => c.TenantId == tenantId && c.Action == MappingsCleared)
+            .MaxAsync(c => (DateTimeOffset?)c.At, ct)
+            .ConfigureAwait(false);
         var byCompany = latest.GroupBy(c => c.PsaCompany ?? string.Empty, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
         return [.. mappings.Select(m => new CurrentMapping(
             m,
-            byCompany.TryGetValue(m.PsaCompany, out var record) && record.DocCompanyId == m.DocCompanyId ? record : null))];
+            byCompany.TryGetValue(m.PsaCompany, out var record)
+                && m.Confidence == "manual"
+                && record.DocCompanyId == m.DocCompanyId
+                && record.At >= m.CreatedAt
+                && (cleared is not { } clearedAt || record.At > clearedAt)
+                ? record
+                : null))];
     }
 
     /// <summary>The latest connect or replace of each provider, for "Connected by" on its card.</summary>

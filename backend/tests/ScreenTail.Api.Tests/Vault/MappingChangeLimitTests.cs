@@ -56,6 +56,38 @@ public sealed class MappingChangeLimitTests
     }
 
     [Fact]
+    public void TenThousandIdleDevicesDoNotSlowOneDeviceAndAreDroppedOnceIdlePastTheWindow()
+    {
+        // A call expires its own device's entries only, so its cost does not grow with other devices;
+        // a sweep at most once a minute drops the ones idle past the longest window.
+        var clock = new Clock();
+        var limit = new MappingChangeLimit(clock);
+        for (var i = 0; i < 10_000; i++)
+        {
+            Assert.Null(limit.TryTake(Guid.NewGuid()));
+        }
+
+        var device = Guid.NewGuid();
+        var timer = System.Diagnostics.Stopwatch.StartNew();
+        var taken = 0;
+        for (var i = 0; i < 20_000; i++)
+        {
+            taken += limit.TryTake(device) is null ? 1 : 0;
+            _ = limit.TryTakeNewCompany(device, "Acme Dental");
+        }
+
+        timer.Stop();
+        Assert.Equal(MappingChangeLimit.PerDevice, taken);
+        Assert.True(timer.ElapsedMilliseconds < 2000, $"20,000 calls beside 10,000 idle devices took {timer.ElapsedMilliseconds} ms");
+        Assert.Equal(10_001, limit.DevicesHeld);
+
+        clock.Now += MappingChangeLimit.NewCompanyWindow + MappingChangeLimit.SweepEvery;
+        Assert.Null(limit.TryTake(device));
+
+        Assert.Equal(1, limit.DevicesHeld);
+    }
+
+    [Fact]
     public void OnlyTheFirstRefusalOfAWindowIsTheOneTheOwnerIsToldAbout()
     {
         var clock = new Clock();

@@ -159,6 +159,12 @@ public sealed class ScreenTailContext(DbContextOptions<ScreenTailContext> option
 
             // The owner's page: one tenant's latest changes, newest first.
             change.HasIndex(c => new { c.TenantId, c.At });
+
+            // One "older mapping changes removed" row per tenant, so concurrent prunes cannot make two.
+            change.HasIndex(c => c.TenantId)
+                .IsUnique()
+                .HasFilter("\"Action\" = 'mappings_pruned'")
+                .HasDatabaseName("IX_integration_changes_one_pruned_row");
         });
 
         modelBuilder.Entity<VaultState>(state =>

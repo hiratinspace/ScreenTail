@@ -13,7 +13,7 @@ namespace ScreenTail.Api.Tests.Vault;
 public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IClassFixture<PostgresApiFixture>
 {
     [Fact]
-    public async Task PruningByAgeKeepsEachCompanysLatestOnPostgres()
+    public async Task PruningByAgeKeepsTheLatestOnlyForMappedCompaniesOnPostgres()
     {
         api.RequirePostgres();
         var tenantId = Guid.NewGuid();
@@ -23,9 +23,13 @@ public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IC
         var superseded = Old("Acme Dental", 300);
         var latest = Old("Acme Dental", 250);
         var only = Old("Borough Legal", 400);
+        var unmapped = Old("Gone Co", 400);
+        unmapped.Action = IntegrationChanges.Unmapped;
         _ = await api.UseAsync(db =>
         {
-            db.IntegrationChanges.AddRange(superseded, latest, only);
+            db.IntegrationChanges.AddRange(superseded, latest, only, unmapped);
+            db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = "Acme Dental", DocCompanyId = "7", DocCompanyName = "Acme Dental", Confidence = "manual", CreatedAt = now });
+            db.CompanyMappings.Add(new CompanyMapping { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = "Borough Legal", DocCompanyId = "7", DocCompanyName = "Borough Legal", Confidence = "manual", CreatedAt = now });
             return db.SaveChangesAsync();
         });
 
@@ -37,11 +41,37 @@ public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IC
         });
         var left = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId).ToListAsync());
 
-        Assert.Equal(1, removed);
+        Assert.Equal(2, removed);
         Assert.DoesNotContain(left, c => c.Id == superseded.Id);
+        Assert.DoesNotContain(left, c => c.Id == unmapped.Id);
         Assert.Contains(left, c => c.Id == latest.Id);
         Assert.Contains(left, c => c.Id == only.Id);
-        Assert.Equal(1, Assert.Single(left, c => c.Action == IntegrationChanges.MappingsPruned).Removed);
+        Assert.Equal(2, Assert.Single(left, c => c.Action == IntegrationChanges.MappingsPruned).Removed);
+    }
+
+    [Fact]
+    public async Task PrunesAtOnceKeepOneSummaryRowAndLoseNoCountOnPostgres()
+    {
+        // Twenty first prunes at once: one row (the unique index), and every count added to it.
+        api.RequirePostgres();
+        var tenantId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        using var start = new ManualResetEventSlim();
+        var prunes = Enumerable.Range(0, 20).Select(_ => Task.Run(async () =>
+        {
+            start.Wait(TestContext.Current.CancellationToken);
+            await api.UseAsync(async db =>
+            {
+                await IntegrationChanges.CountPrunedAsync(db, tenantId, 3, now, TestContext.Current.CancellationToken);
+                return 0;
+            });
+        })).ToList();
+        start.Set();
+        await Task.WhenAll(prunes);
+
+        var rows = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId).ToListAsync());
+
+        Assert.Equal(60, Assert.Single(rows).Removed);
     }
 
     [Fact]

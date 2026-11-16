@@ -56,6 +56,13 @@ namespace ScreenTail.Api.Data.Migrations
                 name: "IX_integration_changes_TenantId_At",
                 table: "integration_changes",
                 columns: new[] { "TenantId", "At" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_integration_changes_one_pruned_row",
+                table: "integration_changes",
+                column: "TenantId",
+                unique: true,
+                filter: "\"Action\" = 'mappings_pruned'");
         }
 
         /// <inheritdoc />

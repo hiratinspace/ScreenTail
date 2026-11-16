@@ -12,7 +12,7 @@ using ScreenTail.Api.Data;
 namespace ScreenTail.Api.Data.Migrations
 {
     [DbContext(typeof(ScreenTailContext))]
-    [Migration("20261116151201_IntegrationChangesAndVaultBinding")]
+    [Migration("20261116154122_IntegrationChangesAndVaultBinding")]
     partial class IntegrationChangesAndVaultBinding
     {
         /// <inheritdoc />
@@ -269,6 +269,11 @@ namespace ScreenTail.Api.Data.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_integration_changes_one_pruned_row")
+                        .HasFilter("\"Action\" = 'mappings_pruned'");
 
                     b.HasIndex("TenantId", "At");
 

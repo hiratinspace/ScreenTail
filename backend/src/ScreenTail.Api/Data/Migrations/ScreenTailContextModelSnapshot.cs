@@ -267,6 +267,11 @@ namespace ScreenTail.Api.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_integration_changes_one_pruned_row")
+                        .HasFilter("\"Action\" = 'mappings_pruned'");
+
                     b.HasIndex("TenantId", "At");
 
                     b.ToTable("integration_changes", (string)null);

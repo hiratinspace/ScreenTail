@@ -799,9 +799,9 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     [Fact]
     public async Task OldMappingRecordsGoByAgeKeepingTheLatestForEachCompanyAndTheOwnerIsToldHowMany()
     {
-        // Pruned by age, not by count: a record older than MappingsKeptFor goes only when a later one for
-        // the same company explains the current mapping. Credential changes are never pruned. The owner
-        // sees one row saying how many went.
+        // Pruned by age, not by count: a record older than MappingsKeptFor goes unless it is the latest for
+        // a company that is mapped now. A company mapped then unmapped keeps nothing past that age.
+        // Credential changes are never pruned. The owner sees one row saying how many went.
         using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
         var (client, tenantId) = await ConnectedClientAsync(host);
         var now = DateTimeOffset.UtcNow;
@@ -813,9 +813,14 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         var olderRecent = Old("Recent C", 200);
         var recentC = Old("Recent C", 10);
         var oldConnect = Old("ignored", 500, IntegrationChanges.Replaced);
+        var goneMapped = Old("Gone D", 300);
+        var goneUnmapped = Old("Gone D", 250, IntegrationChanges.Unmapped);
+        CompanyMapping Current(string company) =>
+            new() { Id = Guid.NewGuid(), TenantId = tenantId, PsaCompany = company, DocCompanyId = "7", DocCompanyName = "Acme Dental Group", Confidence = "manual", CreatedAt = now.AddDays(-250) };
         _ = await api.UseAsync(db =>
         {
-            db.IntegrationChanges.AddRange(supersededA, latestA, onlyB, olderRecent, recentC, oldConnect);
+            db.IntegrationChanges.AddRange(supersededA, latestA, onlyB, olderRecent, recentC, oldConnect, goneMapped, goneUnmapped);
+            db.CompanyMappings.AddRange(Current("Old A"), Current("Old B"), Current("Recent C"));
             return db.SaveChangesAsync();
         });
 
@@ -831,9 +836,46 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
         Assert.Contains(onlyB.Id, left);
         Assert.Contains(recentC.Id, left);
         Assert.Contains(oldConnect.Id, left);
+        Assert.DoesNotContain(goneMapped.Id, left);
+        Assert.DoesNotContain(goneUnmapped.Id, left);
         var summary = Assert.Single(answer!.Changes, c => c.Action == IntegrationChanges.MappingsPruned);
-        Assert.Equal(2, summary.Removed);
+        Assert.Equal(4, summary.Removed);
         Assert.Equal("screentail", summary.By.Kind);
+    }
+
+    [Fact]
+    public async Task AMappingClearedAndMatchedByNameAgainIsNotCreditedToWhoeverChoseItBefore()
+    {
+        // "Chosen by" names a person only for a mapping made by hand, by a record no older than the
+        // mapping and after the latest clearing; else "Matched by name".
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var acme = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        using var beta = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Beta Law", "7"), TestContext.Current.CancellationToken);
+        using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Beta Law", "7"), TestContext.Current.CancellationToken);
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var before = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        // The site changed (mappings cleared), then publishing matched both names again by itself.
+        var later = DateTimeOffset.UtcNow.AddMinutes(1);
+        _ = await api.UseAsync(async db =>
+        {
+            db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = later, Provider = "hudu", Action = IntegrationChanges.MappingsCleared });
+            _ = await db.SaveChangesAsync();
+            return await db.CompanyMappings.Where(m => m.TenantId == tenantId)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.Confidence, "exact").SetProperty(m => m.CreatedAt, later.AddMinutes(1)));
+        });
+        var after = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        // A manual mapping whose only record is older than the mapping: not credited either.
+        _ = await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId && m.PsaCompany == "Acme Dental")
+            .ExecuteUpdateAsync(s => s.SetProperty(m => m.Confidence, "manual")));
+        var older = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        Assert.All(before!.Mappings, m => Assert.Equal("technician", m.SetBy?.Kind));
+        Assert.All(after!.Mappings, m => Assert.Null(m.SetBy));
+        Assert.Null(Assert.Single(older!.Mappings, m => m.PsaCompany == "Acme Dental").SetBy);
     }
 
     [Fact]
