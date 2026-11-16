@@ -314,6 +314,30 @@ public sealed class HuduCompanyCacheTests
     }
 
     [Fact]
+    public async Task AListThatExpiredWhileItLoadedIsAnsweredAndNotKept()
+    {
+        // 2026-11-15 review: a slow site's list, ready only after its own ten minutes were up, was stored
+        // all the same: never served again, but held until the next lookup found it.
+        var cache = new HuduCompanyCache(_time);
+        var slow = Get(cache);
+        await _load.Started(1);
+
+        _time.Advance(KeepFor);
+        _load.Answer(0, New);
+
+        Assert.Same(New, (await slow).Value);
+        Assert.False(cache.Keeps("t-1"));
+
+        // Just inside its time, it is kept as before.
+        var next = Get(cache);
+        await _load.Started(2);
+        _time.Advance(KeepFor - TimeSpan.FromSeconds(1));
+        _load.Answer(1, Old);
+        Assert.Same(Old, (await next).Value);
+        Assert.True(cache.Keeps("t-1"));
+    }
+
+    [Fact]
     public void WhatTheCacheHoldsNeverPrintsTheKeysFingerprintOrTheCompanies()
     {
         // A log line written one day with an entry in it must not carry a company name (INV-10) or

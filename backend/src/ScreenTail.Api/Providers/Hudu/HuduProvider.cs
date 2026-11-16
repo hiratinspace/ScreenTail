@@ -19,8 +19,21 @@ namespace ScreenTail.Api.Providers.Hudu;
 ///
 /// The base address is the tenant's site; every route below is under <c>api/v1/</c>.
 /// </summary>
-public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions options, HuduCompanyCache cache, string tenantKey, TimeProvider? time = null) : IDocProvider
+/// <param name="log">Where a list with companies left out says how many, and nothing else. Null says nothing.</param>
+public sealed partial class HuduProvider(HttpClient http, string apiKey, HuduOptions options, HuduCompanyCache cache, string tenantKey, TimeProvider? time = null, ILogger<HuduProvider>? log = null) : IDocProvider
 {
+    /// <summary>
+    /// The longest company id read. Hudu's ids are integers (an article is filed under one parsed as an
+    /// int), so anything near this is not Hudu's, and an id this long is never one an article can use.
+    /// </summary>
+    public const int MaxCompanyIdLength = 64;
+
+    /// <summary>
+    /// The longest company name read. Hudu names are a customer's name, a few words; ConnectWise's own
+    /// company name field is 50 characters, and the mapping table takes 200.
+    /// </summary>
+    public const int MaxCompanyNameLength = 200;
+
     private static readonly JsonSerializerOptions Wire = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -56,9 +69,18 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
         // Bounded twice over (2026-10-12 review): a site that answers every page in full would
         // otherwise be paged for ever on the shared backend, and the pages are counted as well as
         // the companies so a misconfigured page size cannot loop on empty ones.
+        //
+        // And bounded in size (2026-11-15 review): the list is kept for every tenant in one process, and a
+        // site that is not Hudu could fill each of 10,000 names with megabytes. A company whose id or name
+        // is longer than any Hudu writes is left out and counted; the list as a whole has a budget of
+        // characters, past which it is refused like a list that is too long.
         var size = Math.Max(1, _options.PageSize);
         var cap = Math.Max(0, _options.MaxCompanies);
+        var budget = Math.Max(0L, _options.MaxCompanyListChars);
         var all = new List<CompanyRef>();
+        var listed = 0;
+        var skipped = 0;
+        long chars = 0;
         for (var page = 1; page <= (cap / size) + 1; page++)
         {
             var batch = ProviderHttp.Read(
@@ -71,14 +93,37 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
                 return ProviderResult.Failure<IReadOnlyList<CompanyRef>>(batch.Error!);
             }
 
-            all.AddRange(batch.Value!);
-            if (all.Count > cap)
+            // Counted as Hudu listed them, kept or not, so a page with a company left out is still a full
+            // page and the paging bound is the same.
+            var (kept, left) = batch.Value!;
+            listed += kept.Count + left;
+            skipped += left;
+            foreach (var company in kept)
+            {
+                chars += company.Id.Length + company.Name.Length;
+            }
+
+            if (chars > budget)
+            {
+                return ProviderResult.Failure<IReadOnlyList<CompanyRef>>(new ProviderError(
+                    ProviderErrorKind.Invalid,
+                    "Hudu listed more company names than ScreenTail reads.",
+                    "Check the site address in Settings → Integrations, or raise Hudu:MaxCompanyListChars on the backend."));
+            }
+
+            all.AddRange(kept);
+            if (listed > cap)
             {
                 break;
             }
 
-            if (batch.Value!.Count < size)
+            if (kept.Count + left < size)
             {
+                if (skipped > 0 && log is not null)
+                {
+                    LeftOut(log, skipped, MaxCompanyIdLength, MaxCompanyNameLength);
+                }
+
                 return ProviderResult.Success<IReadOnlyList<CompanyRef>>(all);
             }
         }
@@ -151,9 +196,32 @@ public sealed class HuduProvider(HttpClient http, string apiKey, HuduOptions opt
     /// One page of companies. The list must be there: a page without it (an empty body, or JSON from
     /// something that is not Hudu's API) throws for <see cref="ProviderHttp.Read{T}"/> to report, rather
     /// than reading as a tenant with no companies and being remembered as one. An empty list is a list.
+    /// A company whose id is over <see cref="MaxCompanyIdLength"/> or whose name is over
+    /// <see cref="MaxCompanyNameLength"/> characters is left out and counted rather than kept.
     /// </summary>
-    private static List<CompanyRef> Companies(JsonElement page) =>
-        [.. page.GetProperty("companies").EnumerateArray().Select(c => new CompanyRef(ProviderHttp.Id(c), c.TryGetProperty("name", out var name) ? name.GetString() ?? string.Empty : string.Empty))];
+    private static (List<CompanyRef> Kept, int Skipped) Companies(JsonElement page)
+    {
+        var kept = new List<CompanyRef>();
+        var skipped = 0;
+        foreach (var c in page.GetProperty("companies").EnumerateArray())
+        {
+            var id = ProviderHttp.Id(c);
+            var name = c.TryGetProperty("name", out var named) ? named.GetString() ?? string.Empty : string.Empty;
+            if (id.Length > MaxCompanyIdLength || name.Length > MaxCompanyNameLength)
+            {
+                skipped++;
+                continue;
+            }
+
+            kept.Add(new CompanyRef(id, name));
+        }
+
+        return (kept, skipped);
+    }
+
+    /// <summary>How many were left out and the limits, never which (INV-10).</summary>
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Hudu listed {Skipped} companies with an id over {MaxId} or a name over {MaxName} characters; they were left out of the company list.")]
+    private static partial void LeftOut(ILogger logger, int skipped, int maxId, int maxName);
 
     /// <summary>The new article's id and link. Hudu wraps it in <c>article</c>; a bare object is read the same way.</summary>
     private static (string Id, Uri? Url) Created(JsonElement answer)
