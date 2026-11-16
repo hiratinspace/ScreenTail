@@ -37,6 +37,11 @@ public static class DevicesEndpoint
     {
         ArgumentNullException.ThrowIfNull(group);
 
+        // Both routes are anonymous, so both read no more than the anonymous routes' 16 KB: a body is a
+        // code and a machine's name, or a 43-character token (2026-11-15 review). On the group, so a route
+        // added here later has it too.
+        _ = group.WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit));
+
         group.MapPost("/activate", async (ActivateDeviceRequest request, ScreenTailContext db, TokenIssuer issuer, ActivationWatch watch, TimeProvider time, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.DeviceName) || request.DeviceName.Length > 200)
@@ -163,14 +168,14 @@ public static class DevicesEndpoint
 
         // Counted per client address with the admin's sign-in (ADR-0009): a guess at a 99-bit code is
         // hopeless, but each still costs a lookup. The token exchange is not, as its secret is 256 bits.
-        // A body is a code and a machine's name, so the anonymous routes' 16 KB is plenty.
         .RequireRateLimiting(AnonymousRateLimit.Policy)
-        .WithMetadata(new Microsoft.AspNetCore.Mvc.RequestSizeLimitAttribute(AdminSession.AnonymousBodyLimit))
         .WithSummary("Activates this device with an invite's code and binds it to the tenant.");
 
         group.MapPost("/token", async (RefreshRequest request, ScreenTailContext db, TokenIssuer issuer, TimeProvider time, CancellationToken ct) =>
         {
-            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+            // A token that could not be one we issued (the wrong length, a character outside base64url)
+            // gets the same 401 as one nobody holds, without hashing it or a lookup.
+            if (!DeviceTokens.IsWellFormed(request.RefreshToken))
             {
                 return Results.Unauthorized();
             }
