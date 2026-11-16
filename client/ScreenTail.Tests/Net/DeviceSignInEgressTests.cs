@@ -240,6 +240,83 @@ public sealed class DeviceSignInEgressTests
     }
 
     [Fact]
+    public async Task TheCallerThatStartedASignInCanGiveUpWithoutCancellingItForTheOneThatJoined()
+    {
+        // A technician cancels the publish that started the sign-in; the policy fetch that joined it still
+        // gets the token, and the cancelled caller stops waiting at once rather than after 20 s.
+        var far = new HeldTokenBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: false), far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, Activated(), time: new ManualTime(T0));
+        var ct = TestContext.Current.CancellationToken;
+        using var publishCancelled = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var publish = device.SignInAsync(EgressPurpose.Publish, publishCancelled.Token);
+        await far.Arrived(1).WaitAsync(TimeSpan.FromSeconds(30), ct);
+        var policy = device.SignInAsync(EgressPurpose.Policy, ct);
+        await publishCancelled.CancelAsync();
+
+        _ = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => publish.WaitAsync(TimeSpan.FromSeconds(30), ct));
+        Assert.False(policy.IsCompleted);
+        far.Release();
+
+        Assert.Equal("access-1", (await policy).Token);
+        Assert.Equal(1, far.Requests);
+    }
+
+    [Fact]
+    public async Task ASharedSignInThatFaultedIsNotSharedAgain()
+    {
+        // The credential save throws once (antivirus holding the file). That sign-in is finished; the next
+        // one sends its own request and succeeds, rather than being handed the old fault.
+        var far = new TokenBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: false), far)) { BaseAddress = Backend };
+        var device = new DeviceSession(http, new SavesAfterOneFailure(), time: new ManualTime(T0));
+        var ct = TestContext.Current.CancellationToken;
+
+        _ = await Assert.ThrowsAsync<InvalidOperationException>(() => device.RefreshAsync(ct));
+        Assert.True(await device.RefreshAsync(ct));
+
+        Assert.Equal(2, far.TokenRequests);
+    }
+
+    [Fact]
+    public async Task AServiceStopEndsASignInAtOnceWithoutAnError()
+    {
+        // The backend never answers. When the service stops, the sign-in ends now, answered rather than
+        // thrown, so the renewal loop does not log the stop as a failed renewal.
+        var far = new SilentBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: false), far)) { BaseAddress = Backend };
+        using var stopping = new CancellationTokenSource();
+        var device = new DeviceSession(http, Activated(), time: new ManualTime(T0)) { Stopping = stopping.Token };
+        var ct = TestContext.Current.CancellationToken;
+
+        var renewal = device.RefreshAsync(CancellationToken.None);
+        var publish = device.SignInAsync(EgressPurpose.Publish, CancellationToken.None);
+        await stopping.CancelAsync();
+
+        Assert.False(await renewal.WaitAsync(TimeSpan.FromSeconds(30), ct));
+        Assert.Contains("stopping", (await publish.WaitAsync(TimeSpan.FromSeconds(30), ct)).Refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TheRenewalLoopEndsQuietlyWhenTheServiceStopsMidSignIn()
+    {
+        var far = new SilentBackend();
+        using var http = new HttpClient(new EgressGuard(Policy(localOnly: false), far)) { BaseAddress = Backend };
+        using var stopping = new CancellationTokenSource();
+        var device = new DeviceSession(http, Activated(), time: new ManualTime(T0)) { Stopping = stopping.Token };
+        var tokenReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failures = new List<Exception>();
+
+        var renewing = StartupOrder.RenewDeviceAsync(device, tokenReady, new Turns(0), stopping.Token, failures.Add);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await stopping.CancelAsync();
+        await renewing.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+
+        Assert.Empty(failures);
+    }
+
+    [Fact]
     public async Task ASignInForAPublishDoesNotWaitOnABackgroundRenewal()
     {
         // A background renewal is the one local-only may refuse where it would let a publish's sign-in
@@ -477,6 +554,27 @@ public sealed class DeviceSignInEgressTests
         }
 
         private static HttpResponseMessage Json(object body) => new(HttpStatusCode.OK) { Content = JsonContent.Create(body) };
+    }
+
+    /// <summary>An activated device whose first credential save throws and whose later ones keep it.</summary>
+    private sealed class SavesAfterOneFailure : IDeviceCredentials
+    {
+        private DeviceCredential? _stored = new("refresh-1", "Acme IT", Guid.NewGuid(), T0);
+        private int _saves;
+
+        public DeviceCredential? Load() => _stored;
+
+        public void Save(DeviceCredential credential)
+        {
+            if (Interlocked.Increment(ref _saves) == 1)
+            {
+                throw new InvalidOperationException("The file is in use by another process.");
+            }
+
+            _stored = credential;
+        }
+
+        public void Clear() => _stored = null;
     }
 
     /// <summary>A backend that takes the request and never answers it.</summary>

@@ -121,15 +121,18 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // Where this deployment's backend is (2026-11-15 review). The address decides where the egress
         // allowlist points and where the tenant's policy comes from, so a locked local-only is only as
         // strong as the place it is read from. An installed build (running from ScreenTail's folder under
-        // Program Files, decided by location and not by signature) reads it only from the machine-wide
-        // setting the installer writes, which only an administrator can change, and ignores
-        // SCREENTAIL_BACKEND and SCREENTAIL_DEVICE_TOKEN. A development build keeps the variables, which
-        // the test loop, the demo and the end-to-end run set for the service's process alone.
-        // DeploymentAddressesTests pins it.
+        // Program Files, or the signed service executable started from anywhere) reads it only from the
+        // machine-wide setting the installer writes, which only an administrator can change, and ignores
+        // SCREENTAIL_BACKEND and SCREENTAIL_DEVICE_TOKEN. A development build (unsigned) keeps the
+        // variables, which the test loop, the demo and the end-to-end run set for the service's process
+        // alone. DeploymentAddressesTests pins it.
         //
         // Unset is the ordinary case and not an error. The queue keeps the work, Review says the session
         // could not be drafted, and the screenshots and transcript are still there (Spec §5 S3).
-        var installed = DeploymentAddresses.InstalledAt(serviceExecutable, Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles));
+        var installed = DeploymentAddresses.Installed(
+            serviceExecutable,
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            _ => PackageSignature.Running() is not null);
         var address = DeploymentAddresses.Resolve(installed, MachineBackend.Read(), Environment.GetEnvironmentVariable);
         var backend = address.Backend;
         LogAddress(logger, installed, address.Origin, address.EnvironmentIgnored);
@@ -182,6 +185,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             // An installed copy with no machine-wide address says an administrator sets it, on the device
             // card and when an activation is refused, rather than a bare "no backend".
             NoBackendNote = address.AdministratorNote,
+            Stopping = stoppingToken,
         };
         // The policy fetch waits for a token to fetch with, and the outbox waits for the policy: see
         // StartupOrder. Both are set once and never reset. Under local-only the renewal does not run on

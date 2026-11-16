@@ -54,6 +54,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const string ErasedRefusal = "Everything on this device is being deleted, so it was not activated.";
     private const string ErasedSignIn = "Everything on this device is being deleted, so it did not sign in.";
+    private const string StoppingSignIn = "ScreenTail is stopping, so this device did not sign in.";
 
     /// <summary>How long a sign-in waits for the backend before saying it did not answer.</summary>
     public static readonly TimeSpan SignInTimeout = TimeSpan.FromSeconds(20);
@@ -80,6 +81,13 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     /// address (<see cref="DeploymentAddresses"/>). Null keeps the plain wording.
     /// </summary>
     public string? NoBackendNote { get; init; }
+
+    /// <summary>
+    /// Cancelled when the service stops (the host passes its stopping token). A sign-in in flight then
+    /// ends at once, answered as not signed in, rather than holding the stop for up to
+    /// <see cref="SignInTimeout"/>; nothing is thrown, so a stop is not logged as a failed renewal.
+    /// </summary>
+    public CancellationToken Stopping { get; init; }
 
     public bool Activated => _credentials.Load() is not null;
 
@@ -269,13 +277,17 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     /// One sign-in at a time, which a caller arriving meanwhile waits for rather than sending its own: a
     /// publish, the policy fetch and the timer in the same second buy one token, not three. A sign-in on
     /// behalf of something does not wait on a background renewal, which local-only may refuse where it
-    /// would not refuse that one. The sign-in is bounded by <see cref="SignInTimeout"/> rather than by the
-    /// first caller's token, so one caller giving up does not cancel it for the others.
+    /// would not refuse that one.
+    ///
+    /// The request runs detached from every caller, the one that started it included: each only waits on
+    /// it with its own token, so a publish the technician cancels, or the service stopping, stops waiting
+    /// at once while the sign-in goes on for whoever else joined it. The request itself is bounded by
+    /// <see cref="SignInTimeout"/> and by <see cref="Stopping"/>. One that faulted is finished, so the next
+    /// sign-in sends a fresh request rather than sharing the fault.
     /// </summary>
     /// <returns>Null when a new token was bought; otherwise why not, in words a technician can read.</returns>
-    private async Task<string?> SharedSignInAsync(EgressPurpose? onBehalfOf, CancellationToken ct)
+    private Task<string?> SharedSignInAsync(EgressPurpose? onBehalfOf, CancellationToken ct)
     {
-        TaskCompletionSource<string?>? mine = null;
         Task<string?> running;
         lock (_gate)
         {
@@ -285,27 +297,17 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
             }
             else
             {
-                mine = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                _signingIn = running = mine.Task;
+                running = Task.Run(() => RefreshCoreAsync(onBehalfOf), CancellationToken.None);
+
+                // Observed here, so a fault nobody is left waiting for (every caller gave up) is not an
+                // unobserved task exception. Each caller still waiting gets it from WaitAsync.
+                _ = running.ContinueWith(static t => _ = t.Exception, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                _signingIn = running;
                 _signingInFor = onBehalfOf;
             }
         }
 
-        if (mine is not null)
-        {
-            try
-            {
-                mine.SetResult(await RefreshCoreAsync(onBehalfOf).ConfigureAwait(false));
-            }
-#pragma warning disable CA1031 // Handed on to every caller waiting on it, this one included, by the await below.
-            catch (Exception ex)
-#pragma warning restore CA1031
-            {
-                mine.SetException(ex);
-            }
-        }
-
-        return await running.WaitAsync(ct).ConfigureAwait(false);
+        return running.WaitAsync(ct);
     }
 
     private async Task<string?> RefreshCoreAsync(EgressPurpose? onBehalfOf)
@@ -337,7 +339,9 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
 
         // A sign-in in front of a publish is waited on by the technician: twenty seconds, not the client's
         // hundred, before saying the backend did not answer.
-        using var timeout = new CancellationTokenSource(SignInTimeout, _time);
+        // Stopping ends it too, answered rather than thrown: a stop is not a failed renewal.
+        using var deadline = new CancellationTokenSource(SignInTimeout, _time);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(deadline.Token, Stopping);
         HttpResponseMessage response;
         try
         {
@@ -349,7 +353,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
         {
-            return NotAnswered;
+            return Stopping.IsCancellationRequested ? StoppingSignIn : NotAnswered;
         }
 
         using (response)
@@ -377,7 +381,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
             }
             catch (OperationCanceledException)
             {
-                return NotAnswered;
+                return Stopping.IsCancellationRequested ? StoppingSignIn : NotAnswered;
             }
 
             if (answer is null || string.IsNullOrEmpty(answer.AccessToken))
