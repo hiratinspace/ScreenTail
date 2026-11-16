@@ -16,6 +16,10 @@
     "busy is the endpoint refusing a device or tenant already drafting as many sessions as it may at",
     "once. It is answered before the bundle is read.",
     "",
+    "local_only is a tenant whose policy locks local-only: nothing is drafted in the cloud, whatever the",
+    "device believes. `drafted_here` means the outbox is told done and the session is drafted on the",
+    "device instead (ST-065 AC3), as are the drafts queued behind it until the policy reaches the device.",
+    "",
     "not_configured is also the answer when the provider refuses this deployment's key, its account or",
     "its model: an operator changes a setting and the queued sessions draft. invalid is only a model",
     "that answered with nothing that can be shown, or a request the provider refused for what was in",
@@ -65,6 +69,12 @@
       "http_status": 400,
       "client": "failed",
       "body": { "status": "rejected", "reason": "A frame id is not an identifier.", "draft": null }
+    },
+    {
+      "name": "local_only",
+      "http_status": 403,
+      "client": "drafted_here",
+      "body": { "status": "local_only", "reason": "Your administrator keeps sessions on the device, so this one is drafted there instead.", "draft": null }
     },
     {
       "name": "cost_cap_reached",

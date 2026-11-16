@@ -1,11 +1,13 @@
 using ScreenTail.Api.Auth;
+using ScreenTail.Api.Data;
 using ScreenTail.Api.Summarize;
+using ScreenTail.Api.Tenancy;
 
 namespace ScreenTail.Api.Endpoints;
 
 /// <param name="Status">
-/// <c>ok</c>, <c>rejected</c>, <c>cost_cap_reached</c>, <c>invalid</c>, <c>busy</c>, <c>not_configured</c>
-/// or <c>unavailable</c>, each with its own HTTP status. The status code is what the client acts on, and
+/// <c>ok</c>, <c>rejected</c>, <c>local_only</c>, <c>cost_cap_reached</c>, <c>invalid</c>, <c>busy</c>,
+/// <c>not_configured</c> or <c>unavailable</c>, each with its own HTTP status. The status code is what the client acts on, and
 /// <c>shared/contracts/summarize-response.v1.json</c> is the list both ends are tested against.
 /// </param>
 public sealed record SummarizeResponse(string Status, string? Reason = null, DraftJson? Draft = null);
@@ -34,6 +36,9 @@ public static class SummarizeEndpoint
     /// </summary>
     private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromDays(1);
 
+    /// <summary>What a device of a tenant whose policy locks local-only is told, in place of a draft.</summary>
+    public const string LocalOnlyReason = "Your administrator keeps sessions on the device, so this one is drafted there instead.";
+
     /// <summary>
     /// Gates the drafting endpoint before its body is read: at most
     /// <see cref="DraftingConcurrency.PerDevice"/> drafts in flight per device and
@@ -50,6 +55,7 @@ public static class SummarizeEndpoint
             SummarizeBundle bundle,
             Caller who,
             SummarizationService summarizer,
+            ScreenTailContext db,
             HttpContext http,
             CancellationToken ct) =>
         {
@@ -63,6 +69,16 @@ public static class SummarizeEndpoint
             // Who is asking was settled before the bundle was read: CallerPolicy refuses a revoked
             // device, a disabled technician or a switched-off tenant on the whole /v1 group, so none of
             // them can read the rules below back out of the 400s (2026-09-20 and 2026-10-12 reviews).
+
+            // A tenant whose policy locks local-only drafts nothing here, whatever its device believes
+            // (2026-11-15 review). The client enforces the lock itself (INV-8, INV-11); this is the same
+            // lock held by the side that does not depend on where the device thinks its backend is, or
+            // on a policy it has not fetched yet. Nothing reaches a model, nothing is written, and the
+            // device drafts the session on its own (ST-065 AC3).
+            if (await Policies.LatestAsync(db, who.TenantId, ct).ConfigureAwait(false) is { LocalOnly: true, LocalOnlyLocked: true })
+            {
+                return Results.Json(new SummarizeResponse("local_only", LocalOnlyReason), statusCode: StatusCodes.Status403Forbidden);
+            }
 
             // Everything the bundle could be wrong about, before a model call is paid for. Two of the
             // 2026-09-19 review's findings were requests that were accepted, billed, and only then found
