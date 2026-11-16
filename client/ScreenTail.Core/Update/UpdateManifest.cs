@@ -51,8 +51,9 @@ public sealed record ManifestVerdict(ManifestOutcome Outcome, UpdateManifest? Ma
 /// wrong: what was signed is what is parsed.
 ///
 /// <b>The order is the point.</b> Nothing inside the payload is read until the signature over it has
-/// verified with a key compiled into this client. Only then is it held to this installation: its
-/// channel, its architecture, a version newer than the installed one and no older than the newest
+/// verified with a key compiled into this client. Only then is it held to that key and to this
+/// installation: its channel, which must be the one the key is trusted for and the one this installation
+/// follows, its architecture, a version newer than the installed one and no older than the newest
 /// already seen, an installed version no older than its minimum, a package URL on an allowed host, a
 /// well-formed SHA-256 and a size within bounds. Any one failing refuses the whole manifest.
 /// </summary>
@@ -74,6 +75,7 @@ public static class UpdateManifestReader
     public const string BadSignature = "The update manifest's signature does not verify, so it was not believed.";
     public const string Malformed = "The update manifest is signed but not in the shape this version reads.";
     public const string WrongChannel = "The update manifest is for another channel.";
+    public const string KeyNotForChannel = "The update manifest is signed with a key this version of ScreenTail does not trust for that manifest's channel.";
     public const string WrongArchitecture = "The update manifest is for another kind of processor.";
     public const string PackageHostNotAllowed = "The update manifest's package is not on a host this version of ScreenTail downloads from.";
     public const string Downgrade = "The update manifest offers a release older than the one installed.";
@@ -99,6 +101,7 @@ public static class UpdateManifestReader
         }
 
         byte[] signedBytes;
+        UpdateChannel signedWith;
         using (var document = Parse(envelope))
         {
             if (document is null || document.RootElement.ValueKind != JsonValueKind.Object)
@@ -137,13 +140,15 @@ public static class UpdateManifestReader
             {
                 return ManifestVerdict.Refuse(BadSignature);
             }
+
+            signedWith = key.Channel;
         }
 
-        return Judge(signedBytes, trust, channel, architecture, installed, newestSeen);
+        return Judge(signedBytes, signedWith, trust, channel, architecture, installed, newestSeen);
     }
 
     /// <summary>The signed bytes, now known to be ours, held to this installation.</summary>
-    private static ManifestVerdict Judge(byte[] signedBytes, UpdateTrust trust, UpdateChannel channel, string architecture, Version installed, Version? newestSeen)
+    private static ManifestVerdict Judge(byte[] signedBytes, UpdateChannel signedWith, UpdateTrust trust, UpdateChannel channel, string architecture, Version installed, Version? newestSeen)
     {
         using var document = Parse(signedBytes);
         if (document is null || document.RootElement.ValueKind != JsonValueKind.Object)
@@ -169,7 +174,20 @@ public static class UpdateManifestReader
             return ManifestVerdict.Refuse(Malformed);
         }
 
-        if (!UpdateChannels.TryParse(channelText, out var manifestChannel) || manifestChannel != channel)
+        if (!UpdateChannels.TryParse(channelText, out var manifestChannel))
+        {
+            return ManifestVerdict.Refuse(WrongChannel);
+        }
+
+        // A key is trusted for one channel. The pilot key signing a stable manifest (or the other way
+        // round) is refused whatever this installation follows, so the channels stay apart even if the
+        // step that signs one of them is changed to sign the other.
+        if (manifestChannel != signedWith)
+        {
+            return ManifestVerdict.Refuse(KeyNotForChannel);
+        }
+
+        if (manifestChannel != channel)
         {
             return ManifestVerdict.Refuse(WrongChannel);
         }

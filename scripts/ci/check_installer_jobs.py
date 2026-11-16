@@ -123,12 +123,15 @@ ENGINE = 'artifacts/installer/work/engine.exe'
 SETUP = 'artifacts/installer/packages/ScreenTail-Setup.exe'
 # ST-113: the update manifests, signed in this job by the Key Vault key, after every signature checks.
 MANIFESTS = 'artifacts/installer/manifests'
+# Each channel has its own key and its own Azure identity (2026-11-15 review): the signing job holds the
+# pilot pair only, and the promotion the stable pair only. Neither workflow names the other's.
 UPDATE_SETTINGS = {
-    'SCREENTAIL_UPDATE_KEY': expr('vars.SCREENTAIL_UPDATE_KEY'),
+    'SCREENTAIL_UPDATE_PILOT_KEY': expr('vars.SCREENTAIL_UPDATE_PILOT_KEY'),
+    'SCREENTAIL_UPDATE_PILOT_CLIENT_ID': expr('vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID'),
     'SCREENTAIL_UPDATE_BASE': expr('vars.SCREENTAIL_UPDATE_BASE'),
     'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
-    'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
 }
+PILOT_ONLY, STABLE_ONLY = 'SCREENTAIL_UPDATE_PILOT_', 'SCREENTAIL_UPDATE_STABLE_'
 
 # installer-sign, step by step. ('uses', action, inputs) or ('run', command, env); an optional fourth
 # item is the step's id, the only place a step may have one.
@@ -160,9 +163,9 @@ PROMOTE_PERMISSIONS = {'contents': 'read', 'actions': 'read', IDT: 'write'}
 PROMOTE_JOB_KEYS = {'name', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'defaults', 'steps'}
 PROMOTE_SETTINGS = {
     'SCREENTAIL_STABLE_RELEASE': expr('vars.SCREENTAIL_STABLE_RELEASE'),
-    'SCREENTAIL_UPDATE_KEY': expr('vars.SCREENTAIL_UPDATE_KEY'),
+    'SCREENTAIL_UPDATE_STABLE_KEY': expr('vars.SCREENTAIL_UPDATE_STABLE_KEY'),
+    'SCREENTAIL_UPDATE_STABLE_CLIENT_ID': expr('vars.SCREENTAIL_UPDATE_STABLE_CLIENT_ID'),
     'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
-    'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
     'PROMOTE_VERSION': expr('inputs.version'),
 }
 # Every other workflow file, parsed, under this key: none of them may ask for a token or upload a manifest.
@@ -215,7 +218,14 @@ MUST_CONTAIN = {
         "Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN",
         "$TrustFile = Join-Path $PSScriptRoot '..\\shared\\release\\update-trust.json'",
         "if (Test-Signature $signedBytes $signature $key.spki) {",
-        "throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
+        "throw 'The vault key''s signature does not verify with any key shared/release/update-trust.json trusts for this channel. Nothing was written.'",
+        # Each key is trusted for one channel, and a signature counts only with a key of its own channel.
+        "$channelKeys = @($keys | Where-Object { $_.channel -ceq $Channel })",
+        "foreach ($key in $channelKeys) {",
+        "if (-not (Find-Key $pilotKeys $pilotBytes",
+        "if ($signedChannel -cne [string]$key.channel) {",
+        "if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {",
+        "if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {",
         "if (@($trusted.packageHosts) -notcontains $packageHost) {",
         "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
         "return $ecdsa.VerifyData($SignedBytes, $Signature)",
@@ -645,6 +655,8 @@ def check_channels(workflow):
     for name, artifact in uploads(workflow):
         if artifact == STABLE_ARTIFACT:
             bad.append(f'job {name} uploads {STABLE_ARTIFACT}; only {PROMOTE_FILE} may')
+    if any(STABLE_ONLY in str(t) for t in strings(workflow)):
+        bad.append(f'ci.yml names a stable update signing setting ({STABLE_ONLY}*); only {PROMOTE_FILE} may')
     return bad
 
 
@@ -665,6 +677,8 @@ def check_promote(promote):
         bad.append(f'{PROMOTE_FILE} workflow env must be exactly {WORKFLOW_ENV}')
     if any(names_context(t) for t in strings(promote)):
         bad.append(f'an expression in {PROMOTE_FILE} names the {CTX} context')
+    if any(PILOT_ONLY in str(t) for t in strings(promote)):
+        bad.append(f'{PROMOTE_FILE} names a pilot update signing setting ({PILOT_ONLY}*); only the signing job may')
     jobs = promote.get('jobs') or {}
     if set(jobs) != {PROMOTE_JOB}:
         return bad + [f'{PROMOTE_FILE} must have exactly one job, {PROMOTE_JOB}']
@@ -834,7 +848,13 @@ SAMPLE_FILES = {
         "if (@($trusted.packageHosts) -notcontains $packageHost) {",
         "$answer = Invoke-RestMethod -Method Post -Uri \"$($vaultKey)/sign?api-version=7.4\"",
         "    if (Test-Signature $signedBytes $signature $key.spki) {",
-        "    throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'",
+        "    throw 'The vault key''s signature does not verify with any key shared/release/update-trust.json trusts for this channel. Nothing was written.'",
+        "$channelKeys = @($keys | Where-Object { $_.channel -ceq $Channel })",
+        "foreach ($key in $channelKeys) {",
+        "    if (-not (Find-Key $pilotKeys $pilotBytes $signature)) {",
+        "    if ($signedChannel -cne [string]$key.channel) {",
+        "        if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {",
+        "if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {",
         "if ($Channel -notin @('pilot', 'stable')) {",
         "    throw 'Stable is signed only by promotion (promote-stable.yml), never by a build.'",
         "    if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {",
@@ -990,10 +1010,19 @@ MUST_FAIL = {
     'the manifests signed before the signatures are checked': on_workflow(lambda w: sign_steps(w).insert(11, sign_steps(w).pop(12))),
     'the manifest step dropped': on_workflow(lambda w: sign_steps(w).pop(12)),
     'the manifest step with another flag': on_workflow(lambda w: sign_steps(w)[12].update(run=sign_steps(w)[12]['run'] + ' -MinimumVersion 9.9.9')),
-    'the manifest step without its key': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_KEY')),
+    'the manifest step without its key': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_PILOT_KEY')),
+    'the manifest step without its identity': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_PILOT_CLIENT_ID')),
+    'the manifest step with the stable key': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTAIL_UPDATE_STABLE_KEY'))),
+    'the manifest step with the code-signing identity': on_workflow(lambda w: sign_steps(w)[12]['env'].update(AZURE_CLIENT_ID=expr('vars.AZURE_CLIENT_ID'))),
+    'the stable identity named anywhere in ci': on_workflow(lambda w: w['jobs']['other']['steps'].append({'run': 'echo ' + expr('vars.SCREENTAIL_UPDATE_STABLE_CLIENT_ID')})),
+    'the script signing with a key of either channel': edit_file('installer/update-manifest.ps1', lambda t: t.replace('foreach ($key in $channelKeys) {', 'foreach ($key in $keys) {')),
+    'the script promoting what any key signed': edit_file('installer/update-manifest.ps1', lambda t: t.replace('Find-Key $pilotKeys', 'Find-Key $keys')),
+    'the script verifying without the key channel': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if ($signedChannel -cne [string]$key.channel) {', 'if ($false) {')),
+    'the script reading keys without a channel': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {", 'if ($false) {')),
+    'the script ignoring the other channel settings': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {', 'if ($false) {')),
     'the manifest step with the code-signing settings': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTAIL_SIGNING_ENDPOINT='x')),
-    'the update key read by a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr('vars.SCREENTAIL_UPDATE_KEY'))),
-    'the update key in a build step env': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(env={'SCREENTAIL_UPDATE_KEY': 'x'})),
+    'the update key read by a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr('vars.SCREENTAIL_UPDATE_PILOT_KEY'))),
+    'the update key in a build step env': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(env={'SCREENTAIL_UPDATE_PILOT_KEY': 'x'})),
     'another job uploading the manifests name': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': MANIFEST_ARTIFACT, 'path': 'x'}})),
     'the manifests uploaded from another folder': on_workflow(lambda w: sign_steps(w)[-1]['with'].update(path='artifacts')),
     'no local check of the vault signature': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if (Test-Signature $signedBytes $signature $key.spki) {', 'if ($true) {')),
@@ -1032,6 +1061,9 @@ MUST_FAIL = {
     'promotion with an unpinned action': on_promote(lambda p: promote_steps(p)[0].update(uses='actions/checkout@v7')),
     'promotion with a second job': on_promote(lambda p: p['jobs'].update(other={'runs-on': HOSTED, 'steps': [{'run': 'x'}]})),
     'promotion naming the credential context': on_promote(lambda p: promote_steps(p)[3]['env'].update(AZURE_CLIENT_ID=expr(CTX + '.X'))),
+    'promotion with the pilot key': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTAIL_UPDATE_PILOT_KEY'))),
+    'promotion with the pilot identity': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTAIL_UPDATE_STABLE_CLIENT_ID=expr('vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID'))),
+    'promotion without its identity': on_promote(lambda p: promote_steps(p)[3]['env'].pop('SCREENTAIL_UPDATE_STABLE_CLIENT_ID')),
     'another workflow asking for a token': lambda w, f: f[OTHERS]['.github/workflows/other.yml'].update(permissions={IDT: 'write'}),
     'another workflow asking for a token in a job': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x'].update(permissions='write-all'),
     'another workflow uploading the stable manifest': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x']['steps'].append({'uses': UPLOAD, 'with': {'name': STABLE_ARTIFACT, 'path': 'x'}}),

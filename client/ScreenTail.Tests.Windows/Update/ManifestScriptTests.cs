@@ -24,17 +24,8 @@ public sealed class ManifestScriptTests : IDisposable
     {
         Directory.CreateDirectory(_dir);
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-        var key = new UpdateKey("test-key", signer.ExportSubjectPublicKeyInfo());
-        var trustPath = Path.Combine(_dir, "trust.json");
-        File.WriteAllText(trustPath, new JsonObject
-        {
-            ["feed"] = "https://updates.screentail.example/feed/",
-            ["packageHosts"] = new JsonArray("downloads.screentail.example"),
-            ["keys"] = new JsonArray(new JsonObject { ["id"] = key.Id, ["spki"] = Convert.ToBase64String(key.SubjectPublicKeyInfo) }),
-        }.ToJsonString());
-        var signed = Encoding.UTF8.GetBytes(
-            """{"format":"screentail-update-v1","channel":"stable","architecture":"x64","version":"0.1.20","minimumVersion":"0.1.0","package":{"url":"https://downloads.screentail.example/0.1.20/ScreenTail.msi","sha256":"""
-            + "\"" + new string('a', 64) + "\",\"size\":4096},\"published\":\"2026-10-28T12:00:00Z\"}");
+        var trustPath = WriteTrust(signer, "stable");
+        var signed = Signed("stable");
         var signature = signer.SignData(signed, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
         var good = Write("good.json", signed, signature);
         var changed = (byte[])signed.Clone();
@@ -46,6 +37,58 @@ public sealed class ManifestScriptTests : IDisposable
 
         Assert.Equal(0, Run(good, trustPath));
         Assert.NotEqual(0, Run(bad, trustPath));
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void TheScriptRefusesAStableManifestSignedWithThePilotKey()
+    {
+        // 2026-11-15 review: a key is trusted for one channel, in the script as in the client. A signature
+        // that verifies is not enough when the key is the other channel's.
+        Directory.CreateDirectory(_dir);
+        using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var trustPath = WriteTrust(signer, "pilot");
+        var signed = Signed("stable");
+        var manifest = Write("stable-by-pilot.json", signed, signer.SignData(signed, HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation));
+
+        var trust = UpdateTrust.Parse(File.ReadAllText(trustPath));
+        var verdict = UpdateManifestReader.Read(File.ReadAllBytes(manifest), trust, UpdateChannel.Stable, "x64", new Version(0, 1, 10));
+        Assert.Equal(UpdateManifestReader.KeyNotForChannel, verdict.Reason);
+
+        // The signature itself verifies, so only the channel check can make this fail.
+        Assert.NotEqual(0, Run(manifest, trustPath));
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void ARunRefusesToSignWhileItCanSeeTheOtherChannelsSettings()
+    {
+        // The pilot run holds the pilot key and identity only. The stable ones in its environment mean
+        // the two environments are not separate, and nothing is read or signed.
+        Directory.CreateDirectory(_dir);
+        var msi = Path.Combine(_dir, "ScreenTail.msi");
+        File.WriteAllBytes(msi, new byte[1024]);
+        string[] release = ["-Channel", "pilot", "-Msi", msi, "-Version", "0.1.20", "-Out", Path.Combine(_dir, "out")];
+
+        // Without the pilot key or the package base this run would otherwise pass as "not configured"
+        // (the test below), so a failure here is the other channel's settings being refused.
+        Assert.NotEqual(0, Script(release, new Dictionary<string, string> { ["SCREENTAIL_UPDATE_STABLE_KEY"] = "https://example.vault.azure.net/keys/stable/" + new string('0', 32) }).Exit);
+        Assert.NotEqual(0, Script(release, new Dictionary<string, string> { ["SCREENTAIL_UPDATE_STABLE_CLIENT_ID"] = Guid.NewGuid().ToString() }).Exit);
+        Assert.NotEqual(0, Script(release, new Dictionary<string, string> { ["SCREENTAIL_UPDATE_KEY"] = "https://example.vault.azure.net/keys/shared/" + new string('0', 32) }).Exit);
+        Assert.False(Directory.Exists(Path.Combine(_dir, "out")));
+    }
+
+    [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
+    public void ABuildWithNothingConfiguredSignsNothingAndSucceeds()
+    {
+        // Today's state: no key and no hosting. The build passes with a notice and writes no manifest.
+        Directory.CreateDirectory(_dir);
+        var msi = Path.Combine(_dir, "ScreenTail.msi");
+        File.WriteAllBytes(msi, new byte[1024]);
+
+        var (exit, said) = Script(["-Channel", "pilot", "-Msi", msi, "-Version", "0.1.20", "-Out", Path.Combine(_dir, "out")]);
+
+        Assert.Equal(0, exit);
+        Assert.Contains("NOT SIGNED", said, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(_dir, "out")));
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
@@ -86,6 +129,23 @@ public sealed class ManifestScriptTests : IDisposable
         }
     }
 
+    private string WriteTrust(ECDsa signer, string channel)
+    {
+        var trustPath = Path.Combine(_dir, "trust.json");
+        File.WriteAllText(trustPath, new JsonObject
+        {
+            ["feed"] = "https://updates.screentail.example/feed/",
+            ["packageHosts"] = new JsonArray("downloads.screentail.example"),
+            ["keys"] = new JsonArray(new JsonObject { ["id"] = "test-key", ["channel"] = channel, ["spki"] = Convert.ToBase64String(signer.ExportSubjectPublicKeyInfo()) }),
+        }.ToJsonString());
+        return trustPath;
+    }
+
+    private static byte[] Signed(string channel) => Encoding.UTF8.GetBytes(
+        "{\"format\":\"screentail-update-v1\",\"channel\":\"" + channel + "\",\"architecture\":\"x64\",\"version\":\"0.1.20\",\"minimumVersion\":\"0.1.0\","
+        + "\"package\":{\"url\":\"https://downloads.screentail.example/0.1.20/ScreenTail.msi\",\"sha256\":\"" + new string('a', 64) + "\",\"size\":4096},"
+        + "\"published\":\"2026-10-28T12:00:00Z\"}");
+
     private string Write(string name, byte[] signed, byte[] signature)
     {
         var path = Path.Combine(_dir, name);
@@ -109,7 +169,7 @@ public sealed class ManifestScriptTests : IDisposable
         return output;
     }
 
-    private static (int Exit, string Output) Script(string[] arguments)
+    private static (int Exit, string Output) Script(string[] arguments, IReadOnlyDictionary<string, string>? environment = null)
     {
         var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"))
         {
@@ -123,9 +183,20 @@ public sealed class ManifestScriptTests : IDisposable
         }
 
         // Nothing of a real signing configuration reaches the script from the test's environment.
-        foreach (var name in (string[])["SCREENTAIL_STABLE_RELEASE", "SCREENTAIL_UPDATE_KEY", "SCREENTAIL_UPDATE_BASE", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "PROMOTE_VERSION"])
+        string[] signingSettings =
+        [
+            "SCREENTAIL_STABLE_RELEASE", "SCREENTAIL_UPDATE_KEY", "SCREENTAIL_UPDATE_PILOT_KEY", "SCREENTAIL_UPDATE_STABLE_KEY",
+            "SCREENTAIL_UPDATE_PILOT_CLIENT_ID", "SCREENTAIL_UPDATE_STABLE_CLIENT_ID", "SCREENTAIL_UPDATE_BASE",
+            "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", "PROMOTE_VERSION",
+        ];
+        foreach (var name in signingSettings)
         {
             _ = start.Environment.Remove(name);
+        }
+
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
+        {
+            start.Environment[name] = value;
         }
 
         using var process = Process.Start(start) ?? throw new InvalidOperationException("PowerShell did not start.");

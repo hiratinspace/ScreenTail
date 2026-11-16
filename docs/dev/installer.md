@@ -197,6 +197,8 @@ nobody signed never updates itself either.
 ### What the client checks
 
 - The manifest's ECDSA P-256 signature, with a key compiled into the client, before anything in it is read.
+- That the key is trusted for the manifest's channel: each key in the trust file is for pilot or for
+  stable, never both, so the pilot key cannot make a stable release (nor the stable key a pilot one).
 - Its channel (the device's: stable or pilot; the channel is inside the signed bytes), its architecture,
   a version newer than the installed one and not older than one this installation already saw, an
   installed version not older than the release's minimum, a package URL on a compiled-in host, a
@@ -222,27 +224,61 @@ themselves stops update checks whatever this says.
 
 None of these is in the repository except the trust file, which changes in a reviewed pull request.
 
-1. **Azure Key Vault:** a vault (Premium, for an HSM-backed key) and an **EC P-256** key for signing. Give
-   the signing app registration a role on that key that allows only `keys/sign/action` (a custom role;
-   *Key Vault Crypto User* works but allows more). Note the key identifier **with its version**.
-2. **The public key, in a pull request:** `az keyvault key download --vault-name <vault> --name <key>
-   --encoding DER --file key.der`, then its base64 into `shared/release/update-trust.json` under `keys`
-   with an id. Never commit the key file itself to anything but that one public value.
-3. **Hosting (ST-007), in the same pull request:** the feed URL (an HTTPS folder ending in `/`) and the
+**Pilot and stable are separate from the first day: two keys, two Azure identities, two environments.**
+Each key in the trust file is trusted for one channel, and the client believes a manifest only when the
+key that signed it is trusted for the channel the manifest names. So the signing job, which every push
+to main runs, can only ever make a pilot release: it holds the pilot key's identity and nothing else,
+and a stable manifest signed with the pilot key is refused by every installation. A stable release
+needs the stable key, which only the `release-stable` environment's identity can use, behind the
+owner's approval.
+
+1. **Azure Key Vault, two keys:** a vault (Premium, for HSM-backed keys) with two **EC P-256** keys for
+   signing, for example `screentail-update-pilot` and `screentail-update-stable`. Never one key for both:
+   the trust file and the client refuse the same key listed for two channels. Note each key identifier
+   **with its version**.
+2. **Azure, two app registrations for the manifests** (separate from the Artifact Signing one above),
+   for example `screentail-update-pilot` and `screentail-update-stable`:
+   - the pilot one gets a federated credential for entity type *Environment*, name `signing`
+     (subject `repo:<owner>/<repo>:environment:signing`), and on the **pilot key only** a role that
+     allows only `keys/sign/action` (a custom role; *Key Vault Crypto User* works but allows more);
+   - the stable one gets a federated credential for entity type *Environment*, name `release-stable`
+     (subject `repo:<owner>/<repo>:environment:release-stable`), and the same role on the **stable key
+     only**.
+   Give neither any role on the other's key, nor on the vault as a whole.
+3. **The public keys, in a pull request:** for each key, `az keyvault key download --vault-name <vault>
+   --name <key> --encoding DER --file key.der`, then its base64 into `shared/release/update-trust.json`
+   under `keys`, with an id and its channel:
+   `{ "id": "pilot-2026-1", "channel": "pilot", "spki": "..." }` and
+   `{ "id": "stable-2026-1", "channel": "stable", "spki": "..." }`. Never commit the key file itself to
+   anything but that one public value.
+4. **Hosting (ST-007), in the same pull request:** the feed URL (an HTTPS folder ending in `/`) and the
    exact host names packages are served from, into `feed` and `packageHosts`. **If a CDN redirects the
    download, list every host it redirects to, exactly, in `packageHosts` too**: the client follows a
    redirect only onto a listed host, so an unlisted CDN edge host makes every download fail.
-4. **GitHub, the `signing` environment:** variables `SCREENTAIL_UPDATE_KEY` (the versioned key
-   identifier) and `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in `/`). From then on
-   every signed build on main also writes `pilot/win-x64.json` (artifact `screentail-update-manifests`,
-   kept 90 days). **Builds are signed for pilot only.**
-5. **GitHub, a new environment `release-stable`**, for promotion to stable. Mandatory: deployment
-   branches `main` only, and required reviewers (the owner). Variables: `SCREENTAIL_STABLE_RELEASE` =
-   `true`, `SCREENTAIL_UPDATE_KEY`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`. In Azure, a second federated
-   credential on the app registration for entity type *Environment*, name `release-stable`. Until this
-   exists, the promotion workflow fails closed. **Never set `SCREENTAIL_STABLE_RELEASE` as a repository
-   or organisation variable**: a job falls back to those when its environment has no such variable, which
-   would open the gate.
+5. **GitHub, the `signing` environment** (it already has deployment branches `main` only, from "Switch
+   signing on"): **environment** variables `SCREENTAIL_UPDATE_PILOT_KEY` (the pilot key's versioned
+   identifier), `SCREENTAIL_UPDATE_PILOT_CLIENT_ID` (the pilot app registration's client id) and
+   `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in `/`). From then on every signed build
+   on main also writes `pilot/win-x64.json` (artifact `screentail-update-manifests`, kept 90 days).
+   **Builds are signed for pilot only.**
+6. **GitHub, a new environment `release-stable`**, for promotion to stable. Mandatory: deployment
+   branches `main` only, and required reviewers (the owner; tick *Prevent self-review* if anyone else can
+   push to main). **Environment** variables: `SCREENTAIL_STABLE_RELEASE` = `true`,
+   `SCREENTAIL_UPDATE_STABLE_KEY` (the stable key's versioned identifier),
+   `SCREENTAIL_UPDATE_STABLE_CLIENT_ID` (the stable app registration's client id) and `AZURE_TENANT_ID`.
+   Until this exists, the promotion workflow fails closed.
+
+**Set every one of these on its environment, never as a repository or organisation variable**: a job
+falls back to those when its environment has no such variable, which would put one channel's settings
+in front of the other's job (and `SCREENTAIL_STABLE_RELEASE` there would open the gate). The script
+refuses to sign while it can see the other channel's settings, and `scripts/ci/check_installer_jobs.py`
+fails a change that names them in the wrong workflow. The old shared names (`SCREENTAIL_UPDATE_KEY`,
+and `AZURE_CLIENT_ID` for the manifests) are not used: the script refuses to run while
+`SCREENTAIL_UPDATE_KEY` is set.
+
+Rotating a key: add the new one for the same channel in a pull request, ship a release signed by the
+old key, then switch that environment's `..._KEY` variable to the new key; remove the old key from the
+trust file a release later.
 
 ### Release to pilot, then promote to stable
 

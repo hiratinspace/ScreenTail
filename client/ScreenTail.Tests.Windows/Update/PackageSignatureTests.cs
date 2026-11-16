@@ -148,7 +148,7 @@ public sealed class PackageSignatureTests : IDisposable
         // holds its handle.
         using var signer = ECDsa.Create(ECCurve.NamedCurves.nistP256);
         var package = Encoding.ASCII.GetBytes(new string('m', 8192));
-        var trust = new UpdateTrust(new Uri("https://updates.screentail.example/feed/"), new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "downloads.screentail.example" }, [new UpdateKey("k", signer.ExportSubjectPublicKeyInfo())]);
+        var trust = new UpdateTrust(new Uri("https://updates.screentail.example/feed/"), new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "downloads.screentail.example" }, [new UpdateKey("k", UpdateChannel.Stable, signer.ExportSubjectPublicKeyInfo())]);
         var feed = new Feed(Manifest(signer, package), package);
         var updatesFolder = Path.Combine(_dir, "Updates");
         using var updates = new UpdateService(
