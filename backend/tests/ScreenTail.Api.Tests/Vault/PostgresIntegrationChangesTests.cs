@@ -1,0 +1,71 @@
+using Microsoft.EntityFrameworkCore;
+using ScreenTail.Api.Data;
+using ScreenTail.Api.Tests.Tenancy;
+using ScreenTail.Api.Vault;
+
+namespace ScreenTail.Api.Tests.Vault;
+
+/// <summary>
+/// The mapping record's pruning and per-device limit on a real Postgres (2026-11-15 review): both are a
+/// correlated delete and an ordered count, which SQLite and Npgsql translate on their own. Skips without
+/// <see cref="PostgresApiFixture.Variable"/>; fails on CI without it.
+/// </summary>
+public sealed class PostgresIntegrationChangesTests(PostgresApiFixture api) : IClassFixture<PostgresApiFixture>
+{
+    [Fact]
+    public async Task PruningByAgeKeepsEachCompanysLatestOnPostgres()
+    {
+        api.RequirePostgres();
+        var tenantId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        IntegrationChange Old(string company, int daysAgo) =>
+            new() { Id = Guid.NewGuid(), TenantId = tenantId, At = now.AddDays(-daysAgo), Provider = "hudu", Action = IntegrationChanges.Mapped, PsaCompany = company };
+        var superseded = Old("Acme Dental", 300);
+        var latest = Old("Acme Dental", 250);
+        var only = Old("Borough Legal", 400);
+        _ = await api.UseAsync(db =>
+        {
+            db.IntegrationChanges.AddRange(superseded, latest, only);
+            return db.SaveChangesAsync();
+        });
+
+        var removed = await api.UseAsync(async db =>
+        {
+            var count = await IntegrationChanges.PruneAsync(db, tenantId, now, TestContext.Current.CancellationToken);
+            _ = await db.SaveChangesAsync(TestContext.Current.CancellationToken);
+            return count;
+        });
+        var left = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId).ToListAsync());
+
+        Assert.Equal(1, removed);
+        Assert.DoesNotContain(left, c => c.Id == superseded.Id);
+        Assert.Contains(left, c => c.Id == latest.Id);
+        Assert.Contains(left, c => c.Id == only.Id);
+        Assert.Equal(1, Assert.Single(left, c => c.Action == IntegrationChanges.MappingsPruned).Removed);
+    }
+
+    [Fact]
+    public async Task TheDeviceLimitCountsTheWindowOnPostgres()
+    {
+        api.RequirePostgres();
+        var tenantId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        _ = await api.UseAsync(db =>
+        {
+            for (var i = 0; i < IntegrationChanges.MappingChangesPerDevice; i++)
+            {
+                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, DeviceId = deviceId, At = now.AddSeconds(-i), Provider = "hudu", Action = IntegrationChanges.Mapped, PsaCompany = $"Company {i}" });
+            }
+
+            return db.SaveChangesAsync();
+        });
+
+        var wait = await api.UseAsync(db => IntegrationChanges.MappingWaitAsync(db, tenantId, deviceId, now, TestContext.Current.CancellationToken));
+        var otherDevice = await api.UseAsync(db => IntegrationChanges.MappingWaitAsync(db, tenantId, Guid.NewGuid(), now, TestContext.Current.CancellationToken));
+
+        Assert.NotNull(wait);
+        Assert.True(wait > TimeSpan.FromMinutes(9), $"waits {wait}");
+        Assert.Null(otherDevice);
+    }
+}
