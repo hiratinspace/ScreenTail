@@ -67,6 +67,16 @@ curl -X PUT "$BACKEND/v1/integrations/connectwise" \
 developer.connectwise.com. It is ours, not the tenant's, set once per deployment like the vault's master
 key. Without it every call is refused before it is sent, with a message naming the setting.
 
+**Accepted (2026-11-15 security review): the clientId goes to whichever site a tenant stores.** It is
+sent on every call, so a tenant that stores a site it controls sees it. ScreenTail does not limit
+ConnectWise calls to ConnectWise's own hosts, because ConnectWise PSA also runs on premises under each
+customer's own domain, and an allowlist would lock those tenants out. The clientId is a public
+identifier of the integration, not an access credential: it names the vendor to ConnectWise for
+support and usage, and it reads and writes nothing without a tenant's own API member keys, which are
+never sent anywhere but the site they were stored with. If it ever leaked in a way that mattered, it
+is replaced at developer.connectwise.com and set again as `ConnectWise:ClientId`; no tenant has to
+change anything.
+
 ## The sandbox check
 
 Not yet run: it needs a ConnectWise sandbox, which is on the owner's list (`docs/STATUS.md` §5). When

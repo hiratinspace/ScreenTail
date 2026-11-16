@@ -8,6 +8,7 @@
     "",
     "`company` is the PSA's name for the ticket's company, as the search returned it; the backend maps it to",
     "the documentation platform's company for a knowledge-base article (ST-097) and never stores the ticket.",
+    "`reviewer` is accepted and ignored: the footer always names the technician the device token belongs to.",
     "The note is the session.v1 draft as edited in Review: a step carries `confirmed` when the technician",
     "checked it and `transcript_refs` when it quotes the transcript, and omits both otherwise. The frames are the included ones only, in strip",
     "order, each as base64 bytes -- already redacted on the device (INV-1) and held by the backend for this",
