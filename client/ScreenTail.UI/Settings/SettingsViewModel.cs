@@ -64,21 +64,21 @@ public sealed partial class SettingsViewModel : ObservableObject
         Integrations = integrations ?? throw new ArgumentNullException(nameof(integrations));
         Appearance = appearance ?? throw new ArgumentNullException(nameof(appearance));
         Updates = updates ?? throw new ArgumentNullException(nameof(updates));
-        integrations.UsePageSave();
-        Page = new SettingsPage([capture.Section, privacy.Section, integrations.Section, appearance.Section, updates.Section]);
+        // Integrations is not on the Save bar: its cards are read only (the owner manages them in the web
+        // admin), and Test connection and the company mapping act at once.
+        Page = new SettingsPage([capture.Section, privacy.Section, appearance.Section, updates.Section]);
         Sections =
         [
             new SettingsNavItem("Activation", "Activation"),
             new SettingsNavItem(capture.Section.Name, "Capture"),
             new SettingsNavItem(privacy.Section.Name, "Privacy"),
-            new SettingsNavItem(integrations.Section.Name, "Integrations"),
+            new SettingsNavItem("Integrations", "Integrations"),
             new SettingsNavItem(appearance.Section.Name, "Appearance"),
             new SettingsNavItem(updates.Section.Name, "Updates"),
         ];
         SelectedSection = Sections[0];
         capture.Edited += (_, _) => Show();
         privacy.Edited += (_, _) => Show();
-        integrations.Edited += (_, _) => Show();
         appearance.Edited += (_, _) => Show();
         updates.Edited += (_, _) => Show();
         Show();
@@ -202,13 +202,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         JumpRequested?.Invoke(this, item.Key);
     }
 
-    private async Task ShowSectionsAsync()
+    private Task ShowSectionsAsync()
     {
         Capture.Refresh();
         Privacy.Refresh();
         Appearance.Refresh();
         Updates.Refresh();
-        await Integrations.RefreshAsync().ConfigureAwait(true);
+        return Task.CompletedTask;
     }
 
     private void Show()

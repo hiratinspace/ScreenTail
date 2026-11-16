@@ -160,6 +160,73 @@ public sealed class PsaGatewayTests
         Assert.EndsWith("/v1/integrations/hudu/companies/Acme%20Dental", unmapping.Asked!.AbsoluteUri, StringComparison.Ordinal);
     }
 
+    private const string OwnerOnlySentence = "Your ScreenTail owner manages this connection in the web admin. Ask them to connect or change it there.";
+
+    private static HttpResponseMessage OwnerOnly(string? message = OwnerOnlySentence) => new(HttpStatusCode.Forbidden)
+    {
+        Content = message is null
+            ? JsonContent.Create(new { error = "owner_only" })
+            : JsonContent.Create(new { error = "owner_only", message }),
+    };
+
+    [Theory]
+    [InlineData("store")]
+    [InlineData("remove")]
+    public async Task AStoreOrRemoveTheBackendKeepsForTheOwnerIsItsSentenceAsARefusal(string call)
+    {
+        // Integration credentials can only be changed by the tenant owner, in the web admin: the backend
+        // answers a device with 403 owner_only. The answer is the backend's sentence, never a throw, and
+        // never "this device may not publish", which a bare 403 reads as.
+        using var handler = new RecordingHandler(OwnerOnly());
+        var gateway = Gateway(handler);
+
+        var answer = call == "store"
+            ? await gateway.StoreIntegrationAsync("connectwise", "https://na.myconnectwise.net", "acme+PUB:PRIV", TestContext.Current.CancellationToken)
+            : await gateway.RemoveIntegrationAsync("hudu", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(OwnerOnlySentence, answer.Refusal);
+        Assert.Equal(1, handler.Requests);
+    }
+
+    [Fact]
+    public async Task AnOwnerOnlyRefusalWithoutASentenceStillSaysWhoManagesTheConnection()
+    {
+        using var handler = new RecordingHandler(OwnerOnly(message: null));
+
+        var answer = await Gateway(handler).StoreIntegrationAsync("hudu", "https://acme.huducloud.com", "key", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(PsaGateway.OwnerOnly, answer.Refusal);
+        Assert.DoesNotContain("may not publish", answer.Refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AnOwnerOnlyRefusalLogsNothingAndWritesNoAuditRow()
+    {
+        // INV-10: a refused store carried a secret out; nothing of it, or of the refusal, is logged.
+        using var handler = new RecordingHandler(OwnerOnly());
+        using var lines = new StringWriter();
+        using var logs = new ScreenTail.Shared.Logging.ScrubbingLoggerProvider(lines, Microsoft.Extensions.Logging.LogLevel.Trace);
+        var audit = new RecordingAudit();
+
+        _ = await Gateway(handler, audit, logs.CreateLogger("integrations")).StoreIntegrationAsync("connectwise", "https://na.myconnectwise.net", "acme+PUB:PRIV", TestContext.Current.CancellationToken);
+
+        Assert.Equal(string.Empty, lines.ToString());
+        Assert.Empty(audit.Rows);
+    }
+
+    [Fact]
+    public async Task ABare403IsStillReadAsAnEnrolmentProblem()
+    {
+        // Only owner_only is the owner's; a 403 without it keeps its earlier words.
+        using var handler = new RecordingHandler(new HttpResponseMessage(HttpStatusCode.Forbidden));
+
+        var answer = await Gateway(handler).StoreIntegrationAsync("hudu", "https://acme.huducloud.com", "key", TestContext.Current.CancellationToken);
+
+        Assert.Equal("This device may not publish. Its enrolment was revoked or its token expired.", answer.Refusal);
+    }
+
     [Fact]
     public async Task CompanyMappingsAreListedAndAMappingIsPut()
     {
