@@ -256,6 +256,94 @@ describe('IntegrationsPage', () => {
     await waitFor(() => expect(api.integrations).toHaveBeenCalledTimes(2));
   });
 
+  it('goes back to its buttons when a disconnect fails but the list says it is gone', async () => {
+    const api = fakeApi();
+    api.disconnectIntegration.mockImplementation(async () => {
+      throw new ApiError(500, 'The server answered 500. Try again.');
+    });
+    api.integrations.mockResolvedValueOnce(integrations).mockResolvedValue(nothingConnected);
+    render(<IntegrationsPage api={api} />);
+
+    const cw = await screen.findByRole('region', { name: 'ConnectWise Manage' });
+    fireEvent.click(within(cw).getByRole('button', { name: 'Disconnect' }));
+    fireEvent.click(within(cw).getByRole('button', { name: 'Disconnect ConnectWise Manage' }));
+
+    expect((await within(cw).findByRole('alert')).textContent).toBe('The server answered 500. Try again.');
+    expect(await within(cw).findByRole('button', { name: 'Connect' })).toBeDefined();
+    expect(within(cw).queryByRole('group')).toBeNull();
+  });
+
+  it.each([
+    [404, 'There is nothing connected to remove.'],
+    [0, 'ScreenTail could not reach the server. Check your connection and try again.'],
+  ])('closes the question when a disconnect answers %i', async (status, message) => {
+    const api = fakeApi();
+    api.disconnectIntegration.mockImplementation(async () => {
+      throw new ApiError(status, message);
+    });
+    render(<IntegrationsPage api={api} />);
+
+    const cw = await screen.findByRole('region', { name: 'ConnectWise Manage' });
+    fireEvent.click(within(cw).getByRole('button', { name: 'Disconnect' }));
+    fireEvent.click(within(cw).getByRole('button', { name: 'Disconnect ConnectWise Manage' }));
+
+    expect((await within(cw).findByRole('alert')).textContent).toBe(message);
+    await waitFor(() => expect(within(cw).queryByRole('group')).toBeNull());
+    expect(within(cw).getByRole('button', { name: 'Test connection' })).toBeDefined();
+    await waitFor(() => expect(api.integrations).toHaveBeenCalledTimes(2));
+  });
+
+  it('shows the newest read of the list when two answer out of order', async () => {
+    const both: Integrations = {
+      integrations: [integrations.integrations[0]!, { ...huduConnected.integrations[1]! }],
+      changes: [],
+    };
+    const withError = (text: string): Integrations => ({
+      ...both,
+      integrations: both.integrations.map((row) => ({ ...row, lastCheckedAt: checked, lastResult: 'failed', lastError: text })),
+    });
+    let answerOlder: (value: Integrations) => void = () => undefined;
+    let answerNewer: (value: Integrations) => void = () => undefined;
+    const api = fakeApi();
+    api.integrations
+      .mockResolvedValueOnce(both)
+      .mockImplementationOnce(() => new Promise<Integrations>((resolve) => (answerOlder = resolve)))
+      .mockImplementationOnce(() => new Promise<Integrations>((resolve) => (answerNewer = resolve)));
+    render(<IntegrationsPage api={api} />);
+
+    const cw = await screen.findByRole('region', { name: 'ConnectWise Manage' });
+    const hudu = screen.getByRole('region', { name: 'Hudu' });
+    fireEvent.click(within(cw).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(api.integrations).toHaveBeenCalledTimes(2));
+    fireEvent.click(within(hudu).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() => expect(api.integrations).toHaveBeenCalledTimes(3));
+
+    answerNewer(withError('newest'));
+    await waitFor(() => expect(within(cw).getAllByText('newest').length).toBeGreaterThan(0));
+    answerOlder(withError('stale'));
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(within(cw).queryByText('stale')).toBeNull();
+    expect(within(cw).getByText('newest')).toBeDefined();
+  });
+
+  it('says the session ended when a save is answered 401', async () => {
+    const api = fakeApi({ integrations: async () => nothingConnected });
+    api.connectIntegration.mockImplementation(async () => {
+      throw new ApiError(401, 'Your session has ended. Sign in again.');
+    });
+    render(<IntegrationsPage api={api} />);
+
+    const hudu = await screen.findByRole('region', { name: 'Hudu' });
+    fireEvent.click(within(hudu).getByRole('button', { name: 'Connect' }));
+    type(hudu, 'Site', 'https://acme.huducloud.example');
+    type(hudu, 'API key', 'k');
+    fireEvent.click(within(hudu).getByRole('button', { name: 'Save and test' }));
+
+    expect((await within(hudu).findByRole('alert')).textContent).toBe('Your session has ended. Sign in again.');
+    expect(api.checkIntegration).not.toHaveBeenCalled();
+  });
+
   it('says that disconnecting Hudu forgets its company mappings', async () => {
     render(<IntegrationsPage api={fakeApi({ integrations: async () => huduConnected })} />);
 

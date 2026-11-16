@@ -110,6 +110,15 @@ describe('httpApi', () => {
     }
   });
 
+  it('turns a 401 on an integrations write into the signed-out sentence', async () => {
+    backend([{ status: 401 }]);
+
+    const refused = await httpApi().connectIntegration('hudu', 'https://acme.huducloud.example', 'k').catch((e: unknown) => e);
+
+    expect((refused as ApiError).status).toBe(401);
+    expect((refused as ApiError).message).toBe('Your session has ended. Sign in again.');
+  });
+
   it('turns a bare 413 into a sentence', async () => {
     backend([{ status: 413 }]);
 

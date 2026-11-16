@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
-import type {
-  AdminApi,
-  Integration,
-  IntegrationActor,
-  IntegrationChange,
-  IntegrationCheck,
-  IntegrationProvider,
-  Integrations,
+import {
+  ApiError,
+  type AdminApi,
+  type Integration,
+  type IntegrationActor,
+  type IntegrationChange,
+  type IntegrationCheck,
+  type IntegrationProvider,
+  type Integrations,
 } from '../api';
 import { absoluteDate, absoluteTime, messageOf } from './format';
 import { Time } from './Time';
@@ -26,13 +27,22 @@ function isProvider(provider: string): provider is IntegrationProvider {
 export function IntegrationsPage({ api }: { api: AdminApi }) {
   const [data, setData] = useState<Integrations>();
   const [error, setError] = useState<string>();
+  const latest = useRef(0);
 
+  // Reads can overlap (a test and a disconnect both read the list again); only the newest one's answer
+  // is shown, so a slow older answer cannot put back a card that was just disconnected.
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     try {
-      setData(await api.integrations());
-      setError(undefined);
+      const answer = await api.integrations();
+      if (mine === latest.current) {
+        setData(answer);
+        setError(undefined);
+      }
     } catch (e) {
-      setError(messageOf(e));
+      if (mine === latest.current) {
+        setError(messageOf(e));
+      }
     }
   }, [api]);
 
@@ -82,6 +92,9 @@ function IntegrationCard({ row, api, onChanged }: { row: Integration; api: Admin
   const [outcome, setOutcome] = useState<Outcome>();
   const heading = useRef<HTMLHeadingElement>(null);
   const provider = isProvider(row.provider) ? row.provider : undefined;
+  // A question about disconnecting something no longer connected (removed elsewhere, or a disconnect
+  // that failed but did happen) is not asked: the card shows its buttons instead.
+  const shown: Mode = mode === 'confirm' && !row.connected ? 'view' : mode;
   const headingId = `int-${row.provider}`;
 
   async function check(which: IntegrationProvider, waiting = `Testing the connection to ${row.name}.`) {
@@ -118,6 +131,11 @@ function IntegrationCard({ row, api, onChanged }: { row: Integration; api: Admin
       setOutcome({ tone: 'waiting', text: `${row.name} is disconnected.` });
     } catch (e) {
       setError(messageOf(e));
+      // Already gone (404), or the server could not be reached: the question no longer helps, so the
+      // card goes back to its buttons, and the list read below says what is connected.
+      if (e instanceof ApiError && (e.status === 404 || e.status === 0)) {
+        close();
+      }
     } finally {
       setBusy(false);
     }
@@ -157,15 +175,15 @@ function IntegrationCard({ row, api, onChanged }: { row: Integration; api: Admin
         </dl>
       )}
 
-      {provider && mode === 'form' && (
+      {provider && shown === 'form' && (
         <ConnectForm row={row} provider={provider} api={api} onSaved={() => void saved(provider)} onCancel={close} />
       )}
 
-      {provider && mode === 'confirm' && row.connected && (
+      {provider && shown === 'confirm' && (
         <DisconnectQuestion row={row} provider={provider} busy={busy} onKeep={close} onDisconnect={() => void disconnect(provider)} />
       )}
 
-      {provider && mode === 'view' && (
+      {provider && shown === 'view' && (
         <div className="actions">
           {row.connected ? (
             <>
