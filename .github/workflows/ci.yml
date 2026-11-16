@@ -1108,6 +1108,13 @@ jobs:
       - name: The installer jobs run on hosted runners, and only main can sign
         run: python3 scripts/ci/check_installer_jobs.py .
 
+      # ST-018. The hardware gate below is a script, and what it answers decides whether a capture change
+      # merges. This runs that exact script against made-up laptop results: a skipped laptop job is no
+      # evidence and never a pass, a laptop that is off or a fork's pull request is labelled and not
+      # blocked, and a failed job fails (scripts/ci/check_hardware_gate.py, 2026-11-15 review).
+      - name: The hardware gate counts a skipped laptop job as no evidence
+        run: python3 scripts/ci/check_hardware_gate.py .
+
       - name: No duplicate keys, every job has steps
         run: |
           python3 - <<'EOF'
@@ -1199,30 +1206,53 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PR: ${{ github.event.pull_request.number }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
           required='Spare laptop - capabilities and real-window tests
           Spare laptop - input injection (takes over the keyboard)'
 
-          if [ "${HW_RUNNER:-false}" != "true" ]; then
-            # The laptop is off. Saying so on the pull request is the point: this is the state in which
-            # every capture claim on the branch is unverified, and it should be visible rather than
-            # inferred from a workflow that quietly did not run.
+          # No evidence, said on the pull request: this is the state in which every capture claim on the
+          # branch is unverified, and it should be visible rather than inferred from a workflow that
+          # quietly did not run. The first argument is the summary's heading, the rest its lines.
+          say_no_evidence() {
             {
-              echo "## Hardware evidence: none"
+              echo "## Hardware evidence: $1"
               echo
-              echo "\`HW_RUNNER\` is not \`true\`, so the spare laptop did not run. Nothing on this branch that needs"
-              echo "a real desktop, a real screen or real input has been checked."
-              echo
-              echo "To get evidence: sign in on SCREENTRAIL, start the runner interactively, set the \`HW_RUNNER\`"
-              echo "repository variable to \`true\`, and re-run this workflow."
+              shift
+              printf '%s\n' "$@"
             } >> "$GITHUB_STEP_SUMMARY"
             if [ -n "${PR:-}" ]; then
               gh label create needs-hardware-evidence --repo "$REPO" --color 'B60205' \
                 --description 'Touches the capture path; the spare laptop has not verified it' 2>/dev/null || true
               gh pr edit "$PR" --repo "$REPO" --add-label needs-hardware-evidence || true
             fi
+          }
+
+          if [ "${HW_RUNNER:-false}" != "true" ]; then
+            # The laptop is off on purpose. Not a blocker: the label and the summary say plainly that
+            # nothing was checked.
+            say_no_evidence "none" \
+              "\`HW_RUNNER\` is not \`true\`, so the spare laptop did not run. Nothing on this branch that needs" \
+              "a real desktop, a real screen or real input has been checked." \
+              "" \
+              "To get evidence: sign in on SCREENTRAIL, start the runner interactively, set the \`HW_RUNNER\`" \
+              "repository variable to \`true\`, and re-run this workflow."
             echo "::warning::No hardware evidence for this branch; labelled needs-hardware-evidence."
+            exit 0
+          fi
+
+          # A fork's code never reaches the laptop (hardware-checks.yml skips it), so its jobs will only
+          # ever be skipped. Waiting for them, or calling that skip a pass, would both be wrong. The same
+          # answer as a laptop that is off: no evidence, labelled, not a blocker by itself.
+          if [ -n "${HEAD_REPO:-}" ] && [ "$HEAD_REPO" != "$REPO" ]; then
+            say_no_evidence "none" \
+              "This pull request comes from a fork, and the spare laptop never runs a fork's code. Nothing on" \
+              "this branch that needs a real desktop, a real screen or real input has been checked." \
+              "" \
+              "To get evidence: push the reviewed commits to a branch of this repository and open the pull" \
+              "request from there."
+            echo "::warning::No hardware evidence for a pull request from a fork; labelled needs-hardware-evidence."
             exit 0
           fi
 
@@ -1254,6 +1284,7 @@ jobs:
             queued=0
             missing=0
             failed=0
+            skipped=0
             while IFS= read -r name; do
               [ -z "$name" ] && continue
               line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n {print; exit}')
@@ -1266,7 +1297,10 @@ jobs:
               if [ "$status" != "completed" ]; then
                 pending=$((pending + 1))
                 if [ "$status" != "in_progress" ]; then queued=$((queued + 1)); fi
-              elif [ "$conclusion" != "success" ] && [ "$conclusion" != "skipped" ]; then
+              elif [ "$conclusion" = "skipped" ]; then
+                # A skipped job ran nothing, so it is no evidence, never a pass (2026-11-15 review).
+                skipped=$((skipped + 1))
+              elif [ "$conclusion" != "success" ]; then
                 echo "::error::$name concluded '$conclusion'."
                 failed=$((failed + 1))
               fi
@@ -1274,6 +1308,22 @@ jobs:
 
             if [ "$failed" -gt 0 ]; then
               echo "The spare laptop did not pass. This branch touches the capture path, so that is a blocker."
+              exit 1
+            fi
+            if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ] && [ "$skipped" -gt 0 ]; then
+              # HW_RUNNER is true, so the laptop was meant to run, and this is not a fork's pull request,
+              # so nothing should have stopped it. A skip here is a job condition that no longer holds
+              # (an edit to hardware-checks.yml) or HW_RUNNER turned off after this run read it. Not
+              # counted as a pass, and not quietly let through: re-running this job after the variable
+              # changed gives the no-evidence answer above, and a broken condition is a bug to fix.
+              say_no_evidence "not run" \
+                "$skipped of the spare laptop's jobs were skipped on $SHA, so they checked nothing. A skipped" \
+                "job is not a pass." \
+                "" \
+                "If the laptop was turned off on purpose, re-run this job: with \`HW_RUNNER\` not \`true\` it" \
+                "reports no evidence and labels the pull request. Otherwise the jobs' \`if:\` in" \
+                "hardware-checks.yml no longer matches this pull request; fix it there."
+              echo "::error::$skipped of the spare laptop's jobs were skipped on $SHA, which is no evidence. HW_RUNNER is true and this is not a fork's pull request, so they should have run."
               exit 1
             fi
             if [ "$pending" -eq 0 ] && [ "$missing" -eq 0 ]; then
