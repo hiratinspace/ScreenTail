@@ -746,10 +746,8 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task TheSameMappingSentOverAndOverIsRecordedOnceAndMappingRecordsAreCapped()
+    public async Task TheSameMappingSentOverAndOverIsRecordedOnce()
     {
-        // A device in a loop must not grow the record without end: a repeat of the latest change adds
-        // nothing, and only the newest MappingsKept map and unmap records stay. Credential changes stay.
         using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
         var (client, tenantId) = await ConnectedClientAsync(host);
         for (var i = 0; i < 3; i++)
@@ -758,26 +756,77 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
             Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
         }
 
-        var repeated = await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped));
-        var start = DateTimeOffset.UtcNow.AddDays(-30);
+        Assert.Equal(1, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+    }
+
+    [Fact]
+    public async Task AFloodFromOneDeviceIsRefusedAtTheThirtyFirstChangeAndCannotBuryItsFirst()
+    {
+        // A hostile or broken device: thirty map and unmap changes in ten minutes, then 429 with a
+        // sentence and Retry-After, nothing changed. Its first change to the company is still recorded.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var first = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        var firstRecord = await api.UseAsync(db => db.IntegrationChanges.SingleAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped));
+        for (var i = 1; i < IntegrationChanges.MappingChangesPerDevice; i++)
+        {
+            using var flood = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", i % 2 == 0 ? "7" : "8"), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, flood.StatusCode);
+        }
+
+        using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "9"), TestContext.Current.CancellationToken);
+        using var refusedUnmap = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Acme%20Dental", UriKind.Relative), TestContext.Current.CancellationToken);
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, first.StatusCode);
+        Assert.Equal((HttpStatusCode)429, refused.StatusCode);
+        Assert.Equal((HttpStatusCode)429, refusedUnmap.StatusCode);
+        Assert.NotNull(refused.Headers.RetryAfter);
+        Assert.Contains("too_many_mapping_changes", body, StringComparison.Ordinal);
+        Assert.Contains("choose the company again", body, StringComparison.Ordinal);
+        Assert.Equal("8", await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId).Select(m => m.DocCompanyId).SingleAsync()));
+        Assert.Equal(IntegrationChanges.MappingChangesPerDevice, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+        Assert.True(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.Id == firstRecord.Id)));
+    }
+
+    [Fact]
+    public async Task OldMappingRecordsGoByAgeKeepingTheLatestForEachCompanyAndTheOwnerIsToldHowMany()
+    {
+        // Pruned by age, not by count: a record older than MappingsKeptFor goes only when a later one for
+        // the same company explains the current mapping. Credential changes are never pruned. The owner
+        // sees one row saying how many went.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        var now = DateTimeOffset.UtcNow;
+        IntegrationChange Old(string company, int daysAgo, string action = IntegrationChanges.Mapped) =>
+            new() { Id = Guid.NewGuid(), TenantId = tenantId, At = now.AddDays(-daysAgo), Provider = "hudu", Action = action, PsaCompany = company };
+        var supersededA = Old("Old A", 300);
+        var latestA = Old("Old A", 250);
+        var onlyB = Old("Old B", 400);
+        var olderRecent = Old("Recent C", 200);
+        var recentC = Old("Recent C", 10);
+        var oldConnect = Old("ignored", 500, IntegrationChanges.Replaced);
         _ = await api.UseAsync(db =>
         {
-            for (var i = 0; i < IntegrationChanges.MappingsKept + 50; i++)
-            {
-                db.IntegrationChanges.Add(new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, At = start.AddMinutes(i), Provider = "hudu", Action = IntegrationChanges.Unmapped, PsaCompany = $"Old {i}" });
-            }
-
+            db.IntegrationChanges.AddRange(supersededA, latestA, onlyB, olderRecent, recentC, oldConnect);
             return db.SaveChangesAsync();
         });
-        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Somewhere Ltd", "9"), TestContext.Current.CancellationToken);
 
-        Assert.Equal(1, repeated);
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Nowhere Inc", "9"), TestContext.Current.CancellationToken);
+        using var owner = await host.OwnerClientAsync(api, tenantId);
+        var answer = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
         Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
-        var kept = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId && (c.Action == IntegrationChanges.Mapped || c.Action == IntegrationChanges.Unmapped)).Select(c => c.PsaCompany).ToListAsync());
-        Assert.Equal(IntegrationChanges.MappingsKept, kept.Count);
-        Assert.Contains("Somewhere Ltd", kept);
-        Assert.DoesNotContain("Old 0", kept);
-        Assert.Equal(2, await api.UseAsync(db => db.IntegrationChanges.CountAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Connected)));
+        var left = await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId).Select(c => c.Id).ToListAsync());
+        Assert.DoesNotContain(supersededA.Id, left);
+        Assert.DoesNotContain(olderRecent.Id, left);
+        Assert.Contains(latestA.Id, left);
+        Assert.Contains(onlyB.Id, left);
+        Assert.Contains(recentC.Id, left);
+        Assert.Contains(oldConnect.Id, left);
+        var summary = Assert.Single(answer!.Changes, c => c.Action == IntegrationChanges.MappingsPruned);
+        Assert.Equal(2, summary.Removed);
+        Assert.Equal("screentail", summary.By.Kind);
     }
 
     [Fact]

@@ -11,7 +11,7 @@ public sealed record ChangeActor(Guid? OwnerId, Guid? UserId, Guid? DeviceId)
     public static ChangeActor Technician(Guid userId, Guid deviceId) => new(null, userId, deviceId);
 }
 
-/// <param name="Kind"><c>owner</c> or <c>technician</c>.</param>
+/// <param name="Kind"><c>owner</c>, <c>technician</c>, or <c>screentail</c> for what the service did itself (removing old records).</param>
 /// <param name="Name">The owner's or technician's display name, or null if it can no longer be found.</param>
 /// <param name="Device">The technician's device name, or null for the owner.</param>
 public sealed record ChangedBy(string Kind, string? Name, string? Device);
@@ -64,14 +64,48 @@ public static class IntegrationChanges
         });
     }
 
-    /// <summary>How many map and unmap records a tenant keeps; older ones are dropped. Credential changes are all kept.</summary>
-    public const int MappingsKept = 500;
+    /// <summary>The one row that says how many older mapping changes were removed, and when last.</summary>
+    public const string MappingsPruned = "mappings_pruned";
+
+    /// <summary>How many map and unmap changes one device may make in <see cref="MappingWindow"/>.</summary>
+    public const int MappingChangesPerDevice = 30;
+
+    public static readonly TimeSpan MappingWindow = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long a map or unmap record is kept once a later one for the same company explains the current mapping.</summary>
+    public static readonly TimeSpan MappingsKeptFor = TimeSpan.FromDays(180);
+
+    /// <summary>
+    /// How long this device must wait before its next map or unmap, or null if it may make one now. Counted
+    /// from the records themselves, so the limit holds across restarts and instances: a device in a loop,
+    /// or one trying to bury an earlier change under new ones, gets <see cref="MappingChangesPerDevice"/>
+    /// in any <see cref="MappingWindow"/> and no more.
+    /// </summary>
+    public static async Task<TimeSpan?> MappingWaitAsync(ScreenTailContext db, Guid tenantId, Guid deviceId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        var since = now - MappingWindow;
+        var recent = await db.IntegrationChanges.AsNoTracking()
+            .Where(c => c.TenantId == tenantId && c.DeviceId == deviceId && (c.Action == Mapped || c.Action == Unmapped) && c.At > since)
+            .OrderByDescending(c => c.At)
+            .Take(MappingChangesPerDevice)
+            .Select(c => c.At)
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+        if (recent.Count < MappingChangesPerDevice)
+        {
+            return null;
+        }
+
+        var wait = recent[^1] + MappingWindow - now;
+        return wait > TimeSpan.FromSeconds(1) ? wait : TimeSpan.FromSeconds(1);
+    }
 
     /// <summary>
     /// Records a technician's map or unmap, unless the tenant's latest change is this same one (the same
     /// person and device, the same companies): a device that sends the same mapping over and over adds
-    /// one row, not one per request. Then drops the tenant's map and unmap records past
-    /// <see cref="MappingsKept"/>, oldest first, so the table cannot grow without end. The caller saves.
+    /// one row, not one per request. Then removes old mapping records (<see cref="PruneAsync"/>). The
+    /// caller saves.
     /// </summary>
     public static async Task RecordMappingAsync(
         ScreenTailContext db,
@@ -106,22 +140,44 @@ public static class IntegrationChanges
             Record(db, tenantId, provider, action, by, at, psaCompany, docCompanyId, docCompanyName);
         }
 
-        // The oldest kept: everything older than it goes. The one being added is not saved yet, so one
-        // fewer is kept here and the save brings it back to MappingsKept.
-        var oldestKept = await db.IntegrationChanges.AsNoTracking()
-            .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped))
-            .OrderByDescending(c => c.At)
-            .Skip(MappingsKept - (repeat ? 1 : 2))
-            .Select(c => (DateTimeOffset?)c.At)
-            .FirstOrDefaultAsync(ct)
+        _ = await PruneAsync(db, tenantId, at, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Removes map and unmap records older than <see cref="MappingsKeptFor"/>, by age and never by count,
+    /// so new traffic cannot push an earlier change out. Never removed: the latest record for each PSA
+    /// company (it explains the current mapping, however old), and any credential change. What was
+    /// removed is counted on one <see cref="MappingsPruned"/> row the owner sees. The caller saves it.
+    /// </summary>
+    /// <returns>How many records were removed.</returns>
+    public static async Task<int> PruneAsync(ScreenTailContext db, Guid tenantId, DateTimeOffset now, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        var before = now - MappingsKeptFor;
+        var removed = await db.IntegrationChanges
+            .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped) && c.At < before)
+            .Where(c => db.IntegrationChanges.Any(later =>
+                later.TenantId == c.TenantId
+                && (later.Action == Mapped || later.Action == Unmapped)
+                && later.PsaCompany == c.PsaCompany
+                && later.At > c.At))
+            .ExecuteDeleteAsync(ct)
             .ConfigureAwait(false);
-        if (oldestKept is { } cutoff)
+        if (removed == 0)
         {
-            _ = await db.IntegrationChanges
-                .Where(c => c.TenantId == tenantId && (c.Action == Mapped || c.Action == Unmapped) && c.At < cutoff)
-                .ExecuteDeleteAsync(ct)
-                .ConfigureAwait(false);
+            return 0;
         }
+
+        var summary = await db.IntegrationChanges.SingleOrDefaultAsync(c => c.TenantId == tenantId && c.Action == MappingsPruned, ct).ConfigureAwait(false);
+        if (summary is null)
+        {
+            summary = new IntegrationChange { Id = Guid.NewGuid(), TenantId = tenantId, Provider = "hudu", Action = MappingsPruned, Removed = 0 };
+            _ = db.IntegrationChanges.Add(summary);
+        }
+
+        summary.Removed = (summary.Removed ?? 0) + removed;
+        summary.At = now;
+        return removed;
     }
 
     /// <summary>The tenant's latest changes, newest first.</summary>
@@ -181,6 +237,8 @@ public static class IntegrationChanges
 
         return change => change.OwnerId is { } owner
             ? new ChangedBy("owner", owners.GetValueOrDefault(owner), null)
+            : change.UserId is null && change.DeviceId is null
+            ? new ChangedBy("screentail", "ScreenTail", null)
             : new ChangedBy(
                 "technician",
                 change.UserId is { } user ? users.GetValueOrDefault(user) : null,

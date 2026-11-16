@@ -93,9 +93,9 @@ export type PolicyChange = Omit<Policy, 'version'> & { confirmAllWindows: boolea
 /** The providers the owner can connect. Integration credentials can only be changed by the tenant owner. */
 export type IntegrationProvider = 'connectwise' | 'hudu';
 
-/** Who made a change: the owner in this admin, or a technician on a device. */
+/** Who made a change: the owner in this admin, a technician on a device, or ScreenTail itself (removing old records). */
 export interface IntegrationActor {
-  kind: 'owner' | 'technician';
+  kind: 'owner' | 'technician' | 'screentail';
   /** Null when the backend no longer knows the person's name. */
   name: string | null;
   /** The technician's device name; null for the owner. */
@@ -115,7 +115,14 @@ export interface Integration {
   lastError: string | null;
 }
 
-export type IntegrationAction = 'connected' | 'replaced' | 'disconnected' | 'mapped' | 'unmapped' | 'mappings_cleared';
+export type IntegrationAction =
+  | 'connected'
+  | 'replaced'
+  | 'disconnected'
+  | 'mapped'
+  | 'unmapped'
+  | 'mappings_cleared'
+  | 'mappings_pruned';
 
 /** One row of the integrations' history, newest first. It never carries a credential. */
 export interface IntegrationChange {
@@ -128,6 +135,8 @@ export interface IntegrationChange {
   /** The documentation company, for mapped; null otherwise. */
   docCompanyId: string | null;
   docCompanyName: string | null;
+  /** For mappings_pruned: how many older mapping changes have been removed in all. */
+  removed?: number | null;
 }
 
 export interface Integrations {

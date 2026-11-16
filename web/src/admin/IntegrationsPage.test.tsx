@@ -113,6 +113,7 @@ describe('IntegrationsPage', () => {
           { at: checked, provider: 'hudu', action: 'mappings_cleared', by: { kind: 'owner', name: 'Pat Owner', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
           { at: checked, provider: 'connectwise', action: 'replaced', by: { kind: 'owner', name: null, device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
           { at: checked, provider: 'hudu', action: 'disconnected', by: { kind: 'owner', name: 'Pat Owner', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
+          { at: checked, provider: 'hudu', action: 'mappings_pruned', by: { kind: 'screentail', name: 'ScreenTail', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null, removed: 12 },
         ],
       }),
     });
@@ -127,6 +128,7 @@ describe('IntegrationsPage', () => {
       ['Hudu', 'Company mappings cleared', 'Pat Owner'],
       ['ConnectWise Manage', 'Credential replaced', 'The owner'],
       ['Hudu', 'Disconnected', 'Pat Owner'],
+      ['Hudu', '12 older mapping changes removed', 'ScreenTail'],
     ]);
   });
 

@@ -224,6 +224,9 @@ function IntegrationCard({ row, api, onChanged }: { row: Integration; api: Admin
 
 /** "Name", "Name (DEVICE)", or who it was when the name is not known. */
 function actorName(actor: IntegrationActor, startOfSentence = false): string {
+  if (actor.kind === 'screentail') {
+    return 'ScreenTail';
+  }
   const unknown = actor.kind === 'owner' ? 'the owner' : 'a technician';
   let name = actor.name ?? unknown;
   if (startOfSentence && actor.name === null) {
@@ -537,6 +540,10 @@ function describeChange(change: IntegrationChange): string {
       return `Forgot the mapping for ${company}`;
     case 'mappings_cleared':
       return 'Company mappings cleared';
+    case 'mappings_pruned': {
+      const count = change.removed ?? 0;
+      return `${count} older mapping ${count === 1 ? 'change' : 'changes'} removed`;
+    }
     default:
       return 'Changed';
   }

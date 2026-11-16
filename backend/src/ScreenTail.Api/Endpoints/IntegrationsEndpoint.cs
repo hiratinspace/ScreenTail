@@ -28,7 +28,8 @@ public sealed record IntegrationCheckResponse(bool Ok, string Message, DateTimeO
 public sealed record AdminIntegration(string Provider, string Name, bool Connected, string? SiteUrl, DateTimeOffset? ConnectedAt, DateTimeOffset? LastCheckedAt, string? LastResult, string? LastError, ChangedBy? ConnectedBy = null);
 
 /// <summary>One recorded change, for the owner. The company fields are set for a mapping change only.</summary>
-public sealed record AdminIntegrationChange(DateTimeOffset At, string Provider, string Action, ChangedBy By, string? PsaCompany, string? DocCompanyId, string? DocCompanyName);
+/// <param name="Removed">For <c>mappings_pruned</c>: how many older mapping changes have been removed.</param>
+public sealed record AdminIntegrationChange(DateTimeOffset At, string Provider, string Action, ChangedBy By, string? PsaCompany, string? DocCompanyId, string? DocCompanyName, int? Removed = null);
 
 /// <param name="Changes">The latest changes to integrations and company mappings, newest first, at most <see cref="IntegrationChanges.Shown"/>.</param>
 public sealed record AdminIntegrationsResponse(IReadOnlyList<AdminIntegration> Integrations, IReadOnlyList<AdminIntegrationChange> Changes);
@@ -148,7 +149,7 @@ public static class IntegrationsEndpoint
                             VaultRefusal.ForOwner(row.LastError),
                             connected.TryGetValue(k.Provider, out var last) ? by(last) : null);
                 })],
-                [.. changes.Select(c => new AdminIntegrationChange(c.At, c.Provider, c.Action, by(c), c.PsaCompany, c.DocCompanyId, c.DocCompanyName))]));
+                [.. changes.Select(c => new AdminIntegrationChange(c.At, c.Provider, c.Action, by(c), c.PsaCompany, c.DocCompanyId, c.DocCompanyName, c.Removed))]));
         })
         .WithName("AdminIntegrations")
         .WithSummary("Whether ConnectWise and Hudu are connected, who connected them, how their last test went, and the latest changes. No credentials.");

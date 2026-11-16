@@ -243,6 +243,9 @@ public sealed class IntegrationChange
 
     [MaxLength(200)]
     public string? DocCompanyName { get; set; }
+
+    /// <summary>For the one <c>mappings_pruned</c> row: how many older mapping changes have been removed in all.</summary>
+    public int? Removed { get; set; }
 }
 
 /// <summary>

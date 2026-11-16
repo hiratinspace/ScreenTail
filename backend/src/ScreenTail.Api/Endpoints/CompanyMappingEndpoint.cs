@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
@@ -52,11 +53,16 @@ public static class CompanyMappingEndpoint
         .WithName("ListCompanyMappings")
         .WithSummary("The documentation platform's companies and what this tenant has mapped to them.");
 
-        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
+        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, HttpContext http, CancellationToken ct) =>
         {
             if (demo.Demo)
             {
                 return IntegrationsEndpoint.DemoOn();
+            }
+
+            if (await IntegrationChanges.MappingWaitAsync(db, who.TenantId, who.DeviceId, time.GetUtcNow(), ct).ConfigureAwait(false) is { } wait)
+            {
+                return TooMany(http, wait);
             }
 
             if (string.IsNullOrWhiteSpace(request.PsaCompany) || request.PsaCompany.Length > 200 || string.IsNullOrWhiteSpace(request.DocCompanyId))
@@ -98,11 +104,16 @@ public static class CompanyMappingEndpoint
         .WithName("MapCompany")
         .WithSummary("Maps a PSA company to a documentation-platform company, by hand.");
 
-        group.MapDelete("/integrations/hudu/companies/{psaCompany}", async (string psaCompany, Caller who, ScreenTailContext db, DemoOptions demo, TimeProvider time, CancellationToken ct) =>
+        group.MapDelete("/integrations/hudu/companies/{psaCompany}", async (string psaCompany, Caller who, ScreenTailContext db, DemoOptions demo, TimeProvider time, HttpContext http, CancellationToken ct) =>
         {
             if (demo.Demo)
             {
                 return IntegrationsEndpoint.DemoOn();
+            }
+
+            if (await IntegrationChanges.MappingWaitAsync(db, who.TenantId, who.DeviceId, time.GetUtcNow(), ct).ConfigureAwait(false) is { } wait)
+            {
+                return TooMany(http, wait);
             }
 
             await using var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false);
@@ -120,5 +131,23 @@ public static class CompanyMappingEndpoint
         .WithSummary("Forgets a company mapping.");
 
         return group;
+    }
+
+    /// <summary>
+    /// A device past its mapping changes for the window (2026-11-15 review): 429, Retry-After, and a
+    /// sentence the client shows. Nothing is changed, so the technician's choice can be sent again later.
+    /// </summary>
+    private static IResult TooMany(HttpContext http, TimeSpan wait)
+    {
+        var seconds = (long)Math.Ceiling(wait.TotalSeconds);
+        http.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+        var minutes = Math.Max(1, (int)Math.Ceiling(wait.TotalMinutes));
+        return Results.Json(
+            new
+            {
+                error = "too_many_mapping_changes",
+                message = string.Create(CultureInfo.InvariantCulture, $"This PC has changed company mappings {IntegrationChanges.MappingChangesPerDevice} times in {(int)IntegrationChanges.MappingWindow.TotalMinutes} minutes. Wait {minutes} minute{(minutes == 1 ? string.Empty : "s")}, then choose the company again."),
+            },
+            statusCode: StatusCodes.Status429TooManyRequests);
     }
 }
