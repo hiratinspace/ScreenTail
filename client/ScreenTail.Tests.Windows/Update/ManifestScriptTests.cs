@@ -86,7 +86,7 @@ public sealed class ManifestScriptTests : IDisposable
 
         var (exit, said) = Script(["-Channel", "pilot", "-Msi", msi, "-Version", "0.1.20", "-Out", Path.Combine(_dir, "out")]);
 
-        Assert.Equal(0, exit);
+        Assert.True(exit == 0, $"exit {exit}, and the script said: {said}");
         Assert.Contains("NOT SIGNED", said, StringComparison.Ordinal);
         Assert.False(Directory.Exists(Path.Combine(_dir, "out")));
     }
@@ -193,6 +193,11 @@ public sealed class ManifestScriptTests : IDisposable
         {
             _ = start.Environment.Remove(name);
         }
+
+        // The test host may run under PowerShell 7, whose module path Windows PowerShell 5.1 would
+        // inherit and then fail to load its own cmdlets from (Get-FileHash among them). Without it, 5.1
+        // builds its own default path, as it does in a CI step.
+        _ = start.Environment.Remove("PSModulePath");
 
         foreach (var (name, value) in environment ?? new Dictionary<string, string>())
         {
