@@ -393,6 +393,24 @@ internal sealed class DesktopWindow : IDisposable
     }
 
     /// <summary>
+    /// Draws the whole window at this opacity (255 opaque), as a tool's own transparency setting does, so
+    /// whatever lies behind it shows through. Set on the window's own thread; false when Windows refused it.
+    /// </summary>
+    public bool DrawAtOpacity(byte opacity)
+    {
+        var done = new ManualResetEventSlim();
+        var set = false;
+        Post(() =>
+        {
+            var style = (long)GetWindowLongPtr(Handle, GWL_EXSTYLE);
+            _ = SetWindowLongPtr(Handle, GWL_EXSTYLE, new IntPtr(style | WS_EX_LAYERED));
+            set = SetLayeredWindowAttributes(Handle, 0, opacity, LWA_ALPHA);
+            done.Set();
+        });
+        return done.Wait(TimeSpan.FromSeconds(5)) && set;
+    }
+
+    /// <summary>
     /// Paints the client area in two halves, light first and dark second, so a capture of the window has
     /// something to be right or wrong about. Calling it again with the other layout repaints in place,
     /// which is what a window changing looks like to the scene sampler (ST-026).
@@ -701,6 +719,16 @@ internal sealed class DesktopWindow : IDisposable
     private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint affinity);
 
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int index, IntPtr value);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint colorKey, byte alpha, uint flags);
+
+    private const long WS_EX_LAYERED = 0x00080000;
+    private const uint LWA_ALPHA = 0x00000002;
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

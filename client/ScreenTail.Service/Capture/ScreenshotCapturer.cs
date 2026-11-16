@@ -39,6 +39,7 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private int _bitmapHeight;
     private bool _disposed;
     private long _skippedCovered;
+    private long _skippedSeeThrough;
 
     // Reused under the lock by the covered check, so it allocates nothing per capture once warm.
     private readonly List<WindowAbove> _above = new(64);
@@ -46,6 +47,9 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
 
     /// <summary>Samples skipped because another application's window lay over the one in front. A count, for diagnostics.</summary>
     internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
+
+    /// <summary>Samples skipped because the window in front let what is behind it show through. A count, for diagnostics.</summary>
+    internal long SkippedSeeThrough => Interlocked.Read(ref _skippedSeeThrough);
 
     /// <summary>
     /// A test seam, null in production: runs inside the lock before the foreground is read, where a capture
@@ -81,6 +85,14 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             if (IsCovered(window, rect))
             {
                 _ = Interlocked.Increment(ref _skippedCovered);
+                return null;
+            }
+
+            // The same for what lies under it: a window drawn translucent or with a colour key lets the
+            // window behind show through, and that one may be excluded (INV-6, WindowCover).
+            if (WindowCover.ShowsWhatIsBehind(LayeringOf(window)))
+            {
+                _ = Interlocked.Increment(ref _skippedSeeThrough);
                 return null;
             }
 
@@ -234,6 +246,20 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
         }
 
         return WindowCover.AnyCovers(target, _above, walkComplete: above == IntPtr.Zero);
+    }
+
+    /// <summary>How the window in front is blended with what is behind it, read from its styles (<see cref="TargetLayering"/>).</summary>
+    private static TargetLayering LayeringOf(IntPtr window)
+    {
+        if (((long)GetWindowLongPtr(window, GWL_EXSTYLE) & WS_EX_LAYERED) == 0)
+        {
+            return TargetLayering.Opaque;
+        }
+
+        // Fails for a window drawn with UpdateLayeredWindow: per-pixel alpha, nothing to read.
+        return GetLayeredWindowAttributes(window, out _, out var opacity, out var flags)
+            ? new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: (flags & LWA_COLORKEY) != 0, Alpha: (flags & LWA_ALPHA) != 0, opacity)
+            : new TargetLayering(Layered: true, AttributesKnown: false, ColorKey: false, Alpha: false, Opacity: byte.MaxValue);
     }
 
     private static ScreenRect VisibleBounds(IntPtr window, Rect fallback) =>
@@ -404,6 +430,9 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private const uint GW_HWNDPREV = 3;
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOPMOST = 0x00000008;
+    private const long WS_EX_LAYERED = 0x00080000;
+    private const uint LWA_COLORKEY = 0x00000001;
+    private const uint LWA_ALPHA = 0x00000002;
     private const uint WDA_NONE = 0;
     private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     private const int DWMWA_CLOAKED = 14;
@@ -456,6 +485,10 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowDisplayAffinity(IntPtr hWnd, out uint affinity);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetLayeredWindowAttributes(IntPtr hWnd, out uint colorKey, out byte alpha, out uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, [Out] char[] className, int count);

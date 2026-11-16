@@ -36,6 +36,23 @@ public readonly record struct WindowAbove(
     bool Taskbar);
 
 /// <summary>
+/// How the window in front is itself composed with what is behind it. Window properties only.
+/// </summary>
+/// <param name="Layered">The window is a layered window (<c>WS_EX_LAYERED</c>), the only kind Windows blends with what lies below it.</param>
+/// <param name="AttributesKnown">
+/// Its blend could be read (<c>GetLayeredWindowAttributes</c>). False for a window that draws itself with
+/// per-pixel alpha (<c>UpdateLayeredWindow</c>), whose transparency cannot be asked about.
+/// </param>
+/// <param name="ColorKey">One colour of the window is drawn as a hole (<c>LWA_COLORKEY</c>).</param>
+/// <param name="Alpha">The whole window is drawn at <paramref name="Opacity"/> (<c>LWA_ALPHA</c>).</param>
+/// <param name="Opacity">0 is invisible, 255 is opaque. Read only when <paramref name="Alpha"/> is set.</param>
+public readonly record struct TargetLayering(bool Layered, bool AttributesKnown, bool ColorKey, bool Alpha, byte Opacity)
+{
+    /// <summary>An ordinary window: drawn opaque, so nothing behind it is in its rectangle.</summary>
+    public static TargetLayering Opaque => default;
+}
+
+/// <summary>
 /// Whether something lies over the window in front, so that a frame copied off the screen over its rectangle
 /// would hold another application's pixels (ST-025).
 ///
@@ -77,6 +94,28 @@ public static class WindowCover
         }
 
         return target.Intersects(above.Bounds);
+    }
+
+    /// <summary>
+    /// Whether the window in front lets what lies behind it show through, so that a frame copied off the
+    /// screen over its rectangle would hold whatever is underneath: an excluded password manager behind a
+    /// remote-tool window the technician made translucent, for instance (INV-6). Such a sample is skipped,
+    /// as a covered one is.
+    ///
+    /// A window drawn at less than full opacity shows what is behind it everywhere; one with a colour key
+    /// shows it through every pixel of that colour. A layered window whose blend cannot be read draws itself
+    /// with per-pixel alpha, which is how custom-shaped windows draw their rounded corners and shadows; that
+    /// is not refused, because refusing it would refuse every frame of such an application for a few pixels
+    /// at its edge, and there is nothing to read that would tell the two apart.
+    /// </summary>
+    public static bool ShowsWhatIsBehind(TargetLayering target)
+    {
+        if (!target.Layered || !target.AttributesKnown)
+        {
+            return false;
+        }
+
+        return target.ColorKey || (target.Alpha && target.Opacity < byte.MaxValue);
     }
 
     /// <summary>

@@ -71,6 +71,39 @@ public sealed class CaptureTargetTests
         Assert.True(WindowCover.AnyCovers(Target, [Toast() with { SameProcess = true }, Toast()], walkComplete: true));
     }
 
+    // ---- what shows through the window in front (INV-6) ----------------------------------------------
+
+    [Theory]
+    [InlineData((byte)0)]
+    [InlineData((byte)128)]
+    [InlineData((byte)254)]
+    public void AWindowInFrontDrawnBelowFullOpacityShowsWhatIsBehindIt(byte opacity) =>
+        // A frame is copied off the screen, so a translucent remote-tool window would carry whatever lies
+        // under it, an excluded password manager included (2026-11-15 security review).
+        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, opacity)));
+
+    [Fact]
+    public void AWindowInFrontWithAColourKeyShowsWhatIsBehindIt() =>
+        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0)));
+
+    [Fact]
+    public void AnOpaqueWindowInFrontShowsNothingBehindIt()
+    {
+        Assert.False(WindowCover.ShowsWhatIsBehind(TargetLayering.Opaque));
+
+        // Layered but drawn at full opacity, as some frameworks make every window.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, byte.MaxValue)));
+
+        // Flags not set on a window that is not layered mean nothing: Windows blends only layered windows.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: false, AttributesKnown: true, ColorKey: true, Alpha: true, 10)));
+    }
+
+    [Fact]
+    public void AWindowInFrontWithPerPixelAlphaIsNotRefused() =>
+        // Its blend cannot be read; what such windows make transparent is their corners and shadow, and
+        // refusing it would refuse every frame of the application. Recorded as a known limit.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: false, ColorKey: false, Alpha: false, byte.MaxValue)));
+
     // ---- elevation (INV-6) ---------------------------------------------------------------------------
 
     [Theory]

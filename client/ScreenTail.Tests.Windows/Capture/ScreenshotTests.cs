@@ -305,6 +305,30 @@ public sealed class ScreenshotTests
     }
 
     [Fact]
+    public void NothingIsCapturedWhileTheWindowInFrontIsTranslucent()
+    {
+        // A frame is copied off the screen, so a window in front drawn below full opacity carries whatever
+        // lies under it, which may be an excluded window (INV-6, 2026-11-15 security review). The sample is
+        // skipped; drawn opaque again, the same window is captured.
+        Hardware.RequireScreenCapture();
+        using var window = DesktopWindow.Create("ScreenTail translucent target");
+        window.RequireForeground();
+        using var capturer = new ScreenshotCapturer();
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+
+        Assert.True(window.DrawAtOpacity(160), "the window could not be made translucent, so nothing below would mean anything");
+        Thread.Sleep(150);
+        Assert.True(window.IsForeground || window.TakeForeground(TimeSpan.FromSeconds(2)), "the target lost the foreground");
+        Assert.Null(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedSeeThrough);
+
+        Assert.True(window.DrawAtOpacity(255), "the window could not be made opaque again");
+        Thread.Sleep(150);
+        Assert.NotNull(capturer.CaptureForegroundWindow(expected: window.Handle));
+        Assert.Equal(1, capturer.SkippedSeeThrough);
+    }
+
+    [Fact]
     public void ATopmostWindowBesideTheWindowInFrontOrOfItsOwnAppIsNoReasonToSkip()
     {
         // The controls for the test above. Beside the window rather than over it, a topmost window is not
