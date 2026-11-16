@@ -35,10 +35,14 @@ public sealed class PipePublisher(CaptureConnection connection)
     }
 
     /// <summary>The prompt's answer, remembered by the backend. False when it was refused.</summary>
-    public async Task<bool> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default)
+    public async Task<bool> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) =>
+        await MapRefusedAsync(psaCompany, docCompanyId, ct).ConfigureAwait(false) is null;
+
+    /// <summary>The prompt's answer, remembered by the backend: null when taken, else the refusal in words (empty when there are none).</summary>
+    public async Task<string?> MapRefusedAsync(string psaCompany, string docCompanyId, CancellationToken ct = default)
     {
         var result = await _connection.SendAsync(id => new MapCompanyCommand { RequestId = id, PsaCompany = psaCompany, DocCompanyId = docCompanyId }, ct).ConfigureAwait(false);
-        return result.Ok;
+        return result.Ok ? null : result.Error ?? string.Empty;
     }
 
     public async Task<IReadOnlyList<DestinationResult>> PublishAsync(PublishRequest request, CancellationToken ct = default)

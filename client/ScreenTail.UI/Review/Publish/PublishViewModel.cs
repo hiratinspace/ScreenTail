@@ -526,7 +526,9 @@ public sealed partial class PublishViewModel : ObservableObject
         var mapped = await _panel.MapAndRetryAsync(choice.Id, _note(), _frames()).ConfigureAwait(true);
         if (!mapped)
         {
-            MappingError = "The backend did not take the mapping. Try again, or map it in Settings → Integrations.";
+            // The backend's words when it gave some (too many changes from this PC: wait, then again). The
+            // chosen company stays chosen, so a second try is one click.
+            MappingError = _panel.MappingRefusal ?? "The backend did not take the mapping. Try again, or map it in Settings → Integrations.";
             MappingErrorVisibility = Visibility.Visible;
         }
 

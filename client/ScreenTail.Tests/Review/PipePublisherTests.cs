@@ -405,21 +405,22 @@ public sealed class PipePublisherTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task AStoreOrRemoveFromAnOlderUiIsAnsweredWithTheOwnersRefusal()
+    public async Task AStoreOrRemoveFromAnOlderUiIsRefusedByTheServiceAndNeverReachesTheBackend()
     {
         // Integration credentials can only be changed by the tenant owner, in the web admin. The commands
         // stay in the contract, so a UI that still sends them is answered, over the same pipe, with the
-        // backend's sentence as a failed result; nothing is stored or removed.
+        // owner sentence as a failed result. The service refuses them itself: the backend is never asked,
+        // so the secret goes no further than the service.
         _ = await PublisherAsync();
 
         var stored = await _connection!.SendAsync(id => new StoreIntegrationCommand { RequestId = id, Provider = "hudu", SiteUrl = "https://acme.huducloud.com", Secret = "new-key" }, TestContext.Current.CancellationToken);
         var removed = await _connection.SendAsync(id => new RemoveIntegrationCommand { RequestId = id, Provider = "hudu" }, TestContext.Current.CancellationToken);
 
         Assert.False(stored.Ok);
-        Assert.Equal(ScriptedBackend.OwnerOnly, stored.Error);
+        Assert.Equal(PsaGateway.OwnerOnly, stored.Error);
         Assert.False(removed.Ok);
-        Assert.Equal(ScriptedBackend.OwnerOnly, removed.Error);
-        Assert.Equal(["store hudu", "remove hudu"], _backend.Refused);
+        Assert.Equal(PsaGateway.OwnerOnly, removed.Error);
+        Assert.Empty(_backend.Refused);
     }
 
     [Fact]

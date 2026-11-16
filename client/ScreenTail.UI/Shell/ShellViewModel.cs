@@ -312,6 +312,10 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             case PaneAction.Settings:
                 _settingsPane ??= _settings?.Invoke();
                 Content = _settingsPane ?? SettingsLater;
+                if (_settingsPane is Settings.SettingsViewModel opened && _state.TakeSettingsSection() is { } section)
+                {
+                    opened.Show(section);
+                }
 
                 // Read when the view becomes Settings, and not again on each state change while it is
                 // open: that overwrote unsaved edits, and Save then stored the old values (S-144, T-161).

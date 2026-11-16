@@ -174,13 +174,30 @@ public sealed record CompanyChoice(string Id, string Name);
 /// The mapping prompt's two calls (ST-097 AC2): the platform's companies to choose from, and the answer,
 /// which the backend remembers so the next article for that company is filed without asking.
 /// </summary>
-public sealed class CompanyMapping(
-    Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> companies,
-    Func<string, string, CancellationToken, Task<bool>> map)
+public sealed class CompanyMapping
 {
-    public Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> Companies { get; } = companies ?? throw new ArgumentNullException(nameof(companies));
+    public CompanyMapping(
+        Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> companies,
+        Func<string, string, CancellationToken, Task<bool>> map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        Companies = companies ?? throw new ArgumentNullException(nameof(companies));
+        Refused = async (company, id, ct) => await map(company, id, ct).ConfigureAwait(false) ? null : string.Empty;
+    }
 
-    public Func<string, string, CancellationToken, Task<bool>> Map { get; } = map ?? throw new ArgumentNullException(nameof(map));
+    /// <param name="refused">The answer: null when the backend took it, else the refusal in words (empty when it gave none).</param>
+    public CompanyMapping(
+        Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> companies,
+        Func<string, string, CancellationToken, Task<string?>> refused)
+    {
+        Companies = companies ?? throw new ArgumentNullException(nameof(companies));
+        Refused = refused ?? throw new ArgumentNullException(nameof(refused));
+    }
+
+    public Func<CancellationToken, Task<IReadOnlyList<CompanyChoice>>> Companies { get; }
+
+    /// <summary>Remembers the mapping; null when taken, else why not (empty when there are no words).</summary>
+    public Func<string, string, CancellationToken, Task<string?>> Refused { get; }
 }
 
 /// <summary>
@@ -383,6 +400,9 @@ public sealed class PublishPanel
 
     /// <summary>The PSA's name for the company, which is what the backend keys the mapping by.</summary>
     public string? CompanyToMap => Ticket?.Company is { Length: > 0 } company ? company : null;
+
+    /// <summary>Why the backend did not take the last mapping, in its words; null when it did, or gave none.</summary>
+    public string? MappingRefusal { get; private set; }
 
     /// <summary>
     /// Why the article waits, and what to do, said once, here, beside the choice (ST-097 AC2). The summary
@@ -819,7 +839,11 @@ public sealed class PublishPanel
             throw new InvalidOperationException(reason);
         }
 
-        if (!await _mapping.Map(company, docCompanyId, ct).ConfigureAwait(false))
+        // The backend's words when it refuses (too many mapping changes from this PC, say), so the prompt
+        // can say why and keep the technician's choice for a second try.
+        var refused = await _mapping.Refused(company, docCompanyId, ct).ConfigureAwait(false);
+        MappingRefusal = refused is { Length: > 0 } ? refused : null;
+        if (refused is not null)
         {
             return false;
         }

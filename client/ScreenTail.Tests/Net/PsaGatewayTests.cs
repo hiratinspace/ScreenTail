@@ -261,6 +261,24 @@ public sealed class PsaGatewayTests
     }
 
     [Fact]
+    public async Task TooManyMappingChangesIsTheBackendsSentence()
+    {
+        // 2026-11-15 review: a device past its mapping changes for the window gets 429 and a sentence.
+        const string words = "This PC has changed company mappings 30 times in 10 minutes. Wait 4 minutes, then choose the company again.";
+        var refusal = new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+        {
+            Content = JsonContent.Create(new { error = "too_many_mapping_changes", message = words }),
+        };
+        refusal.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(TimeSpan.FromMinutes(4));
+        using var handler = new RecordingHandler(refusal);
+
+        var answer = await Gateway(handler).MapCompanyAsync("Acme Dental", "7", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(words, answer.Refusal);
+    }
+
+    [Fact]
     public async Task ANoPsaRefusalWithoutWordsSaysWhoConnectsOne()
     {
         // The owner connects integrations in the web admin (2026-11-15), so the fallback says so.

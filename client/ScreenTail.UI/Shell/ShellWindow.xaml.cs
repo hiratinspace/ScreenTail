@@ -229,7 +229,7 @@ public partial class ShellWindow : Window
 
                 // The receipt's Next to check over the sample rows; opening one is the store's, as in the app.
                 next: new Review.Publish.NextSessions(_ => Task.FromResult<IReadOnlyList<SessionRow>?>(SampleRows()), state.OpenSession),
-                openSettings: () => state.Navigate(ShellView.Settings))),
+                openSettings: () => state.NavigateToSettings("Integrations"))),
             // Discard wired, so History's table shows Bulk discard held while the sample session records
             // (Spec §4): the reason is said beside the button and nothing is asked. Nothing is ever sent.
             history: () => new HistoryViewModel(

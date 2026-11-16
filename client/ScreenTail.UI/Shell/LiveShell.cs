@@ -497,7 +497,7 @@ public sealed class LiveShell : IAsyncDisposable
             integrations,
             publisher.SearchAsync,
             publisher.PublishAsync,
-            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapAsync),
+            mapping: new CompanyMapping(publisher.CompaniesAsync, publisher.MapRefusedAsync),
             draftPending: draftPending,
             earlierOutcomes: PipePublisher.Earlier(loaded.PublishOutcomes),
             reloadEarlier: c => publisher.EarlierAsync(sessionId, c));
@@ -539,7 +539,7 @@ public sealed class LiveShell : IAsyncDisposable
 
             // The receipt's Next to check reads History's rows and opens one the way a History row does.
             next: new NextSessions(ListSessionsAsync, _state.OpenSession),
-            openSettings: () => _state.Navigate(ShellView.Settings));
+            openSettings: () => _state.NavigateToSettings("Integrations"));
     }
 
     /// <summary>

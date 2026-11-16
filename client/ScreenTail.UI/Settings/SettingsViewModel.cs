@@ -189,6 +189,33 @@ public sealed partial class SettingsViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>A section asked for from elsewhere, kept until the page is on screen to bring it into view.</summary>
+    public string? PendingSection { get; private set; }
+
+    /// <summary>
+    /// Opens the page at a section (Review's "See integrations" asks for Integrations). The pane brings it
+    /// into view now if it is on screen, or when it loads.
+    /// </summary>
+    public void Show(string key)
+    {
+        if (Sections.FirstOrDefault(s => s.Key == key) is not { } item)
+        {
+            return;
+        }
+
+        SelectedSection = item;
+        PendingSection = key;
+        JumpRequested?.Invoke(this, key);
+    }
+
+    /// <summary>The section <see cref="Show"/> asked for, once.</summary>
+    public string? TakePendingSection()
+    {
+        var key = PendingSection;
+        PendingSection = null;
+        return key;
+    }
+
     /// <summary>The bar's link: the section it names, brought into view with focus in it.</summary>
     [RelayCommand]
     private void GoTo(string? key)

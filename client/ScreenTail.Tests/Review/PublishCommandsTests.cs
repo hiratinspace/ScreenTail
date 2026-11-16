@@ -1102,19 +1102,20 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task StoreAndRemoveAreAnsweredWithTheBackendsOwnerOnlyRefusal()
+    public async Task StoreAndRemoveAreRefusedHereAndTheSecretNeverLeaves()
     {
         // Integration credentials can only be changed by the tenant owner, in the web admin. The commands
-        // stay in the contract and are passed on; the backend's refusal is the answer, as a failed result
-        // with its sentence, under the same request id.
+        // stay in the contract for an older UI and are refused by the service itself, as a failed result
+        // with the owner sentence under the same request id. The gateway is never asked, so a secret an
+        // older UI sends goes nowhere.
         var commands = await CommandsAsync();
 
         var stored = await commands.HandleAsync(new StoreIntegrationCommand { RequestId = 7, Provider = "hudu", SiteUrl = "https://acme.huducloud.com", Secret = "key" });
         var removed = await commands.HandleAsync(new RemoveIntegrationCommand { RequestId = 8, Provider = "hudu" });
 
-        Assert.Equal((7, false, FakeGateway.OwnerOnly), (stored!.RequestId, stored.Ok, stored.Error));
-        Assert.Equal((8, false, FakeGateway.OwnerOnly), (removed!.RequestId, removed.Ok, removed.Error));
-        Assert.Equal(["store hudu", "remove hudu"], _gateway.OwnerRefused);
+        Assert.Equal((7, false, PsaGateway.OwnerOnly), (stored!.RequestId, stored.Ok, stored.Error));
+        Assert.Equal((8, false, PsaGateway.OwnerOnly), (removed!.RequestId, removed.Ok, removed.Error));
+        Assert.Empty(_gateway.OwnerRefused);
     }
 
     [Fact]
