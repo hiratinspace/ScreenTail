@@ -108,7 +108,7 @@ public sealed partial class HuduProvider(HttpClient http, string apiKey, HuduOpt
                 return ProviderResult.Failure<IReadOnlyList<CompanyRef>>(new ProviderError(
                     ProviderErrorKind.Invalid,
                     "Hudu listed more company names than ScreenTail reads.",
-                    "Check the site address in Settings → Integrations, or raise Hudu:MaxCompanyListChars on the backend."));
+                    "Ask your ScreenTail owner to check the Hudu site address in the web admin, or raise Hudu:MaxCompanyListChars on the backend."));
             }
 
             all.AddRange(kept);
@@ -133,7 +133,7 @@ public sealed partial class HuduProvider(HttpClient http, string apiKey, HuduOpt
         return ProviderResult.Failure<IReadOnlyList<CompanyRef>>(new ProviderError(
             ProviderErrorKind.Invalid,
             $"Hudu listed more than {cap} companies, which is more than ScreenTail reads.",
-            "Check the site address in Settings → Integrations, or raise Hudu:MaxCompanies on the backend."));
+            "Ask your ScreenTail owner to check the Hudu site address in the web admin, or raise Hudu:MaxCompanies on the backend."));
     }
 
     public async Task<ProviderResult<PublishedArticle>> PublishArticleAsync(KbArticle article, CancellationToken ct = default)
@@ -268,7 +268,7 @@ public sealed partial class HuduProvider(HttpClient http, string apiKey, HuduOpt
 
     private static ProviderError Failure(HttpStatusCode status, string body, TimeSpan? retryAfter) => status switch
     {
-        HttpStatusCode.Unauthorized => new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Update it in Settings → Integrations."),
+        HttpStatusCode.Unauthorized => new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Ask your ScreenTail owner to update the Hudu connection in the web admin."),
         HttpStatusCode.Forbidden => new ProviderError(ProviderErrorKind.Forbidden, "Hudu says this API key may not do that.", "Ask your Hudu administrator for the permission."),
         HttpStatusCode.NotFound => new ProviderError(ProviderErrorKind.NotFound, "Hudu has no such company or article.", "Pick a different one."),
         HttpStatusCode.TooManyRequests => new ProviderError(ProviderErrorKind.Unavailable, "Hudu is rate-limiting requests.", ProviderHttp.TryAgain(retryAfter), retryAfter),

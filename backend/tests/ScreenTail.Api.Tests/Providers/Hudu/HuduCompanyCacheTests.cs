@@ -87,7 +87,7 @@ public sealed class HuduCompanyCacheTests
         // Hudu's own refusal (a revoked key, a rate limit) is what every caller hears, in Hudu's words,
         // and the next call asks again rather than being told the same thing from memory.
         var cache = new HuduCompanyCache(_time);
-        var refused = new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Update it in Settings → Integrations.");
+        var refused = new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Ask your ScreenTail owner to update the Hudu connection in the web admin.");
 
         var callers = Enumerable.Range(0, 5).Select(_ => Get(cache)).ToArray();
         await _load.Started(1);

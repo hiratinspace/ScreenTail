@@ -107,7 +107,7 @@ public sealed class HuduOverHttpTests(ApiFixture api) : IClassFixture<ApiFixture
         Assert.False(kb.Ok);
         Assert.Equal("unauthenticated", kb.Kind);
         Assert.False(kb.Retryable);
-        Assert.Equal("Hudu rejected the API key. Update it in Settings → Integrations.", kb.Error);
+        Assert.Equal("Hudu rejected the API key. Ask your ScreenTail owner to update the Hudu connection in the web admin.", kb.Error);
         var refused = Assert.Single(hudu.Requests);
         Assert.Equal((401, wrong), (refused.Status, refused.Header("x-api-key")));
         Assert.Empty(hudu.Articles);

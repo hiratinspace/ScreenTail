@@ -198,10 +198,10 @@ public sealed class ConnectWiseOverHttpTests(ApiFixture api) : IClassFixture<Api
             Assert.False(r.Ok);
             Assert.Equal("unauthenticated", r.Kind);
             Assert.False(r.Retryable);
-            Assert.Equal("ConnectWise rejected the API key. Update it in Settings → Integrations.", r.Error);
+            Assert.Equal("ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin.", r.Error);
         });
         Assert.False(checkedNow!.Ok);
-        Assert.Equal("ConnectWise rejected the API key. Update it in Settings → Integrations.", checkedNow.Message);
+        Assert.Equal("ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin.", checkedNow.Message);
 
         // One request per destination and one for the check, each refused, none tried again.
         Assert.Equal(3, cw.Requests.Count);

@@ -286,7 +286,7 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         HttpStatusCode.Unauthorized => new ProviderError(
             ProviderErrorKind.Unauthenticated,
             "ConnectWise rejected the API key.",
-            "Update it in Settings → Integrations."),
+            "Ask your ScreenTail owner to update the ConnectWise connection in the web admin."),
         HttpStatusCode.Forbidden => new ProviderError(
             ProviderErrorKind.Forbidden,
             "ConnectWise says this API member may not do that.",

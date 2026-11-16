@@ -90,7 +90,7 @@ there is one:
    ```
    Expect open tickets whose summary contains the word, newest first, each with its company. A number
    returns that ticket first. `pr` is refused with `query_too_short`; a wrong key comes back as
-   `psa_unauthenticated` with "Update it in Settings → Integrations."
+   `psa_unauthenticated` with "Ask your ScreenTail owner to update the ConnectWise connection in the web admin."
 4. Publish (ST-093, ST-094): the note, its attachments and the time entry appear on the ticket and the
    response carries their ids. Two field names are written from the API documentation and not yet
    seen working: check that an Internal note's screenshots are not visible in the customer portal

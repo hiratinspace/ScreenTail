@@ -155,7 +155,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
         Assert.Contains("unauthenticated", body, StringComparison.Ordinal);
-        Assert.Contains("Settings", body, StringComparison.Ordinal);
+        Assert.Contains("web admin", body, StringComparison.Ordinal);
     }
 
     [Fact]
