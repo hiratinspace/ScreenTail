@@ -138,10 +138,10 @@ public sealed class PeerDirectoryTests : IDisposable
         var elsewhere = Path.Combine(_dir, "ScreenTail.Service.exe");
         Assert.Equal(elsewhere, PeerDirectory.Anchor(elsewhere));
 
-        // And a sibling of the kernel's path is a sibling (the dev rule, since the test host is unsigned).
-        var sibling = Path.Combine(Path.GetDirectoryName(kernel)!, "ScreenTail.UI.exe");
-        Assert.Null(new WindowsClientVerifier(Environment.ProcessPath!).Verify(sibling));
-        Assert.Null(new WindowsServerVerifier(Environment.ProcessPath!).Verify(sibling));
+        // And a peer named the kernel's way, here this process itself, is in the anchor's folder, whether
+        // the test host is signed or not (the hosted runner's is, so a missing sibling would not do).
+        Assert.Null(new WindowsClientVerifier(Environment.ProcessPath!).Verify(kernel));
+        Assert.Null(new WindowsServerVerifier(Environment.ProcessPath!).Verify(kernel));
     }
 
     [Fact(SkipUnless = nameof(OnWindows), Skip = "Needs Windows")]
