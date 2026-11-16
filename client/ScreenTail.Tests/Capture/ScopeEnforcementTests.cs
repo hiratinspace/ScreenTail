@@ -150,6 +150,37 @@ public sealed class ScopeEnforcementTests
     }
 
     [Fact]
+    public void OutOfScopeClicksAreAdmittedWithoutTheirPosition()
+    {
+        // INV-6: where a click landed in a window that may not be photographed is data about that window.
+        var outOfScope = new ScopePolicy(Registry).Decide(Window("outlook", handle: 11));
+        var excluded = new ScopeDecision(CaptureScope.Excluded, null, null, "Not capturing: 1Password is on your excluded list.");
+        var click = new ClickEvent { TsMs = 7, X = 4, Y = 5, Button = MouseButton.Middle, FrameId = null };
+
+        foreach (var decision in new[] { outOfScope, excluded })
+        {
+            var admitted = Assert.IsType<ClickEvent>(decision.Admit(click));
+            Assert.Null(admitted.X);
+            Assert.Null(admitted.Y);
+            Assert.Equal(7, admitted.TsMs);
+            Assert.Equal(MouseButton.Middle, admitted.Button);
+        }
+
+        Assert.Null(Assert.IsType<ClickEvent>(ScopeDecision.WithoutPosition(click)).X);
+    }
+
+    [Fact]
+    public void InScopeClicksAreAdmittedAsTheyAre()
+    {
+        var inScope = new ScopePolicy(Registry).Decide(Window("mstsc", handle: 11));
+        var click = new ClickEvent { TsMs = 7, X = 4, Y = 5, Button = MouseButton.Left };
+        var burst = new TypingBurstEvent { TsMs = 8, CharCount = 3 };
+
+        Assert.Same(click, inScope.Admit(click));
+        Assert.Same(burst, inScope.Admit(burst));
+    }
+
+    [Fact]
     public void InScopeEverythingIsWritten()
     {
         var inScope = new ScopePolicy(Registry).Decide(Window("mstsc", handle: 11));

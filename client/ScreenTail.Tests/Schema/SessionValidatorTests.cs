@@ -21,6 +21,23 @@ public class SessionValidatorTests
     }
 
     [Fact]
+    public void AClickWithNoPositionHasNoProblems()
+    {
+        // INV-6: a click in a window that may not be photographed is kept without x and y.
+        var session = Minimal(events: [new ClickEvent { TsMs = 10, Button = MouseButton.Left }]);
+
+        Assert.Empty(SessionValidator.Validate(session));
+    }
+
+    [Fact]
+    public void AClickWithHalfAPositionIsAProblem()
+    {
+        var problems = SessionValidator.Validate(Minimal(events: [new ClickEvent { TsMs = 10, X = 3, Button = MouseButton.Left }]));
+
+        Assert.Single(problems, p => p.Contains("x and y must be given together", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WrongSchemaVersionIsAProblem()
     {
         var problems = SessionValidator.Validate(Minimal(version: "session.v2"));

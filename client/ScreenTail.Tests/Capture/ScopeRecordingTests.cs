@@ -1,5 +1,6 @@
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Input;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
 using ScreenTail.Tests.Sessions;
@@ -120,6 +121,61 @@ public sealed class ScopeRecordingTests
         Assert.Equal(1, capturer.Captures);
         Assert.Equal(0, recorder.DroppedOutOfScope);
         Assert.Equal(99, capturer.Expected);
+    }
+
+    [Theory]
+    [InlineData(CaptureScope.Excluded)]
+    [InlineData(CaptureScope.OutOfScope)]
+    [InlineData(null)]
+    public async Task AClickWhereNoFrameMayBeTakenIsStoredWithoutItsPosition(CaptureScope? scope)
+    {
+        // INV-6 drops data, not just frames. The positions of clicks over an on-screen keypad in an
+        // excluded window say which keys were pressed. The click is still on the timeline, time and button.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var recorder = new SessionRecorder(harness.Machine, new CountingCapturer(), () => Forbidding(scope));
+        var now = harness.Machine.NowMs;
+
+        await recorder.RecordSignalsAsync(
+            new[] { new InputSignal(InputKind.Click, now, 812, 440, MouseButtonKind.Right) },
+            toSessionMs: timestamp => timestamp,
+            elapsed: (from, to) => TimeSpan.FromMilliseconds(to - from),
+            ct);
+
+        var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
+        var click = Assert.Single(stored.Events.OfType<ClickEvent>());
+        Assert.Null(click.X);
+        Assert.Null(click.Y);
+        Assert.Equal(MouseButton.Right, click.Button);
+        Assert.Equal(now, click.TsMs);
+
+        // And the event as it is written into a bundle has no field for it either.
+        var json = System.Text.Json.JsonSerializer.Serialize<SessionEvent>(click, SessionJson.Options);
+        Assert.DoesNotContain("\"x\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"y\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AClickWhereFramesMayBeTakenKeepsItsPosition()
+    {
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var recorder = new SessionRecorder(harness.Machine, new CountingCapturer(), InScope);
+        var now = harness.Machine.NowMs;
+
+        await recorder.RecordSignalsAsync(
+            new[] { new InputSignal(InputKind.Click, now, 812, 440) },
+            toSessionMs: timestamp => timestamp,
+            elapsed: (from, to) => TimeSpan.FromMilliseconds(to - from),
+            ct);
+
+        var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
+        var click = Assert.Single(stored.Events.OfType<ClickEvent>());
+        Assert.Equal(812, click.X);
+        Assert.Equal(440, click.Y);
+        Assert.Equal(1, harness.Pending.DepthFor(harness.Machine.SessionId!));
     }
 
     [Fact]

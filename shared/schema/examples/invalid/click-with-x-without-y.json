@@ -1,0 +1,12 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "click-with-x-without-y",
+  "started_at": "2026-09-10T14:02:00-05:00",
+  "remote_tool": { "kind": "rdp" },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "events": [{ "type": "click", "ts_ms": 1200, "x": 812, "button": "left" }],
+  "frames": [],
+  "transcript": []
+}

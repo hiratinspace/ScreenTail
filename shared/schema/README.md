@@ -11,6 +11,7 @@
 | **INV-1**, frames go through redaction first | Frames require `redaction_pending`. A pending frame can't carry `ocr_text` or `redacted_at`; a redacted frame must have `redacted_at` |
 | **INV-9**, the technician's mic only | `speaker` is `tech`; `end_user` is reserved for v1.2 (ST-123) |
 | Window titles aren't stored in events | Focus events carry the process and scope only |
+| **INV-6**, a click where no frame may be taken has no position | `click` requires only `type`, `ts_ms` and `button`; `x` and `y` come together (`dependentRequired`) or not at all, and the recorder leaves both out for an excluded, elevated or out-of-scope window |
 | Optional values are omitted rather than written as `null` | Generated serializers skip nulls, so documents round-trip exactly |
 
 ## Generated code
