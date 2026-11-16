@@ -688,6 +688,33 @@ jobs:
           done
           exit $missing
 
+      # A developer's working copy can hold git-ignored settings and secrets files beside the code, and
+      # `COPY backend/src/` would take them into the image, where the API would load them. .dockerignore
+      # keeps them out. This plants files with those names, builds, and looks for them in the build stage
+      # and in the image that ships (2026-11-15 review). The decoys hold nothing secret and are removed.
+      - name: Local settings and secrets files stay out of the image
+        working-directory: .
+        run: |
+          set -euo pipefail
+          api=backend/src/ScreenTail.Api
+          decoys="$api/appsettings.json $api/appsettings.Development.json $api/appsettings.Local.json $api/Properties/launchSettings.json $api/secrets.json $api/.env $api/.env.local $api/api.env"
+          mkdir -p "$api/Properties"
+          for f in $decoys; do printf '{"Decoy":"not a secret"}\n' > "$f"; done
+          trap 'for f in $decoys; do rm -f "$f"; done; rmdir "$api/Properties" 2>/dev/null || true; docker rm -f decoy-check >/dev/null 2>&1 || true' EXIT
+
+          docker build -q -f backend/Dockerfile --target build -t screentail-api:decoy-build . >/dev/null
+          docker build -q -f backend/Dockerfile -t screentail-api:decoy . >/dev/null
+          found=$(docker run --rm --entrypoint sh screentail-api:decoy-build -c \
+            "find /repo /app \( -name 'appsettings*.json' -o -name launchSettings.json -o -name secrets.json -o -name '*.env' -o -name '.env' -o -name '.env.*' \) -print")
+          docker create --name decoy-check screentail-api:decoy >/dev/null
+          shipped=$(docker export decoy-check | tar -t | grep -E '(^|/)(appsettings[^/]*\.json|launchSettings\.json|secrets\.json|[^/]*\.env|\.env(\.[^/]*)?)$' || true)
+          if [ -n "$found$shipped" ]; then
+            printf '%s\n' $found $shipped | sed 's/^/::error::In the image: /'
+            exit 1
+          fi
+          set -- $decoys
+          echo "None of the $# planted settings or secrets files reached the build stage or the image."
+
       - name: Container build
         working-directory: .
         run: docker build -f backend/Dockerfile -t screentail-api:ci .
