@@ -136,12 +136,22 @@ public sealed class RemoteToolRegistry
     public ToolEntry? MatchTool(ForegroundWindowInfo window)
     {
         ArgumentNullException.ThrowIfNull(window);
-        if (window.ProcessName is { } process && _byProcess.TryGetValue(process, out var byProcess))
+        return MatchTool(window.ProcessName, window.ClassName);
+    }
+
+    /// <summary>
+    /// The same match from a window's process and class alone, for a caller that has a window handle and
+    /// not a <see cref="ForegroundWindowInfo"/> (the screen capturer's see-through check, WindowCover).
+    /// </summary>
+    public ToolEntry? MatchTool(string? processName, string className)
+    {
+        ArgumentNullException.ThrowIfNull(className);
+        if (processName is { } process && _byProcess.TryGetValue(process, out var byProcess))
         {
             return byProcess;
         }
 
-        if (window.ClassName.Length == 0)
+        if (className.Length == 0)
         {
             return null;
         }
@@ -150,7 +160,7 @@ public sealed class RemoteToolRegistry
         {
             foreach (var pattern in tool.CompiledClassPatterns)
             {
-                if (SafeMatch(pattern, window.ClassName))
+                if (SafeMatch(pattern, className))
                 {
                     return tool;
                 }

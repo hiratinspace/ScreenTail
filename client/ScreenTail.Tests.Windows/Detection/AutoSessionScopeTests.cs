@@ -417,6 +417,74 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.False(_trigger!.SessionRunning);
     }
 
+    // ---- a retitle the watcher is still holding re-decides the window in front -------------------------
+
+    [Fact]
+    public async Task ARetitleStillSettlingIsDecidedBeforeTheNextFrame()
+    {
+        // The watcher holds a retitle back for 250 ms so a title that rewrites itself is not a stream of
+        // reports. The decision followed the reports, so a browser tab that turned into a password vault
+        // inside that time was photographed under the old tab's decision (INV-6, 2026-11-15 review). The
+        // coordinator now reads the watcher's latest look as well and decides again on it.
+        var ct = TestContext.Current.CancellationToken;
+        ForegroundWindowInfo? latest = null;
+        var vaults = ExclusionList.Load("""
+            { "version": "test", "processes": [], "url_fragments": [],
+              "title_patterns": [{ "id": "vaults", "display_name": "Password vaults in a browser", "pattern": "(?i)\\bvault\\b" }] }
+            """);
+        var coordinator = await CoordinatorAsync(
+            ct,
+            options: new ScopeOptions { CaptureAllWindows = true, Exclusions = vaults },
+            latest: () => latest);
+
+        var tickets = Window(handle: 444, process: "chrome", title: "Tickets - Google Chrome") with { BrowserTabTitle = "Tickets" };
+        latest = tickets;
+        await coordinator.HandleAsync(tickets, ct);
+        Assert.True(coordinator.CurrentScope?.MayCaptureFrames);
+
+        // Retitled, not yet reported: the watcher's filter is holding it.
+        latest = Window(handle: 444, process: "chrome", title: "Bitwarden Web vault - Google Chrome") with { BrowserTabTitle = "Bitwarden Web vault" };
+
+        Assert.False(coordinator.CurrentScope?.MayCaptureFrames);
+        Assert.Equal(CaptureScope.Excluded, coordinator.CurrentScope?.Scope);
+
+        // Back to the reported title: frames again, with nothing reported in between.
+        latest = tickets;
+        Assert.True(coordinator.CurrentScope?.MayCaptureFrames);
+    }
+
+    [Fact]
+    public async Task AnUnreportedTitleTightensTheDecisionButOnlyTheReportLoosensIt()
+    {
+        // A title on its way somewhere passes through others. Tab to the vault (excluded), then on to a
+        // page in scope, both inside the settle time: the vault's "no frames" stands until the page is
+        // reported, rather than loosening on a title nobody has seen settle.
+        var ct = TestContext.Current.CancellationToken;
+        ForegroundWindowInfo? latest = null;
+        var vaults = ExclusionList.Load("""
+            { "version": "test", "processes": [], "url_fragments": [],
+              "title_patterns": [{ "id": "vaults", "display_name": "Password vaults in a browser", "pattern": "(?i)\\bvault\\b" }] }
+            """);
+        var coordinator = await CoordinatorAsync(
+            ct,
+            options: new ScopeOptions { CaptureAllWindows = true, Exclusions = vaults },
+            latest: () => latest);
+
+        var tickets = Window(handle: 555, process: "chrome", title: "Tickets - Google Chrome") with { BrowserTabTitle = "Tickets" };
+        latest = tickets;
+        await coordinator.HandleAsync(tickets, ct);
+
+        latest = Window(handle: 555, process: "chrome", title: "Bitwarden Web vault - Google Chrome") with { BrowserTabTitle = "Bitwarden Web vault" };
+        Assert.False(coordinator.CurrentScope?.MayCaptureFrames);
+
+        var docs = Window(handle: 555, process: "chrome", title: "Docs - Google Chrome") with { BrowserTabTitle = "Docs" };
+        latest = docs;
+        Assert.False(coordinator.CurrentScope?.MayCaptureFrames);
+
+        await coordinator.HandleAsync(docs, ct);
+        Assert.True(coordinator.CurrentScope?.MayCaptureFrames);
+    }
+
     // ---- a policy change re-decides the window in front (T-30) ----------------------------------------
 
     [Fact]
@@ -480,7 +548,8 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Func<bool>? indicated = null,
         Func<bool>? autoStart = null,
         TimeProvider? time = null,
-        ScopeOptions? options = null)
+        ScopeOptions? options = null,
+        Func<ForegroundWindowInfo?>? latest = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)), ct: ct);
         _machine = new SessionMachine(_store, new NoCaptureSources(), new UnavailableDrafter());
@@ -495,7 +564,8 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
             () => (false, "default"),
             clipboard,
             autoStart: autoStart,
-            time: time);
+            time: time,
+            latest: latest);
     }
 
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"st-scope-{Guid.NewGuid():N}.db");

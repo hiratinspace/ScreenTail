@@ -43,7 +43,7 @@ internal sealed partial class ClickCaptureLoop
         _machine = machine;
         _hooks = hooks;
         _logger = logger;
-        _recorder = new SessionRecorder(machine, capturer, currentScope);
+        _recorder = new SessionRecorder(machine, capturer, currentScope, foreground: GetForegroundWindow);
         _recorder.FrameMissed += tsMs => LogNoFrame(logger, tsMs);
         _recorder.FrameStaged += frame =>
         {
@@ -115,6 +115,10 @@ internal sealed partial class ClickCaptureLoop
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No frame for the click at {TsMs} ms: the window was gone")]
     private static partial void LogNoFrame(ILogger logger, long tsMs);
+
+    /// <summary>The window in front now, for the recorder's check that a click's position is about the judged window.</summary>
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
 }
 
 /// <summary>Lets the capture loop read the hook buffer without owning the hooks' lifetime.</summary>

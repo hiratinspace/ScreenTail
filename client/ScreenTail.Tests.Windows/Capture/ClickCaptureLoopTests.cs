@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -22,7 +23,13 @@ namespace ScreenTail.Tests.Windows.Capture;
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class ClickCaptureLoopTests : IAsyncDisposable
 {
-    private static readonly ScopeDecision InScope = new(CaptureScope.RemoteTool, "rdp", RemoteToolKind.Rdp, "Capturing", 99);
+    /// <summary>
+    /// In scope, and judged on whatever window is in front when the recorder asks. The recorder takes no
+    /// frame for a click while a window other than the judged one is in front (finding 13), and the
+    /// capturer here is a fake, so the window itself does not matter; only that the decision is about it.
+    /// </summary>
+    private static ScopeDecision InScope() => new(CaptureScope.RemoteTool, "rdp", RemoteToolKind.Rdp, "Capturing", GetForegroundWindow());
+
     private readonly string _path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
     private SqliteSessionStore? _store;
     private SessionMachine? _machine;
@@ -34,7 +41,7 @@ public sealed class ClickCaptureLoopTests : IAsyncDisposable
         var machine = await StartRecordingAsync(ct);
         var buffer = new InputRingBuffer();
         var capturer = new FlakyCapturer(failFirst: true);
-        var loop = new ClickCaptureLoop(machine, new WindowsInputHooksAccessor(buffer), capturer, () => InScope, NullLogger.Instance);
+        var loop = new ClickCaptureLoop(machine, new WindowsInputHooksAccessor(buffer), capturer, InScope, NullLogger.Instance);
 
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var running = loop.RunAsync(stop.Token);
@@ -65,7 +72,7 @@ public sealed class ClickCaptureLoopTests : IAsyncDisposable
         // The control: the cancellation the host asks for ends the loop, promptly and without a fault.
         var ct = TestContext.Current.CancellationToken;
         var machine = await StartRecordingAsync(ct);
-        var loop = new ClickCaptureLoop(machine, new WindowsInputHooksAccessor(new InputRingBuffer()), new FlakyCapturer(failFirst: false), () => InScope, NullLogger.Instance);
+        var loop = new ClickCaptureLoop(machine, new WindowsInputHooksAccessor(new InputRingBuffer()), new FlakyCapturer(failFirst: false), InScope, NullLogger.Instance);
 
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var running = loop.RunAsync(stop.Token);
@@ -101,6 +108,9 @@ public sealed class ClickCaptureLoopTests : IAsyncDisposable
             File.Delete(_path + suffix);
         }
     }
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
 
     private sealed class FixedKey(byte[] key) : IStoreKeyProvider
     {

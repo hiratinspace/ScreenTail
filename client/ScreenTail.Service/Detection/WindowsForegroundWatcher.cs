@@ -63,6 +63,13 @@ internal sealed class WindowsForegroundWatcher : IForegroundWatcher
 
     public ForegroundWindowInfo Current => _current;
 
+    /// <summary>
+    /// The last look at the window in front, including a retitle held back while it settles, so the
+    /// scope decision can follow the title on screen rather than the last one reported (INV-6). Null
+    /// before the first look.
+    /// </summary>
+    public ForegroundWindowInfo? Latest => _filter.Latest;
+
     /// <summary>Whether a window handle still names a window (ST-113: a retry skips one that closed).</summary>
     public static bool Exists(nint window) => window != 0 && IsWindow(window);
 

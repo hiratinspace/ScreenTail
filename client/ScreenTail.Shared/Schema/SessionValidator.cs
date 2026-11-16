@@ -144,6 +144,11 @@ public static class SessionValidator
                 case FocusEvent { Process.Length: 0 }:
                     problems.Add($"{where} focus: process is empty (minLength 1)");
                     break;
+                case ClickEvent click when click.X.HasValue != click.Y.HasValue:
+                    // dependentRequired in the schema: a position is both coordinates or neither (INV-6
+                    // removes both for a window that may not be photographed).
+                    problems.Add($"{where} click: x and y must be given together or not at all");
+                    break;
                 case ClickEvent { FrameId: { } frameId } when !frameIds.Contains(frameId):
                     problems.Add($"{where} click: frame_id '{frameId}' does not exist");
                     break;

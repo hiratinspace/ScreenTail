@@ -34,7 +34,7 @@ public sealed record ScopeOptions
 /// </param>
 public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToolKind? Tool, string Reason, nint Window = 0)
 {
-    /// <summary>Whether a screenshot may be taken. Clicks are still recorded out of scope; frames are not.</summary>
+    /// <summary>Whether a screenshot may be taken. Clicks are still recorded out of scope, without their position; frames are not.</summary>
     public bool MayCaptureFrames => Scope is CaptureScope.RemoteTool or CaptureScope.AdminTool;
 
     /// <summary>
@@ -65,11 +65,53 @@ public sealed record ScopeDecision(CaptureScope Scope, string? ToolId, RemoteToo
     /// somewhere and did something, with no picture and nothing of what they typed, which is what makes
     /// "clicks logged, no frames" visible in Review instead of a silent gap. That is the line INV-6 draws,
     /// and it is drawn between a keystroke and a mouse button rather than between an event and no event.
+    /// A click kept out of scope is kept without its position: see <see cref="Admit"/>.
     /// </summary>
     public bool MayRecord(SessionEvent sessionEvent)
     {
         ArgumentNullException.ThrowIfNull(sessionEvent);
         return MayCaptureFrames || sessionEvent is not (TypingBurstEvent or ShortcutEvent or EnterEvent);
+    }
+
+    /// <summary>
+    /// The event as it may be written while this window is in front: unchanged where frames may be taken,
+    /// and a click anywhere else without where it landed.
+    ///
+    /// INV-6 drops data, not just frames. A click's screen position in a window that may not be
+    /// photographed is data about that window: a run of positions over an on-screen keypad or a vault's
+    /// list says which keys or entries were pressed as surely as a picture would. The click itself stays
+    /// (its time and button), so the timeline can still say "clicks logged, no frames".
+    /// </summary>
+    public SessionEvent Admit(SessionEvent sessionEvent)
+    {
+        ArgumentNullException.ThrowIfNull(sessionEvent);
+        return MayCaptureFrames ? sessionEvent : WithoutPosition(sessionEvent);
+    }
+
+    /// <summary>
+    /// The stricter of two decisions about one window: the one that forbids frames when only one does
+    /// (frames, typing, narration and click positions all follow <see cref="MayCaptureFrames"/>), otherwise
+    /// the newer. For a title not reported yet, which may tighten what is in force but not loosen it.
+    /// </summary>
+    /// <param name="inForce">The decision in force.</param>
+    /// <param name="newer">The decision for the newer look at the same window.</param>
+    public static ScopeDecision Stricter(ScopeDecision inForce, ScopeDecision newer)
+    {
+        ArgumentNullException.ThrowIfNull(inForce);
+        ArgumentNullException.ThrowIfNull(newer);
+        return !inForce.MayCaptureFrames && newer.MayCaptureFrames ? inForce : newer;
+    }
+
+    /// <summary>
+    /// A click with its position removed; any other event unchanged. For when nothing is known about the
+    /// window in front, which is not a reason to keep where the mouse was.
+    /// </summary>
+    public static SessionEvent WithoutPosition(SessionEvent sessionEvent)
+    {
+        ArgumentNullException.ThrowIfNull(sessionEvent);
+        return sessionEvent is ClickEvent click && (click.X is not null || click.Y is not null)
+            ? click with { X = null, Y = null }
+            : sessionEvent;
     }
 }
 

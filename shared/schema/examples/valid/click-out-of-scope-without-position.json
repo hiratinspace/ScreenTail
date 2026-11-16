@@ -1,0 +1,16 @@
+{
+  "schema_version": "session.v1",
+  "session_id": "click-out-of-scope-without-position",
+  "started_at": "2026-09-10T14:02:00-05:00",
+  "remote_tool": { "kind": "screenconnect" },
+  "partial_capture": false,
+  "frames_purged_unredacted": 0,
+  "local_only": false,
+  "events": [
+    { "type": "click", "ts_ms": 1200, "x": 812, "y": 440, "button": "left" },
+    { "type": "focus", "ts_ms": 2000, "process": "KeePass", "scope": "excluded" },
+    { "type": "click", "ts_ms": 2400, "button": "left" }
+  ],
+  "frames": [],
+  "transcript": []
+}

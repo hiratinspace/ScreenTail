@@ -482,7 +482,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             logger,
             sessionPolicy,
             Platform.Clipboard.ClipboardText.ReadOnce,
-            () => captureStore.Load().AutoStart);
+            () => captureStore.Load().AutoStart,
+            latest: () => foreground.Latest);
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
         // brings a new policy (ST-047) or the technician saves (ST-081, ST-080). The policy decides
@@ -552,7 +553,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         hookLifetime.Follow(stoppingToken);
 
         // ST-025: clicks become events always, and screenshots only where scope allows.
-        using var capturer = new ScreenshotCapturer();
+        using var capturer = new ScreenshotCapturer(logger: logger, registry: registry);
         var capture = new ClickCaptureLoop(
             machine,
             new WindowsInputHooksAccessor(hooks),
