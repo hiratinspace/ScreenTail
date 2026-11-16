@@ -78,6 +78,32 @@ public sealed class ExclusionListTests
         Assert.Equal(rule, matched!.Id);
     }
 
+    [Fact]
+    public void AnAddressFragmentIsCheckedAgainstTheAddressWhenOneIsKnown()
+    {
+        // No address bar is read today, so the fragments match the window title (and Settings says so).
+        // When something does read the address, a fragment that is only in the address still excludes.
+        var tab = Window(process: "chrome", title: "Dashboard - Google Chrome", browserTab: "Dashboard") with
+        {
+            BrowserUrl = "https://acme.okta.com/app/UserHome",
+        };
+
+        Assert.Equal("identity-urls", Defaults().Match(tab)?.Id);
+        Assert.Null(Defaults().Match(Window(process: "chrome", title: "Dashboard - Google Chrome", browserTab: "Dashboard")));
+    }
+
+    [Fact]
+    public void SettingsSaysBrowserTabsAreMatchedByTitleNotAddress()
+    {
+        // The "URL" rules match the window title, because no address is read. A technician who believes a
+        // bank's address is excluded would open a page whose title says nothing of banking and expect it to
+        // be left alone, so Settings says plainly what is matched (Spec §5 S6, 2026-11-15 security review).
+        var pane = File.ReadAllText(Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "ScreenTail.UI", "Settings", "Privacy", "PrivacyPane.xaml")));
+
+        Assert.Contains("Browser tabs are matched by the page title shown in the browser's title bar, not by the web address.", pane, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("CredentialUIBroker")]
     [InlineData("CredentialUIBroker.exe")]

@@ -152,7 +152,7 @@ public sealed class ExclusionList
         }
 
         var title = window.BrowserTabTitle ?? window.Title;
-        if (title.Length == 0)
+        if (title.Length == 0 && window.BrowserUrl is not { Length: > 0 })
         {
             return null;
         }
@@ -174,9 +174,16 @@ public sealed class ExclusionList
             }
         }
 
+        // The "URL" fragments, which today match what the browser puts in its window title: the page's own
+        // title, or its address when the page has none (a bare host such as "acme.okta.com" is what Chrome
+        // and Edge show then). No address bar is read (ForegroundWindowInfo.BrowserUrl is null everywhere),
+        // so a fragment that appears only in the address is not matched, and Settings says so rather than
+        // promising address matching. When something does fill BrowserUrl, the same fragments are checked
+        // against it as well.
         foreach (var (fragment, rule) in _urls)
         {
-            if (title.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+            if (title.Contains(fragment, StringComparison.OrdinalIgnoreCase)
+                || window.BrowserUrl?.Contains(fragment, StringComparison.OrdinalIgnoreCase) == true)
             {
                 return rule;
             }
@@ -215,6 +222,10 @@ public sealed class ExcludedTitle
     public required string Pattern { get; init; }
 }
 
+/// <summary>
+/// Address fragments such as "okta.com". Named for addresses, and matched against the browser's window
+/// title until the address bar is read: see <see cref="ExclusionList.Match"/>.
+/// </summary>
 public sealed class ExcludedUrls
 {
     public required string Id { get; init; }
