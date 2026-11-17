@@ -16,6 +16,7 @@ public sealed class InstallerAuthoringTests
 {
     private static readonly XNamespace Wix = "http://wixtoolset.org/schemas/v4/wxs";
     private static readonly XNamespace Util = "http://wixtoolset.org/schemas/v4/wxs/util";
+    private static readonly XNamespace Bal = "http://wixtoolset.org/schemas/v4/wxs/bal";
     private static readonly XNamespace MsBuild = string.Empty;
 
     [Fact]
@@ -208,8 +209,46 @@ public sealed class InstallerAuthoringTests
 
         foreach (var id in new[] { "BACKENDURL", "BACKENDURLKEPT" })
         {
-            Assert.Equal("yes", (string?)package.Descendants(Wix + "Property").Single(p => (string?)p.Attribute("Id") == id).Attribute("Secure"));
+            var property = package.Descendants(Wix + "Property").Single(p => (string?)p.Attribute("Id") == id);
+            Assert.Equal("yes", (string?)property.Attribute("Secure"));
+
+            // Windows Installer's log names the property and never shows the value, as the service never
+            // logs the address (an address can carry a user name and password).
+            Assert.Equal("yes", (string?)property.Attribute("Hidden"));
         }
+    }
+
+    [Fact]
+    public void TheSetupProgramPassesTheBackendAddressOnToThePackage()
+    {
+        // Follow-up to the 2026-11-16 security run: ScreenTail-Setup.exe BACKENDURL=https://... (with /quiet,
+        // /passive or neither) must reach the package's BACKENDURL, or an administrator using the setup
+        // program has no way to give the address and every install ends up with none.
+        var bundle = Bundle().Root!.Element(Wix + "Bundle")!;
+
+        // A variable the command line can set. The internal UI's command line handling sets only variables
+        // marked overridable, and ignores any other NAME=value. Matched in any case, as an msiexec user may
+        // type it.
+        var variable = Assert.Single(bundle.Elements(Wix + "Variable"), v => (string?)v.Attribute("Name") == "BACKENDURL");
+        Assert.Equal("yes", (string?)variable.Attribute(Bal + "Overridable"));
+        Assert.Equal("caseInsensitive", (string?)bundle.Attribute(Bal + "CommandLineVariables"));
+
+        // No default and nothing persisted: a run without it gives the package nothing, so an upgrade or a
+        // repair keeps the value already on the machine (the package's BACKENDURLKEPT), and an old address
+        // is never replayed. Hidden, so the setup program's log never shows it.
+        Assert.Null(variable.Attribute("Value"));
+        Assert.NotEqual("yes", (string?)variable.Attribute("Persisted"));
+        Assert.Equal("yes", (string?)variable.Attribute("Hidden"));
+
+        // Passed to ScreenTail's package, under the name the package reads, only when it was given. Passed
+        // empty, the package would take it as not given too, but the condition keeps the command line the
+        // same as a plain msiexec /i without it.
+        var package = Assert.Single(bundle.Descendants(Wix + "MsiPackage"));
+        var property = Assert.Single(package.Elements(Wix + "MsiProperty"));
+        Assert.Equal("BACKENDURL", (string?)property.Attribute("Name"));
+        Assert.Equal("[BACKENDURL]", (string?)property.Attribute("Value"));
+        Assert.Equal("BACKENDURL", (string?)property.Attribute("Condition"));
+        Assert.Contains(Package().Descendants(Wix + "Property"), p => (string?)p.Attribute("Id") == (string?)property.Attribute("Name"));
     }
 
     [Fact]
