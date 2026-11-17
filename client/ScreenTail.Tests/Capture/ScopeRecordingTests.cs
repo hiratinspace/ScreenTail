@@ -1,5 +1,6 @@
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Input;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Shared.Schema;
 using ScreenTail.Tests.Sessions;
@@ -120,6 +121,113 @@ public sealed class ScopeRecordingTests
         Assert.Equal(1, capturer.Captures);
         Assert.Equal(0, recorder.DroppedOutOfScope);
         Assert.Equal(99, capturer.Expected);
+    }
+
+    [Theory]
+    [InlineData(CaptureScope.Excluded)]
+    [InlineData(CaptureScope.OutOfScope)]
+    [InlineData(null)]
+    public async Task AClickWhereNoFrameMayBeTakenIsStoredWithoutItsPosition(CaptureScope? scope)
+    {
+        // INV-6 drops data, not just frames. The positions of clicks over an on-screen keypad in an
+        // excluded window say which keys were pressed. The click is still on the timeline, time and button.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var recorder = new SessionRecorder(harness.Machine, new CountingCapturer(), () => Forbidding(scope));
+        var now = harness.Machine.NowMs;
+
+        await recorder.RecordSignalsAsync(
+            new[] { new InputSignal(InputKind.Click, now, 812, 440, MouseButtonKind.Right) },
+            toSessionMs: timestamp => timestamp,
+            elapsed: (from, to) => TimeSpan.FromMilliseconds(to - from),
+            ct);
+
+        var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
+        var click = Assert.Single(stored.Events.OfType<ClickEvent>());
+        Assert.Null(click.X);
+        Assert.Null(click.Y);
+        Assert.Equal(MouseButton.Right, click.Button);
+        Assert.Equal(now, click.TsMs);
+
+        // And the event as it is written into a bundle has no field for it either.
+        var json = System.Text.Json.JsonSerializer.Serialize<SessionEvent>(click, SessionJson.Options);
+        Assert.DoesNotContain("\"x\"", json, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"y\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AClickWhereFramesMayBeTakenPutsItsPositionOnTheFrame()
+    {
+        // In scope the position is used once, for the frame's cursor, and the frame keeps it. The click on
+        // the timeline points at no frame, and nothing reads where an unframed click landed, so the store
+        // keeps no position for it either.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var recorder = new SessionRecorder(harness.Machine, new CountingCapturer(), InScope);
+        var now = harness.Machine.NowMs;
+
+        await recorder.RecordSignalsAsync(
+            new[] { new InputSignal(InputKind.Click, now, 812, 440) },
+            toSessionMs: timestamp => timestamp,
+            elapsed: (from, to) => TimeSpan.FromMilliseconds(to - from),
+            ct);
+
+        Assert.True(harness.Pending.TryTake(out var queued));
+        Assert.Equal(812, queued.Frame.Cursor?.X);
+        Assert.Equal(440, queued.Frame.Cursor?.Y);
+        harness.Pending.Done(queued);
+
+        var stored = (await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!;
+        var click = Assert.Single(stored.Events.OfType<ClickEvent>());
+        Assert.Null(click.X);
+        Assert.Null(click.Y);
+    }
+
+    [Fact]
+    public async Task AClickMadeWhileAnotherWindowIsInFrontHasNoPositionAndNoFrame()
+    {
+        // A click on a background window lands before that window comes to the front, and a window that
+        // never takes the foreground (the on-screen keyboard) is clicked while another is in front. Either
+        // way the position is about a window the scope decision did not judge (INV-6).
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var capturer = new CountingCapturer();
+        var recorder = new SessionRecorder(harness.Machine, capturer, InScope, foreground: () => 123);
+        var now = harness.Machine.NowMs;
+
+        await recorder.RecordSignalsAsync(
+            new[] { new InputSignal(InputKind.Click, now, 812, 440) },
+            toSessionMs: timestamp => timestamp,
+            elapsed: (from, to) => TimeSpan.FromMilliseconds(to - from),
+            ct);
+
+        Assert.Equal(0, capturer.Captures);
+        Assert.Equal(0, harness.Pending.DepthFor(harness.Machine.SessionId!));
+        var click = Assert.Single((await harness.Store.LoadSessionAsync(harness.Machine.SessionId!, ct))!.Events.OfType<ClickEvent>());
+        Assert.Null(click.X);
+    }
+
+    [Fact]
+    public async Task AClickMadeWhileTheJudgedWindowIsInFrontIsPhotographed()
+    {
+        // The control for the test above: the same click with the judged window (99) in front.
+        await using var harness = await MachineHarness.StartAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await harness.Machine.StartAsync(ScreenConnect, ct: ct);
+        var capturer = new CountingCapturer();
+        var recorder = new SessionRecorder(harness.Machine, capturer, InScope, foreground: () => 99);
+
+        await recorder.RecordSignalsAsync(
+            new[] { new InputSignal(InputKind.Click, harness.Machine.NowMs, 812, 440) },
+            toSessionMs: timestamp => timestamp,
+            elapsed: (from, to) => TimeSpan.FromMilliseconds(to - from),
+            ct);
+
+        Assert.Equal(1, capturer.Captures);
+        Assert.Equal(1, harness.Pending.DepthFor(harness.Machine.SessionId!));
     }
 
     [Fact]

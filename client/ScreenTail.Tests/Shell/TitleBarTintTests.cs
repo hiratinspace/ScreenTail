@@ -25,8 +25,9 @@ public sealed class TitleBarTintTests
         Assert.Equal(TitleBarTint.ColorRef(frame), tint.Border);
         Assert.Equal(TitleBarTint.ColorRef(text), tint.Text);
 
-        // The frame is dark in both themes (indigo navy in light, §2.0), so the caption buttons are light.
-        Assert.True(tint.DarkCaptionButtons);
+        // Dark caption buttons (drawn light) on the dark frame; on the light frame (v0.7.0, a soft grey panel)
+        // Windows' own dark-on-light buttons.
+        Assert.Equal(theme == "dark", tint.DarkCaptionButtons);
     }
 
     [Fact]

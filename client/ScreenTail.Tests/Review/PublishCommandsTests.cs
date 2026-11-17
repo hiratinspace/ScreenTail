@@ -1089,21 +1089,33 @@ public sealed class PublishCommandsTests : IAsyncDisposable
     [Fact]
     public async Task TheSettingsQuestionsAndActionsPassThrough()
     {
-        // ST-082: the Settings screen manages integrations through the same service and gateway.
+        // ST-082: the Settings screen reads, tests and maps through the same service and gateway.
         var commands = await CommandsAsync();
 
         var listed = Assert.IsType<IntegrationDetailsListed>(await commands.ReplyToAsync(new ListIntegrationsCommand { RequestId = 5 }));
         var checkedEvent = Assert.IsType<IntegrationChecked>(await commands.ReplyToAsync(new CheckIntegrationCommand { RequestId = 6, Provider = "connectwise" }));
-        var stored = await commands.HandleAsync(new StoreIntegrationCommand { RequestId = 7, Provider = "hudu", SiteUrl = "https://acme.huducloud.com", Secret = "key" });
-        var removed = await commands.HandleAsync(new RemoveIntegrationCommand { RequestId = 8, Provider = "hudu" });
         var unmapped = await commands.HandleAsync(new UnmapCompanyCommand { RequestId = 9, PsaCompany = "Acme Dental" });
 
         Assert.Equal("connectwise", Assert.Single(listed.Integrations).Provider);
         Assert.True(checkedEvent.Ok);
-        Assert.True(stored!.Ok);
-        Assert.True(removed!.Ok);
         Assert.True(unmapped!.Ok);
-        Assert.Equal(("hudu", "https://acme.huducloud.com", "key"), _gateway.Stored);
+    }
+
+    [Fact]
+    public async Task StoreAndRemoveAreRefusedHereAndTheSecretNeverLeaves()
+    {
+        // Integration credentials can only be changed by the tenant owner, in the web admin. The commands
+        // stay in the contract for an older UI and are refused by the service itself, as a failed result
+        // with the owner sentence under the same request id. The gateway is never asked, so a secret an
+        // older UI sends goes nowhere.
+        var commands = await CommandsAsync();
+
+        var stored = await commands.HandleAsync(new StoreIntegrationCommand { RequestId = 7, Provider = "hudu", SiteUrl = "https://acme.huducloud.com", Secret = "key" });
+        var removed = await commands.HandleAsync(new RemoveIntegrationCommand { RequestId = 8, Provider = "hudu" });
+
+        Assert.Equal((7, false, PsaGateway.OwnerOnly), (stored!.RequestId, stored.Ok, stored.Error));
+        Assert.Equal((8, false, PsaGateway.OwnerOnly), (removed!.RequestId, removed.Ok, removed.Error));
+        Assert.Empty(_gateway.OwnerRefused);
     }
 
     [Fact]
@@ -1257,19 +1269,25 @@ public sealed class PublishCommandsTests : IAsyncDisposable
             return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IReadOnlyList<TicketRow>>(r) : GatewayAnswer.Of<IReadOnlyList<TicketRow>>(Tickets));
         }
 
-        public (string Provider, string SiteUrl, string Secret)? Stored { get; private set; }
+        /// <summary>The backend's 403 <c>owner_only</c> sentence: what a device's store or remove is answered with.</summary>
+        public const string OwnerOnly = "Your ScreenTail owner manages this connection in the web admin. Ask them to connect or change it there.";
+
+        public List<string> OwnerRefused { get; } = [];
 
         public Task<GatewayAnswer<IReadOnlyList<IntegrationDetailRow>>> IntegrationDetailsAsync(CancellationToken ct = default) =>
             Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IReadOnlyList<IntegrationDetailRow>>(r) : GatewayAnswer.Of<IReadOnlyList<IntegrationDetailRow>>([new IntegrationDetailRow("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)]));
 
         public Task<GatewayAnswer<bool>> StoreIntegrationAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
         {
-            Stored = (provider, siteUrl, secret);
-            return Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+            OwnerRefused.Add("store " + provider);
+            return Task.FromResult(GatewayAnswer.Refused<bool>(OwnerOnly));
         }
 
-        public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default) =>
-            Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<bool>(r) : GatewayAnswer.Of(true));
+        public Task<GatewayAnswer<bool>> RemoveIntegrationAsync(string provider, CancellationToken ct = default)
+        {
+            OwnerRefused.Add("remove " + provider);
+            return Task.FromResult(GatewayAnswer.Refused<bool>(OwnerOnly));
+        }
 
         public Task<GatewayAnswer<IntegrationCheckRow>> CheckIntegrationAsync(string provider, CancellationToken ct = default) =>
             Task.FromResult(Refusal is { } r ? GatewayAnswer.Refused<IntegrationCheckRow>(r) : GatewayAnswer.Of(new IntegrationCheckRow(true, "Connected to https://na.myconnectwise.net.")));

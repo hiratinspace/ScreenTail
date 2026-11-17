@@ -71,6 +71,75 @@ public sealed class CaptureTargetTests
         Assert.True(WindowCover.AnyCovers(Target, [Toast() with { SameProcess = true }, Toast()], walkComplete: true));
     }
 
+    // ---- what shows through the window in front (INV-6) ----------------------------------------------
+
+    [Theory]
+    [InlineData((byte)0)]
+    [InlineData((byte)128)]
+    [InlineData((byte)254)]
+    public void AWindowInFrontDrawnBelowFullOpacityShowsWhatIsBehindIt(byte opacity) =>
+        // A frame is copied off the screen, so a translucent remote-tool window would carry whatever lies
+        // under it, an excluded password manager included (2026-11-15 security review).
+        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, opacity)));
+
+    [Fact]
+    public void AColourKeyedWindowOfARemoteToolIsAllowed() =>
+        // WinForms TransparencyKey and skinned apps cut shaped corners with a colour key, and ScreenConnect's
+        // client is WinForms: refusing it could lose every frame of the tool a session is about. A known
+        // limit: the shaped corners can show a few pixels of what is behind.
+        Assert.False(WindowCover.ShowsWhatIsBehind(ColourKeyed, remoteTool: true));
+
+    [Fact]
+    public void AColourKeyedWindowOfAnyOtherAppIsRefused()
+    {
+        // A copy of the screen shows what is behind a colour key's holes, not the key colour, so they cannot
+        // be masked afterwards. Under "all windows" an arbitrary colour-keyed app is refused.
+        Assert.True(WindowCover.ShowsWhatIsBehind(ColourKeyed, remoteTool: false));
+        Assert.True(WindowCover.ShowsWhatIsBehind(ColourKeyed));
+    }
+
+    [Fact]
+    public void ATranslucentWindowIsRefusedEvenForARemoteTool()
+    {
+        // Opacity below full shows what is behind everywhere, not at the corners; no tool is excused.
+        Assert.True(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, Opacity: 200), remoteTool: true));
+        Assert.True(WindowCover.ShowsWhatIsBehind(ColourKeyed with { Alpha = true, Opacity = 200 }, remoteTool: true));
+    }
+
+    [Fact]
+    public void TheCapturerAsksTheRegistryWhatTheScopePolicyAsks()
+    {
+        // The capturer has a handle, not a ForegroundWindowInfo, so it matches by process and class: the
+        // same lookup that puts a remote tool in scope, not a second list.
+        var registry = Core.Detection.Registry.RemoteToolRegistry.Load(
+            File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json")));
+
+        Assert.NotNull(registry.MatchTool("mstsc", string.Empty));
+        Assert.NotNull(registry.MatchTool("testhost", "ScreenConnect.ScreenTailTestWindow"));
+        Assert.Null(registry.MatchTool("notepad", "Notepad"));
+        Assert.Null(registry.MatchTool(null, string.Empty));
+    }
+
+    private static readonly TargetLayering ColourKeyed = new(Layered: true, AttributesKnown: true, ColorKey: true, Alpha: false, Opacity: 0);
+
+    [Fact]
+    public void AnOpaqueWindowInFrontShowsNothingBehindIt()
+    {
+        Assert.False(WindowCover.ShowsWhatIsBehind(TargetLayering.Opaque));
+
+        // Layered but drawn at full opacity, as some frameworks make every window.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: false, Alpha: true, byte.MaxValue)));
+
+        // Flags not set on a window that is not layered mean nothing: Windows blends only layered windows.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: false, AttributesKnown: true, ColorKey: true, Alpha: true, 10)));
+    }
+
+    [Fact]
+    public void AWindowInFrontWithPerPixelAlphaIsNotRefused() =>
+        // Its blend cannot be read; what such windows make transparent is their corners and shadow, and
+        // refusing it would refuse every frame of the application. Recorded as a known limit.
+        Assert.False(WindowCover.ShowsWhatIsBehind(new TargetLayering(Layered: true, AttributesKnown: false, ColorKey: false, Alpha: false, byte.MaxValue)));
+
     // ---- elevation (INV-6) ---------------------------------------------------------------------------
 
     [Theory]

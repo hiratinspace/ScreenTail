@@ -22,6 +22,17 @@ public sealed class VaultOptions
 
     public string PreviousMasterKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Whether a row sealed before secrets were bound to their row may still be opened (2026-11-15
+    /// review). On by default so nothing stored before then stops working; the first start's sweep seals
+    /// every such row again bound. After that first start, turn it off, and a row marked legacy is
+    /// refused rather than opened, by reads, the sweep and the rotation alike. docs/security/key-rotation.md.
+    /// </summary>
+    public bool AllowLegacyRows { get; set; } = true;
+
+    /// <summary>Whether the service upgrades legacy rows once at startup (<see cref="VaultSweep"/>). On by default.</summary>
+    public bool UpgradeOnStart { get; set; } = true;
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(MasterKey);
 
     public byte[] CurrentKey() => Decode(MasterKey, nameof(MasterKey));

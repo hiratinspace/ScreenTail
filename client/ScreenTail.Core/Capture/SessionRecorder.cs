@@ -13,8 +13,9 @@ namespace ScreenTail.Core.Capture;
 /// (INV-6), the scope decision decides whether this particular window may be photographed (INV-5), and
 /// the debouncer decides whether a click is a new action or part of one already captured.
 ///
-/// A click that fails the scope test still becomes an event, with no frame: ST-023 asks for exactly
-/// that, so Review can show "clicks logged, no frames" rather than a silent gap. Anything
+/// A click that fails the scope test still becomes an event, with no frame and no screen position: ST-023
+/// asks for the event, so Review can show "clicks logged, no frames" rather than a silent gap, and INV-6
+/// drops where it landed, which says what was pressed in a window nobody may look at. Anything
 /// keyboard-derived is dropped instead: INV-6 says out-of-scope means "no typing events written", and a
 /// keystroke count taken in a customer's password manager is not made harmless by having no picture
 /// beside it.
@@ -24,11 +25,19 @@ namespace ScreenTail.Core.Capture;
 /// the out-of-scope drop could be deleted and the whole suite stayed green (weaknesses P0-4). The hooks
 /// and the screen grab are still Windows-only and still behind interfaces; the decisions are here.
 /// </summary>
+/// <param name="foreground">
+/// The window in front now, as Windows says, or null when the caller cannot ask. A click's position is
+/// kept only while the window in front is the one the scope decision judged: a click on a background
+/// window brings it forward only after it lands, and a window that never takes the foreground (the
+/// on-screen keyboard) is clicked while another is in front, so in both the position is about a window
+/// nobody judged (INV-6).
+/// </param>
 public sealed class SessionRecorder(
     SessionMachine machine,
     IScreenshotCapturer capturer,
     Func<ScopeDecision?> currentScope,
-    ClickDebouncer? debouncer = null)
+    ClickDebouncer? debouncer = null,
+    Func<nint>? foreground = null)
 {
     private readonly ClickDebouncer _debouncer = debouncer ?? new ClickDebouncer();
     private readonly InputSignalReader _reader = new();
@@ -156,10 +165,19 @@ public sealed class SessionRecorder(
                 continue;
             }
 
-            _ = await machine.TryRecordEventAsync(sessionEvent, ct).ConfigureAwait(false);
-            if (sessionEvent is ClickEvent click)
+            // A click in a window that may not be photographed loses where it landed (INV-6) and gets no
+            // frame, and so does one made while the window in front is not the one judged. The store keeps
+            // no position for a click without a frame either; the frame records the cursor itself.
+            var admitted = scope?.Admit(sessionEvent) ?? ScopeDecision.WithoutPosition(sessionEvent);
+            if (admitted is ClickEvent && foreground is not null && foreground() != scope?.Window)
             {
-                await CaptureForAsync(click, ct).ConfigureAwait(false);
+                admitted = ScopeDecision.WithoutPosition(admitted);
+            }
+
+            _ = await machine.TryRecordEventAsync(admitted, ct).ConfigureAwait(false);
+            if (admitted is ClickEvent { X: { } x, Y: { } y } click)
+            {
+                await CaptureForAsync(click, x, y, ct).ConfigureAwait(false);
             }
         }
     }
@@ -172,7 +190,7 @@ public sealed class SessionRecorder(
     private static bool IsKeyboard(SessionEvent sessionEvent) =>
         sessionEvent is TypingBurstEvent or ShortcutEvent or EnterEvent;
 
-    private async Task CaptureForAsync(ClickEvent click, CancellationToken ct)
+    private async Task CaptureForAsync(ClickEvent click, long x, long y, CancellationToken ct)
     {
         // Re-read rather than reuse the decision from the top of the batch: the technician may have moved
         // to another window between two events, and a picture is taken against the window scope is about.
@@ -202,7 +220,7 @@ public sealed class SessionRecorder(
                 FrameTrigger.Click,
                 frame.Width,
                 frame.Height,
-                new Point { X = click.X, Y = click.Y },
+                new Point { X = x, Y = y },
                 frame.Image),
             ct).ConfigureAwait(false);
 

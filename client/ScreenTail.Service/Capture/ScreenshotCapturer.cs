@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using ScreenTail.Core.Capture;
 using ScreenTail.Core.Detection;
+using ScreenTail.Core.Detection.Registry;
 
 namespace ScreenTail.Service.Capture;
 
@@ -21,7 +22,12 @@ namespace ScreenTail.Service.Capture;
 /// Windows.Graphics.Capture and a slow encode argues for WIC; without it, either change is a guess.
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapturer, IDisposable
+/// <param name="registry">
+/// The shipped remote-tool registry, so a colour-keyed window of a remote tool is not refused for its
+/// shaped corners (<see cref="WindowCover.ShowsWhatIsBehind"/>). Null treats every colour-keyed window as
+/// see-through.
+/// </param>
+internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? logger = null, RemoteToolRegistry? registry = null) : IScreenshotCapturer, IDisposable
 {
     private static readonly ImageCodecInfo JpegCodec =
         ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
@@ -39,13 +45,22 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private int _bitmapHeight;
     private bool _disposed;
     private long _skippedCovered;
+    private long _skippedSeeThrough;
+
+    // The windows a see-through skip has been logged for, so a translucent window costs one log line and
+    // not one per click. Cleared when it grows, which at worst repeats a line.
+    private readonly HashSet<nint> _seeThroughLogged = [];
 
     // Reused under the lock by the covered check, so it allocates nothing per capture once warm.
     private readonly List<WindowAbove> _above = new(64);
     private readonly char[] _className = new char[64];
+    private readonly char[] _toolClassName = new char[256];
 
     /// <summary>Samples skipped because another application's window lay over the one in front. A count, for diagnostics.</summary>
     internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
+
+    /// <summary>Samples skipped because the window in front let what is behind it show through. A count, for diagnostics.</summary>
+    internal long SkippedSeeThrough => Interlocked.Read(ref _skippedSeeThrough);
 
     /// <summary>
     /// A test seam, null in production: runs inside the lock before the foreground is read, where a capture
@@ -81,6 +96,17 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
             if (IsCovered(window, rect))
             {
                 _ = Interlocked.Increment(ref _skippedCovered);
+                return null;
+            }
+
+            // The same for what lies under it: a window drawn translucent or with a colour key lets the
+            // window behind show through, and that one may be excluded (INV-6, WindowCover). A remote
+            // tool's colour key is allowed for its shaped corners, so only then is the registry asked.
+            var layering = LayeringOf(window);
+            if (WindowCover.ShowsWhatIsBehind(layering, remoteTool: layering.ColorKey && IsRemoteTool(window)))
+            {
+                _ = Interlocked.Increment(ref _skippedSeeThrough);
+                LogSeeThroughOnce(window, layering);
                 return null;
             }
 
@@ -234,6 +260,82 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
         }
 
         return WindowCover.AnyCovers(target, _above, walkComplete: above == IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Says once per window that its frames are being skipped for translucency, so a tool that loses its
+    /// frames this way is visible in the log rather than quietly empty. The process name and the opacity,
+    /// never the title (INV-10). Says which way it is see-through: an opacity or a colour key.
+    /// </summary>
+    private void LogSeeThroughOnce(IntPtr window, TargetLayering layering)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
+        if (_seeThroughLogged.Count >= 64)
+        {
+            _seeThroughLogged.Clear();
+        }
+
+        if (!_seeThroughLogged.Add(window))
+        {
+            return;
+        }
+
+        // Computed into a local first, as CaptureHost does: the analyzer objects to work in a logging call's
+        // arguments, even behind the IsEnabled guard above.
+        _ = GetWindowThreadProcessId(window, out var processId);
+        var process = ProcessNameOf(processId);
+        var how = layering.Alpha && layering.Opacity < byte.MaxValue
+            ? $"opacity {layering.Opacity} of 255"
+            : "a colour key";
+        LogSeeThrough(logger, process, how);
+    }
+
+    private static string ProcessNameOf(uint processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            return process.ProcessName;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            return "unknown";
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No frames of {Process} while it is drawn see-through ({How}): what is behind it would be in the frame. Logged once per window.")]
+    private static partial void LogSeeThrough(ILogger logger, string process, string how);
+
+    /// <summary>Whether the window belongs to a remote tool in the shipped registry, by the same match the scope policy uses.</summary>
+    private bool IsRemoteTool(IntPtr window)
+    {
+        if (registry is null)
+        {
+            return false;
+        }
+
+        _ = GetWindowThreadProcessId(window, out var processId);
+        var length = GetClassName(window, _toolClassName, _toolClassName.Length);
+        var className = length > 0 ? new string(_toolClassName, 0, length) : string.Empty;
+        return registry.MatchTool(Detection.WindowsForegroundWatcher.ReadProcess(processId).Name, className) is not null;
+    }
+
+    /// <summary>How the window in front is blended with what is behind it, read from its styles (<see cref="TargetLayering"/>).</summary>
+    private static TargetLayering LayeringOf(IntPtr window)
+    {
+        if (((long)GetWindowLongPtr(window, GWL_EXSTYLE) & WS_EX_LAYERED) == 0)
+        {
+            return TargetLayering.Opaque;
+        }
+
+        // Fails for a window drawn with UpdateLayeredWindow: per-pixel alpha, nothing to read.
+        return GetLayeredWindowAttributes(window, out _, out var opacity, out var flags)
+            ? new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: (flags & LWA_COLORKEY) != 0, Alpha: (flags & LWA_ALPHA) != 0, opacity)
+            : new TargetLayering(Layered: true, AttributesKnown: false, ColorKey: false, Alpha: false, Opacity: byte.MaxValue);
     }
 
     private static ScreenRect VisibleBounds(IntPtr window, Rect fallback) =>
@@ -404,6 +506,9 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     private const uint GW_HWNDPREV = 3;
     private const int GWL_EXSTYLE = -20;
     private const long WS_EX_TOPMOST = 0x00000008;
+    private const long WS_EX_LAYERED = 0x00080000;
+    private const uint LWA_COLORKEY = 0x00000001;
+    private const uint LWA_ALPHA = 0x00000002;
     private const uint WDA_NONE = 0;
     private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     private const int DWMWA_CLOAKED = 14;
@@ -456,6 +561,10 @@ internal sealed class ScreenshotCapturer(int jpegQuality = 82) : IScreenshotCapt
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowDisplayAffinity(IntPtr hWnd, out uint affinity);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetLayeredWindowAttributes(IntPtr hWnd, out uint colorKey, out byte alpha, out uint flags);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetClassName(IntPtr hWnd, [Out] char[] className, int count);

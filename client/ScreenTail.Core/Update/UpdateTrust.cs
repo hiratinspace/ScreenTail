@@ -2,8 +2,12 @@ using System.Text.Json;
 
 namespace ScreenTail.Core.Update;
 
-/// <summary>An ECDSA P-256 public key a manifest may be signed with, and the id a manifest names it by.</summary>
-public sealed record UpdateKey(string Id, byte[] SubjectPublicKeyInfo);
+/// <summary>
+/// An ECDSA P-256 public key a manifest may be signed with, the id a manifest names it by, and the one
+/// channel it is trusted for. A manifest signed with it is believed only when the manifest is for that
+/// channel, so the pilot key cannot make a stable release, nor the stable key a pilot one.
+/// </summary>
+public sealed record UpdateKey(string Id, UpdateChannel Channel, byte[] SubjectPublicKeyInfo);
 
 /// <summary>
 /// Where updates come from and whose signature makes one real (ST-113, ADR-0008).
@@ -59,7 +63,9 @@ public sealed record UpdateTrust(Uri? Feed, IReadOnlySet<string> PackageHosts, I
 
     /// <summary>
     /// Reads the trust file. Throws <see cref="FormatException"/> for anything that is not exactly its
-    /// shape: a feed that is not HTTPS, a host with a wildcard, a key that is not P-256.
+    /// shape: a feed that is not HTTPS, a host with a wildcard, a key that is not P-256, a key without
+    /// exactly one channel, and a key or a key id listed twice (one key under both channels would make
+    /// the two channels one).
     /// </summary>
     public static UpdateTrust Parse(string json)
     {
@@ -93,6 +99,8 @@ public sealed record UpdateTrust(Uri? Feed, IReadOnlySet<string> PackageHosts, I
             }
 
             var keys = new List<UpdateKey>();
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            var publicKeys = new HashSet<string>(StringComparer.Ordinal);
             foreach (var key in root.GetProperty("keys").EnumerateArray())
             {
                 var id = key.GetProperty("id").GetString();
@@ -102,9 +110,20 @@ public sealed record UpdateTrust(Uri? Feed, IReadOnlySet<string> PackageHosts, I
                     throw new FormatException("A key needs an id and a public key.");
                 }
 
+                var channelElement = key.GetProperty("channel");
+                if (channelElement.ValueKind != JsonValueKind.String || !UpdateChannels.TryParse(channelElement.GetString(), out var channel))
+                {
+                    throw new FormatException("A key names the one channel it is trusted for: \"pilot\" or \"stable\".");
+                }
+
                 var bytes = Convert.FromBase64String(spki);
                 ManifestSignature.ImportP256(bytes).Dispose();
-                keys.Add(new UpdateKey(id, bytes));
+                if (!ids.Add(id) || !publicKeys.Add(Convert.ToBase64String(bytes)))
+                {
+                    throw new FormatException("A key or a key id is listed twice. Each key is trusted for one channel only.");
+                }
+
+                keys.Add(new UpdateKey(id, channel, bytes));
             }
 
             return new UpdateTrust(feed, hosts, keys);

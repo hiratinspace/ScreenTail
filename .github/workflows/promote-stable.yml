@@ -7,7 +7,9 @@ name: promote-stable
 # is not for pilot, or is not the version typed here, and it refuses to run at all unless the job is in
 # the owner's protected release-stable environment (SCREENTAIL_STABLE_RELEASE is a variable only that
 # environment holds). The owner creates that environment with required reviewers and a main-only branch
-# rule, and gives Azure a federated credential for it; until then this fails closed (docs/dev/installer.md).
+# rule, and gives it its own Azure app registration and its own Key Vault key: the stable key, which the
+# client trusts for stable alone and which the signing job's pilot identity cannot use. Until then this
+# fails closed (docs/dev/installer.md).
 #
 # Hosted runner only. Nothing from the earlier run is executed: the download is a JSON file, checked
 # before it is read. The inputs never reach a command line; the version goes in as an environment value
@@ -68,9 +70,9 @@ jobs:
       - name: Sign the same release for stable
         env:
           SCREENTAIL_STABLE_RELEASE: ${{ vars.SCREENTAIL_STABLE_RELEASE }}
-          SCREENTAIL_UPDATE_KEY: ${{ vars.SCREENTAIL_UPDATE_KEY }}
+          SCREENTAIL_UPDATE_STABLE_KEY: ${{ vars.SCREENTAIL_UPDATE_STABLE_KEY }}
+          SCREENTAIL_UPDATE_STABLE_CLIENT_ID: ${{ vars.SCREENTAIL_UPDATE_STABLE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           PROMOTE_VERSION: ${{ inputs.version }}
         run: ./installer/update-manifest.ps1 -Channel stable -Promote artifacts/installer/pilot/pilot/win-x64.json -Out artifacts/installer/stable
       # A day, for the owner to publish it to the feed; it is the release the owner just approved.

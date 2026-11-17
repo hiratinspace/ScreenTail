@@ -88,6 +88,69 @@ public sealed class ForegroundDetectionTests
         Assert.Equal("RECEPTION-02 (reconnecting)", flushed.Title);
     }
 
+    [Fact]
+    public void ARetitleHeldBackIsStillTheLatestLook()
+    {
+        // The report waits for the title to settle; what is on screen does not (INV-6).
+        var clock = new ManualTime(At);
+        var filter = new ForegroundChangeFilter(clock) { TitleSettle = TimeSpan.FromMilliseconds(250) };
+        var reported = filter.Offer(Window(1, "chrome", "Tickets - Google Chrome"));
+        Assert.Same(reported, filter.Latest);
+
+        clock.Advance(TimeSpan.FromMilliseconds(40));
+        var held = Window(1, "chrome", "Bitwarden Web vault - Google Chrome");
+        Assert.Null(filter.Offer(held));
+
+        Assert.Same(reported, filter.Reported);
+        Assert.Same(held, filter.Latest);
+    }
+
+    [Fact]
+    public void ANewerTitleOfTheDecidedWindowIsUndecided()
+    {
+        var decided = Window(1, "chrome", "Tickets - Google Chrome");
+        var retitled = Window(1, "chrome", "Bitwarden Web vault - Google Chrome");
+
+        Assert.Same(retitled, UndecidedTitle.Newer(decided, retitled));
+
+        // Nothing newer: the decision is about what is on screen.
+        Assert.Null(UndecidedTitle.Newer(decided, null));
+        Assert.Null(UndecidedTitle.Newer(decided, decided));
+        Assert.Null(UndecidedTitle.Newer(decided, Window(1, "chrome", "Tickets - Google Chrome")));
+
+        // Another window is the watcher's to report at once, and the capturer refuses a window not decided.
+        Assert.Null(UndecidedTitle.Newer(decided, Window(2, "outlook", "Inbox")));
+        Assert.Null(UndecidedTitle.Newer(ForegroundWindowInfo.None(At), retitled));
+    }
+
+    [Fact]
+    public void ATabThatBecomesAVaultWhileItsTitleSettlesIsNotPhotographedUnderTheOldDecision()
+    {
+        // The whole of the 2026-11-15 finding, end to end in Core: a browser tab in scope under "all
+        // windows" retitles to a password vault inside the settle time. The report is held; deciding on
+        // the latest look instead of the report says no frames.
+        var clock = new ManualTime(At);
+        var filter = new ForegroundChangeFilter(clock) { TitleSettle = TimeSpan.FromMilliseconds(250) };
+        var exclusions = Core.Privacy.ExclusionList.Load("""
+            { "version": "test", "processes": [], "url_fragments": [],
+              "title_patterns": [{ "id": "vaults", "display_name": "Password vaults in a browser", "pattern": "(?i)\\bvault\\b" }] }
+            """);
+        var policy = new ScopePolicy(
+            Core.Detection.Registry.RemoteToolRegistry.Load(
+                File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Registry", "remote-tools.json"))),
+            new ScopeOptions { CaptureAllWindows = true, Exclusions = exclusions });
+
+        var decided = filter.Offer(Window(1, "chrome", "Tickets - Google Chrome"))!;
+        Assert.True(policy.Decide(decided).MayCaptureFrames);
+
+        clock.Advance(TimeSpan.FromMilliseconds(40));
+        Assert.Null(filter.Offer(Window(1, "chrome", "Bitwarden Web vault - Google Chrome")));
+
+        var now = UndecidedTitle.Newer(decided, filter.Latest) ?? decided;
+        Assert.False(policy.Decide(now).MayCaptureFrames);
+        Assert.Equal(Shared.Schema.CaptureScope.Excluded, policy.Decide(now).Scope);
+    }
+
     [Theory]
     [InlineData("chrome", "Acme Dental — tickets - Google Chrome", "Acme Dental — tickets")]
     [InlineData("chrome", "▶ Training video - Google Chrome", "Training video")]

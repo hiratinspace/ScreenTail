@@ -1,6 +1,6 @@
 {
   "version": "exclusions-2026-09-13",
-  "_comment": "ST-043. Windows a technician may have open that must never be photographed, whatever the capture scope says. Tenant-editable and policy-syncable (ST-047); this is the floor, not the whole list.",
+  "_comment": "ST-043. Windows a technician may have open that must never be photographed, whatever the capture scope says. Tenant-editable and policy-syncable (ST-047); this is the floor, not the whole list. url_fragments are matched against the browser window title (the page title, or the bare address when a page has none) until the address bar is read.",
   "processes": [
     { "id": "1password", "display_name": "1Password", "processes": ["1Password", "1Password.exe", "op", "1PasswordNativeMessageHost"] },
     { "id": "bitwarden", "display_name": "Bitwarden", "processes": ["Bitwarden", "Bitwarden.exe", "bitwarden-desktop"] },

@@ -27,22 +27,33 @@
       'true', a variable only the owner's protected release-stable environment holds, so it fails closed
       anywhere else. A build is refused -Channel stable.
 
-    Every signature is verified here, against the public keys in the trust file, before anything is
-    written, so a manifest the client would refuse is never uploaded. A package URL on a host the client
-    does not download from stops the step too.
+    Each channel has its own key. Every key in the trust file is trusted for one channel, and the client
+    believes a manifest only when the key that signed it is trusted for the channel the manifest names, so
+    a pilot key cannot make a stable manifest the client accepts, and the other way round. Each key lives
+    in Key Vault behind its own Azure identity: the pilot identity trusts only the 'signing' environment
+    and may sign only with the pilot key; the stable identity trusts only 'release-stable' and may sign
+    only with the stable key.
 
-    Configured from the environment of the job that runs it, never from a file:
-      SCREENTAIL_UPDATE_KEY    the Key Vault key's identifier, with its version:
+    Every signature is verified here, against the public keys the trust file holds for the channel being
+    signed, before anything is written, so a manifest the client would refuse is never uploaded. A package
+    URL on a host the client does not download from stops the step too.
+
+    Configured from the environment of the job that runs it, never from a file. A run reads only its own
+    channel's two settings and refuses to start while the other channel's are in its environment:
+      SCREENTAIL_UPDATE_PILOT_KEY, SCREENTAIL_UPDATE_STABLE_KEY
+                               that channel's Key Vault key identifier, with its version:
                                https://<vault>.vault.azure.net/keys/<name>/<version>
+      SCREENTAIL_UPDATE_PILOT_CLIENT_ID, SCREENTAIL_UPDATE_STABLE_CLIENT_ID
+                               that channel's Azure app registration (its client id)
       SCREENTAIL_UPDATE_BASE   (a build) the HTTPS folder the packages are served from, ending in a
                                slash; the package's URL is <base><version>/ScreenTail.msi
       SCREENTAIL_STABLE_RELEASE, PROMOTE_VERSION (a promotion), as above
-      AZURE_TENANT_ID, AZURE_CLIENT_ID and the job's GitHub OIDC token (workload identity federation;
-      no client secret exists).
+      AZURE_TENANT_ID and the job's GitHub OIDC token (workload identity federation; no client secret
+      exists).
 
-    A build with neither SCREENTAIL_UPDATE_KEY nor SCREENTAIL_UPDATE_BASE signs nothing, writes nothing,
-    says so, and exits successfully: the same rule as sign.ps1 before the certificate exists. With one and
-    not the other it fails, because that is a configuration half done.
+    A build with neither SCREENTAIL_UPDATE_PILOT_KEY nor SCREENTAIL_UPDATE_BASE signs nothing, writes
+    nothing, says so, and exits successfully: the same rule as sign.ps1 before the certificate exists.
+    With one and not the other it fails, because that is a configuration half done.
 
     It prints the channel, the version, the hash and the size, never a token.
 
@@ -65,8 +76,9 @@
     A promotion: the pilot manifest of the release to sign for stable.
 
 .PARAMETER Verify
-    Signs nothing: checks that this manifest's signature verifies with a key in the trust file, as the
-    client will, and exits non-zero when it does not. For checking a manifest before it is uploaded.
+    Signs nothing: checks that this manifest's signature verifies with a key in the trust file, and that
+    the key is trusted for the channel the manifest names, as the client will, and exits non-zero when
+    either does not hold. For checking a manifest before it is uploaded.
 
 .PARAMETER Trust
     With -Verify, another trust file to check against. The default is the one compiled into the client.
@@ -135,6 +147,25 @@ function Test-Signature([byte[]]$SignedBytes, [byte[]]$Signature, [string]$Spki)
     }
 }
 
+function Get-TrustedKeys($Trusted) {
+    # The trust file's keys, each trusted for exactly one channel, and no key or id in it twice: a key
+    # listed for both channels would make the two one.
+    $keys = @($Trusted.keys)
+    $seen = @{}
+    foreach ($key in $keys) {
+        if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {
+            throw 'Every key in the trust file names the one channel it signs for: pilot or stable.'
+        }
+        foreach ($mark in @(('spki:' + [string]$key.spki), ('id:' + [string]$key.id))) {
+            if ($seen.ContainsKey($mark)) {
+                throw 'A key or a key id is in the trust file twice. Each key signs for one channel only.'
+            }
+            $seen[$mark] = $true
+        }
+    }
+    return ,$keys
+}
+
 function Find-Key($Keys, [byte[]]$SignedBytes, [byte[]]$Signature) {
     foreach ($key in $Keys) {
         if (Test-Signature $SignedBytes $Signature $key.spki) {
@@ -146,16 +177,22 @@ function Find-Key($Keys, [byte[]]$SignedBytes, [byte[]]$Signature) {
 
 if ($Verify) {
     $file = if ($Trust) { $Trust } else { $TrustFile }
-    $known = @((Get-Content -Raw -Path $file | ConvertFrom-Json).keys)
+    $known = Get-TrustedKeys (Get-Content -Raw -Path $file | ConvertFrom-Json)
     $manifest = Get-Content -Raw -Path $Verify | ConvertFrom-Json
     $key = $known | Where-Object { $_.id -ceq $manifest.key } | Select-Object -First 1
     if ($manifest.format -cne $EnvelopeFormat -or -not $key) {
         throw 'The manifest is not in the expected format, or names a key the trust file does not hold.'
     }
-    if (-not (Test-Signature ([Convert]::FromBase64String($manifest.payload)) ([Convert]::FromBase64String($manifest.signature)) $key.spki)) {
+    $verifyBytes = [Convert]::FromBase64String($manifest.payload)
+    if (-not (Test-Signature $verifyBytes ([Convert]::FromBase64String($manifest.signature)) $key.spki)) {
         throw 'The manifest''s signature does not verify.'
     }
-    Write-Host "  the manifest's signature verifies with key $($key.id)"
+    # Only now is the signed part read: the channel it names must be the one its key is trusted for.
+    $signedChannel = [string]([Text.Encoding]::UTF8.GetString($verifyBytes) | ConvertFrom-Json).channel
+    if ($signedChannel -cne [string]$key.channel) {
+        throw 'The manifest is for a channel its key is not trusted for, so the client would refuse it.'
+    }
+    Write-Host "  the manifest's signature verifies with key $($key.id), trusted for $($key.channel)"
     return
 }
 
@@ -173,8 +210,26 @@ if (-not $Out) {
     throw 'Give -Out.'
 }
 
+# Each channel's own key and identity, and only those. The other channel's settings in this run's
+# environment mean the two environments are not separate, so nothing is signed.
+if ($Channel -ceq 'stable') {
+    $vaultKey = $env:SCREENTAIL_UPDATE_STABLE_KEY
+    $clientId = $env:SCREENTAIL_UPDATE_STABLE_CLIENT_ID
+    $foreign = $env:SCREENTAIL_UPDATE_PILOT_KEY -or $env:SCREENTAIL_UPDATE_PILOT_CLIENT_ID
+} else {
+    $vaultKey = $env:SCREENTAIL_UPDATE_PILOT_KEY
+    $clientId = $env:SCREENTAIL_UPDATE_PILOT_CLIENT_ID
+    $foreign = $env:SCREENTAIL_UPDATE_STABLE_KEY -or $env:SCREENTAIL_UPDATE_STABLE_CLIENT_ID
+}
+if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {
+    throw "This $Channel run can see another channel's update signing settings (or the old shared SCREENTAIL_UPDATE_KEY). Each channel signs only with its own key and identity, set on its own environment. Nothing was signed."
+}
+
 $trusted = Get-Content -Raw -Path $TrustFile | ConvertFrom-Json
-$keys = @($trusted.keys)
+$keys = Get-TrustedKeys $trusted
+# The keys the client trusts for this channel: the only ones this run's signature may verify with.
+$channelKeys = @($keys | Where-Object { $_.channel -ceq $Channel })
+$pilotKeys = @($keys | Where-Object { $_.channel -ceq 'pilot' })
 
 if ($Promote) {
     # The gate first: outside the owner's release-stable environment nothing is read and nothing signed.
@@ -189,8 +244,8 @@ if ($Promote) {
         throw 'That is not an update manifest.'
     }
     $pilotBytes = [Convert]::FromBase64String($envelopeIn.payload)
-    if (-not (Find-Key $keys $pilotBytes ([Convert]::FromBase64String($envelopeIn.signature)))) {
-        throw 'The pilot manifest does not verify with any key the client trusts, so it is not promoted.'
+    if (-not (Find-Key $pilotKeys $pilotBytes ([Convert]::FromBase64String($envelopeIn.signature)))) {
+        throw 'The pilot manifest does not verify with any key the client trusts for pilot, so it is not promoted.'
     }
     $pilot = [Text.Encoding]::UTF8.GetString($pilotBytes) | ConvertFrom-Json
     if ($pilot.channel -cne 'pilot' -or $pilot.version -cne $env:PROMOTE_VERSION) {
@@ -211,15 +266,15 @@ if ($Promote) {
     $size = (Get-Item $Msi).Length
     $sha256 = (Get-FileHash -Algorithm SHA256 -Path $Msi).Hash.ToLowerInvariant()
     $base = $env:SCREENTAIL_UPDATE_BASE
-    if (-not $env:SCREENTAIL_UPDATE_KEY -and -not $base) {
+    if (-not $vaultKey -and -not $base) {
         Write-Host "  NOT SIGNED (update signing is not configured; docs/dev/installer.md says how): ScreenTail $Version, $size bytes, SHA-256 $sha256"
         if ($env:GITHUB_ACTIONS -eq 'true') {
             Write-Host '::notice title=No update manifest::Update signing is not configured, so no update manifest was written.'
         }
         return
     }
-    if (-not ($env:SCREENTAIL_UPDATE_KEY -and $base)) {
-        throw 'Update signing is partly configured: SCREENTAIL_UPDATE_KEY and SCREENTAIL_UPDATE_BASE are needed together.'
+    if (-not ($vaultKey -and $base)) {
+        throw 'Update signing is partly configured: SCREENTAIL_UPDATE_PILOT_KEY and SCREENTAIL_UPDATE_BASE are needed together.'
     }
     if ($base -notmatch '^https://[A-Za-z0-9.-]+/([A-Za-z0-9._~/-]*/)?$') {
         throw 'SCREENTAIL_UPDATE_BASE must be an https folder URL ending in a slash, with no query.'
@@ -234,26 +289,26 @@ if ($Version -notmatch $VersionPattern -or $MinimumVersion -notmatch $VersionPat
 if ($sha256 -cnotmatch '^[0-9a-f]{64}$' -or $size -lt 1 -or $packageUrl -notmatch $UrlPattern) {
     throw 'The package''s hash, size or URL is not in the shape the client accepts.'
 }
-if ($keys.Count -eq 0) {
-    throw 'shared/release/update-trust.json trusts no key yet, so the client would refuse any manifest. Add the public key first.'
+if ($channelKeys.Count -eq 0) {
+    throw "shared/release/update-trust.json trusts no key for $Channel yet, so the client would refuse any $Channel manifest. Add that channel's public key first."
 }
 $packageHost = ([Uri]$packageUrl).Host
 if (@($trusted.packageHosts) -notcontains $packageHost) {
     throw "$packageHost is not one of the trust file's package hosts, so the client would refuse the package's URL."
 }
-$vaultKey = $env:SCREENTAIL_UPDATE_KEY
 if ($vaultKey -notmatch $KeyPattern) {
-    throw 'SCREENTAIL_UPDATE_KEY must be a Key Vault key identifier with its version: https://<vault>.vault.azure.net/keys/<name>/<version>.'
+    throw "SCREENTAIL_UPDATE_$($Channel.ToUpperInvariant())_KEY must be a Key Vault key identifier with its version: https://<vault>.vault.azure.net/keys/<name>/<version>."
 }
 
-# A token for the vault, from this job's OIDC token. Masked before anything could print it.
-if (-not ($env:AZURE_TENANT_ID -and $env:AZURE_CLIENT_ID -and $TokenRequestUrl -and $TokenRequestToken)) {
-    throw 'Signing a manifest needs AZURE_TENANT_ID, AZURE_CLIENT_ID and the job''s id-token permission.'
+# A token for the vault, from this job's OIDC token, for this channel's identity. Masked before anything
+# could print it.
+if (-not ($env:AZURE_TENANT_ID -and $clientId -and $TokenRequestUrl -and $TokenRequestToken)) {
+    throw "Signing a $Channel manifest needs AZURE_TENANT_ID, SCREENTAIL_UPDATE_$($Channel.ToUpperInvariant())_CLIENT_ID and the job's id-token permission."
 }
 $oidc = Invoke-RestMethod -UseBasicParsing -Uri "$($TokenRequestUrl)&audience=api://AzureADTokenExchange" -Headers @{ Authorization = "Bearer $($TokenRequestToken)" }
 Write-Host "::add-mask::$($oidc.value)"
 $aad = Invoke-RestMethod -UseBasicParsing -Method Post -Uri "https://login.microsoftonline.com/$($env:AZURE_TENANT_ID)/oauth2/v2.0/token" -Body @{
-    client_id = $env:AZURE_CLIENT_ID
+    client_id = $clientId
     scope = 'https://vault.azure.net/.default'
     grant_type = 'client_credentials'
     client_assertion_type = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
@@ -278,14 +333,14 @@ if ($signature.Length -ne 64) {
 }
 
 $keyId = $null
-foreach ($key in $keys) {
+foreach ($key in $channelKeys) {
     if (Test-Signature $signedBytes $signature $key.spki) {
         $keyId = $key.id
         break
     }
 }
 if (-not $keyId) {
-    throw 'The vault key''s signature does not verify with any key in shared/release/update-trust.json. Nothing was written.'
+    throw 'The vault key''s signature does not verify with any key shared/release/update-trust.json trusts for this channel. Nothing was written.'
 }
 
 $envelope = '{"format":"' + $EnvelopeFormat + '","key":"' + $keyId + '","payload":"' + [Convert]::ToBase64String($signedBytes) +

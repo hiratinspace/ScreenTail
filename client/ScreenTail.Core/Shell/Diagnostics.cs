@@ -34,6 +34,10 @@ namespace ScreenTail.Core.Shell;
 /// service listened to every window instead (ST-031). Nothing is missed, but the idle service costs more.
 /// Null when the service cannot know it, which the panel shows as unknown rather than 0.
 /// </param>
+/// <param name="BackendNote">
+/// Why an installed copy has no backend, when only an administrator can fix it (contract v12). Fixed
+/// wording; null when there is nothing to say, and then there is no row and no clipboard line.
+/// </param>
 public sealed record Diagnostics(
     string Scope,
     string? Microphone,
@@ -47,7 +51,8 @@ public sealed record Diagnostics(
     string PolicyVersion,
     double CpuPercent,
     long WorkingSetBytes,
-    string ClientVersion)
+    string ClientVersion,
+    string? BackendNote = null)
 {
     /// <summary>
     /// What the service answered, field for field. Here rather than in the window so the Mac suite holds
@@ -70,7 +75,8 @@ public sealed record Diagnostics(
             reported.PolicyVersion,
             reported.CpuPercent,
             reported.WorkingSetBytes,
-            reported.ServiceVersion);
+            reported.ServiceVersion,
+            reported.BackendNote);
     }
 
     /// <summary>
@@ -94,6 +100,10 @@ public sealed record Diagnostics(
             .Append("hook fallbacks   ").AppendLine(NameHookRefusals?.ToString(CultureInfo.InvariantCulture) ?? DiagnosticsPanel.Unknown)
             .Append("cpu              ").AppendLine(CpuPercent.ToString("F1", CultureInfo.InvariantCulture) + "%")
             .Append("memory           ").AppendLine((WorkingSetBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) + " MB");
+        if (BackendNote is { } note)
+        {
+            _ = text.Append("backend          ").AppendLine(note);
+        }
 
         return text.ToString();
     }

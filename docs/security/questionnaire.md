@@ -137,14 +137,21 @@ them (no model runs; the note is marked local and Review says so).
 
 **3.4 ⚠ Can an administrator lock local-only mode on?**
 Yes. The tenant's policy is fetched at start and hourly under its own egress purpose (the one request
-local-only mode allows, because it is how local-only is lifted), the last copy is kept on disk for when
-the backend is away, and a locked local-only is applied to the egress guard itself rather than only
+local-only mode makes on its own, with the device sign-in it needs, because it is how local-only is
+lifted), the last copy is kept on disk for when the backend is away, and a locked local-only is applied to the egress guard itself rather than only
 shown: Settings renders the toggle read-only, at the value the admin set, with "Set by your admin
 (policy …)". A policy that arrives with a field missing or of the wrong type is refused and the last
 synced one stands, so a lock is never read as "unlocked" because a field name drifted; the wire shape is
 `shared/contracts/tenant-policy.v1.json`, tested from both ends. *(INV-11; ST-047, 2026-09-25; the
-contract and the value shown (ST-081) 2026-10-14.)* The operator sets a policy with `--set-policy` until
-the web admin exists (ST-099).
+contract and the value shown (ST-081) 2026-10-14.)* The backend holds the lock as well, and that is the
+control that holds against the technician's own account: it refuses to draft for a tenant whose policy
+locks local-only, whatever the device believes, so a device that has not fetched the policy, or whose
+policy fetch was intercepted (a per-user proxy setting or a root certificate trusted for that user alone
+can do that), drafts the session on its own instead. An installed client takes its backend address only
+from a machine-wide setting an administrator writes, which is defence in depth: it keeps the address out
+of the technician's reach, but it does not by itself stop the fetch being intercepted on the way.
+*(2026-11-15.)* The operator sets a policy with
+`--set-policy` until the web admin exists (ST-099).
 
 **3.5 ⚠ Does the backend store screenshots?**
 No. There is no table that could hold a frame, a transcript or a note; a bundle is held in memory for one

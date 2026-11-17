@@ -33,13 +33,23 @@ public enum EgressPurpose
     /// technician did not ask for is still a request (INV-8).
     /// </summary>
     UpdateCheck,
+
+    /// <summary>
+    /// The device signing in to the backend: activation with an invite's code, and buying a new access
+    /// token with the refresh token (ST-010). Carries no content, only to the backend host. Each request
+    /// also says what the sign-in is <i>for</i> (<see cref="EgressRequest.OnBehalfOf"/>), because under
+    /// local-only that is what decides it: a sign-in for a publish the technician asked for, or for the
+    /// policy fetch that can lift local-only, goes; a renewal on the background timer does not (INV-8).
+    /// </summary>
+    DeviceAuth,
 }
 
 /// <param name="Allowed">False means the request is never made.</param>
 /// <param name="Reason">Plain language for the log and the diagnostics panel. Never a URL with a path.</param>
-public sealed record EgressDecision(bool Allowed, string Reason);
+/// <param name="LocalOnly">The refusal is local-only mode's, rather than a host nobody allowed.</param>
+public sealed record EgressDecision(bool Allowed, string Reason, bool LocalOnly = false);
 
-/// <param name="LocalOnly">Nothing leaves except a publish the technician asked for and the policy fetch that can lift it (INV-8).</param>
+/// <param name="LocalOnly">Nothing leaves except a publish the technician asked for, the policy fetch that can lift it, and the device sign-in either of those needs (INV-8).</param>
 /// <param name="PolicyEnforced">
 /// The tenant's admin set this, so the technician cannot turn it off here (INV-11). A setting that says
 /// "local only" while the UI lets it be switched off is not a guarantee, it is a label.
@@ -137,7 +147,14 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
         ? _settings.PolicyEnforced ? "Local-only (set by your administrator)" : "Local-only"
         : null;
 
-    public EgressDecision Decide(EgressPurpose purpose, Uri destination)
+    public EgressDecision Decide(EgressPurpose purpose, Uri destination) => Decide(purpose, destination, onBehalfOf: null);
+
+    /// <param name="onBehalfOf">
+    /// What a <see cref="EgressPurpose.DeviceAuth"/> request signs in for: <see cref="EgressPurpose.Publish"/>
+    /// when the technician pressed something, <see cref="EgressPurpose.Policy"/> before a policy fetch, and
+    /// null for the background renewal. Ignored for every other purpose.
+    /// </param>
+    public EgressDecision Decide(EgressPurpose purpose, Uri destination, EgressPurpose? onBehalfOf)
     {
         ArgumentNullException.ThrowIfNull(destination);
 
@@ -151,7 +168,15 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
         if (_settings.LocalOnly && purpose is EgressPurpose.Summarisation or EgressPurpose.Backend)
         {
             // The criterion: zero requests at finalize. Drafting happens on the device instead (ST-065).
-            return new EgressDecision(false, "Local-only mode is on, so nothing is sent for drafting.");
+            return new EgressDecision(false, "Local-only mode is on, so nothing is sent for drafting.", LocalOnly: true);
+        }
+
+        if (_settings.LocalOnly && purpose is EgressPurpose.DeviceAuth && onBehalfOf is not (EgressPurpose.Publish or EgressPurpose.Policy))
+        {
+            // 2026-11-15 review. A sign-in carries no content, but a renewal on a timer is a request
+            // nobody asked for at that moment. Under local-only the device signs in only when something
+            // local-only lets out needs it: a publish the technician asked for, or the policy fetch.
+            return new EgressDecision(false, "Local-only mode is on, so this device signs in only to publish or to fetch its policy.", LocalOnly: true);
         }
 
         if (_settings.LocalOnly && purpose is EgressPurpose.ModelDownload)
@@ -159,7 +184,7 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
             // The one request that is not about a customer, and still a request the technician did not
             // ask for. The policy fetch is the only thing local-only lets out on its own, because it is
             // how local-only is lifted; a model is not (S-32).
-            return new EgressDecision(false, "Local-only mode is on, so the speech model is not fetched.");
+            return new EgressDecision(false, "Local-only mode is on, so the speech model is not fetched.", LocalOnly: true);
         }
 
         if (_settings.LocalOnly && purpose is EgressPurpose.UpdateCheck && !(_settings.PolicyEnforced && _settings.UpdatesUnderLocalOnly))
@@ -167,13 +192,13 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
             // ST-113. Fail closed: an update check is a request nobody asked for at that moment, so it
             // waits like the model download does, unless the tenant's admin locked local-only on and
             // chose to let update checks through it. A technician's own local-only lets nothing out.
-            return new EgressDecision(false, "Local-only mode is on, so ScreenTail does not check for updates.");
+            return new EgressDecision(false, "Local-only mode is on, so ScreenTail does not check for updates.", LocalOnly: true);
         }
 
         var allowed = purpose switch
         {
             EgressPurpose.Publish => _settings.PublishHosts,
-            EgressPurpose.Summarisation or EgressPurpose.Backend or EgressPurpose.Policy => _settings.BackendHosts,
+            EgressPurpose.Summarisation or EgressPurpose.Backend or EgressPurpose.Policy or EgressPurpose.DeviceAuth => _settings.BackendHosts,
             EgressPurpose.ModelDownload => _settings.ModelHosts,
             EgressPurpose.UpdateCheck => _settings.UpdateHosts,
             _ => null,

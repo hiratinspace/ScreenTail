@@ -36,6 +36,23 @@ public readonly record struct WindowAbove(
     bool Taskbar);
 
 /// <summary>
+/// How the window in front is itself composed with what is behind it. Window properties only.
+/// </summary>
+/// <param name="Layered">The window is a layered window (<c>WS_EX_LAYERED</c>), the only kind Windows blends with what lies below it.</param>
+/// <param name="AttributesKnown">
+/// Its blend could be read (<c>GetLayeredWindowAttributes</c>). False for a window that draws itself with
+/// per-pixel alpha (<c>UpdateLayeredWindow</c>), whose transparency cannot be asked about.
+/// </param>
+/// <param name="ColorKey">One colour of the window is drawn as a hole (<c>LWA_COLORKEY</c>).</param>
+/// <param name="Alpha">The whole window is drawn at <paramref name="Opacity"/> (<c>LWA_ALPHA</c>).</param>
+/// <param name="Opacity">0 is invisible, 255 is opaque. Read only when <paramref name="Alpha"/> is set.</param>
+public readonly record struct TargetLayering(bool Layered, bool AttributesKnown, bool ColorKey, bool Alpha, byte Opacity)
+{
+    /// <summary>An ordinary window: drawn opaque, so nothing behind it is in its rectangle.</summary>
+    public static TargetLayering Opaque => default;
+}
+
+/// <summary>
 /// Whether something lies over the window in front, so that a frame copied off the screen over its rectangle
 /// would hold another application's pixels (ST-025).
 ///
@@ -77,6 +94,47 @@ public static class WindowCover
         }
 
         return target.Intersects(above.Bounds);
+    }
+
+    /// <summary>
+    /// Whether the window in front lets what lies behind it show through, so that a frame copied off the
+    /// screen over its rectangle would hold whatever is underneath: an excluded password manager behind a
+    /// remote-tool window the technician made translucent, for instance (INV-6). Such a sample is skipped,
+    /// as a covered one is.
+    ///
+    /// A window drawn at less than full opacity shows what is behind it everywhere, and that is refused,
+    /// whatever the window is.
+    ///
+    /// A colour key makes every pixel of one colour a hole, and a copy of the screen shows what is behind
+    /// the hole rather than the key colour, so the holes cannot be masked afterwards. It is refused too,
+    /// except for a window of a remote tool in the shipped registry (the list that drives the default
+    /// scope): WinForms (<c>TransparencyKey</c>) and skinned applications cut their rounded corners and
+    /// shaped edges this way, ScreenConnect's client is WinForms, and refusing it would risk losing every
+    /// frame of the tool a session is about. So under the default scope nothing changes for the tools,
+    /// and under "all windows" an arbitrary colour-keyed application is refused. The cost, a known limit:
+    /// the shaped corners of a remote tool's window can show a few pixels of what is behind it.
+    ///
+    /// A layered window whose blend cannot be read draws itself with per-pixel alpha, usually for the same
+    /// corners and shadows, and there is nothing to read that would tell a shadow from a hole; it is not
+    /// refused, the same limit. Both limits go once the grab is of the window itself rather than the screen.
+    /// </summary>
+    /// <param name="target">How the window in front is blended with what is behind it.</param>
+    /// <param name="remoteTool">
+    /// The window belongs to a remote tool the shipped registry names (<see cref="Registry.RemoteToolRegistry.MatchTool(string?, string)"/>).
+    /// </param>
+    public static bool ShowsWhatIsBehind(TargetLayering target, bool remoteTool = false)
+    {
+        if (!target.Layered || !target.AttributesKnown)
+        {
+            return false;
+        }
+
+        if (target.Alpha && target.Opacity < byte.MaxValue)
+        {
+            return true;
+        }
+
+        return target.ColorKey && !remoteTool;
     }
 
     /// <summary>

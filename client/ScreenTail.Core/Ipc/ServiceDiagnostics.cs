@@ -39,6 +39,10 @@ public static class ServiceDiagnostics
     /// when the service cannot know it yet because the watcher has not started. Passed on as it is: null
     /// stays null, so the panel says unknown rather than 0.
     /// </param>
+    /// <param name="backendNote">
+    /// <see cref="ScreenTail.Core.Net.DeploymentAddress.AdministratorNote"/>: fixed wording when an installed
+    /// copy has no machine-wide address, null otherwise.
+    /// </param>
     public static DiagnosticsReported Report(
         string serviceVersion,
         string? scope,
@@ -53,7 +57,8 @@ public static class ServiceDiagnostics
         long? nameHookRefusals,
         bool localOnly,
         string policyVersion,
-        long workingSetBytes)
+        long workingSetBytes,
+        string? backendNote = null)
     {
         ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(isHeld);
@@ -68,6 +73,7 @@ public static class ServiceDiagnostics
             KeystrokesDropped = keystrokesDropped ?? 0,
             EgressBlocked = egressBlocked,
             NameHookRefusals = nameHookRefusals, // A count, nothing about the window (INV-10).
+            BackendNote = backendNote, // Fixed wording, never the address.
             LocalOnly = localOnly,
             PolicyVersion = policyVersion,
             CpuPercent = 0,

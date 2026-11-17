@@ -116,7 +116,14 @@ public sealed class DiagnosticsPanel
         return text.ToString();
     }
 
-    private static IReadOnlyList<DiagnosticsLine> AnsweredRows(Diagnostics d) =>
+    /// <summary>The row an installed copy with no machine-wide backend address shows (contract v12), and only then.</summary>
+    public const string Backend = "Backend";
+
+    private static IReadOnlyList<DiagnosticsLine> AnsweredRows(Diagnostics d) => d.BackendNote is { } note
+        ? [.. EveryAnsweredRow(d), new(Backend, note)]
+        : EveryAnsweredRow(d);
+
+    private static IReadOnlyList<DiagnosticsLine> EveryAnsweredRow(Diagnostics d) =>
     [
         new("Scope", d.Scope),
         new("Microphone", d.Microphone ?? "none"),

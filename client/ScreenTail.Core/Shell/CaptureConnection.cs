@@ -26,6 +26,7 @@ public sealed class CaptureConnection : IAsyncDisposable
     private readonly ShellState _shell;
     private readonly Func<CancellationToken, Task<ICaptureChannel>> _open;
     private readonly Func<int, TimeSpan> _retryAfter;
+    private readonly TimeSpan _untrustedRetryAfter;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _swapping = new(1, 1);
     private ICaptureChannel? _channel;
@@ -41,15 +42,28 @@ public sealed class CaptureConnection : IAsyncDisposable
     /// until someone restarted it, while the service went on starting sessions by itself. Every test
     /// passed a schedule of its own, so none of them was running the wiring that shipped.
     /// </param>
+    /// <param name="untrustedRetryAfter">
+    /// How long to wait after a server that failed verification before asking again. Left out, it is
+    /// <see cref="UntrustedRetryAfter"/>.
+    /// </param>
     public CaptureConnection(
         ShellState shell,
         Func<CancellationToken, Task<ICaptureChannel>> open,
-        Func<int, TimeSpan>? retryAfter = null)
+        Func<int, TimeSpan>? retryAfter = null,
+        TimeSpan? untrustedRetryAfter = null)
     {
         _shell = shell ?? throw new ArgumentNullException(nameof(shell));
         _open = open ?? throw new ArgumentNullException(nameof(open));
         _retryAfter = retryAfter ?? RetryAfter;
+        _untrustedRetryAfter = untrustedRetryAfter ?? UntrustedRetryAfter;
     }
+
+    /// <summary>
+    /// The wait after a server that failed verification: a fixed thirty seconds, never shorter and never
+    /// longer. Slow, because whatever holds the name is not going to change its mind in a second; not
+    /// for ever, because it may let go of the name and the real service take it back.
+    /// </summary>
+    public static readonly TimeSpan UntrustedRetryAfter = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Try once and stop. For a test that wants to look at the first failure; nothing that ships should
@@ -70,9 +84,10 @@ public sealed class CaptureConnection : IAsyncDisposable
     /// <summary>
     /// Why the service refused us, when it did. Null while things are merely not working yet.
     ///
-    /// Distinct from "not connected", and deliberately: a refusal is an answer. A wrong token or a
-    /// stranger on the pipe will not fix itself, so the UI stops trying and says which happened, rather
-    /// than reopening the pipe every few seconds and writing an audit row each time.
+    /// Distinct from "not connected", and deliberately: a refusal is an answer. A wrong token will not
+    /// fix itself, so the UI stops trying and says so, rather than reopening the pipe every few seconds
+    /// and writing an audit row each time. A stranger on the pipe is asked again every
+    /// <see cref="UntrustedRetryAfter"/>, and this keeps its reason until a real service answers.
     /// </summary>
     public string? LastRefusal { get; private set; }
 
@@ -241,18 +256,38 @@ public sealed class CaptureConnection : IAsyncDisposable
                 // round again reads the new one; see StaleTokenAttempts for why this is bounded.
                 _shell.Lost();
             }
-            catch (Exception ex) when (ex is IpcRejectedException or IpcUntrustedServerException)
+            catch (IpcRejectedException rejected)
             {
                 // An answer, not a failure. Stop: retrying a token the service has refused only writes an
-                // audit row each time, and retrying an impostor hands it the token on the next attempt.
-                LastRefusal = ex switch
-                {
-                    IpcRejectedException rejected => rejected.Reason,
-                    IpcUntrustedServerException untrusted => untrusted.Reason,
-                    _ => RejectReasons.Protocol,
-                };
+                // audit row each time.
+                LastRefusal = rejected.Reason;
                 _shell.Lost();
                 return;
+            }
+            catch (IpcUntrustedServerException untrusted)
+            {
+                // A stranger answered on the pipe. It used to be final, so a pipe that held the service's
+                // name for a while left the UI blind until somebody restarted it, long after the real
+                // service had the name back (2026-11-15 review). Trying again gives a stranger nothing:
+                // the server is verified before the token is written, every time. So the UI goes on
+                // saying the service is not running, and asks again slowly.
+                LastRefusal = untrusted.Reason;
+                _shell.Lost();
+                if (ReferenceEquals(_retryAfter, Never))
+                {
+                    return;
+                }
+
+                try
+                {
+                    await Task.Delay(_untrustedRetryAfter, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                continue;
             }
             catch (Exception ex) when (ex is TimeoutException or IOException or IpcProtocolException or UnauthorizedAccessException)
             {

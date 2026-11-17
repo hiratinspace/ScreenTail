@@ -5,33 +5,28 @@
              xmlns:local="clr-namespace:ScreenTail.UI.Settings.Integrations"
              AutomationProperties.Name="Integrations">
     <UserControl.Resources>
-        <!-- One card per provider (Spec §5 S7). Secrets are masked once saved; Change reveals the
-             fields. A PasswordBox that goes out of view is cleared in code-behind, so a private key
-             does not sit in a collapsed control for the afternoon. -->
+        <!-- One card per provider (Spec §5 S7, v0.6.15), read only: integration credentials can only be
+             changed by the tenant owner, in the web admin. The card says what is connected and who
+             changes it; Test connection checks the credential the backend holds. -->
         <DataTemplate x:Key="IntegrationCardTemplate" DataType="{x:Type local:IntegrationCardViewModel}">
-            <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+            <Border Style="{StaticResource Settings.Tile}">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                        <TextBlock Style="{StaticResource Text.TileHeading}" Text="{Binding Title}" />
                         <ContentControl Margin="8,0,0,0"
                                         VerticalAlignment="Center"
                                         Style="{StaticResource Badge.Published}"
                                         Content="Connected"
                                         Visibility="{Binding ConnectedBadgeVisibility}" />
-                        <ContentControl Margin="8,0,0,0"
-                                        VerticalAlignment="Center"
-                                        Style="{StaticResource Badge.Changed}"
-                                        Content="Changed"
-                                        Visibility="{Binding ChangedVisibility}" />
                     </StackPanel>
-                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding OwnerLine}" />
 
-                    <!-- Saved: the site in full, the secret as its last four, and Change. -->
+                    <!-- Connected: the site in full and the credential as its last four. -->
                     <Grid Margin="0,12,0,0" Visibility="{Binding SummaryVisibility}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0">
                             <TextBlock Style="{StaticResource Text.Label}" Text="Site" />
@@ -41,118 +36,15 @@
                             <TextBlock Style="{StaticResource Text.Body}" Text="{Binding SiteUrl}" />
                             <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Mono}" Text="{Binding SecretHint}" />
                         </StackPanel>
-                        <Button Grid.Column="2"
-                                VerticalAlignment="Top"
-                                Style="{StaticResource Button.Secondary}"
-                                Content="Change"
-                                Command="{Binding ChangeCommand}"
-                                AutomationProperties.Name="{Binding Title, StringFormat='Change the {0} connection'}" />
                     </Grid>
-
-                    <!-- Nothing saved, or Change pressed: the fields. -->
-                    <StackPanel Margin="0,12,0,0" Visibility="{Binding FieldsVisibility}">
-                        <TextBlock Style="{StaticResource Text.Label}" Text="Site" />
-                        <TextBox Margin="0,4,0,0"
-                                 Style="{StaticResource Input.Default}"
-                                 Text="{Binding SiteUrl, UpdateSourceTrigger=PropertyChanged}"
-                                 AutomationProperties.Name="Site address"
-                                 AutomationProperties.HelpText="{Binding SitePlaceholder}" />
-
-                        <StackPanel Visibility="{Binding ConnectWiseVisibility}">
-                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="Company ID" />
-                            <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding CompanyId, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Company ID" />
-                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="Public key" />
-                            <TextBox Margin="0,4,0,0" Style="{StaticResource Input.Default}" Text="{Binding PublicKey, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Public key" />
-                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="Private key" />
-                            <PasswordBox Margin="0,4,0,0"
-                                         Tag="private"
-                                         PasswordChanged="OnSecretChanged"
-                                         IsVisibleChanged="OnSecretBoxVisibility"
-                                         AutomationProperties.Name="Private key" />
-                            <TextBlock Margin="0,8,0,0"
-                                       Style="{StaticResource Text.Muted}"
-                                       FontSize="{DynamicResource Size.xs}"
-                                       TextWrapping="Wrap"
-                                       Text="From System → Members → API Members → API Keys. The client ID ConnectWise issues to ScreenTail is set on the backend, not here." />
-                        </StackPanel>
-
-                        <StackPanel Visibility="{Binding HuduVisibility}">
-                            <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Label}" Text="API key" />
-                            <PasswordBox Margin="0,4,0,0"
-                                         Tag="api"
-                                         PasswordChanged="OnSecretChanged"
-                                         IsVisibleChanged="OnSecretBoxVisibility"
-                                         AutomationProperties.Name="API key" />
-                            <TextBlock Margin="0,8,0,0"
-                                       Style="{StaticResource Text.Muted}"
-                                       FontSize="{DynamicResource Size.xs}"
-                                       TextWrapping="Wrap"
-                                       Text="From Hudu → Admin → API Keys. It needs to read companies and create articles and uploads; nothing more." />
-                        </StackPanel>
-
-                        <TextBlock Margin="0,8,0,0"
-                                   Style="{StaticResource Text.Error}"
-                                   TextWrapping="Wrap"
-                                   Text="{Binding Problem}"
-                                   Visibility="{Binding ProblemVisibility}"
-                                   controls:LiveRegion.Setting="Polite" />
-
-                        <!-- In Settings the page's one Save bar stores the connection (Spec, Settings layout) and
-                             this button is hidden; onboarding's Connect step has no bar and keeps it. Test
-                             connection checks what is stored and never saves what is typed. -->
-                        <Button Margin="0,12,0,0"
-                                HorizontalAlignment="Left"
-                                Style="{StaticResource Button.Primary}"
-                                Content="Save"
-                                Command="{Binding SaveCommand}"
-                                AutomationProperties.Name="{Binding Title, StringFormat='Save the {0} connection'}"
-                                IsEnabled="{Binding CanSave}"
-                                Visibility="{Binding SaveVisibility}" />
-                        <TextBlock Margin="0,8,0,0"
-                                   Style="{StaticResource Text.Muted}"
-                                   TextWrapping="Wrap"
-                                   Visibility="{Binding PageSaveNoteVisibility}"
-                                   Text="Save on the bar below stores the connection. Test connection checks the one already stored." />
-                    </StackPanel>
 
                     <!-- Test connection, and the last answer in words either way (Spec §4). -->
                     <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
                         <Button Style="{StaticResource Button.Secondary}"
                                 Content="Test connection"
                                 Command="{Binding CheckCommand}"
-                                AutomationProperties.Name="{Binding Title, StringFormat='Test connection to {0}'}"
-                                IsEnabled="{Binding Connected}" />
-                        <Button Margin="8,0,0,0"
-                                Style="{StaticResource Button.Ghost}"
-                                Content="Remove"
-                                Command="{Binding AskRemoveCommand}"
-                                AutomationProperties.Name="{Binding Title, StringFormat='Remove {0}'}"
-                                Visibility="{Binding ConnectedBadgeVisibility}" />
+                                AutomationProperties.Name="{Binding Title, StringFormat='Test connection to {0}'}" />
                     </StackPanel>
-
-                    <!-- Remove asks first, here on the card and never in a dialog, so it can be asked while a
-                         session is being captured (v0.6.11, Spec §4). The question and its two buttons are
-                         next in the Tab order after Remove, and the question is read out when it appears. -->
-                    <Border Margin="0,12,0,0" Style="{StaticResource Banner.Error}" Visibility="{Binding RemoveQuestionVisibility}">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource Text.Body}"
-                                       FontWeight="{DynamicResource Weight.semibold}"
-                                       Text="{Binding RemoveWords.Heading}"
-                                       controls:LiveRegion.Setting="Assertive" />
-                            <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Body}" Text="{Binding RemoveWords.Consequence}" />
-                            <StackPanel Margin="0,12,0,0" Orientation="Horizontal">
-                                <Button Style="{StaticResource Button.Secondary}"
-                                        Content="{Binding RemoveWords.Cancel}"
-                                        Command="{Binding KeepConnectionCommand}"
-                                        AutomationProperties.Name="{Binding Title, StringFormat='Keep it, keep {0} connected'}" />
-                                <Button Margin="8,0,0,0"
-                                        Style="{StaticResource Button.Danger}"
-                                        Content="{Binding RemoveWords.Action}"
-                                        Command="{Binding RemoveCommand}"
-                                        AutomationProperties.Name="{Binding RemoveWords.Action}" />
-                            </StackPanel>
-                        </StackPanel>
-                    </Border>
                     <StackPanel Margin="0,8,0,0" Orientation="Horizontal" Visibility="{Binding CheckVisibility}">
                         <TextBlock Style="{StaticResource Text.Body}" Text="{Binding CheckMark}" />
                         <TextBlock Margin="8,0,0,0"
@@ -175,13 +67,13 @@
 
         <!-- What the backend lists beyond the two cards, by name: its Development demo (ST-090), named so
              nobody takes it for ConnectWise or Hudu, or a provider this version does not know. -->
-        <Border Style="{StaticResource Card}" Margin="0,0,0,12" Visibility="{Binding OthersVisibility}">
+        <Border Style="{StaticResource Settings.Tile}" Visibility="{Binding OthersVisibility}">
             <controls:Repeater ItemsSource="{Binding Others}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="0,0,0,8">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="{Binding Title}" />
+                                <TextBlock Style="{StaticResource Text.TileHeading}" Text="{Binding Title}" />
                                 <ContentControl Margin="8,0,0,0"
                                                 VerticalAlignment="Center"
                                                 Style="{StaticResource Badge.Published}"
@@ -197,15 +89,15 @@
             </controls:Repeater>
         </Border>
 
-        <!-- Not Tab stops themselves (a ContentControl is one by default): Tab goes to the card's fields (ST-084). -->
+        <!-- Not Tab stops themselves (a ContentControl is one by default): Tab goes to the card's buttons (ST-084). -->
         <ContentControl Content="{Binding ConnectWise}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
         <ContentControl Content="{Binding Hudu}" ContentTemplate="{StaticResource IntegrationCardTemplate}" Focusable="False" />
 
         <!-- The company mapping table: the PSA's name for a company beside the Hudu company it is
              filed under, with how the backend decided (ST-097). Only with Hudu connected. -->
-        <Border Style="{StaticResource Card}" Visibility="{Binding MappingsVisibility}">
+        <Border Style="{StaticResource Settings.Tile}" Visibility="{Binding MappingsVisibility}">
             <StackPanel>
-                <TextBlock Style="{StaticResource Text.SectionHeading}" Text="Company mapping" />
+                <TextBlock Style="{StaticResource Text.TileHeading}" Text="Company mapping" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="A knowledge-base article is filed under the ticket's company in Hudu. An identical name is matched on its own; anything else is asked about the first time it is published, and remembered here." />
                 <TextBlock Margin="0,12,0,0" Style="{StaticResource Text.Muted}" Text="Nothing mapped yet. The first article for each company asks." Visibility="{Binding NoMappingsVisibility}" />
                 <controls:Repeater Margin="0,12,0,0" ItemsSource="{Binding Mappings}">

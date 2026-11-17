@@ -150,6 +150,54 @@ public sealed class ScopeEnforcementTests
     }
 
     [Fact]
+    public void OutOfScopeClicksAreAdmittedWithoutTheirPosition()
+    {
+        // INV-6: where a click landed in a window that may not be photographed is data about that window.
+        var outOfScope = new ScopePolicy(Registry).Decide(Window("outlook", handle: 11));
+        var excluded = new ScopeDecision(CaptureScope.Excluded, null, null, "Not capturing: 1Password is on your excluded list.");
+        var click = new ClickEvent { TsMs = 7, X = 4, Y = 5, Button = MouseButton.Middle, FrameId = null };
+
+        foreach (var decision in new[] { outOfScope, excluded })
+        {
+            var admitted = Assert.IsType<ClickEvent>(decision.Admit(click));
+            Assert.Null(admitted.X);
+            Assert.Null(admitted.Y);
+            Assert.Equal(7, admitted.TsMs);
+            Assert.Equal(MouseButton.Middle, admitted.Button);
+        }
+
+        Assert.Null(Assert.IsType<ClickEvent>(ScopeDecision.WithoutPosition(click)).X);
+    }
+
+    [Fact]
+    public void TheStricterOfTwoDecisionsIsTheOneThatForbidsFrames()
+    {
+        // For a title not reported yet: it may tighten the decision in force, never loosen it.
+        var inScope = new ScopeDecision(CaptureScope.RemoteTool, "rdp", RemoteToolKind.Rdp, "Capturing: Remote Desktop", 11);
+        var excluded = new ScopeDecision(CaptureScope.Excluded, "vaults", null, "Not capturing: Password vaults in a browser is excluded.", 11);
+        var otherInScope = new ScopeDecision(CaptureScope.AdminTool, null, null, "Capturing: notepad (all windows)", 11);
+        var outOfScope = new ScopeDecision(CaptureScope.OutOfScope, null, null, "Not capturing: outlook", 11);
+
+        Assert.Same(excluded, ScopeDecision.Stricter(inScope, excluded));
+        Assert.Same(excluded, ScopeDecision.Stricter(excluded, inScope));
+
+        // Equally strict: the newer, which says why in words about what is on screen.
+        Assert.Same(otherInScope, ScopeDecision.Stricter(inScope, otherInScope));
+        Assert.Same(outOfScope, ScopeDecision.Stricter(excluded, outOfScope));
+    }
+
+    [Fact]
+    public void InScopeClicksAreAdmittedAsTheyAre()
+    {
+        var inScope = new ScopePolicy(Registry).Decide(Window("mstsc", handle: 11));
+        var click = new ClickEvent { TsMs = 7, X = 4, Y = 5, Button = MouseButton.Left };
+        var burst = new TypingBurstEvent { TsMs = 8, CharCount = 3 };
+
+        Assert.Same(click, inScope.Admit(click));
+        Assert.Same(burst, inScope.Admit(burst));
+    }
+
+    [Fact]
     public void InScopeEverythingIsWritten()
     {
         var inScope = new ScopePolicy(Registry).Decide(Window("mstsc", handle: 11));

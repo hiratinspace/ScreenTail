@@ -102,7 +102,7 @@ public sealed class PublishPanelTests
         panel.Choose(new TicketMatch("1", "x", "y"));
 
         Assert.False(panel.HasIntegrations);
-        Assert.Equal("Connect a PSA to publish", panel.BlockedBecause);
+        Assert.Equal("Ask your owner to connect a PSA to publish", panel.BlockedBecause);
         Assert.False(panel.CanPublish);
     }
 
@@ -333,6 +333,30 @@ public sealed class PublishPanelTests
 
         Assert.False(await panel.MapAndRetryAsync("7", Draft(), []));
         Assert.True(panel.NeedsMapping);
+        Assert.Null(panel.MappingRefusal);
+    }
+
+    [Fact]
+    public async Task AMappingRefusedForTooManyChangesSaysWhyAndKeepsThePromptUp()
+    {
+        // 2026-11-15 review: the backend limits mapping changes per PC. Its sentence reaches the prompt,
+        // nothing is published again, and the prompt stays so the same choice can be sent once more.
+        const string words = "This PC has changed company mappings 30 times in 10 minutes. Wait 4 minutes, then choose the company again.";
+        var publishes = 0;
+        var panel = new PublishPanel(
+            Session(draft: Draft()),
+            ConnectWise,
+            (_, _) => Task.FromResult<IReadOnlyList<TicketMatch>>([]),
+            (r, _) => { publishes++; return Task.FromResult<IReadOnlyList<DestinationResult>>([.. r.Destinations.Select(d => new DestinationResult(d, false, null, "not mapped", "needs_mapping"))]); },
+            mapping: new CompanyMapping(_ => Task.FromResult<IReadOnlyList<CompanyChoice>>([new CompanyChoice("7", "Acme Dental")]), (_, _, _) => Task.FromResult<string?>(words)));
+        panel.Choose(new TicketMatch("48213", "Printer offline", "Acme Dental"));
+        panel.KbArticle = true;
+        await panel.PublishAsync(Draft(), []);
+
+        Assert.False(await panel.MapAndRetryAsync("7", Draft(), []));
+        Assert.Equal(words, panel.MappingRefusal);
+        Assert.True(panel.NeedsMapping);
+        Assert.Equal(1, publishes);
     }
 
     [Fact]

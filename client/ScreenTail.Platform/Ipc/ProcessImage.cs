@@ -73,6 +73,16 @@ public sealed class ProcessImage : IDisposable
         return new ProcessImage(handle, new string(buffer, 0, length));
     }
 
+    /// <summary>
+    /// The file this process was started from, as the kernel records it: the same source, and so the
+    /// same spelling, as a peer's path. Null when it cannot be read.
+    /// </summary>
+    public static string? OwnPath()
+    {
+        using var image = Of((uint)Environment.ProcessId);
+        return image?.Path;
+    }
+
     /// <summary>Lets go of the process. Nothing may be trusted about <see cref="Path"/> after this.</summary>
     public void Dispose() => _handle.Dispose();
 

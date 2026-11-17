@@ -246,6 +246,56 @@ public sealed class DraftSenderTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task ATenantThatLocksLocalOnlyGetsTheSessionDraftedHereAndNothingMoreIsSentForAnHour()
+    {
+        // 2026-11-15 review. The backend refuses to draft for a tenant whose policy locks local-only. The
+        // device had not heard yet, so the session is drafted on the device rather than failed, and the
+        // drafts queued behind it are drafted here too, without another bundle leaving, until the policy
+        // fetch has had its hour to bring the lock.
+        var store = await SessionAsync();
+        var time = new ManualTime(At);
+        var handler = new RecordingHandler(Answer(
+            HttpStatusCode.Forbidden,
+            """{"status":"local_only","reason":"Your administrator keeps sessions on this device, so ScreenTail drafts them here.","draft":null}"""));
+        var sender = Sender(store, handler, time: time);
+
+        var first = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, first.State);
+        Assert.Equal(1, handler.Requests);
+        var draft = (await store.LoadSessionAsync("s1"))!.Draft!;
+        Assert.Equal(DraftSource.Local, draft.Source);
+        Assert.Equal(FallbackDraft.PromptVersion, draft.PromptVersion);
+
+        await store.CreateSessionAsync(new NewSession("s2", At, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
+        await store.FinalizeSessionAsync("s2", new FinalizeInfo(30_000, false));
+        time.Advance(TimeSpan.FromMinutes(59));
+        var second = await sender.SendAsync(Item() with { SessionId = "s2" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Done, second.State);
+        Assert.Equal(1, handler.Requests);
+        Assert.Equal(DraftSource.Local, (await store.LoadSessionAsync("s2"))!.Draft!.Source);
+
+        // Past the hour the backend is asked again: the lock may have been lifted meanwhile.
+        time.Advance(DraftSender.LocalOnlyHold);
+        _ = await sender.SendAsync(Item(), TestContext.Current.CancellationToken);
+        Assert.Equal(2, handler.Requests);
+    }
+
+    [Fact]
+    public async Task AForbiddenThatIsNotTheLocalOnlyLockStillFails()
+    {
+        // A revoked device answers 403 too. That is not a reason to draft here; it is the refusal it was.
+        var store = await SessionAsync();
+        var handler = new RecordingHandler(Answer(HttpStatusCode.Forbidden, """{"status":"forbidden","reason":"Revoked."}"""));
+
+        var outcome = await Sender(store, handler).SendAsync(Item(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutboxState.Failed, outcome.State);
+        Assert.Null((await store.LoadSessionAsync("s1"))!.Draft);
+    }
+
+    [Fact]
     public async Task ARefusalThatNamesATimeIsHeldUntilThen()
     {
         // When the backend says when, that is the hold: the quota it is standing behind may reopen before
@@ -540,6 +590,7 @@ public sealed class DraftSenderTests : IAsyncDisposable
     [Theory]
     [InlineData("ok")]
     [InlineData("rejected")]
+    [InlineData("local_only")]
     [InlineData("cost_cap_reached")]
     [InlineData("invalid")]
     [InlineData("busy")]
@@ -572,9 +623,10 @@ public sealed class DraftSenderTests : IAsyncDisposable
             _ => null,
         };
 
-        var state = expected.GetProperty("client").GetString() switch
+        var client = expected.GetProperty("client").GetString();
+        var state = client switch
         {
-            "done" => OutboxState.Done,
+            "done" or "drafted_here" => OutboxState.Done,
             "retry" => OutboxState.Pending,
             "failed" => OutboxState.Failed,
             var other => throw new InvalidOperationException($"The contract names an outcome this test does not know: {other}"),
@@ -582,7 +634,12 @@ public sealed class DraftSenderTests : IAsyncDisposable
         Assert.Equal(state, outcome.State);
         Assert.Equal(waits, outcome.RetryAfter);
 
-        if (state == OutboxState.Done)
+        if (client == "drafted_here")
+        {
+            // Nothing came back to keep: the session is drafted on this device instead (ST-065 AC3).
+            Assert.Equal(DraftSource.Local, (await store.LoadSessionAsync("s1"))!.Draft!.Source);
+        }
+        else if (state == OutboxState.Done)
         {
             var draft = (await store.LoadSessionAsync("s1"))!.Draft!;
             var sent = expected.GetProperty("body").GetProperty("draft");

@@ -61,8 +61,9 @@ later version. Moving up is a decision for the owner once there is revenue.
   side with the native libraries and the registry files the service reads. A fixed UpgradeCode, so a
   newer version replaces the old one; a downgrade is refused. **The folder cannot be changed**: the
   package works out the machine's own Program Files from the environment and refuses any
-  `INSTALLFOLDER` that differs, because the uninstall runs the installed service as the system
-  account and that file must sit where only administrators can change it.
+  `INSTALLFOLDER` that differs, on an install, a repair and an uninstall alike, because the uninstall
+  runs the installed service as the system account and that file must sit where only administrators
+  can change it.
 - **`ScreenTail-Setup.exe`**: Microsoft's Visual C++ runtime installer (downloaded at build time and
   checked to be Microsoft-signed), skipped when the same or a newer runtime is there and never removed
   on uninstall because other software shares it, then the MSI. The MSI on its own refuses to install
@@ -314,6 +315,11 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   installed.
 - The backend address is still read from `SCREENTAIL_BACKEND` only. How an installed client learns it
   (a built-in default, an MSI property, the invite code) is not decided here.
+  *(Amended 2026-11-15, security review: an installed client, signed or running from Program Files,
+  reads it only from `HKLM\SOFTWARE\ScreenTail\BackendUrl`, which the package's `BACKENDURL` property
+  writes, and ignores `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`. The address decides where the
+  egress allowlist points and where policy comes from, so a per-user setting could have pointed a
+  locked local-only device elsewhere. The variables remain for development builds.)*
 
 ## Alternatives considered
 

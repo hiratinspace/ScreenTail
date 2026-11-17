@@ -6,35 +6,52 @@ using ScreenTail.UI.Settings.Integrations;
 namespace ScreenTail.Tests.Windows.Settings;
 
 /// <summary>
-/// Settings → Integrations' Remove and the mapping table's Unmap, pressed twice while the first is on
-/// its way (review of #274). The command's Execute does not look at whether it is running, so a second
-/// invoke that does not go through the button sent the removal again and showed its refusal.
+/// Settings → Integrations' Test connection and the mapping table's Unmap, pressed twice while the first
+/// is on its way (review of #274). A second invoke that does not go through the button must not ask
+/// again. Remove, which this once covered, is gone: the owner manages the connection in the web admin.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class IntegrationsDoubleInvokeTests
 {
     [Fact]
-    public void WhileARemovalIsOnItsWayTheButtonIsOffAndASecondPressSendsNothing()
+    public void WhileATestIsOnItsWayTheButtonIsOffAndASecondPressSendsNothing()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        UiThread.Run(async () =>
+        {
+            var gateway = new FakeIntegrations { Held = new TaskCompletionSource(), Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, null)] };
+            var screen = new IntegrationsViewModel(new IntegrationsPanel(gateway));
+            await screen.LoadAsync();
+            Assert.True(screen.Hudu.CheckCommand.CanExecute(null));
+
+            var first = screen.Hudu.CheckCommand.ExecuteAsync(null);
+
+            Assert.True(screen.Hudu.CheckCommand.IsRunning);
+            Assert.False(screen.Hudu.CheckCommand.CanExecute(null));
+            screen.Hudu.CheckCommand.Execute(null);
+            Assert.Equal(["hudu"], gateway.Checked);
+
+            gateway.Held.SetResult();
+            await first;
+
+            Assert.Equal(["hudu"], gateway.Checked);
+            Assert.True(screen.Hudu.CheckCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public void TestConnectionIsOffOnACardWithNothingConnected()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
         UiThread.Run(async () =>
         {
             var gateway = new FakeIntegrations { Held = new TaskCompletionSource() };
             var screen = new IntegrationsViewModel(new IntegrationsPanel(gateway));
+            await screen.LoadAsync();
 
-            var first = screen.Hudu.RemoveCommand.ExecuteAsync(null);
-
-            Assert.True(screen.Hudu.RemoveCommand.IsRunning);
-            Assert.False(screen.Hudu.RemoveCommand.CanExecute(null));
-            screen.Hudu.RemoveCommand.Execute(null);
-            Assert.False(screen.Hudu.RemoveCommand.CanExecute(null));
-            Assert.Equal(["hudu"], gateway.Removed);
-
-            gateway.Held.SetResult();
-            await first;
-
-            Assert.Equal(["hudu"], gateway.Removed);
-            Assert.True(screen.Hudu.RemoveCommand.CanExecute(null));
+            Assert.False(screen.ConnectWise.CheckCommand.CanExecute(null));
+            Assert.Equal(IntegrationCard.OwnerConnects, screen.ConnectWise.OwnerLine);
+            Assert.Empty(gateway.Checked);
         });
     }
 
@@ -63,30 +80,26 @@ public sealed class IntegrationsDoubleInvokeTests
         });
     }
 
-    /// <summary>The service, remembering what it was asked to remove or unmap, and holding the answer until a test lets it go.</summary>
+    /// <summary>The service, remembering what it was asked to test or unmap, and holding the answer until a test lets it go.</summary>
     private sealed class FakeIntegrations : IIntegrationsGateway
     {
         public required TaskCompletionSource Held { get; init; }
 
-        public List<string> Removed { get; } = [];
+        public IReadOnlyList<IntegrationDetail> Rows { get; init; } = [];
+
+        public List<string> Checked { get; } = [];
 
         public List<string> Unmapped { get; } = [];
 
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) =>
-            Task.FromResult<IReadOnlyList<IntegrationDetail>?>([]);
+            Task.FromResult<IReadOnlyList<IntegrationDetail>?>(Rows);
 
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default) =>
-            Task.FromResult<string?>(null);
-
-        public async Task<string?> RemoveAsync(string provider, CancellationToken ct = default)
+        public async Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default)
         {
-            Removed.Add(provider);
+            Checked.Add(provider);
             await Held.Task.ConfigureAwait(true);
-            return null;
+            return new CheckOutcome(true, "Connected.");
         }
-
-        public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>
-            Task.FromResult(new CheckOutcome(true, "Connected."));
 
         public Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default) =>
             Task.FromResult<CompanyMappingsPage?>(new CompanyMappingsPage([], []));

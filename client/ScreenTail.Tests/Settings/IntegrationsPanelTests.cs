@@ -1,13 +1,14 @@
+using System.Reflection;
 using ScreenTail.Core.Review.Publish;
 using ScreenTail.Core.Settings;
 
 namespace ScreenTail.Tests.Settings;
 
 /// <summary>
-/// Settings → Integrations' rules (ST-082, Spec §5 S7): a card per provider that is connected or not,
-/// secrets masked once saved and revealed by Change, a credential composed the way the provider wants
-/// it, Test connection answered in words either way, and the company mapping table. The service is a
-/// fake here; <c>PipeIntegrationsTests</c> covers the real one.
+/// Settings → Integrations' rules (ST-082, Spec §5 S7, v0.6.15): a read-only card per provider that is
+/// connected or not, the credential shown as its last four, who manages it (the tenant owner, in the web
+/// admin), Test connection answered in words either way, and the company mapping table, which
+/// technicians keep. The service is a fake here; <c>PipeIntegrationsTests</c> covers the real one.
 /// </summary>
 public sealed class IntegrationsPanelTests
 {
@@ -25,9 +26,9 @@ public sealed class IntegrationsPanelTests
         Assert.True(panel.ConnectWise.Connected);
         Assert.Equal("https://na.myconnectwise.net", panel.ConnectWise.SiteUrl);
         Assert.Equal("••••1234", panel.ConnectWise.SecretHint);
-        Assert.False(panel.ConnectWise.Editing);
         Assert.False(panel.Hudu.Connected);
-        Assert.True(panel.Hudu.Editing);
+        Assert.Equal(string.Empty, panel.Hudu.SiteUrl);
+        Assert.Equal(string.Empty, panel.Hudu.SecretHint);
         Assert.Null(panel.Notice);
         Assert.Empty(panel.Others);
     }
@@ -93,119 +94,133 @@ public sealed class IntegrationsPanelTests
     }
 
     [Fact]
-    public async Task AConnectWiseCredentialIsComposedTheWayConnectWiseWantsItAndMaskedOnceSaved()
+    public async Task AConnectedCardSaysTheOwnerManagesIt()
     {
-        var gateway = new FakeIntegrations();
+        // Spec v0.6.15 S7: integration credentials can only be changed by the tenant owner, in the web
+        // admin. A connected card shows its status, site and last four, and says who manages it.
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)],
+        };
         var panel = new IntegrationsPanel(gateway);
+
         await panel.LoadAsync();
-        var card = panel.ConnectWise;
-        card.SiteUrl = "https://na.myconnectwise.net/";
-        card.CompanyId = "Acme";
-        card.PublicKey = "PUBLICKEY";
-        card.PrivateKey = "PRIVATE-9876";
 
-        Assert.Null(card.Problem);
-        Assert.True(await card.SaveAsync());
-
-        Assert.Equal(("connectwise", "https://na.myconnectwise.net", "acme+PUBLICKEY:PRIVATE-9876"), gateway.Stored.Single());
-        Assert.True(card.Connected);
-        Assert.False(card.Editing);
-        Assert.Equal("••••9876", card.SecretHint);
-        Assert.Equal(string.Empty, card.PrivateKey);
-        Assert.Equal(string.Empty, card.PublicKey);
+        Assert.Equal("Connected", panel.ConnectWise.Status);
+        Assert.Equal("Your owner manages this connection in the web admin.", panel.ConnectWise.OwnerLine);
+        Assert.Equal(IntegrationCard.OwnerManages, panel.ConnectWise.OwnerLine);
     }
 
     [Fact]
-    public async Task AHuduKeyIsStoredAsItIs()
+    public async Task ACardWithNothingConnectedSaysTheOwnerConnectsIt()
     {
-        var gateway = new FakeIntegrations();
+        var panel = new IntegrationsPanel(new FakeIntegrations());
+
+        await panel.LoadAsync();
+
+        Assert.All(panel.Cards, card =>
+        {
+            Assert.Equal("Not connected", card.Status);
+            Assert.Equal("Not connected. Your owner connects it in the web admin.", card.OwnerLine);
+        });
+    }
+
+    [Fact]
+    public async Task TestConnectionIsOfferedOnlyForAConnectedCard()
+    {
+        // It checks the credential the backend holds, so with nothing connected there is nothing to check.
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, null)],
+        };
+        var panel = new IntegrationsPanel(gateway);
+
+        await panel.LoadAsync();
+
+        Assert.True(panel.Hudu.CanCheck);
+        Assert.False(panel.ConnectWise.CanCheck);
+    }
+
+    [Fact]
+    public async Task ACheckOfACredentialTheOwnerHasSinceRemovedIsForgottenOnTheNextLoad()
+    {
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, null)],
+            Check = new CheckOutcome(true, "Connected to https://acme.huducloud.com."),
+        };
         var panel = new IntegrationsPanel(gateway);
         await panel.LoadAsync();
-        panel.Hudu.SiteUrl = "https://acme.huducloud.com";
-        panel.Hudu.ApiKey = " hudu-key-5678 ";
+        _ = await panel.Hudu.CheckAsync();
+        Assert.True(panel.Hudu.CheckOk);
 
-        Assert.True(await panel.Hudu.SaveAsync());
+        gateway.Rows = [];
+        await panel.LoadAsync();
 
-        Assert.Equal(("hudu", "https://acme.huducloud.com", "hudu-key-5678"), gateway.Stored.Single());
-        Assert.Equal(string.Empty, panel.Hudu.ApiKey);
+        Assert.False(panel.Hudu.Connected);
+        Assert.Null(panel.Hudu.CheckOk);
+        Assert.Null(panel.Hudu.CheckResult);
+        Assert.Equal(string.Empty, panel.Hudu.SecretHint);
+        Assert.Equal(IntegrationCard.OwnerConnects, panel.Hudu.OwnerLine);
+    }
+
+    [Fact]
+    public async Task AReloadShowsWhatTheOwnerChanged()
+    {
+        // There is nothing typed on the card to keep, so a reload always shows the backend's truth: a key
+        // the owner replaced shows its new last four.
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)],
+        };
+        var panel = new IntegrationsPanel(gateway);
+        await panel.LoadAsync();
+
+        gateway.Rows = [new IntegrationDetail("connectwise", "https://eu.myconnectwise.net", "••••9876", DateTimeOffset.UnixEpoch, null, null)];
+        await panel.LoadAsync();
+
+        Assert.Equal("https://eu.myconnectwise.net", panel.ConnectWise.SiteUrl);
+        Assert.Equal("••••9876", panel.ConnectWise.SecretHint);
     }
 
     [Theory]
-    [InlineData("http://na.myconnectwise.net", "acme", "PUB", "PRIV", "https")]
-    [InlineData("https://na.myconnectwise.net", "", "PUB", "PRIV", "company ID")]
-    [InlineData("https://na.myconnectwise.net", "acme", "PUB", "", "private key")]
-    [InlineData("https://na.myconnectwise.net", "ac me", "PUB", "PRIV", "spaces")]
-    [InlineData("https://na.myconnectwise.net", "acme", "PU:B", "PRIV", "':'")]
-    public async Task ABadSiteOrKeyBlocksSaveAndSaysWhy(string site, string company, string publicKey, string privateKey, string expected)
+    [InlineData("SaveAsync")]
+    [InlineData("RemoveAsync")]
+    [InlineData("Change")]
+    [InlineData("Undo")]
+    [InlineData("CompanyId")]
+    [InlineData("PublicKey")]
+    [InlineData("PrivateKey")]
+    [InlineData("ApiKey")]
+    [InlineData("Editing")]
+    [InlineData("HasPendingChange")]
+    [InlineData("HasUnsavedEdits")]
+    public void TheCardHasNoWayToTypeStoreOrRemoveACredential(string member)
     {
-        var gateway = new FakeIntegrations();
-        var panel = new IntegrationsPanel(gateway);
-        await panel.LoadAsync();
-        var card = panel.ConnectWise;
-        card.SiteUrl = site;
-        card.CompanyId = company;
-        card.PublicKey = publicKey;
-        card.PrivateKey = privateKey;
-
-        Assert.Contains(expected, card.Problem, StringComparison.OrdinalIgnoreCase);
-        Assert.False(card.CanSave);
-        Assert.False(await card.SaveAsync());
-        Assert.Empty(gateway.Stored);
+        // Spec v0.6.15 S7. The fields, Change, Save and Remove went with the move to the web admin; this
+        // keeps them from coming back on the card or the panel.
+        Assert.Empty(typeof(IntegrationCard).GetMember(member));
+        Assert.Empty(typeof(IntegrationsPanel).GetMember(member));
     }
 
     [Fact]
-    public async Task ACardBeingFilledInOrChangedHasUnsavedEdits()
+    public void NothingOnTheCardCanBeSetFromOutside()
     {
-        // The shell reads Settings again when the service comes back, which would put a card back to what
-        // is saved. A site or key being typed, or a card the technician pressed Change on, is kept.
-        var gateway = new FakeIntegrations
-        {
-            Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, null)],
-        };
-        var panel = new IntegrationsPanel(gateway);
-        await panel.LoadAsync();
-        Assert.False(panel.HasUnsavedEdits);
+        var settable = typeof(IntegrationCard)
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.SetMethod is { IsPublic: true })
+            .Select(p => p.Name);
 
-        panel.ConnectWise.PrivateKey = "PRIV";
-        Assert.True(panel.ConnectWise.HasUnsavedEdits);
-        Assert.True(panel.HasUnsavedEdits);
-        panel.ConnectWise.PrivateKey = string.Empty;
-        panel.ConnectWise.SiteUrl = "https://na.myconnectwise.net";
-        Assert.True(panel.HasUnsavedEdits);
-        panel.ConnectWise.SiteUrl = string.Empty;
-        Assert.False(panel.HasUnsavedEdits);
-
-        panel.Hudu.Change();
-        Assert.True(panel.Hudu.HasUnsavedEdits);
-        Assert.False(panel.ConnectWise.HasUnsavedEdits);
-
-        // A saved card with Change pressed and its site box emptied is still mid-change: reading it again
-        // would close the form the technician opened.
-        panel.Hudu.SiteUrl = string.Empty;
-        Assert.True(panel.Hudu.HasUnsavedEdits);
+        Assert.Empty(settable);
     }
 
-    [Fact]
-    public async Task ChangeRevealsTheFieldsAgainAndTheBackendsRefusalIsShown()
+    [Theory]
+    [InlineData("StoreAsync")]
+    [InlineData("RemoveAsync")]
+    public void TheGatewayCannotStoreOrRemoveACredential(string member)
     {
-        var gateway = new FakeIntegrations
-        {
-            Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, null)],
-            StoreRefusal = "This deployment has no vault master key, so credentials cannot be stored.",
-        };
-        var panel = new IntegrationsPanel(gateway);
-        await panel.LoadAsync();
-
-        panel.Hudu.Change();
-        Assert.True(panel.Hudu.Editing);
-        Assert.Equal("https://acme.huducloud.com", panel.Hudu.SiteUrl);
-
-        panel.Hudu.ApiKey = "new-key-0001";
-        Assert.False(await panel.Hudu.SaveAsync());
-
-        Assert.Equal(gateway.StoreRefusal, panel.Hudu.Problem);
-        Assert.True(panel.Hudu.Editing);
-        Assert.Equal("••••5678", panel.Hudu.SecretHint);
+        Assert.Empty(typeof(IIntegrationsGateway).GetMember(member));
+        Assert.Empty(typeof(PipeIntegrations).GetMember(member));
     }
 
     [Fact]
@@ -223,27 +238,36 @@ public sealed class IntegrationsPanelTests
 
         Assert.False(outcome.Ok);
 
-        // Spec v0.6.8: the backend's words point at "Settings → Integrations", which is this page, so the
-        // card says what to do on it. (Was: the card's words equal to the backend's.)
-        Assert.Equal("ConnectWise rejected the key. Press Change and enter a new key.", panel.ConnectWise.CheckResult);
+        // Spec v0.6.8, v0.6.15: the backend's words point at "Settings → Integrations", which is this page,
+        // where nothing can be changed, so the card asks the owner. (Was: "Press Change and enter a new key.")
+        Assert.Equal("ConnectWise rejected the key. Ask your owner to update it in the web admin.", panel.ConnectWise.CheckResult);
         Assert.False(panel.ConnectWise.CheckOk);
         Assert.Equal(["connectwise"], gateway.Checked);
     }
 
     [Theory]
-    [InlineData("Hudu rejected the API key. Update it in Settings → Integrations.", "Hudu rejected the API key. Press Change and enter a new key.")]
-    [InlineData("The site did not answer. Check the site address in Settings → Integrations.", "The site did not answer. Check the site address on this page.")]
-    [InlineData("The stored credential could not be opened. Enter it again in Settings → Integrations.", "The stored credential could not be opened. Enter it again on this page.")]
+    [InlineData("Hudu rejected the API key. Update it in Settings → Integrations.", "Hudu rejected the API key. Ask your owner to update it in the web admin.")]
+    [InlineData("The site did not answer. Check the site address in Settings → Integrations.", "The site did not answer. Ask your owner to check the site address in the web admin.")]
+    [InlineData("The stored credential could not be opened. Enter it again in Settings → Integrations.", "The stored credential could not be opened. Ask your owner to enter it again in the web admin.")]
+    [InlineData("Enter the provider's public address in Settings → Integrations.", "Ask your owner to enter the provider's public address in the web admin.")]
     [InlineData("HaloPSA rejected the key. Update it in Settings.", "HaloPSA rejected the key. Update it in Settings.")]
     [InlineData("Connected to https://na.myconnectwise.net.", "Connected to https://na.myconnectwise.net.")]
     public void OnTheIntegrationsPageNothingSendsTheTechnicianToTheIntegrationsPage(string fromTheBackend, string onThePage)
     {
         Assert.Equal(onThePage, IntegrationNames.OnThisPage(fromTheBackend));
         Assert.DoesNotContain("Settings → Integrations", IntegrationNames.OnThisPage(fromTheBackend), StringComparison.Ordinal);
+        Assert.DoesNotContain("Press Change", IntegrationNames.OnThisPage(fromTheBackend), StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task TheLastErrorAndARefusedSaveSayWhatToDoOnThePageToo()
+    public void OnThisPageLeavesNullAndEmptyAsTheyAre()
+    {
+        Assert.Null(IntegrationNames.OnThisPage(null));
+        Assert.Equal(string.Empty, IntegrationNames.OnThisPage(string.Empty));
+    }
+
+    [Fact]
+    public async Task TheLastErrorSaysWhoCanFixItOnThePageToo()
     {
         var gateway = new FakeIntegrations
         {
@@ -252,52 +276,13 @@ public sealed class IntegrationsPanelTests
                 new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "Hudu rejected the API key. Update it in Settings → Integrations."),
                 new IntegrationDetail("demo-kb", "https://demo.example", "••••0000", DateTimeOffset.UnixEpoch, null, "The site did not answer. Check the site address in Settings → Integrations."),
             ],
-            StoreRefusal = "The address is private. Enter the provider's public address in Settings → Integrations.",
         };
         var panel = new IntegrationsPanel(gateway);
         await panel.LoadAsync();
 
-        Assert.Equal("Hudu rejected the API key. Press Change and enter a new key.", panel.Hudu.LastError);
-        Assert.Equal("The site did not answer. Check the site address on this page.", Assert.Single(panel.Others).LastError);
-
-        panel.Hudu.Change();
-        panel.Hudu.ApiKey = "new-key-0001";
-        Assert.False(await panel.Hudu.SaveAsync());
-        Assert.Equal("The address is private. Enter the provider's public address on this page.", panel.Hudu.Problem);
-    }
-
-    [Fact]
-    public async Task AnEmptyHuduKeySaysSoWithoutRepeatingTheHintUnderTheBox()
-    {
-        // Spec v0.6.8: the line under the API key box says where the key comes from ("From Hudu → Admin →
-        // API Keys ..."), and the problem line said it again in red straight under it. The hint stays; the
-        // problem says what is wrong and what to do.
-        var panel = new IntegrationsPanel(new FakeIntegrations());
-        await panel.LoadAsync();
-
-        panel.Hudu.SiteUrl = "https://acme.huducloud.com";
-
-        Assert.Equal("The API key is missing. Paste it into the box above.", panel.Hudu.Problem);
-        Assert.DoesNotContain("Admin", panel.Hudu.Problem, StringComparison.Ordinal);
-        Assert.False(panel.Hudu.CanSave);
-    }
-
-    [Fact]
-    public async Task RemovingForgetsTheCredentialAndOpensTheFields()
-    {
-        var gateway = new FakeIntegrations
-        {
-            Rows = [new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)],
-        };
-        var panel = new IntegrationsPanel(gateway);
-        await panel.LoadAsync();
-
-        Assert.True(await panel.ConnectWise.RemoveAsync());
-
-        Assert.Equal(["connectwise"], gateway.Removed);
-        Assert.False(panel.ConnectWise.Connected);
-        Assert.True(panel.ConnectWise.Editing);
-        Assert.Equal(string.Empty, panel.ConnectWise.SecretHint);
+        Assert.Equal("Hudu rejected the API key. Ask your owner to update it in the web admin.", panel.Hudu.LastError);
+        Assert.Equal("Connected · the last check failed", panel.Hudu.Status);
+        Assert.Equal("The site did not answer. Ask your owner to check the site address in the web admin.", Assert.Single(panel.Others).LastError);
     }
 
     [Fact]
@@ -351,17 +336,11 @@ public sealed class IntegrationsPanelTests
     {
         public IReadOnlyList<IntegrationDetail>? Rows { get; set; } = [];
 
-        public string? StoreRefusal { get; set; }
-
         public CheckOutcome Check { get; set; } = new(true, "Connected.");
 
         public IReadOnlyList<CompanyChoice> Companies { get; set; } = [];
 
         public IReadOnlyList<CompanyMappingEntry> Mappings { get; set; } = [];
-
-        public List<(string Provider, string SiteUrl, string Secret)> Stored { get; } = [];
-
-        public List<string> Removed { get; } = [];
 
         public List<string> Checked { get; } = [];
 
@@ -372,22 +351,6 @@ public sealed class IntegrationsPanelTests
         public bool MappingsAsked { get; private set; }
 
         public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default) => Task.FromResult(Rows);
-
-        public Task<string?> StoreAsync(string provider, string siteUrl, string secret, CancellationToken ct = default)
-        {
-            if (StoreRefusal is null)
-            {
-                Stored.Add((provider, siteUrl, secret));
-            }
-
-            return Task.FromResult(StoreRefusal);
-        }
-
-        public Task<string?> RemoveAsync(string provider, CancellationToken ct = default)
-        {
-            Removed.Add(provider);
-            return Task.FromResult<string?>(null);
-        }
 
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default)
         {

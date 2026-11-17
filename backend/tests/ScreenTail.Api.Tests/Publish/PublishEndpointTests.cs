@@ -203,6 +203,30 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Assert.False(time.Retryable);
     }
 
+    [Fact]
+    public async Task ACredentialTheVaultRefusesIsADestinationThatSaysWhyNotAServerError()
+    {
+        // 2026-11-15 review: a stored row the vault will not open (here its site no longer matches what
+        // the secret was sealed for) answers each destination in words, sends nothing, and is not retried.
+        var cw = new ScriptedConnectWise();
+        using var host = Host(cw);
+        using var client = await ConnectedClientAsync(host);
+        var tenantId = OwnerRoutes.TenantOf(client);
+        _ = await api.UseAsync(db => db.Integrations.Where(i => i.TenantId == tenantId).ExecuteUpdateAsync(set => set.SetProperty(i => i.SiteUrl, "https://eu.myconnectwise.net")));
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle(), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(cw.Requests);
+        Assert.All(published!.Results, r =>
+        {
+            Assert.False(r.Ok);
+            Assert.False(r.Retryable);
+            Assert.Contains("Ask your owner to connect it again in the web admin.", r.Error, StringComparison.Ordinal);
+        });
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.TooManyRequests, 180L, true, "ConnectWise is rate-limiting requests. Try again in 3 minutes.")]
     [InlineData(HttpStatusCode.ServiceUnavailable, null, false, "ConnectWise did not confirm the request, so it may have been saved. Check ConnectWise before publishing again, so nothing is added twice.")]
@@ -426,10 +450,13 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     [Theory]
     [InlineData(null)]
     [InlineData("   ")]
-    public async Task AMissingReviewerIsTheSignedInTechnician(string? reviewer)
+    [InlineData("A Technician")]
+    [InlineData("Somebody Else")]
+    public async Task TheReviewerIsAlwaysTheSignedInTechnician(string? reviewer)
     {
-        // T-411: the shipped client sends no reviewer, so this is the only real path; the technician's
-        // name here differs from every bundle in this file so the fallback cannot pass by coincidence.
+        // T-411: the shipped client sends no reviewer. 2026-11-15 review: one that names somebody is
+        // still accepted, and ignored, so a device cannot sign a note with another technician's name. The
+        // technician's name here differs from every bundle in this file so it cannot pass by coincidence.
         var cw = new ScriptedConnectWise();
         using var host = Host(cw);
         using var client = await ConnectedClientAsync(host, displayName: "Sam Rivera");
@@ -480,7 +507,9 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle(), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
-        Assert.Contains("no_psa", await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        var answer = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
+        Assert.Equal("no_psa", answer.GetProperty("error").GetString());
+        Assert.Equal("No PSA is connected. Your owner connects one in the web admin.", answer.GetProperty("message").GetString());
     }
 
     [Theory]
@@ -499,6 +528,17 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     [InlineData("image_empty", "A frame's image must be base64 and under a megabyte.")]
     [InlineData("image_base64", "A frame's image must be base64 and under a megabyte.")]
     [InlineData("image_size", "A frame's image must be base64 and under a megabyte.")]
+    [InlineData("ticket_id_newline", "A ticket id is required.")]
+    [InlineData("ticket_id_dots", "A ticket id is required.")]
+    [InlineData("company", "The company name may be at most 200 characters.")]
+    [InlineData("reviewer", "The reviewer's name may be at most 200 characters.")]
+    [InlineData("steps", "A note may have at most 200 steps.")]
+    [InlineData("steps_null", "The note's steps and follow-ups must be present, even when empty.")]
+    [InlineData("step_null", "Every step needs its references, even when empty.")]
+    [InlineData("follow_ups", "A note may have at most 200 follow-ups.")]
+    [InlineData("refs", "A step may point at no more than 200 screenshots and transcript lines.")]
+    [InlineData("note_chars", "A note may be at most 200000 characters.")]
+    [InlineData("note_chars_follow_ups", "A note may be at most 200000 characters.")]
     public async Task EveryWrongShapeIsRefusedWithItsOwnReason(string what, string reason)
     {
         // T-220: each rule, by its own words, and nothing sent. Without the frame rules a bad frame was
@@ -524,7 +564,18 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
             case "media_type": bundle["frames"]![0]!["media_type"] = "image/gif"; break;
             case "image_empty": bundle["frames"]![0]!["image"] = string.Empty; break;
             case "image_base64": bundle["frames"]![0]!["image"] = "not*base64!"; break;
-            default: bundle["frames"]![0]!["image"] = new string('A', PublishLimits.MaxFrameChars + 4); break;
+            case "image_size": bundle["frames"]![0]!["image"] = new string('A', PublishLimits.MaxFrameChars + 4); break;
+            case "ticket_id_newline": bundle["ticket_id"] = "48213\n"; break;
+            case "ticket_id_dots": bundle["ticket_id"] = ".."; break;
+            case "company": bundle["company"] = new string('C', PublishLimits.MaxCompanyLength + 1); break;
+            case "reviewer": bundle["reviewer"] = new string('R', PublishLimits.MaxReviewerLength + 1); break;
+            case "steps": bundle["note"]!["steps"] = JsonSerializer.SerializeToNode(Enumerable.Range(0, PublishLimits.MaxSteps + 1).Select(i => new DraftStepJson { Text = $"Step {i}.", Confidence = "low" }).ToList()); break;
+            case "steps_null": bundle["note"]!["steps"] = null; break;
+            case "step_null": bundle["note"]!["steps"] = new JsonArray((JsonNode?)null); break;
+            case "follow_ups": bundle["note"]!["follow_ups"] = JsonSerializer.SerializeToNode(Enumerable.Range(0, PublishLimits.MaxFollowUps + 1).Select(i => $"Follow-up {i}.").ToList()); break;
+            case "refs": bundle["note"]!["steps"]![0]!["transcript_refs"] = JsonSerializer.SerializeToNode(Enumerable.Range(0, PublishLimits.MaxRefsPerStep).Select(i => $"t-{i}").ToList()); break;
+            case "note_chars": bundle["note"]!["steps"]![0]!["text"] = new string('s', PublishLimits.MaxNoteChars); break;
+            default: bundle["note"]!["follow_ups"] = new JsonArray(new string('f', PublishLimits.MaxNoteChars / 2), new string('f', PublishLimits.MaxNoteChars / 2)); break;
         }
 
         using var response = await client.PostAsync(
@@ -536,6 +587,28 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         var answer = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
         Assert.Equal(reason, answer.GetProperty("message").GetString());
         Assert.Empty(cw.Requests);
+    }
+
+    [Fact]
+    public async Task ANoteAtEveryBoundIsStillPublished()
+    {
+        // 2026-11-15 review: the note's bounds are there for a client gone wrong. A note far longer than
+        // the model or the device's own draft writes (30 and 40 steps, about 17,700 characters at most),
+        // with a long company name, is published as it always was.
+        var cw = new ScriptedConnectWise();
+        using var host = Host(cw);
+        using var client = await ConnectedClientAsync(host);
+        var note = Note() with
+        {
+            Steps = [.. Enumerable.Range(0, PublishLimits.MaxSteps).Select(i => new DraftStepJson { Text = new string('s', 400), Confidence = "low", TranscriptRefs = [$"t-{i}"] })],
+            FollowUps = [.. Enumerable.Range(0, PublishLimits.MaxFollowUps).Select(_ => new string('f', 400))],
+        };
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle() with { Company = new string('C', PublishLimits.MaxCompanyLength), Note = note, Destinations = ["ticket_note"] }, TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(Assert.Single(published!.Results).Ok);
     }
 
     [Fact]
@@ -574,7 +647,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         using var host = Host(cw);
         var (tenantId, userId, deviceId) = await SeedAsync();
         using var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         _ = await api.UseAsync(db => db.Devices
             .Where(d => d.Id == deviceId)
@@ -726,7 +799,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
     {
         var (tenantId, userId, deviceId) = await SeedAsync(displayName);
         var client = Bearer(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token, streamed);
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"), TestContext.Current.CancellationToken);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
         Assert.Equal(HttpStatusCode.NoContent, put.StatusCode);
         return client;
     }

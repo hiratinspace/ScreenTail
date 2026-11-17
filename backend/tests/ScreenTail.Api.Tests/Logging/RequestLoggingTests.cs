@@ -49,7 +49,7 @@ public sealed class RequestLoggingTests(ApiFixture api) : IClassFixture<ApiFixtu
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
         var ct = TestContext.Current.CancellationToken;
 
-        using var put = await client.PutAsJsonAsync(new Uri("/v1/integrations/connectwise", UriKind.Relative), new StoreIntegrationRequest(Site, "tenant+PUB:PRIV-7731"), ct);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest(Site, "tenant+PUB:PRIV-7731"));
         using var search = await client.GetAsync(new Uri("/v1/psa/tickets?q=Acme%20Dental%20printer", UriKind.Relative), ct);
         using var unicode = await client.GetAsync(new Uri("/v1/psa/tickets?q=Z%C3%BCrich+Dental&q=printer", UriKind.Relative), ct);
         using var refused = await anonymous.GetAsync(new Uri("/v1/psa/tickets?q=Acme%20Dental%20printer", UriKind.Relative), ct);

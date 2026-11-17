@@ -87,7 +87,7 @@ public sealed class HuduCompanyCacheTests
         // Hudu's own refusal (a revoked key, a rate limit) is what every caller hears, in Hudu's words,
         // and the next call asks again rather than being told the same thing from memory.
         var cache = new HuduCompanyCache(_time);
-        var refused = new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Update it in Settings → Integrations.");
+        var refused = new ProviderError(ProviderErrorKind.Unauthenticated, "Hudu rejected the API key.", "Ask your ScreenTail owner to update the Hudu connection in the web admin.");
 
         var callers = Enumerable.Range(0, 5).Select(_ => Get(cache)).ToArray();
         await _load.Started(1);
@@ -311,6 +311,30 @@ public sealed class HuduCompanyCacheTests
         _load.Answer(1, ProviderResult.Failure<IReadOnlyList<CompanyRef>>(new ProviderError(ProviderErrorKind.Unavailable, "Hudu did not answer.", "Try again in a minute.")));
         Assert.False((await late).Ok);
         Assert.False(cache.Keeps("t-1"));
+    }
+
+    [Fact]
+    public async Task AListThatExpiredWhileItLoadedIsAnsweredAndNotKept()
+    {
+        // 2026-11-15 review: a slow site's list, ready only after its own ten minutes were up, was stored
+        // all the same: never served again, but held until the next lookup found it.
+        var cache = new HuduCompanyCache(_time);
+        var slow = Get(cache);
+        await _load.Started(1);
+
+        _time.Advance(KeepFor);
+        _load.Answer(0, New);
+
+        Assert.Same(New, (await slow).Value);
+        Assert.False(cache.Keeps("t-1"));
+
+        // Just inside its time, it is kept as before.
+        var next = Get(cache);
+        await _load.Started(2);
+        _time.Advance(KeepFor - TimeSpan.FromSeconds(1));
+        _load.Answer(1, Old);
+        Assert.Same(Old, (await next).Value);
+        Assert.True(cache.Keeps("t-1"));
     }
 
     [Fact]
