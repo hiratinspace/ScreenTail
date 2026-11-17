@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Mvc;
 using ScreenTail.Api.Auth;
 using ScreenTail.Api.Data;
+using ScreenTail.Api.Providers.ConnectWise;
 using ScreenTail.Api.Providers.Demo;
 using ScreenTail.Api.Providers.Hudu;
 using ScreenTail.Api.Publish;
@@ -22,7 +23,8 @@ public sealed record CompanyMappingsResponse(IReadOnlyList<DocCompanyRow> Compan
 /// <summary>
 /// The company mappings behind Settings → Integrations (ST-097 AC3): list the documentation platform's
 /// companies beside what the tenant has mapped, map one by hand, forget one. A mapping to a company the
-/// platform does not have is refused, because that is the wrong-company publish waiting to happen.
+/// platform does not have is refused, because that is the wrong-company publish waiting to happen, and so
+/// is one from a company the PSA does not have, or that the PSA could not be asked about.
 /// </summary>
 public static class CompanyMappingEndpoint
 {
@@ -53,7 +55,7 @@ public static class CompanyMappingEndpoint
         .WithName("ListCompanyMappings")
         .WithSummary("The documentation platform's companies and what this tenant has mapped to them.");
 
-        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, DemoOptions demo, TimeProvider time, MappingChangeLimit limit, HttpContext http, CancellationToken ct) =>
+        group.MapPut("/integrations/hudu/companies", async (MapCompanyRequest request, Caller who, ScreenTailContext db, IDocProviderFactory providers, IPsaProviderFactory psaProviders, DemoOptions demo, TimeProvider time, MappingChangeLimit limit, HttpContext http, CancellationToken ct) =>
         {
             if (demo.Demo)
             {
@@ -88,23 +90,43 @@ public static class CompanyMappingEndpoint
                 return Results.BadRequest(new { error = "no_such_company", message = "The documentation platform has no company with that id." });
             }
 
-            // The PSA company is a name the device sends: the PSA has no company lookup to check it against,
-            // and each company's latest record is kept. So a device may name only so many companies that
-            // have no mapping yet each day; remapping one already mapped is not limited this way.
-            var psaCompany = request.PsaCompany.Trim();
-            if (await new CompanyMappings(db, who.TenantId, time).FindAsync(psaCompany, ct).ConfigureAwait(false) is null
-                && !limit.TryTakeNewCompany(who.DeviceId, psaCompany))
+            // The PSA company is checked against the PSA as the documentation company is checked against
+            // the platform, so only a company the tenant's PSA has can be mapped. A PSA that cannot answer
+            // refuses the mapping: nothing is saved on a name nobody could check. The PSA's own spelling is
+            // saved, which is the name its tickets carry.
+            var psa = await psaProviders.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false);
+            if (psa is null)
             {
-                return Results.Json(
-                    new { error = "too_many_new_companies", message = string.Create(CultureInfo.InvariantCulture, $"This PC has mapped {MappingChangeLimit.NewCompaniesPerDevice} new PSA companies today. Choose a company that is already mapped, or try again tomorrow.") },
-                    statusCode: StatusCodes.Status429TooManyRequests);
+                return Results.Json(new { error = "no_psa", message = "No PSA is connected, so its companies cannot be mapped. Your owner connects one in the web admin." }, statusCode: StatusCodes.Status501NotImplemented);
+            }
+
+            var found = await psa.FindCompanyAsync(request.PsaCompany.Trim(), ct).ConfigureAwait(false);
+            if (!found.Ok)
+            {
+                return PsaEndpoint.Refused(found.Error!);
+            }
+
+            if (found.Value is not { } psaCompany)
+            {
+                return Results.BadRequest(new { error = "no_such_psa_company", message = "The PSA has no company with that name. Choose the company as the PSA names it on the ticket." });
             }
 
             // Technicians keep this, since the mapping prompt comes up while they publish; the owner sees
             // each one on the Integrations page (2026-11-15 review). Recorded in the same transaction.
             await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
             {
-                var mapped = await new CompanyMappings(db, who.TenantId, time).RememberAsync(request.PsaCompany, company, "manual", ct).ConfigureAwait(false);
+                var mappings = new CompanyMappings(db, who.TenantId, time);
+
+                // A row kept under the name as sent, when the PSA spells it otherwise, is the same company
+                // under a name no ticket carries: it goes, and the owner is told, so Settings does not list
+                // the company twice.
+                var sent = request.PsaCompany.Trim();
+                if (!string.Equals(sent, psaCompany.Name, StringComparison.Ordinal) && await mappings.ForgetAsync(sent, ct).ConfigureAwait(false))
+                {
+                    await IntegrationChanges.RecordMappingAsync(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Unmapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), sent, ct: ct).ConfigureAwait(false);
+                }
+
+                var mapped = await mappings.RememberAsync(psaCompany.Name, company, "manual", ct).ConfigureAwait(false);
                 await IntegrationChanges.RecordMappingAsync(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Mapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), mapped.PsaCompany, mapped.DocCompanyId, mapped.DocCompanyName, ct).ConfigureAwait(false);
                 _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
                 await transaction.CommitAsync(ct).ConfigureAwait(false);

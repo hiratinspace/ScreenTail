@@ -535,6 +535,8 @@ public sealed class DemoPsaMeetsTheContract : PsaProviderContract
 
     protected override string KnownTicketId => "48213";
 
+    protected override string KnownCompany => "Acme Dental";
+
     protected override void Break(ProviderError? error) => _provider.Fail = error;
 
     private sealed class Breakable(IPsaProvider inner) : IPsaProvider
@@ -551,6 +553,9 @@ public sealed class DemoPsaMeetsTheContract : PsaProviderContract
 
         public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) =>
             Fail is { } error ? Task.FromResult(ProviderResult.Failure<IReadOnlyList<TicketRef>>(error)) : inner.RecentTicketsAsync(ct);
+
+        public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default) =>
+            Fail is { } error ? Task.FromResult(ProviderResult.Failure<CompanyRef?>(error)) : inner.FindCompanyAsync(name, ct);
 
         public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default) =>
             Fail is { } error ? Task.FromResult(ProviderResult.Failure<PublishedNote>(error)) : inner.AddNoteAsync(note, ct);

@@ -74,6 +74,22 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns: the PSA that took the request and sent back something that cannot be read.</summary>
     public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
 
+    /// <summary>
+    /// The tenant's companies, by id, for the company lookup: the names the tickets carry and the ones the
+    /// mapping tests choose, and one with a quote in it.
+    /// </summary>
+    public List<(int Id, string Name)> Companies { get; } =
+    [
+        (7, "Acme Dental"),
+        (8, "Borough Legal"),
+        (9, "Bright Smiles"),
+        (10, "Nowhere Inc"),
+        (11, "Beta Law"),
+        (12, "O'Brien & Sons"),
+        (13, "Smith and O'Brien"),
+        (14, "Smith and Sons"),
+    ];
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -152,6 +168,9 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
                     }
                     : []),
 
+            ("GET", var p) when p.EndsWith("/company/companies", StringComparison.Ordinal) =>
+                ListCompanies(query),
+
             ("POST", var p) when p.EndsWith("/service/tickets/48213/notes", StringComparison.Ordinal) =>
                 Ok(new { id = 90001, ticketId = 48213, text = "…" }),
 
@@ -166,6 +185,61 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         };
+    }
+
+    /// <summary>
+    /// <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c> outside quotes, compared
+    /// without regard to case as ConnectWise's database compares them, one page of <c>pageSize</c> (25
+    /// unless said). Any other condition, or a quote inside a value, is a field error.
+    /// </summary>
+    private HttpResponseMessage ListCompanies(string query)
+    {
+        var parameters = query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(pair => pair.Split('=', 2))
+            .ToDictionary(pair => pair[0], pair => pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : string.Empty, StringComparer.Ordinal);
+        IEnumerable<(int Id, string Name)> matched = Companies;
+        foreach (var clause in Clauses(parameters.GetValueOrDefault("conditions") ?? string.Empty))
+        {
+            var (op, value) = clause.StartsWith("name = '", StringComparison.Ordinal) ? ("=", clause["name = '".Length..])
+                : clause.StartsWith("name contains '", StringComparison.Ordinal) ? ("contains", clause["name contains '".Length..])
+                : (null, string.Empty);
+            if (op is null || !value.EndsWith('\'') || value[..^1].Contains('\''))
+            {
+                return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { code = "InvalidObject", message = $"The condition {clause} could not be parsed." }, options: Json) };
+            }
+
+            var wanted = value[..^1];
+            matched = op == "="
+                ? matched.Where(c => string.Equals(c.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                : matched.Where(c => c.Name.Contains(wanted, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var size = parameters.TryGetValue("pageSize", out var given) ? int.Parse(given, System.Globalization.CultureInfo.InvariantCulture) : 25;
+        return Ok(matched.Take(size).Select(c => new { id = c.Id, name = c.Name }).ToArray());
+    }
+
+    /// <summary>A conditions string split on <c>and</c> where it stands outside a quoted value, as ConnectWise's parser reads it.</summary>
+    internal static List<string> Clauses(string conditions)
+    {
+        var clauses = new List<string>();
+        var quoted = false;
+        var start = 0;
+        for (var i = 0; i < conditions.Length; i++)
+        {
+            if (conditions[i] == '\'')
+            {
+                quoted = !quoted;
+            }
+            else if (!quoted && string.CompareOrdinal(conditions, i, " and ", 0, 5) == 0)
+            {
+                clauses.Add(conditions[start..i].Trim());
+                start = i + 5;
+                i += 4;
+            }
+        }
+
+        clauses.Add(conditions[start..].Trim());
+        return clauses.FindAll(c => c.Length > 0);
     }
 
     private static object Ticket(int id, string summary, string company, string status) => new

@@ -10,6 +10,7 @@ it against a sandbox before a pilot.
 | Check the credential | `GET /system/info` | Settings → Integrations, to show a state rather than "unknown until you publish" |
 | Search tickets | `GET /service/tickets/{id}` for a number, then `GET /service/tickets?conditions=summary contains '…' and closedFlag = false&orderBy=dateEntered desc&pageSize=25&page=1` | The Review screen's ticket picker, three characters or a number |
 | Recent tickets | `GET /service/tickets?conditions=closedFlag = false&orderBy=_info/lastUpdated desc&pageSize=10&page=1` | The picker on focus, before anything is typed (Spec §5 S3). The API member is the tenant's, so this is the tenant's recent activity, not the technician's |
+| Look up a company | `GET /company/companies?conditions=name = '…'&fields=id,name&pageSize=100&page=1`, one page; a number is a name like any other | Mapping a PSA company to a Hudu one (ST-097), before the mapping is saved; and a publish with no mapping whose company matches a Hudu company exactly, before that match is remembered |
 | Test connection | `GET /system/info` | Settings → Integrations, and `POST /v1/integrations/connectwise/check`; the row records when and what went wrong |
 | Add a note | `POST /service/tickets/{id}/notes` with `internalAnalysisFlag` for Internal and `detailDescriptionFlag` for Discussion | Publish |
 | Attach screenshots | `POST /system/documents` with `recordType=Ticket` and `privateFlag` true for an Internal note, one per included frame, four at a time, after the note | Publish |
@@ -22,6 +23,35 @@ counted from when the request arrived, so the time the screenshots took to uploa
 that has not answered by then comes back `timed_out`, and one whose answer could not be read comes back
 `unknown`: both may have landed, so neither is retryable. If the upload used the whole deadline,
 nothing is sent and each destination says so.
+
+**A company mapping is checked against ConnectWise before it is saved** (ST-097), as the Hudu company is
+checked against Hudu. The technician's device sends the PSA company's name; the backend looks it up and
+saves the mapping only when ConnectWise has a company with exactly that name (the same spelling first,
+then the only one that differs just in case, and that only from a page that was not full), under the
+name ConnectWise gives it, which is the name its tickets carry. A row kept under the name as sent, when
+ConnectWise spells it otherwise, is forgotten in the same step and the owner sees it unmapped, so the
+company is not listed twice. A company ConnectWise does not have is refused with `400 no_such_psa_company` and "The
+PSA has no company with that name. Choose the company as the PSA names it on the ticket." A lookup that
+cannot be answered (an outage, a rate limit, a wrong key, a member without the right to read companies)
+refuses the mapping with ConnectWise's two sentences as a `502`, the same way a ticket search does, and
+nothing is saved; with no PSA connected the answer is `501 no_psa`. The mapping is never saved on a name
+nobody could check. ConnectWise's conditions language has no quoting a caller can rely on, so a name
+with a quote, a backslash or a wildcard character in it is asked for as `name contains '…'` for its three
+longest pieces between those characters, and the exact name is picked out of the answer here: such a
+name can find too little, which refuses the mapping, and never the wrong company. A number is looked up
+as a name only: nothing sends an id, and a ticket number typed where a company belongs must never map
+whichever customer has that id. Each lookup is one read, retried like any read, and not cached: the
+mapping route takes at most 30 changes per device in ten minutes (`device_slowed` on the owner's
+Integrations page past that), which bounds the lookups too, and a cache keyed by the names devices send
+would be a store that grows with them.
+
+**A publish remembers an exact match only under ConnectWise's spelling.** With no mapping for the
+ticket's company and a Hudu company of exactly that name, the article is filed under it, and the match
+is remembered only when ConnectWise has the company, under ConnectWise's spelling; a mapping already
+kept under that spelling is used as it is. When ConnectWise has no such company or cannot answer, the
+article is still filed under the match and nothing is remembered. Mappings saved before are used and
+forgotten as before: a publish that has a mapping, and an unmap, ask ConnectWise nothing about the
+company.
 
 Every request carries Basic auth with the tenant's `companyId+publicKey:privateKey` and the vendor
 `clientId` header. A 429 or an outage is retried with exponential backoff and jitter, three attempts
@@ -89,7 +119,11 @@ there is one:
    Expect open tickets whose summary contains the word, newest first, each with its company. A number
    returns that ticket first. `pr` is refused with `query_too_short`; a wrong key comes back as
    `psa_unauthenticated` with "Ask your ScreenTail owner to update the ConnectWise connection in the web admin."
-4. Publish (ST-093, ST-094): the note, its attachments and the time entry appear on the ticket and the
+4. Map a company (ST-097): `PUT /v1/integrations/hudu/companies` with a company the sandbox has, one it
+   does not have, and one whose name has an apostrophe in it. Expect `204`, `400 no_such_psa_company`
+   and `204`. The condition syntax (`name = '…'`, `name contains '…'`, single quotes) is written from the
+   API documentation and not yet seen working; check it here, and that `fields=id,name` is honoured.
+5. Publish (ST-093, ST-094): the note, its attachments and the time entry appear on the ticket and the
    response carries their ids. Two field names are written from the API documentation and not yet
    seen working: check that an Internal note's screenshots are not visible in the customer portal
    (`privateFlag` on the document), and that an Internal time entry shows its text under internal
@@ -107,5 +141,5 @@ provider's own tests run against it. When the sandbox check has been done, repla
 
 `backend/tests/ScreenTail.Api.Tests/Providers/StandIns/ConnectWiseStandIn.cs` is the same shapes as a
 real HTTPS server the provider reaches over a socket, with the rules above (credential, `clientId`,
-search conditions and paging, note flags, time entry window and member). Correct it along with the
+search conditions and paging, company lookup by name, note flags, time entry window and member). Correct it along with the
 recorded shapes. The providers README says what its tests prove and what they cannot.

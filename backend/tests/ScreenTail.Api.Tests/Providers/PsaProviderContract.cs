@@ -24,6 +24,9 @@ public abstract class PsaProviderContract
     /// <summary>A ticket that exists in this provider, for the publish tests.</summary>
     protected abstract string KnownTicketId { get; }
 
+    /// <summary>A company that exists in this provider, by its name, for the company lookup.</summary>
+    protected abstract string KnownCompany { get; }
+
     [Fact]
     public async Task CheckSucceedsWhenTheCredentialsWork()
     {
@@ -167,6 +170,44 @@ public abstract class PsaProviderContract
     }
 
     [Fact]
+    public async Task ACompanyLookedUpByItsNameComesBackWithItsIdAndName()
+    {
+        // ST-097: the mapping route saves only a company the PSA has, under the name the PSA gives it.
+        var result = await Provider.FindCompanyAsync(KnownCompany, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Equal(KnownCompany, result.Value!.Name);
+        Assert.False(string.IsNullOrWhiteSpace(result.Value.Id));
+    }
+
+    [Fact]
+    public async Task ACompanyThePsaDoesNotHaveIsNoAnswerAndNotAnError()
+    {
+        // "No such company" is an answer, which the mapping route turns into a refusal in words.
+        var result = await Provider.FindCompanyAsync("Zzzz Not A Company Ltd", TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok, result.Error?.ToString());
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public async Task ACompanyLookupThePsaCannotAnswerIsAFailureAndNeverACompany()
+    {
+        // The mapping route refuses on this, so a name is never saved because nobody could check it.
+        foreach (var kind in new[] { ProviderErrorKind.Unavailable, ProviderErrorKind.Unauthenticated, ProviderErrorKind.Forbidden })
+        {
+            Break(new ProviderError(kind, "The PSA did not answer.", "Try again in a minute."));
+            var result = await Provider.FindCompanyAsync(KnownCompany, TestContext.Current.CancellationToken);
+
+            Assert.False(result.Ok);
+            Assert.Null(result.Value);
+            Assert.Equal(kind, result.Error!.Kind);
+        }
+
+        Break(null);
+    }
+
+    [Fact]
     public async Task ATimeEntryOfNoMinutesIsRefused()
     {
         var entry = new TimeEntry(KnownTicketId, DateTimeOffset.UtcNow, 0, "Notes", Billable: true);
@@ -186,6 +227,8 @@ public sealed class FakePsaMeetsTheContract : PsaProviderContract
     protected override IPsaProvider Provider => _provider;
 
     protected override string KnownTicketId => "48213";
+
+    protected override string KnownCompany => "Acme Dental";
 
     protected override void Break(ProviderError? error) => _provider.Fail = error;
 }

@@ -34,5 +34,11 @@ public sealed class ConnectWiseOptions
     /// <summary>The recent-tickets list on focus (Spec §5 S3) is a glance: ten rows.</summary>
     public int RecentCount { get; set; } = 10;
 
+    /// <summary>
+    /// How many companies a company lookup reads at most (ST-097). An exact name is one or two; a name
+    /// with quotes in it is asked for in pieces and can match more, and only the exact one is kept.
+    /// </summary>
+    public int CompanyMatches { get; set; } = 100;
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId);
 }

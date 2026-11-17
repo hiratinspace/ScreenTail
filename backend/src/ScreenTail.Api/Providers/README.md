@@ -93,7 +93,9 @@ retrying.
 The rules cover: failures are values; only outages retry; every message has both halves; a search under
 three characters is refused (Spec §5 S3) while one that matches nothing is an empty list rather than an
 error; a result names the company as well as the ticket, so nobody publishes to the right number at the
-wrong client; a note on a missing ticket is `NotFound` rather than `Invalid`; and a published note comes
+wrong client; a company looked up by name comes back with its id and the PSA's own spelling, one the
+PSA does not have is no answer rather than an error, and one the PSA cannot answer about is a failure,
+never a company; a note on a missing ticket is `NotFound` rather than `Invalid`; and a published note comes
 back with an identifier, without which a retry after a dropped connection cannot tell "already published"
 from "not published".
 
@@ -103,7 +105,10 @@ from "not published".
 `IPsaProvider`: `IPsaProviderFactory` builds one per tenant from the credential the vault holds
 (ST-009), with the tenant's own site as the base address and the deployment's `ConnectWise:ClientId`
 on every request. `docs/integrations/connectwise.md` has the routes, what a tenant supplies, and the
-sandbox check that has not been run yet. Its tests run against `ScriptedConnectWise`, recorded shapes
+sandbox check that has not been run yet. `FindCompanyAsync` is how the company mapping route checks the
+PSA company before saving a mapping (ST-097), and a publish checks an exact match before remembering
+it: an exact name (a number is a name too, never an id), one page read live with `id` and `name` only,
+never cached, and nothing saved on it when ConnectWise cannot answer. Its tests run against `ScriptedConnectWise`, recorded shapes
 of the API's answers, and it passes the contract harness like the fake does.
 
 ## Hudu (ST-095)

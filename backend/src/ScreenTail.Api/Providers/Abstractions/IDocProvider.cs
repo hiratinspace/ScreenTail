@@ -1,5 +1,6 @@
 namespace ScreenTail.Api.Providers;
 
+/// <summary>A company as a provider names it: a documentation platform's (ST-097), or a PSA's (<see cref="IPsaProvider.FindCompanyAsync"/>).</summary>
 /// <param name="Id">The provider's own identifier for the company.</param>
 public sealed record CompanyRef(string Id, string Name);
 

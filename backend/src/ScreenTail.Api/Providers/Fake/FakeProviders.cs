@@ -21,6 +21,12 @@ public sealed class FakePsaProvider : IPsaProvider
         new("50011", "New starter setup", "Borough Legal", "In Progress"),
     ];
 
+    private readonly List<CompanyRef> _companies =
+    [
+        new("7", "Acme Dental"),
+        new("8", "Borough Legal"),
+    ];
+
     /// <summary>Set to make every call fail this way. For the contract harness and for ST-073's failure UX.</summary>
     public ProviderError? Fail { get; set; }
 
@@ -65,6 +71,17 @@ public sealed class FakePsaProvider : IPsaProvider
         Task.FromResult(Fail is { } error
             ? ProviderResult.Failure<IReadOnlyList<TicketRef>>(error)
             : ProviderResult.Success<IReadOnlyList<TicketRef>>([.. _tickets.Take(10)]));
+
+    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default)
+    {
+        if (Fail is { } error)
+        {
+            return Task.FromResult(ProviderResult.Failure<CompanyRef?>(error));
+        }
+
+        var wanted = (name ?? string.Empty).Trim();
+        return Task.FromResult(ProviderResult.Success(_companies.Find(c => string.Equals(c.Name, wanted, StringComparison.Ordinal))));
+    }
 
     public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
     {

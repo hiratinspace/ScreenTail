@@ -9,6 +9,9 @@ namespace ScreenTail.Api.Tests.Providers.StandIns;
 /// <summary>A ticket on the stand-in, with the fields the provider reads or filters on.</summary>
 internal sealed record CwTicket(int Id, string Summary, int CompanyId, string Company, string Status, bool Closed, DateTimeOffset Entered, DateTimeOffset LastUpdated);
 
+/// <summary>A company on the stand-in: the id and name the company lookup reads.</summary>
+internal sealed record CwCompany(int Id, string Name);
+
 /// <summary>A note the stand-in took, as ConnectWise would keep it.</summary>
 internal sealed record CwNote(int Id, int TicketId, string Text, bool DetailDescription, bool InternalAnalysis, bool Resolution, bool CustomerUpdated, string Member);
 
@@ -45,6 +48,7 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
     private static readonly string[] CopyAndEmailFlags = ["addToDetailDescriptionFlag", "addToInternalAnalysisFlag", "addToResolutionFlag", "emailResourceFlag", "emailContactFlag", "emailCcFlag"];
 
     private readonly List<CwTicket> _tickets = [];
+    private readonly List<CwCompany> _companies = [new(7, "Acme Dental"), new(8, "Borough Legal"), new(9, "Bright Smiles"), new(10, "Harbour Physio Ltd")];
     private readonly List<CwNote> _notes = [];
     private readonly List<CwTimeEntry> _timeEntries = [];
     private readonly List<CwDocument> _documents = [];
@@ -95,6 +99,8 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
 
     public IReadOnlyList<CwTicket> Tickets => Locked(() => _tickets.ToList());
 
+    public IReadOnlyList<CwCompany> Companies => Locked(() => _companies.ToList());
+
     /// <summary>More open tickets whose summaries match, newest last, for a search that has more than one page.</summary>
     public void AddTickets(int count, string summary)
     {
@@ -143,6 +149,7 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
         {
             ("GET", "system/info") => new Reply(200, new { version = "v2026.1", isCloud = true, serverTimeZone = "Eastern Standard Time" }),
             ("GET", "service/tickets") => ListTickets(request),
+            ("GET", "company/companies") => ListCompanies(request),
             ("GET", _) when TicketRoute().Match(route) is { Success: true, Groups: var g } && g["notes"].Length == 0 => GetTicket(int.Parse(g["id"].Value, CultureInfo.InvariantCulture), request),
             ("POST", _) when TicketRoute().Match(route) is { Success: true, Groups: var g } && g["notes"].Length > 0 => AddNote(int.Parse(g["id"].Value, CultureInfo.InvariantCulture), request),
             ("POST", "time/entries") => AddTimeEntry(request),
@@ -153,6 +160,9 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
 
     [GeneratedRegex(@"^service/tickets/(?<id>[0-9]+)(?<notes>/notes)?$")]
     private static partial Regex TicketRoute();
+
+    [GeneratedRegex(@"^name (?<op>=|contains) '(?<value>[^']*)'$", RegexOptions.IgnoreCase)]
+    private static partial Regex NameCondition();
 
     [GeneratedRegex(@"^summary contains '(?<value>[^']*)'$", RegexOptions.IgnoreCase)]
     private static partial Regex SummaryContains();
@@ -217,6 +227,48 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
             : null;
         return new Reply(200, rows, headers);
     }
+
+    /// <summary>
+    /// Companies by <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c> outside quotes, without
+    /// regard to case as ConnectWise's database compares, paged and projected as the tickets are. A
+    /// condition it cannot read, or a quote inside a value, is a field error, as a real parser's would be.
+    /// </summary>
+    private Reply ListCompanies(RecordedRequest request)
+    {
+        IEnumerable<CwCompany> matched = _companies;
+        if (request.Query.TryGetValue("conditions", out var conditions))
+        {
+            foreach (var clause in ConnectWise.ScriptedConnectWise.Clauses(conditions))
+            {
+                if (NameCondition().Match(clause) is not { Success: true } name)
+                {
+                    return FieldError("company", "conditions", $"The condition {clause} could not be parsed.");
+                }
+
+                var value = name.Groups["value"].Value;
+                matched = name.Groups["op"].Value == "="
+                    ? matched.Where(c => string.Equals(c.Name, value, StringComparison.OrdinalIgnoreCase))
+                    : matched.Where(c => c.Name.Contains(value, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+
+        var size = request.Query.TryGetValue("pageSize", out var s) ? int.Parse(s, CultureInfo.InvariantCulture) : 25;
+        var page = request.Query.TryGetValue("page", out var p) ? int.Parse(p, CultureInfo.InvariantCulture) : 1;
+        if (size is < 1 or > 1000 || page < 1)
+        {
+            return FieldError("company", "pageSize", "pageSize must be between 1 and 1000, and page at least 1.");
+        }
+
+        return new Reply(200, matched.Skip((page - 1) * size).Take(size).Select(c => Project(CompanyJson(c), request)).ToList());
+    }
+
+    private static JsonObject CompanyJson(CwCompany c) => new()
+    {
+        ["id"] = c.Id,
+        ["identifier"] = c.Name.Replace(' ', '_').ToUpperInvariant(),
+        ["name"] = c.Name,
+        ["status"] = new JsonObject { ["id"] = 1, ["name"] = "Active" },
+    };
 
     private Reply GetTicket(int id, RecordedRequest request)
     {
