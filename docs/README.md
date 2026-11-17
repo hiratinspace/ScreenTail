@@ -16,13 +16,14 @@ to trust it and where to change it.
 
 | File | Read it for |
 |---|---|
-| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-11-10 |
+| `STATUS.md` | One page: what exists, what's decided, what's open, what's next. A summary of the backlog's status lines, refreshed after each stretch, with the decisions still waiting for the owner. Last refreshed 2026-11-16 |
 | `ipc-contract.md` | The service–UI pipe contract, versioned. Kept at the root because three source files and the backlog cite it by this path |
 | `adr/000N-*.md` | Architecture decisions. 0001 to 0006 are Accepted; 0007 (the Windows installer), 0008 (auto-update) and 0009 (owner sign-in to the web admin, with Google) are Proposed. `adr/evidence/` holds the measurements they rest on, with its own README |
 | `review/weaknesses.md` | The 2026-09-15 adversarial review, closed 2026-09-22: every finding says what fixed it, and the one still open says where it is tracked. Kept because code comments cite its numbers |
 | `security/threat-model.md`, `data-flow.md`, `questionnaire.md` | The privacy pack (ST-114). Brought into line with the code on 2026-09-28. Items marked ⚠ are not yet built; the pack has not had a security-lead review and says so |
 | `security/redteam-01.md` | ST-115's first red-team round on the redaction pipeline at the text level (2026-09-25): every input and finding, each one a test |
-| `security/key-rotation.md` | Rotating the credential vault's master key (ST-009), step by step |
+| `security/2026-11-hardening.md` | The public summary of the 2026-11-15 security review and its fixes (#321 to #327, #330 to #333): what is true now, area by area. The review itself stays private |
+| `security/key-rotation.md` | Rotating the credential vault's master key (ST-009), step by step, and the vault upgrade on first deploy |
 | `integrations/connectwise.md`, `integrations/hudu.md` | How ScreenTail talks to ConnectWise and Hudu, what a tenant supplies, and the real checks still owed before a pilot |
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
