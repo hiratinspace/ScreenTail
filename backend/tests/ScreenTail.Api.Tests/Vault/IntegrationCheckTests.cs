@@ -95,6 +95,37 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
     }
 
     [Fact]
+    public async Task WithoutAClientIdTheDeviceIsToldWhoFinishesTheSetupAndOnlyTheOwnerSeesTheSetting()
+    {
+        // Owner decision 2026-11-16: a technician never reads a configuration key. They are told to ask
+        // the ScreenTail owner to finish the ConnectWise setup; the owner, on the card, is told the setting.
+        var cw = new ScriptedConnectWise();
+        using var host = HostWith(cw, new ScriptedHudu(), clientId: string.Empty);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var put = await client.StoreIntegrationAsOwnerAsync(api, "connectwise", new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:PRIV-1234"));
+        using var owner = await host.Factory.OwnerClientAsync(api, tenantId);
+
+        using var deviceCheck = await client.PostAsync(new Uri("/v1/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        var asDevice = await deviceCheck.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
+        using var tickets = await client.GetAsync(new Uri("/v1/psa/tickets?q=printer", UriKind.Relative), TestContext.Current.CancellationToken);
+        var ticketsBody = await tickets.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var list = await client.GetFromJsonAsync<IntegrationsResponse>(new Uri("/v1/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+        using var ownerCheck = await owner.PostAsync(new Uri("/v1/admin/integrations/connectwise/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        var asOwner = await ownerCheck.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
+
+        Assert.Empty(cw.Requests);
+        Assert.Equal("ConnectWise is not fully set up yet. Ask your ScreenTail owner to finish the ConnectWise setup.", asDevice!.Message);
+        Assert.Contains("Ask your ScreenTail owner to finish the ConnectWise setup.", ticketsBody, StringComparison.Ordinal);
+        Assert.All([asDevice.Message, ticketsBody, Assert.Single(list!.Integrations).LastError!], text =>
+        {
+            Assert.DoesNotContain("ClientId", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("ConnectWise:", text, StringComparison.Ordinal);
+        });
+        Assert.Equal("ConnectWise is not fully set up yet. Set ConnectWise:ClientId on the ScreenTail server, or ask whoever runs it to.", asOwner!.Message);
+    }
+
+    [Fact]
     public async Task ACredentialTheVaultRefusesIsAnsweredInWordsOnBothCheckRoutesAndWhileMapping()
     {
         // 2026-11-15 review: a row bound to another site does not open. Test connection says so (to a
@@ -164,9 +195,9 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
-    private WebApplicationFactoryHost HostWith(ScriptedConnectWise cw, ScriptedHudu hudu) => new(api.WithWebHostBuilder(builder =>
+    private WebApplicationFactoryHost HostWith(ScriptedConnectWise cw, ScriptedHudu hudu, string clientId = "11111111-2222-3333-4444-555555555555") => new(api.WithWebHostBuilder(builder =>
     {
-        _ = builder.UseSetting("ConnectWise:ClientId", "11111111-2222-3333-4444-555555555555");
+        _ = builder.UseSetting("ConnectWise:ClientId", clientId);
         _ = builder.ConfigureTestServices(services =>
         {
             _ = services.Configure<HttpClientFactoryOptions>(nameof(ConnectWiseProvider), options => options.HttpMessageHandlerBuilderActions.Add(handler => handler.PrimaryHandler = cw));

@@ -1,5 +1,6 @@
 using System.Globalization;
 using ScreenTail.Api.Providers;
+using ScreenTail.Api.Providers.ConnectWise;
 
 namespace ScreenTail.Api.Vault;
 
@@ -45,6 +46,13 @@ public static class VaultRefusal
         if (message is null)
         {
             return null;
+        }
+
+        // A ConnectWise setup the server has not finished is not fixed on the card: the owner is told
+        // the setting that is missing, which a technician is never shown.
+        if (message.Contains(ConnectWiseSetup.FinishIt, StringComparison.Ordinal))
+        {
+            return message.Replace(ConnectWiseSetup.FinishIt, ConnectWiseSetup.SetTheClientId, StringComparison.Ordinal);
         }
 
         // Only the credential check's words are stored and shown to the owner, so a pointer to Settings

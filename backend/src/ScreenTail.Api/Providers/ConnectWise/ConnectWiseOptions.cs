@@ -36,3 +36,25 @@ public sealed class ConnectWiseOptions
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ClientId);
 }
+
+/// <summary>
+/// What is said while this deployment has no ConnectWise clientId (<see cref="ConnectWiseOptions.ClientId"/>).
+/// A technician is told who can finish the setup, never the server setting: that is for the owner, on
+/// the web admin's card (<see cref="Vault.VaultRefusal.ForOwner"/>), and for the server log at start.
+/// </summary>
+public static partial class ConnectWiseSetup
+{
+    public const string NotSetUp = "ConnectWise is not fully set up yet.";
+
+    /// <summary>For a technician's device: who finishes it, with no configuration key in it.</summary>
+    public const string FinishIt = "Ask your ScreenTail owner to finish the ConnectWise setup.";
+
+    /// <summary>For the owner: the setting that is missing, and who sets it.</summary>
+    public const string SetTheClientId = "Set ConnectWise:ClientId on the ScreenTail server, or ask whoever runs it to.";
+
+    /// <summary>Says once, at start, that every ConnectWise call will be refused until the clientId is set.</summary>
+    public static void Announce(ILogger logger) => MissingClientId(logger);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "ConnectWise:ClientId is not set, so every ConnectWise call is refused before it is sent until it is")]
+    private static partial void MissingClientId(ILogger logger);
+}

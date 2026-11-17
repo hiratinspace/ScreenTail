@@ -271,6 +271,13 @@ builder.Services.AddRequestTimeouts(timeouts =>
 
 var app = builder.Build();
 
+// A technician is only told to ask the owner to finish the ConnectWise setup; the setting that is
+// missing is said here, to whoever runs the server, and to the owner on the web admin's card.
+if (!connectWise.IsConfigured)
+{
+    ConnectWiseSetup.Announce(app.Logger);
+}
+
 if (testGoogleKeys is not null)
 {
     TestSignInOptions.Announce(app.Logger);
