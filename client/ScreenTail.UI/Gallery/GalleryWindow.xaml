@@ -104,7 +104,7 @@
                         <TextBlock Style="{StaticResource Text.Body}" Text="Capture started late or was interrupted. Some steps may be missing." />
                     </Border>
                     <Border Margin="0,8,0,0" Style="{StaticResource Banner.Error}">
-                        <TextBlock Style="{StaticResource Text.Body}" Text="ConnectWise rejected the request: clientId header missing. Add your clientId in Settings, under Integrations." />
+                        <TextBlock Style="{StaticResource Text.Body}" Text="ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin." />
                     </Border>
                 </StackPanel>
 

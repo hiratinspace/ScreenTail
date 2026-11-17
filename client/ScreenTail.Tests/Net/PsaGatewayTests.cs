@@ -139,7 +139,7 @@ public sealed class PsaGatewayTests
         Assert.Contains("\"secret\":\"acme", storing.Body, StringComparison.Ordinal);
         Assert.Contains("PRIV", storing.Body, StringComparison.Ordinal);
 
-        using var checking = new RecordingHandler(Json(new { ok = false, message = "ConnectWise rejected the key. Update it in Settings → Integrations.", checkedAt = "2026-09-25T10:00:00Z" }));
+        using var checking = new RecordingHandler(Json(new { ok = false, message = "ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin.", checkedAt = "2026-09-25T10:00:00Z" }));
         var checkAnswer = await Gateway(checking).CheckIntegrationAsync("connectwise", TestContext.Current.CancellationToken);
         Assert.True(checkAnswer.Ok);
         Assert.False(checkAnswer.Value!.Ok);
