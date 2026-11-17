@@ -32,7 +32,7 @@ public static class PsaEndpoint
             var psa = await providers.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false);
             if (psa is null)
             {
-                return Results.Json(new { error = "no_psa", message = "No PSA is connected, so tickets cannot be searched. Your owner connects one in the web admin." }, statusCode: StatusCodes.Status501NotImplemented);
+                return Results.Json(new { error = "no_psa", message = "No PSA is connected, so tickets cannot be searched. Your ScreenTail owner connects one in the web admin." }, statusCode: StatusCodes.Status501NotImplemented);
             }
 
             var result = query.Length == 0

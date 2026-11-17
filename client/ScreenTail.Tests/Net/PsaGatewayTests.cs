@@ -309,7 +309,7 @@ public sealed class PsaGatewayTests
         var answer = await Gateway(handler).PublishAsync(Wire(), TestContext.Current.CancellationToken);
 
         Assert.False(answer.Ok);
-        Assert.Equal("No PSA is connected. Your owner connects one in the web admin.", answer.Refusal);
+        Assert.Equal("No PSA is connected. Your ScreenTail owner connects one in the web admin.", answer.Refusal);
     }
 
     [Fact]

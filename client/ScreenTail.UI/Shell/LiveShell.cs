@@ -488,7 +488,7 @@ public sealed class LiveShell : IAsyncDisposable
         var draftPending = loaded.DraftPending;
 
         // The publish pane's delegates, over the pipe. What the tenant has connected is asked now, once,
-        // so the pane opens saying "Ask your owner to connect a PSA to publish" or ready, not guessing. The mapping prompt's
+        // so the pane opens saying "Ask your ScreenTail owner to connect a PSA to publish" or ready, not guessing. The mapping prompt's
         // two calls (ST-097) ride the same connection.
         var publisher = new PipePublisher(_connection);
         var integrations = await publisher.IntegrationsAsync(ct).ConfigureAwait(true);

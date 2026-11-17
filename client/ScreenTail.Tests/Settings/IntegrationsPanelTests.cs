@@ -107,7 +107,7 @@ public sealed class IntegrationsPanelTests
         await panel.LoadAsync();
 
         Assert.Equal("Connected", panel.ConnectWise.Status);
-        Assert.Equal("Your owner manages this connection in the web admin.", panel.ConnectWise.OwnerLine);
+        Assert.Equal("Your ScreenTail owner manages this connection in the web admin.", panel.ConnectWise.OwnerLine);
         Assert.Equal(IntegrationCard.OwnerManages, panel.ConnectWise.OwnerLine);
     }
 
@@ -121,7 +121,7 @@ public sealed class IntegrationsPanelTests
         Assert.All(panel.Cards, card =>
         {
             Assert.Equal("Not connected", card.Status);
-            Assert.Equal("Not connected. Your owner connects it in the web admin.", card.OwnerLine);
+            Assert.Equal("Not connected. Your ScreenTail owner connects it in the web admin.", card.OwnerLine);
         });
     }
 

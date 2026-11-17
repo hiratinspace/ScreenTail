@@ -509,7 +509,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         var answer = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken)).RootElement;
         Assert.Equal("no_psa", answer.GetProperty("error").GetString());
-        Assert.Equal("No PSA is connected. Your owner connects one in the web admin.", answer.GetProperty("message").GetString());
+        Assert.Equal("No PSA is connected. Your ScreenTail owner connects one in the web admin.", answer.GetProperty("message").GetString());
     }
 
     [Theory]

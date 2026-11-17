@@ -36,15 +36,16 @@ public sealed class ConnectWiseProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task WithoutAClientIdNothingIsSentAndTheOperatorIsTold()
+    public async Task WithoutAClientIdNothingIsSentAndTheTechnicianIsToldWhoFinishesTheSetup()
     {
+        // The setting's name is for the owner and the server log (ConnectWiseSetupTests), not a technician.
         var provider = Provider(clientId: string.Empty);
 
         var result = await provider.CheckAsync(TestContext.Current.CancellationToken);
 
         Assert.Empty(_api.Requests);
         Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
-        Assert.Contains("ConnectWise:ClientId", result.Error.Todo, StringComparison.Ordinal);
+        Assert.Equal("ConnectWise is not fully set up yet. Ask your ScreenTail owner to finish the ConnectWise setup.", result.Error.ToString());
     }
 
     [Fact]

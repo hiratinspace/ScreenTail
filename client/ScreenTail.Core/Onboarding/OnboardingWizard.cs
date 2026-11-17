@@ -86,7 +86,7 @@ public sealed class OnboardingWizard(
     /// changed by the tenant owner, in the web admin, so the step shows what is connected and says who
     /// connects the rest; there is nothing to type here, and the step can be skipped or continued as before.
     /// </summary>
-    public const string ConnectByOwner = "Your owner connects ConnectWise and Hudu in the web admin. You can publish once they have.";
+    public const string ConnectByOwner = "Your ScreenTail owner connects ConnectWise and Hudu in the web admin. You can publish once they have.";
 
     public ActivationPanel Activation { get; } = activation ?? throw new ArgumentNullException(nameof(activation));
 

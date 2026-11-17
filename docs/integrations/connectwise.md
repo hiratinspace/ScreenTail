@@ -93,7 +93,11 @@ signed-in session with its CSRF header. A technician's device cannot store or re
 
 **`ConnectWise:ClientId`**: the clientId ConnectWise issues per integration vendor at
 developer.connectwise.com. It is ours, not the tenant's, set once per deployment like the vault's master
-key. Without it every call is refused before it is sent, with a message naming the setting.
+key. Without it every call is refused before it is sent. A technician reads "ConnectWise is not fully
+set up yet. Ask your ScreenTail owner to finish the ConnectWise setup.", with no setting named. The
+owner, on the ConnectWise card in the web admin, reads "Set ConnectWise:ClientId on the ScreenTail
+server, or ask whoever runs it to.", and the server logs a warning naming `ConnectWise:ClientId` when it
+starts without one (owner decision 2026-11-16).
 
 **Accepted (2026-11-15 security review): the clientId goes to whichever site a tenant stores.** It is
 sent on every call, so a tenant that stores a site it controls sees it. ScreenTail does not limit

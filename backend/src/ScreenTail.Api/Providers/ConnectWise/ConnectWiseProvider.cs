@@ -334,8 +334,8 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         {
             return Task.FromResult(ProviderResult.Failure<JsonElement>(new ProviderError(
                 ProviderErrorKind.Invalid,
-                "ConnectWise needs a clientId header and this deployment has none.",
-                "Set ConnectWise:ClientId on the backend.")));
+                ConnectWiseSetup.NotSetUp,
+                ConnectWiseSetup.FinishIt)));
         }
 
         return ProviderHttp.SendAsync(

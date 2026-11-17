@@ -45,7 +45,7 @@ public static class PublishEndpoint
             var psa = await providers.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false);
             if (psa is null)
             {
-                return Results.Json(new { error = "no_psa", message = "No PSA is connected. Your owner connects one in the web admin." }, statusCode: StatusCodes.Status501NotImplemented);
+                return Results.Json(new { error = "no_psa", message = "No PSA is connected. Your ScreenTail owner connects one in the web admin." }, statusCode: StatusCodes.Status501NotImplemented);
             }
 
             // The footer names whoever reviewed it, and the token says who that is. The request's
