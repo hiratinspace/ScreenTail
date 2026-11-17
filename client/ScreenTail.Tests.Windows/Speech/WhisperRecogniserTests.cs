@@ -154,6 +154,27 @@ public sealed class WhisperRecogniserTests : IDisposable
     }
 
     [Fact]
+    public async Task TheReleaseIsDoneOnlyOnceDisposalHasLetTheModelGo()
+    {
+        // 2026-11-17. A test that measures when a stop let go of the native call reads this, not the
+        // transcription's task, which Whisper.net ends the moment the token is cancelled while whisper.cpp
+        // runs on. Not done before the stop; done, idle, by the time the disposal returns.
+        var ct = TestContext.Current.CancellationToken;
+        var recogniser = new WhisperRecogniser(
+            new ModelDownload(new HttpClient(new StubServer(HttpStatusCode.ServiceUnavailable, []))),
+            Elsewhere,
+            _dir)
+        {
+            LoadableForTests = true,
+        };
+
+        Assert.False(recogniser.Released.IsCompleted, "the release was done before anything stopped");
+        await recogniser.DisposeAsync();
+        await recogniser.Released.WaitAsync(TimeSpan.FromSeconds(5), ct);
+        Assert.False(recogniser.Loaded);
+    }
+
+    [Fact]
     public async Task ATranscriptionThatMeetsTheStopAtTheLockEndsWithNothingNotAFault()
     {
         // #262 follow-up. The stop's release disposes the lock. A segment whose token was linked just

@@ -218,9 +218,10 @@ public sealed class StopTimeTests : IAsyncDisposable
             // #262 follow-up. The real microphone cannot be made to speak on cue, so whether a segment was
             // with the model at the ask is read from the service's own lines afterwards, and so is whether
             // the speech model was still busy past StopBound.Default: both are reported below, not enforced
-            // (2026-11-08, owner proxy). The abort's latency is one whisper.cpp compute step, 510 ms on the
-            // laptop (run 42524815671), so "still busy" past the 500 ms bound is expected now and then; the
-            // stop does not wait for it, and its time is held to the budget above. SpeechUnloadTests and
+            // (2026-11-08, owner proxy). whisper.cpp does not read the abort inside an encoder pass, which is
+            // most of a segment's 4.9 s on the laptop (run 44027063937), so "still busy" past the 500 ms bound
+            // is expected whenever the ask lands in one; the stop does not wait for it, and its time is held
+            // to the budget above (2026-11-17, WhisperRecogniser._stopping). SpeechUnloadTests and
             // TheProcessEndsWithATranscriptionStillInFlight put a transcription in flight for certain.
             narrationInFlight = service.Says(NarrationDroppedLine);
             speechLeftRunning = service.Says(SpeechLeftRunningLine);
