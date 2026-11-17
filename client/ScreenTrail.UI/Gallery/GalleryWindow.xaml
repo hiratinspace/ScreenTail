@@ -48,7 +48,7 @@
                 <StackPanel Style="{StaticResource Row}">
                     <CheckBox Content="Ticket note" IsChecked="True" />
                     <CheckBox Margin="16,0,0,0" Content="KB article" IsChecked="False" />
-                    <CheckBox Margin="16,0,0,0" Content="Set by your admin" IsChecked="True" IsEnabled="False" />
+                    <CheckBox Margin="16,0,0,0" Content="Set by your ScreenTrail owner" IsChecked="True" IsEnabled="False" />
                     <RadioButton Margin="24,0,0,0" Content="Internal" GroupName="GalleryNoteType" IsChecked="True" />
                     <RadioButton Margin="16,0,0,0" Content="Discussion" GroupName="GalleryNoteType" />
                     <ComboBox Margin="24,0,0,0" Width="160" SelectedIndex="1">
@@ -76,7 +76,7 @@
                     <TextBlock Margin="8,0,24,0" Style="{StaticResource Text.Body}" Text="Email addresses" VerticalAlignment="Center" />
                     <controls:ToggleSwitch IsChecked="True" IsLocked="True" />
                     <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Body}" Text="Local-only mode" VerticalAlignment="Center" />
-                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Muted}" Text="Set by your admin" VerticalAlignment="Center" />
+                    <TextBlock Margin="8,0,0,0" Style="{StaticResource Text.Muted}" Text="Set by your ScreenTrail owner" VerticalAlignment="Center" />
                 </StackPanel>
 
                 <TextBlock Text="Badges and state indicators" />

@@ -57,8 +57,13 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
     [ObservableProperty]
     public partial Visibility CheckVisibility { get; set; } = Visibility.Collapsed;
 
+    /// <summary>The green Connected badge: connected, and the last check did not fail (<see cref="IntegrationCard.Badge"/>).</summary>
     [ObservableProperty]
     public partial Visibility ConnectedBadgeVisibility { get; set; } = Visibility.Collapsed;
+
+    /// <summary>The warning "Check failed" badge, in Connected's place when the last check failed.</summary>
+    [ObservableProperty]
+    public partial Visibility CheckFailedBadgeVisibility { get; set; } = Visibility.Collapsed;
 
     /// <summary>
     /// Test connection: checks the credential the backend holds. Off with nothing connected. One check at
@@ -85,7 +90,8 @@ public sealed partial class IntegrationCardViewModel : ObservableObject
         SecretHint = _card.SecretHint;
         StatusVisibility = _card.Connected ? Visibility.Visible : Visibility.Collapsed;
         SummaryVisibility = _card.Connected ? Visibility.Visible : Visibility.Collapsed;
-        ConnectedBadgeVisibility = _card.Connected ? Visibility.Visible : Visibility.Collapsed;
+        ConnectedBadgeVisibility = _card.Badge == IntegrationCard.ConnectedBadge ? Visibility.Visible : Visibility.Collapsed;
+        CheckFailedBadgeVisibility = _card.Badge == IntegrationCard.CheckFailedBadge ? Visibility.Visible : Visibility.Collapsed;
         CheckResult = _card.CheckResult ?? _card.LastError ?? string.Empty;
         CheckMark = _card.CheckOk switch { true => "✓", false => "✗", null => _card.LastError is null ? string.Empty : "✗" };
         CheckVisibility = CheckResult.Length == 0 ? Visibility.Collapsed : Visibility.Visible;

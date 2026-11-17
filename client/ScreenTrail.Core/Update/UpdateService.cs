@@ -349,7 +349,7 @@ public sealed partial class UpdateService : IDisposable
         var policy = PolicyNow();
         if (policy.Every is null)
         {
-            return Settle(new UpdateStatus(UpdateState.Off, null, "Your administrator turned off update checks. Your MSP installs updates with its own tools."));
+            return Settle(new UpdateStatus(UpdateState.Off, null, "Your ScreenTrail owner turned off update checks. Your MSP installs updates with its own tools."));
         }
 
         if (policy.Channel is not { } channel)

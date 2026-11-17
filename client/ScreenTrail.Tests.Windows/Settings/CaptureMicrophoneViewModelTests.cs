@@ -91,7 +91,8 @@ public sealed class CaptureMicrophoneViewModelTests
 
             Assert.NotNull(screen.SelectedModel);
             Assert.Same(screen.Models[0], screen.SelectedModel);
-            Assert.Equal("Automatic", screen.SelectedModel.Label);
+            Assert.Equal("Automatic (Recommended)", screen.SelectedModel.Label);
+            Assert.Equal("Automatic uses Balanced on this computer.", screen.ModelHint);
             Assert.Equal("Medium", screen.SelectedSensitivity.Label);
             Assert.Equal(["Low: fewer screenshots", "Medium", "High: more screenshots"], screen.Sensitivities.Select(s => s.Label));
             Assert.False(screen.HasUnsavedEdits);
@@ -105,7 +106,7 @@ public sealed class CaptureMicrophoneViewModelTests
             screen.Refresh();
             Assert.Equal("small.en", service.Saved!.SpeechModel);
             Assert.Equal("high", service.Saved.Sensitivity);
-            Assert.Equal("small.en", screen.SelectedModel.Label);
+            Assert.Equal("Most accurate: slower", screen.SelectedModel.Label);
             Assert.Equal("High: more screenshots", screen.SelectedSensitivity.Label);
 
             // A dropdown cleared (WPF hands a null) goes back to the default, never to nothing.

@@ -248,7 +248,7 @@ public sealed class SettingsPageTests
         Assert.False(page.HasPendingChanges);
         Assert.True(privacy.LocalOnly);
         Assert.Equal(3, privacy.RetentionDays);
-        Assert.Equal("Set by your admin (policy p7)", privacy.LockedBecause);
+        Assert.Equal("Set by your ScreenTrail owner", privacy.LockedBecause);
         Assert.Equal(UpdateChannel.Stable, updates.Shown);
 
         // A change elsewhere saves the technician's own values for the locked fields, untouched.
