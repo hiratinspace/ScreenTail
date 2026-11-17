@@ -48,10 +48,29 @@ internal static class SpokenAudio
         }
     }
 
-    /// <summary>One sentence, spoken, as 16 kHz mono samples.</summary>
-    public static async Task<short[]> SpeakAsync(string text, string folder, CancellationToken ct)
+    /// <summary>
+    /// The English voices this machine has, at most <paramref name="most"/>, the default first. More than
+    /// one voice is more than one speaker for the word error comparison; all of them are still synthetic.
+    /// </summary>
+    public static IReadOnlyList<VoiceInformation> EnglishVoices(int most)
+    {
+        var voices = SpeechSynthesizer.AllVoices
+            .Where(voice => voice.Language.StartsWith("en", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(voice => voice.Id == SpeechSynthesizer.DefaultVoice?.Id)
+            .Take(most)
+            .ToList();
+        return voices.Count > 0 ? voices : [.. SpeechSynthesizer.AllVoices.Take(1)];
+    }
+
+    /// <summary>One sentence, spoken, as 16 kHz mono samples, in the default voice or the one given.</summary>
+    public static async Task<short[]> SpeakAsync(string text, string folder, CancellationToken ct, VoiceInformation? voice = null)
     {
         using var synthesizer = new SpeechSynthesizer();
+        if (voice is not null)
+        {
+            synthesizer.Voice = voice;
+        }
+
         using var stream = await synthesizer.SynthesizeTextToStreamAsync(text).AsTask(ct);
         var bytes = new byte[stream.Size];
         using (var reader = new DataReader(stream.GetInputStreamAt(0)))

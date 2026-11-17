@@ -231,7 +231,8 @@ internal sealed class ServiceRig : IAsyncDisposable
             ? new WhisperRecogniser(
                 new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(null))))),
                 SpeechModels.BaseEnglish,
-                SpeechUnloadTests.ModelCache())
+                SpeechUnloadTests.ModelCache(),
+                sizeContext: options.SizeContext)
             : new WhisperRecogniser(
                 new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy()))),
                 SpeechModels.BaseEnglish,
@@ -314,7 +315,8 @@ internal sealed class ServiceRig : IAsyncDisposable
 /// Whether the processor throttle acts on scene sampling and OCR, as in the service. It reads the process
 /// either way, so its moves are reported; a breakdown turns it off to measure a full session's work.
 /// </param>
-internal sealed record ServiceRigOptions(IMicrophone? Microphone = null, bool Speech = false, bool ApplyThrottle = true);
+/// <param name="SizeContext">Whether the model encodes only as much context as each segment fills (AudioContext); off, as in the service.</param>
+internal sealed record ServiceRigOptions(IMicrophone? Microphone = null, bool Speech = false, bool ApplyThrottle = true, bool SizeContext = false);
 
 /// <summary>
 /// The recogniser the narration recorder calls, with the time each call took. Counts and durations only:
