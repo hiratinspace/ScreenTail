@@ -144,10 +144,10 @@ public sealed class IntegrationCard
     public const string HuduProvider = "hudu";
 
     /// <summary>A connected card's line under its status: who changes it, and where.</summary>
-    public const string OwnerManages = "Your owner manages this connection in the web admin.";
+    public const string OwnerManages = "Your ScreenTail owner manages this connection in the web admin.";
 
     /// <summary>A card with nothing connected: who connects it, and where.</summary>
-    public const string OwnerConnects = "Not connected. Your owner connects it in the web admin.";
+    public const string OwnerConnects = "Not connected. Your ScreenTail owner connects it in the web admin.";
 
     private readonly IIntegrationsGateway _gateway;
 

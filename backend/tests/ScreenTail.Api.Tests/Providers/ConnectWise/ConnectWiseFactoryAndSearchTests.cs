@@ -139,7 +139,7 @@ public sealed class TicketSearchEndpointTests(ApiFixture api) : IClassFixture<Ap
 
         Assert.Equal(HttpStatusCode.NotImplemented, response.StatusCode);
         Assert.Contains("no_psa", body, StringComparison.Ordinal);
-        Assert.Equal("No PSA is connected, so tickets cannot be searched. Your owner connects one in the web admin.", System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("message").GetString());
+        Assert.Equal("No PSA is connected, so tickets cannot be searched. Your ScreenTail owner connects one in the web admin.", System.Text.Json.JsonDocument.Parse(body).RootElement.GetProperty("message").GetString());
     }
 
     [Fact]

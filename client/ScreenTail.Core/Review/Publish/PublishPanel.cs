@@ -214,7 +214,7 @@ public sealed class PublishPanel
     /// <summary>Two characters match half the tickets in a PSA, and each search is a round trip to it.</summary>
     public const int MinimumQueryLength = 3;
 
-    public const string ConnectPrompt = "Ask your owner to connect a PSA to publish";
+    public const string ConnectPrompt = "Ask your ScreenTail owner to connect a PSA to publish";
 
     /// <summary>Everything chosen landed. Publishing again would post it all a second time.</summary>
     public const string AlreadyPublished = "Already published";
@@ -290,7 +290,7 @@ public sealed class PublishPanel
     }
 
     /// <summary>
-    /// A pane with nothing to publish to: "Ask your owner to connect a PSA to publish", and delegates that are never
+    /// A pane with nothing to publish to: "Ask your ScreenTail owner to connect a PSA to publish", and delegates that are never
     /// reached because the pane is blocked before them. What the running application shows until
     /// ST-092 and ST-093 wire the real ones.
     /// </summary>

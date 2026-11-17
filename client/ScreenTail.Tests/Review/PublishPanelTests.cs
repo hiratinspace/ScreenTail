@@ -102,7 +102,7 @@ public sealed class PublishPanelTests
         panel.Choose(new TicketMatch("1", "x", "y"));
 
         Assert.False(panel.HasIntegrations);
-        Assert.Equal("Ask your owner to connect a PSA to publish", panel.BlockedBecause);
+        Assert.Equal("Ask your ScreenTail owner to connect a PSA to publish", panel.BlockedBecause);
         Assert.False(panel.CanPublish);
     }
 
