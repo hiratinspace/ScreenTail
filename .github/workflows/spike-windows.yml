@@ -133,7 +133,7 @@ jobs:
       vars.HW_RUNNER == 'true' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, Windows, screentail-win]
+    runs-on: [self-hosted, Windows, screentrail-win]
     timeout-minutes: 30
     defaults:
       run:

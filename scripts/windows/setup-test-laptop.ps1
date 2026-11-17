@@ -9,7 +9,7 @@
     (non-admin) account is fine; winget may show UAC prompts. The script:
       1. installs Git, the .NET 8 and .NET 10 SDKs and the VC++ x64 runtime with winget;
       2. downloads the latest GitHub Actions runner into -RunnerDir and registers it for the repo with
-         the label 'screentail-win'. It does NOT install it as a Windows service: services run in
+         the label 'screentrail-win'. It does NOT install it as a Windows service: services run in
          session 0, where there is no desktop to hook or capture;
       3. allows this user to run PowerShell scripts, which the runner needs to execute a workflow step;
       4. adds a Startup-folder shortcut so the runner starts at sign-in, and starts it now;
@@ -28,7 +28,7 @@ param(
     [Parameter(Mandatory)][string]$Token,
     [string]$RepoUrl = 'https://github.com/hiratinspace/ScreenTrail',
     [string]$RunnerDir = 'C:\actions-runner',
-    [string]$Labels = 'screentail-win'
+    [string]$Labels = 'screentrail-win'
 )
 
 $ErrorActionPreference = 'Stop'
