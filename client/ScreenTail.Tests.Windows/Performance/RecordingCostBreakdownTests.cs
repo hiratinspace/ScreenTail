@@ -10,10 +10,10 @@ using ScreenTail.Core.Privacy;
 using ScreenTail.Core.Sessions;
 using ScreenTail.Core.Speech;
 using ScreenTail.Core.Store;
-using ScreenTail.Shared.Schema;
 using ScreenTail.Service.Capture;
 using ScreenTail.Service.Privacy;
 using ScreenTail.Service.Speech;
+using ScreenTail.Shared.Schema;
 using Whisper.net;
 
 namespace ScreenTail.Tests.Windows.Performance;
