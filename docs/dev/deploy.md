@@ -22,7 +22,9 @@ Every container has a read-only root filesystem, no capabilities and `no-new-pri
 pinned by version and digest. Secrets are files under `/run/secrets`, never environment variables or
 image layers, and each container sees only its own. The API connects to the database as
 `screentail_app`, which may read and write rows and nothing else; migrations and backups use the
-schema's owner, `screentail`.
+schema's owner, `screentail`. These names, the database's and the compose project's (which names the
+volumes) are from before the product was renamed ScreenTrail, and are kept so an existing deployment
+keeps its data.
 
 ## 1. Pick a host and a name (owner decision)
 

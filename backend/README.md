@@ -16,6 +16,10 @@ prove it.
 It needs a Postgres and a signing key, and refuses to start without either. Both failures are loud at
 startup rather than confusing at the first request.
 
+The database, its roles and the demo container are still called `screentail`, from before the
+product was renamed ScreenTrail (2026-11-17). That is on purpose: renaming them would cut existing
+setups off from their data. The same goes for the user-secrets ID `screentail-api`.
+
 ```bash
 docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentail-db postgres:17-alpine
 
