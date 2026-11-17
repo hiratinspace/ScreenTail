@@ -565,6 +565,123 @@ public sealed class ConnectWiseProviderTests : IDisposable
         Assert.Equal("The ConnectWise site answered with something that is not its API.", result.Error.What);
     }
 
+    [Fact]
+    public async Task ACompanyIsLookedUpByItsExactNameAskingForIdAndNameOnly()
+    {
+        // ST-097: one read of the company list, for the name as it was given, with the two fields the
+        // lookup reads and a bounded page.
+        var result = await Provider().FindCompanyAsync("Acme Dental", TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(_api.Requests);
+        var query = Uri.UnescapeDataString(request.RequestUri!.Query);
+        Assert.Equal(HttpMethod.Get, request.Method);
+        Assert.EndsWith("/v4_6_release/apis/3.0/company/companies", request.RequestUri.AbsolutePath, StringComparison.Ordinal);
+        Assert.Contains("conditions=name = 'Acme Dental'", query, StringComparison.Ordinal);
+        Assert.Contains("fields=id,name", query, StringComparison.Ordinal);
+        Assert.Contains("pageSize=100", query, StringComparison.Ordinal);
+        Assert.Equal(new CompanyRef("7", "Acme Dental"), result.Value);
+    }
+
+    [Fact]
+    public async Task ANameWithAQuoteInItIsAskedForInPiecesAndOnlyTheExactNameIsTaken()
+    {
+        // A quote cannot be sent inside a quoted condition, so the pieces around it are asked for and the
+        // answer is matched here. A company whose name only contains the pieces is not taken.
+        _api.Companies.Add((20, "O'Brien & Sons Holdings"));
+
+        var result = await Provider().FindCompanyAsync("O'Brien & Sons", TestContext.Current.CancellationToken);
+        var lookalike = await Provider().FindCompanyAsync("O'Brien", TestContext.Current.CancellationToken);
+
+        var query = Uri.UnescapeDataString(_api.Requests[0].RequestUri!.Query);
+        Assert.Contains("conditions=name contains 'Brien & Sons' and name contains 'O'", query, StringComparison.Ordinal);
+        Assert.DoesNotContain("O'Brien", query, StringComparison.Ordinal);
+        Assert.Equal(new CompanyRef("12", "O'Brien & Sons"), result.Value);
+        Assert.True(lookalike.Ok);
+        Assert.Null(lookalike.Value);
+    }
+
+    [Theory]
+    [InlineData("acme dental")]
+    [InlineData("ACME DENTAL")]
+    public async Task ANameThatDiffersOnlyInCaseFindsTheCompanyUnderItsOwnSpelling(string asked)
+    {
+        var result = await Provider().FindCompanyAsync(asked, TestContext.Current.CancellationToken);
+
+        Assert.Equal(new CompanyRef("7", "Acme Dental"), result.Value);
+    }
+
+    [Fact]
+    public async Task TwoCompaniesThatDifferOnlyInCaseAreNotGuessedBetween()
+    {
+        _api.Companies.Add((21, "ACME DENTAL"));
+
+        var exact = await Provider().FindCompanyAsync("ACME DENTAL", TestContext.Current.CancellationToken);
+        var neither = await Provider().FindCompanyAsync("acme dental", TestContext.Current.CancellationToken);
+
+        Assert.Equal(new CompanyRef("21", "ACME DENTAL"), exact.Value);
+        Assert.True(neither.Ok);
+        Assert.Null(neither.Value);
+    }
+
+    [Fact]
+    public async Task ANumberNoCompanyIsNamedIsLookedUpAsAnId()
+    {
+        var found = await Provider().FindCompanyAsync("12", TestContext.Current.CancellationToken);
+        var missing = await Provider().FindCompanyAsync("999", TestContext.Current.CancellationToken);
+
+        Assert.Equal(new CompanyRef("12", "O'Brien & Sons"), found.Value);
+        Assert.EndsWith("/company/companies/12", _api.Requests[1].RequestUri!.AbsolutePath, StringComparison.Ordinal);
+        Assert.True(missing.Ok);
+        Assert.Null(missing.Value);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("''")]
+    public async Task ANameWithNothingToAskForFindsNothingAndSendsNothing(string name)
+    {
+        var result = await Provider().FindCompanyAsync(name, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Ok);
+        Assert.Null(result.Value);
+        Assert.Empty(_api.Requests);
+    }
+
+    [Fact]
+    public async Task ACompanyLookupAnsweredInTheWrongShapeIsATypedErrorAndNeverACompany()
+    {
+        _api.Scripted.Enqueue(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { companies = Array.Empty<object>() }) });
+
+        var result = await Provider().FindCompanyAsync("Acme Dental", TestContext.Current.CancellationToken);
+
+        Assert.False(result.Ok);
+        Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
+    }
+
+    [Fact]
+    public async Task ACompanyLookupMeetingAnOutageIsAskedAgainAndThenAFailure()
+    {
+        // A read, so an outage is retried like the ticket search: three attempts, then a retryable failure.
+        _api.Failing = HttpStatusCode.ServiceUnavailable;
+
+        var result = await Provider().FindCompanyAsync("Acme Dental", TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, _api.Requests.Count);
+        Assert.Equal(ProviderErrorKind.Unavailable, result.Error!.Kind);
+        Assert.True(result.Error.Retryable);
+        Assert.Null(result.Value);
+    }
+
+    [Fact]
+    public async Task WithoutAClientIdACompanyLookupSendsNothingAndIsAFailure()
+    {
+        var result = await Provider(clientId: string.Empty).FindCompanyAsync("Acme Dental", TestContext.Current.CancellationToken);
+
+        Assert.Empty(_api.Requests);
+        Assert.False(result.Ok);
+    }
+
     private ConnectWiseProvider Provider(string clientId = "11111111-2222-3333-4444-555555555555", TimeProvider? time = null) => Provider(_api, clientId, time);
 
     private static ConnectWiseProvider Provider(HttpMessageHandler handler, string clientId = "11111111-2222-3333-4444-555555555555", TimeProvider? time = null) =>
@@ -676,6 +793,8 @@ public sealed class ConnectWiseMeetsTheContract : PsaProviderContract, IDisposab
     protected override IPsaProvider Provider => _provider;
 
     protected override string KnownTicketId => "48213";
+
+    protected override string KnownCompany => "Acme Dental";
 
     protected override void Break(ProviderError? error) => _api.Failing = error is null ? null : ScriptedConnectWise.StatusFor(error.Kind);
 }

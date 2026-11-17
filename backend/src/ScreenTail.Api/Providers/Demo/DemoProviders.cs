@@ -94,6 +94,14 @@ public sealed class DemoStore(TimeProvider time)
         new(new TicketRef("50023", "Shared mailbox missing from Outlook", "Harbour Vets", "New")),
     ];
 
+    // The PSA's own companies: the ones the tickets are for.
+    private readonly List<CompanyRef> _psaCompanies =
+    [
+        new("demo-psa-1", "Acme Dental"),
+        new("demo-psa-2", "Borough Legal"),
+        new("demo-psa-3", "Harbour Vets"),
+    ];
+
     // The same names as the tickets' companies, so an article is filed without a mapping prompt.
     private readonly List<CompanyRef> _companies =
     [
@@ -142,6 +150,15 @@ public sealed class DemoStore(TimeProvider time)
         lock (_gate)
         {
             return [.. _companies];
+        }
+    }
+
+    /// <summary>The demo PSA's companies, which its tickets are for.</summary>
+    public IReadOnlyList<CompanyRef> PsaCompanies()
+    {
+        lock (_gate)
+        {
+            return [.. _psaCompanies];
         }
     }
 
@@ -260,6 +277,16 @@ public sealed class DemoPsaProvider(DemoStore store) : IPsaProvider
 
     public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) =>
         Task.FromResult(ProviderResult.Success(store.Recent(10)));
+
+    /// <summary>From the demo's own companies, by exact name, then by id.</summary>
+    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default)
+    {
+        var wanted = (nameOrId ?? string.Empty).Trim();
+        var companies = store.PsaCompanies();
+        return Task.FromResult(ProviderResult.Success(
+            companies.FirstOrDefault(c => string.Equals(c.Name, wanted, StringComparison.Ordinal))
+            ?? companies.FirstOrDefault(c => string.Equals(c.Id, wanted, StringComparison.Ordinal))));
+    }
 
     public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
     {

@@ -35,6 +35,9 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     /// <summary>How many screenshots go up at the same time.</summary>
     public const int AttachmentsAtOnce = AttachmentUploads.AtOnce;
 
+    /// <summary>The longest company name looked up or read, as the mapping table and the documentation side hold it.</summary>
+    public const int MaxCompanyNameLength = 200;
+
     public string Name => "connectwise";
 
     public async Task<ProviderResult<bool>> CheckAsync(CancellationToken ct = default)
@@ -115,6 +118,101 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
         return page.Ok
             ? ProviderResult.Success<IReadOnlyList<TicketRef>>([.. page.Value!.Take(_options.RecentCount)])
             : ProviderResult.Failure<IReadOnlyList<TicketRef>>(page.Error!);
+    }
+
+    /// <summary>
+    /// ST-097: the tenant's company with exactly this name or, for a number no company is named, with this
+    /// id. Null when ConnectWise has neither. Only <c>id</c> and <c>name</c> are asked for, at most
+    /// <see cref="ConnectWiseOptions.CompanyMatches"/> companies, under the same client limits as every
+    /// other call.
+    ///
+    /// The match is made here, not by ConnectWise. Its conditions language has no quoting a caller can rely
+    /// on (as the ticket search says), so a name with a quote, a backslash or a wildcard character in it is
+    /// asked for as the longest pieces between them, and only a company whose name is the one asked for is
+    /// taken from the answer: the same spelling first, then the only one that differs just in case. An
+    /// unusual name can find too little, which refuses the mapping; it cannot find the wrong company.
+    /// </summary>
+    public async Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default)
+    {
+        var wanted = (nameOrId ?? string.Empty).Trim();
+        if (wanted.Length == 0 || wanted.Length > MaxCompanyNameLength)
+        {
+            return ProviderResult.Success<CompanyRef?>(null);
+        }
+
+        if (CompanyConditions(wanted) is { } conditions)
+        {
+            var route = $"company/companies?conditions={Uri.EscapeDataString(conditions)}&fields={Uri.EscapeDataString("id,name")}&pageSize={Math.Max(1, _options.CompanyMatches)}&page=1";
+            var page = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Companies, "ConnectWise", written: false);
+            if (!page.Ok)
+            {
+                return ProviderResult.Failure<CompanyRef?>(page.Error!);
+            }
+
+            if (page.Value!.Find(c => string.Equals(c.Name, wanted, StringComparison.Ordinal)) is { } exact)
+            {
+                return ProviderResult.Success<CompanyRef?>(exact);
+            }
+
+            var folded = page.Value!.FindAll(c => string.Equals(c.Name, wanted, StringComparison.OrdinalIgnoreCase));
+            if (folded.Count == 1)
+            {
+                return ProviderResult.Success<CompanyRef?>(folded[0]);
+            }
+        }
+
+        if (int.TryParse(wanted, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        {
+            var route = $"company/companies/{id.ToString(CultureInfo.InvariantCulture)}?fields={Uri.EscapeDataString("id,name")}";
+            var one = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Company, "ConnectWise", written: false);
+            if (one.Ok)
+            {
+                return ProviderResult.Success(one.Value);
+            }
+
+            if (one.Error!.Kind != ProviderErrorKind.NotFound)
+            {
+                return ProviderResult.Failure<CompanyRef?>(one.Error);
+            }
+        }
+
+        return ProviderResult.Success<CompanyRef?>(null);
+    }
+
+    /// <summary>
+    /// The conditions that find a company named <paramref name="name"/>: <c>name = '…'</c> when every
+    /// character stands for itself inside a quoted string, else <c>name contains '…'</c> for the three
+    /// longest pieces between the characters that may not. Null when no piece is left to ask for.
+    /// </summary>
+    private static string? CompanyConditions(string name)
+    {
+        static bool Plain(char c) => !char.IsControl(c) && c is not ('\'' or '"' or '\\' or '[' or ']' or '%' or '_' or '*');
+
+        if (name.All(Plain))
+        {
+            return $"name = '{name}'";
+        }
+
+        var pieces = new List<string>();
+        var start = 0;
+        for (var i = 0; i <= name.Length; i++)
+        {
+            if (i < name.Length && Plain(name[i]))
+            {
+                continue;
+            }
+
+            if (i > start && !string.IsNullOrWhiteSpace(name[start..i]))
+            {
+                pieces.Add(name[start..i]);
+            }
+
+            start = i + 1;
+        }
+
+        return pieces.Count == 0
+            ? null
+            : string.Join(" and ", pieces.OrderByDescending(p => p.Length).Take(3).Select(p => $"name contains '{p}'"));
     }
 
     /// <summary>
@@ -269,6 +367,16 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     }
 
     private static List<TicketRef> Tickets(JsonElement page) => [.. page.EnumerateArray().Select(Ticket)];
+
+    /// <summary>A page of companies. One with no name, or an id or name longer than any ConnectWise writes, cannot be the one asked for and is passed over.</summary>
+    private static List<CompanyRef> Companies(JsonElement page) => [.. page.EnumerateArray().Select(Company).OfType<CompanyRef>()];
+
+    private static CompanyRef? Company(JsonElement element)
+    {
+        var id = ProviderHttp.Id(element);
+        var name = (element.TryGetProperty("name", out var named) && named.ValueKind == JsonValueKind.String ? named.GetString() : null)?.Trim();
+        return string.IsNullOrEmpty(name) || name.Length > MaxCompanyNameLength || id.Length > 64 ? null : new CompanyRef(id, name);
+    }
 
     private static TicketRef Ticket(JsonElement element) => new(
         ProviderHttp.Id(element),

@@ -62,6 +62,15 @@ public interface IPsaProvider
     /// </summary>
     Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// The PSA's company with exactly this name, or failing that with this id, for the company mapping
+    /// route to check against before it saves one (ST-097), as it checks the documentation company. The
+    /// answer carries the name as the PSA writes it, which is the name its tickets carry. Null when the
+    /// PSA has no such company: that is an answer, not an error. A failure means the PSA could not say,
+    /// and the caller refuses rather than guessing.
+    /// </summary>
+    Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default);
+
     /// <summary>Publishes the note. INV-3: only ever called because a technician pressed Publish.</summary>
     Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default);
 

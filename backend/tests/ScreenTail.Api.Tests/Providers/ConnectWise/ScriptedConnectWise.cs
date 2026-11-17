@@ -74,6 +74,20 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     /// <summary>Requests to a path ending in this are answered 200 with this body, which is not what the route returns: the PSA that took the request and sent back something that cannot be read.</summary>
     public (string PathSuffix, string Body)? UnreadableRoute { get; set; }
 
+    /// <summary>
+    /// The tenant's companies, by id, for the company lookup: the names the tickets carry and the ones the
+    /// mapping tests choose, and one with a quote in it.
+    /// </summary>
+    public List<(int Id, string Name)> Companies { get; } =
+    [
+        (7, "Acme Dental"),
+        (8, "Borough Legal"),
+        (9, "Bright Smiles"),
+        (10, "Nowhere Inc"),
+        (11, "Beta Law"),
+        (12, "O'Brien & Sons"),
+    ];
+
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
     {
         ProviderErrorKind.Unauthenticated => HttpStatusCode.Unauthorized,
@@ -152,6 +166,13 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
                     }
                     : []),
 
+            ("GET", var p) when p.EndsWith("/company/companies", StringComparison.Ordinal) =>
+                ListCompanies(query),
+
+            ("GET", var p) when p.Contains("/company/companies/", StringComparison.Ordinal) =>
+                Companies.Where(c => p.EndsWith("/company/companies/" + c.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)).Select(c => Ok(new { id = c.Id, name = c.Name })).FirstOrDefault()
+                    ?? NotFound("Company not found"),
+
             ("POST", var p) when p.EndsWith("/service/tickets/48213/notes", StringComparison.Ordinal) =>
                 Ok(new { id = 90001, ticketId = 48213, text = "…" }),
 
@@ -166,6 +187,39 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
 
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
         };
+    }
+
+    /// <summary>
+    /// <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c>, compared without regard
+    /// to case as ConnectWise's database compares them; any other condition is a field error.
+    /// </summary>
+    private HttpResponseMessage ListCompanies(string query)
+    {
+        var conditions = query.TrimStart('?').Split('&')
+            .Select(pair => pair.Split('=', 2))
+            .Where(pair => pair[0] == "conditions")
+            .Select(pair => Uri.UnescapeDataString(pair[1]))
+            .SingleOrDefault() ?? string.Empty;
+        IEnumerable<(int Id, string Name)> matched = Companies;
+        foreach (var clause in conditions.Split(" and ", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (clause.StartsWith("name = '", StringComparison.Ordinal) && clause.EndsWith('\''))
+            {
+                var value = clause["name = '".Length..^1];
+                matched = matched.Where(c => string.Equals(c.Name, value, StringComparison.OrdinalIgnoreCase));
+            }
+            else if (clause.StartsWith("name contains '", StringComparison.Ordinal) && clause.EndsWith('\''))
+            {
+                var value = clause["name contains '".Length..^1];
+                matched = matched.Where(c => c.Name.Contains(value, StringComparison.OrdinalIgnoreCase));
+            }
+            else
+            {
+                return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { code = "InvalidObject", message = $"The condition {clause} could not be parsed." }, options: Json) };
+            }
+        }
+
+        return Ok(matched.Select(c => new { id = c.Id, name = c.Name }).ToArray());
     }
 
     private static object Ticket(int id, string summary, string company, string status) => new

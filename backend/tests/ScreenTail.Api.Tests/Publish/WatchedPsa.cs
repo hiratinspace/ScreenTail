@@ -42,6 +42,8 @@ internal sealed class WatchedPsa
 
         public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) => psa.RecentTicketsAsync(ct);
 
+        public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default) => psa.FindCompanyAsync(nameOrId, ct);
+
         public async Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
         {
             var answer = await psa.AddNoteAsync(note, ct).ConfigureAwait(false);
