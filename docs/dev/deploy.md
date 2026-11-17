@@ -132,7 +132,7 @@ Dockerfile or `compose.yaml`.
 
 ## 8. Backups and restore
 
-The database is the volume `screentrail_postgres-data`. Back it up with `pg_dump` (above) as often as
+The database is the volume `screentail_postgres-data`. Back it up with `pg_dump` (above) as often as
 you can afford to lose. Write dumps **outside the checkout** with `umask 077`, as above (git also
 ignores `deploy/*.dump`), keep copies off the host, and restore one now and then to know it works:
 
@@ -150,7 +150,7 @@ A restore onto a new host needs the same `secrets/` directory copied there first
 `docker compose up -d postgres`, the restore and `migrate` as above, then `docker compose up -d`. Keep
 backups of `secrets/` readable by their owner only (`umask 077`, files 0600, for example
 `(umask 077 && tar -czf ~/screentrail-secrets-$(date +%F).tgz -C . secrets)`), and apart from the
-database dumps. Caddy's volume `screentrail_caddy-data` holds the certificate and ACME account; losing it
+database dumps. Caddy's volume `screentail_caddy-data` holds the certificate and ACME account; losing it
 only means asking for a new certificate. No frame or capture is ever in the database (INV-7), only
 tenants, devices, policy, sealed credentials and counts.
 
@@ -230,7 +230,7 @@ secret file with target `Summarization__FallbackApiKey`, never in `api.env`.
 - **Backups**: where they go, how often, and who restores one to check.
 - **Full IPv6**: an IPv6 subnet on the edge network with a fixed IPv6 address for the proxy, listed as
   `ForwardedHeaders__KnownProxies__1`, then publishing on `[::]` and adding the `AAAA` record.
-- **A superuser as the schema owner.** `POSTGRES_USER` (`screentrail`), which migrations and backups use,
+- **A superuser as the schema owner.** `POSTGRES_USER` (`screentail`), which migrations and backups use,
   is a superuser, as the postgres image makes it. A non-superuser owner of the database and schema would
   narrow what a leaked `migrate-connection` can do.
 - **Plaintext between the API and PostgreSQL** on the internal bridge. If PostgreSQL moves off this host

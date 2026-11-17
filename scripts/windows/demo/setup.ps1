@@ -18,7 +18,7 @@
          'screentail' database.
 
     Secrets go to one place only: the API project's user-secrets file in your profile
-    (%APPDATA%\Microsoft\UserSecrets\screentrail-api\secrets.json), the same file 'dotnet user-secrets'
+    (%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json), the same file 'dotnet user-secrets'
     writes. Nothing is printed, logged or put on a command line.
 
 .PARAMETER Provider

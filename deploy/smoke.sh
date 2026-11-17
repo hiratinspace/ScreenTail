@@ -178,8 +178,8 @@ pass "the proxy does not answer on IPv6"
 
 # The database as each role sees it. The API's role reads and writes rows and does nothing else: no
 # table, no temporary table, and no write to the record of which migrations ran.
-psql_as() { compose exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align -v ON_ERROR_STOP=1 --username "$1" --dbname screentrail --command "$2" 2>&1; }
-[ "$(psql_as screentrail 'SHOW log_error_verbosity')" = terse ] || fail "postgres is not logging tersely"
+psql_as() { compose exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align -v ON_ERROR_STOP=1 --username "$1" --dbname screentail --command "$2" 2>&1; }
+[ "$(psql_as screentail 'SHOW log_error_verbosity')" = terse ] || fail "postgres is not logging tersely"
 psql_as screentail_app 'SELECT count(*) FROM "__EFMigrationsHistory"' | grep -Eq '^[1-9][0-9]*$' \
     || fail "the API's role cannot read the migration history (the control for the refusals below)"
 for statement in \

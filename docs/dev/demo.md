@@ -93,7 +93,7 @@ It ends with **Setup is complete**. Running setup again later is harmless: it ch
 what is already there.
 
 The key, the signing key and the database password are saved in one place only: the backend's
-"user secrets" file in your Windows profile (`%APPDATA%\Microsoft\UserSecrets\screentrail-api\secrets.json`).
+"user secrets" file in your Windows profile (`%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json`).
 They are never shown on screen or written anywhere else.
 
 | To... | Run |
@@ -389,7 +389,7 @@ the file `%LOCALAPPDATA%\ScreenTrail\device.cred`, and run `start.cmd`.
 
 | What | Where |
 |---|---|
-| The drafting key (Claude's or Gemini's) as `Summarization:ApiKey`, the saved choice of who drafts as `Summarization:Provider` (`claude` or `gemini-flash`), the signing key, the database connection and its password | `%APPDATA%\Microsoft\UserSecrets\screentrail-api\secrets.json` only (when setup made the database with Docker, Docker also keeps that database's password in the `screentail-db` container's settings) |
+| The drafting key (Claude's or Gemini's) as `Summarization:ApiKey`, the saved choice of who drafts as `Summarization:Provider` (`claude` or `gemini-flash`), the signing key, the database connection and its password | `%APPDATA%\Microsoft\UserSecrets\screentail-api\secrets.json` only (when setup made the database with Docker, Docker also keeps that database's password in the `screentail-db` container's settings) |
 | Recorded sessions and drafts (encrypted), and an invite-activated device's credential (`device.cred`) | `%LOCALAPPDATA%\ScreenTrail`, the product's own folder |
 | The demo's own working files: `state.json` (which processes start opened, so stop closes exactly those), `client-build.txt` (the configuration of the last publish, Release since ST-031, and how new the client's source was then, so start knows when to publish again), `backend.exited` and `service.exited` (why a window's program stopped), `device-token.txt` (which kind of token start gave the capture service and until when, never the token), `drafting.txt` (who start told the backend to draft with: `claude`, `gemini-flash`, or `scripted` for an offline rehearsal) | `%LOCALAPPDATA%\ScreenTrail.Dev\demo` |
 | The published capture service and UI that start runs | `%LOCALAPPDATA%\ScreenTrail.Dev\demo\app` |

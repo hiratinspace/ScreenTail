@@ -315,7 +315,7 @@ public sealed class LiveDraftingBudgetTests
             "Live drafting measurement. Set SCREENTRAIL_LIVE_LLM=1 to run it; it calls a paid API.");
 
         var configuration = new ConfigurationBuilder()
-            .AddUserSecrets("screentrail-api")
+            .AddUserSecrets("screentail-api")
             .AddEnvironmentVariables()
             .Build();
 

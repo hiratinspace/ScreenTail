@@ -9,7 +9,9 @@
          live in the user profile, outside the repository, so there is no file here to commit by mistake
          and no environment variable to remember to export each morning. The host reads them only in the
          Development environment, so nothing about a deployment changes (ST-063). -->
-    <UserSecretsId>screentrail-api</UserSecretsId>
+    <!-- Kept from before the product was renamed (ScreenTail, until 2026-11-17): it names the folder a
+         developer's or the demo laptop's secrets are already in (%APPDATA%\Microsoft\UserSecrets\screentail-api). -->
+    <UserSecretsId>screentail-api</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
