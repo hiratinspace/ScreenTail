@@ -10,6 +10,8 @@
     VcRedist       Microsoft's vc_redist.x64.exe, the version pinned in tools.json, downloaded by
                    package.ps1 and checked against the pin's SHA-256 and version and to be Microsoft-signed
     VcRedistBuild  the pinned runtime's build number, so an older runtime already on the machine is upgraded
+
+  And one an administrator gives on the command line, BACKENDURL (below).
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal"
@@ -22,7 +24,18 @@
           Manufacturer="ScreenTail"
           Version="$(var.Version)"
           UpgradeCode="{B06B249C-CE0B-47AF-AD9E-C7FF7D00A4C0}"
-          IconSourceFile="client\ScreenTail.UI\Assets\app.ico">
+          IconSourceFile="client\ScreenTail.UI\Assets\app.ico"
+          bal:CommandLineVariables="caseInsensitive">
+
+    <!-- The backend's address, passed on to the package: ScreenTail-Setup.exe BACKENDURL=https://...,
+         with /quiet or /passive or neither. The package writes it to HKLM\SOFTWARE\ScreenTail\BackendUrl,
+         the only place an installed service reads it from (Package.wxs). Overridable, so the setup
+         program takes it from its command line (in any case, as msiexec users may type it), and passed
+         only when given: an upgrade or a repair without it hands the package nothing, and the package
+         keeps the value already on the machine. Not persisted, so a later run never repeats an old
+         address. Hidden, so the setup program's log says the name and never the value, as the service never
+         logs the address. -->
+    <Variable Name="BACKENDURL" Hidden="yes" bal:Overridable="yes" />
 
     <!-- No setup window of its own: the runtime installs as a prerequisite with a small progress window,
          and then the package shows its own progress (with /quiet, nothing at all). The standard setup
@@ -75,7 +88,9 @@
         <ExitCode Value="1641" Behavior="success" />
       </ExePackage>
 
-      <MsiPackage Id="ScreenTail" SourceFile="$(var.Msi)" />
+      <MsiPackage Id="ScreenTail" SourceFile="$(var.Msi)">
+        <MsiProperty Name="BACKENDURL" Value="[BACKENDURL]" Condition="BACKENDURL" />
+      </MsiPackage>
     </Chain>
   </Bundle>
 </Wix>

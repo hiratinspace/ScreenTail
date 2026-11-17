@@ -320,6 +320,13 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   writes, and ignores `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`. The address decides where the
   egress allowlist points and where policy comes from, so a per-user setting could have pointed a
   locked local-only device elsewhere. The variables remain for development builds.)*
+  *(Amended 2026-11-16, follow-up: `ScreenTail-Setup.exe` passes `BACKENDURL` on to the package, so
+  either installer sets it: `ScreenTail-Setup.exe BACKENDURL=https://... /quiet /norestart` or
+  `msiexec /i ScreenTail.msi BACKENDURL=https://... /qn /norestart`. The setup program's variable is
+  overridable from its command line, not persisted, and passed only when given, so the package's own rule
+  holds: read on install or upgrade, kept when not given. Both installers hide the value in their logs,
+  except Windows Installer's verbose record of the registry write, which `MsiHiddenProperties` does not
+  cover; the address is not a secret, and the deploy guide says not to put credentials in it.)*
 
 ## Alternatives considered
 

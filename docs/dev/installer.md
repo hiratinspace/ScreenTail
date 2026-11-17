@@ -1,6 +1,6 @@
 # The Windows installer
 
-**Written 2026-10-27, revised 2026-10-29, ST-112 and ST-113.** Why it is built this way is ADR-0007, and ADR-0008 for updates. This page is how to build it, how
+**Written 2026-10-27, revised 2026-10-29 and 2026-11-16, ST-112 and ST-113.** Why it is built this way is ADR-0007, and ADR-0008 for updates. This page is how to build it, how
 signing is switched on, how an MSP deploys it, and what an uninstall removes.
 
 Two files come out of a build:
@@ -51,7 +51,10 @@ job): it runs the same steps the signing job runs, with nothing signed, then ins
 older build, runs both installed programs, uninstalls, and checks what each step left. It also upgrades
 three ways (msiexec `/qn`, the update installer's `/passive /norestart`, and the setup program) while
 another process reads `ScreenTail.Service.exe` for 4 seconds from the moment the old service ends, and
-each must exit 0 with nothing left for a restart. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
+each must exit 0 with nothing left for a restart. It installs the setup program with `BACKENDURL` and
+checks the machine-wide `BackendUrl` value holds it, gives `msiexec` the address before the setup
+program's upgrade and checks the upgrade, given none, kept it, and checks that no installer log shows the
+address but for Windows Installer's record of the registry write (see "The backend address" below). The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
 kept seven days. To try one: download it from the run's summary page, on a throwaway VM.
 
 For every run of the setup program the test also reads the setup program's own log, because its exit
@@ -308,24 +311,31 @@ Every command runs as an administrator or the system account, which is what Intu
 
 ```powershell
 # Machines that may not have the Visual C++ runtime (any fresh Windows)
-ScreenTail-Setup.exe /quiet /norestart /log C:\Windows\Temp\screentail-setup.log
+ScreenTail-Setup.exe BACKENDURL=https://screentail.example.com /quiet /norestart /log C:\Windows\Temp\screentail-setup.log
 
 # Machines where the runtime is deployed separately
-msiexec /i ScreenTail.msi /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
-
-# The same, with the address of your ScreenTail backend
 msiexec /i ScreenTail.msi BACKENDURL=https://screentail.example.com /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
 ```
+
+Put your ScreenTail backend's address in place of `https://screentail.example.com`. `/passive` in
+place of `/quiet` (or `/qn`) shows a progress bar and asks nothing, and takes `BACKENDURL` the same way.
+Left out, nothing is written (see below).
 
 - **The backend address:** an installed ScreenTail reads it only from
   `HKEY_LOCAL_MACHINE\SOFTWARE\ScreenTail`, value `BackendUrl` (a string), which only an administrator can
   change, and ignores the `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN` variables those development
   builds use. "Installed" means running from `ScreenTail` under the machine's Program Files, the one folder
-  the package installs into, or being the signed `ScreenTail.Service.exe` wherever it runs. `BACKENDURL` on the `msiexec` line writes it, and is read only when the
-  package is installed or upgraded: an upgrade or a repair without it keeps the value already there, and a
-  new `BACKENDURL` replaces it. `ScreenTail-Setup.exe` does not pass it on yet, so with the setup program,
-  or to change the address in place without reinstalling, write the value with your RMM tool or Group
-  Policy:
+  the package installs into, or being the signed `ScreenTail.Service.exe` wherever it runs.
+  `BACKENDURL` writes it, on the `msiexec` line or on the setup program's, which passes it on to the
+  package. Write the name in capitals, as above; the setup program also takes it in any case. It is read
+  only when the package is installed or upgraded: an upgrade or a repair without it keeps the value
+  already there, and a new `BACKENDURL` replaces it. The logs name `BACKENDURL` and show asterisks for
+  its value (the setup program's log, and Windows Installer's command line and property lines), as the
+  service never logs the address. One line is the exception: a verbose Windows Installer log (`/l*v`,
+  and the package log the setup program writes beside its own) records the registry write with its
+  value (`Executing op: RegAddValue(Name=BackendUrl,Value=...)`), so never put a user name or password
+  in the address. To see what a machine got, read the registry. To change the address in place without
+  reinstalling, write the value with your RMM tool or Group Policy:
 
   ```powershell
   reg add HKLM\SOFTWARE\ScreenTail /v BackendUrl /t REG_SZ /d https://screentail.example.com /f /reg:64
@@ -338,7 +348,9 @@ msiexec /i ScreenTail.msi BACKENDURL=https://screentail.example.com /qn /noresta
 - **Upgrading from a build that used `SCREENTAIL_BACKEND`:** builds before the 2026-11-15 security review
   also read the address from that environment variable. An installed copy no longer does, so a machine
   that relied on it has no backend after the upgrade until the address is set: pass `BACKENDURL` on the
-  upgrade's `msiexec` line, or run the `reg add` line above, before or after upgrading. Development builds,
+  upgrade's `msiexec` or `ScreenTail-Setup.exe` line, or run the `reg add` line above, before or after
+  upgrading. Setup programs built before the 2026-11-16 follow-up did not pass `BACKENDURL` on: with one
+  of those, use `msiexec` or the `reg add` line. Development builds,
   the demo and the end-to-end run are not installed and keep reading the variable.
 
 - **Intune:** add `ScreenTail.msi` as a *line-of-business app* (product code detection is automatic), with

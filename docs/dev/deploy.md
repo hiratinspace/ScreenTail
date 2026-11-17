@@ -99,7 +99,13 @@ asks for the organisation's name and creates the tenant with that person as its 
 one-time code to hand on (there is no mail provider yet), which the technician enters in the Windows
 client's **Settings → This device**. The client reaches the backend at `https://<SCREENTAIL_DOMAIN>`:
 an installed client reads that address from the machine-wide setting its installer writes
-(`BACKENDURL`, `docs/dev/installer.md`); `SCREENTAIL_BACKEND` is for development builds only.
+(`BACKENDURL`, `docs/dev/installer.md`); `SCREENTAIL_BACKEND` is for development builds only. Give it
+on either installer's command line, as an administrator:
+
+```powershell
+ScreenTail-Setup.exe BACKENDURL=https://<SCREENTAIL_DOMAIN> /quiet /norestart /log C:\Windows\Temp\screentail-setup.log
+msiexec /i ScreenTail.msi BACKENDURL=https://<SCREENTAIL_DOMAIN> /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
+```
 
 The operator's command line works through the same image:
 
