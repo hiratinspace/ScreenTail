@@ -17,6 +17,9 @@ namespace ScreenTail.Tests.Windows.Performance;
 /// <param name="Switches">Context switches so far, by thread id. A switch in is a wakeup, which is the
 /// number an idle process should keep near zero: each one is a core leaving a low-power state to run a
 /// timer callback that, at idle, usually decides there was nothing to do.</param>
+/// <param name="ThreadCpu">Processor time so far, kernel and user, by thread id, in 100 ns units, as the
+/// kernel's clock-tick accounting has it. Fine for a thread that is busy for seconds, which is what a
+/// recording's breakdown by thread needs; the idle figures stay on <paramref name="Cycles"/>.</param>
 internal sealed record ProcessSample(
     long Timestamp,
     TimeSpan Cpu,
@@ -25,7 +28,8 @@ internal sealed record ProcessSample(
     long PrivateBytes,
     long WorkingSet,
     int Threads,
-    int Handles);
+    int Handles,
+    IReadOnlyDictionary<long, long> ThreadCpu);
 
 /// <summary>
 /// Reads this process's own cost, the way the laptop's ST-031 measurements need it.
@@ -42,15 +46,24 @@ internal static class ProcessCost
     public static ProcessSample Sample()
     {
         using var self = Process.GetCurrentProcess();
+        var (switches, threadCpu) = ThreadSwitches.ReadWithTimes(self.Id);
+
+        // Named while they are alive, so a breakdown taken after a thread has ended can still say whose it was.
+        foreach (var thread in threadCpu.Keys)
+        {
+            ThreadNames.Remember(thread);
+        }
+
         return new ProcessSample(
             Stopwatch.GetTimestamp(),
             self.TotalProcessorTime,
             CycleCounter.OfThisProcess(),
-            ThreadSwitches.Read(self.Id),
+            switches,
             self.PrivateMemorySize64,
             self.WorkingSet64,
             self.Threads.Count,
-            self.HandleCount);
+            self.HandleCount,
+            threadCpu);
     }
 
     /// <summary>
@@ -177,6 +190,57 @@ internal sealed class CostWindow
         return string.Create(
             culture,
             $"{rates.Count} threads woke; the busiest {string.Join(", ", rates.Take(busiest).Select(thread => string.Create(culture, $"{thread.Rate:F1} ({ThreadNames.Of(thread.Thread)})")))}/s");
+    }
+
+    /// <summary>
+    /// Where the window's processor time went, by thread name, as a percentage of one core: "ggml-cpu-whisper.dll
+    /// 182.0 (2 threads), .NET TP Worker 21.3 (9 threads), ...". Threads that ended inside the window count
+    /// only up to the last sample that saw them, so the total can fall a little short of the process's.
+    /// Names are each thread's own description or the module it started in (<see cref="ThreadNames"/>),
+    /// never anything a window shows (INV-10).
+    /// </summary>
+    public IReadOnlyList<(string Name, int Threads, double PercentOfOneCore)> CpuByThreadName()
+    {
+        var elapsed = Elapsed.TotalSeconds;
+        if (elapsed <= 0)
+        {
+            return [];
+        }
+
+        // The last time each thread was seen, so one that ended in the window keeps what it did.
+        var lastSeen = new Dictionary<long, long>();
+        foreach (var sample in _samples)
+        {
+            foreach (var (thread, cpu) in sample.ThreadCpu)
+            {
+                lastSeen[thread] = cpu;
+            }
+        }
+
+        return [.. lastSeen
+            .Select(thread => (Thread: thread.Key, Cpu: thread.Value - First.ThreadCpu.GetValueOrDefault(thread.Key)))
+            .Where(thread => thread.Cpu > 0)
+            .GroupBy(thread => ThreadNames.Remembered(thread.Thread))
+            .Select(group => (Name: group.Key, Threads: group.Count(), PercentOfOneCore: group.Sum(thread => thread.Cpu) / 1e7 / elapsed * 100))
+            .OrderByDescending(group => group.PercentOfOneCore)];
+    }
+
+    /// <summary>
+    /// <see cref="CpuByThreadName"/> as one line for a report, the busiest first, and what no sampled thread
+    /// accounts for: threads that started and ended between two samples (a native library's workers made
+    /// for one call), which the process's own total counts and no thread record survives to show.
+    /// </summary>
+    public string CpuByThreadNameLine(int busiest = 8)
+    {
+        var culture = CultureInfo.InvariantCulture;
+        var groups = CpuByThreadName();
+        var elapsed = Elapsed.TotalSeconds;
+        var process = elapsed <= 0 ? 0 : (Last.Cpu - First.Cpu).TotalSeconds / elapsed * 100;
+        var unseen = Math.Max(0, process - groups.Sum(group => group.PercentOfOneCore));
+        var named = groups.Count == 0
+            ? "no sampled thread used the processor"
+            : string.Join("; ", groups.Take(busiest).Select(group => string.Create(culture, $"{group.Name} {group.PercentOfOneCore:F1} ({group.Threads} thread{(group.Threads == 1 ? string.Empty : "s")})")));
+        return string.Create(culture, $"{named}; threads that came and went between samples {unseen:F1} (all % of one core, by clock ticks; process {process:F1})");
     }
 
     /// <summary>One thread's wakeups a second over the whole window; zero for a thread not seen at the end.</summary>
@@ -320,11 +384,16 @@ internal static class ThreadSwitches
 
     // SYSTEM_THREAD_INFORMATION (x64 and ARM64)
     private const int ThreadRecordSize = 0x50;
+    private const int KernelTime = 0x00;
+    private const int UserTime = 0x08;
     private const int ClientIdProcess = 0x28;
     private const int ClientIdThread = 0x30;
     private const int ContextSwitches = 0x40;
 
-    public static IReadOnlyDictionary<long, uint> Read(int processId)
+    public static IReadOnlyDictionary<long, uint> Read(int processId) => ReadWithTimes(processId).Switches;
+
+    /// <summary>The switch counts, and each thread's processor time (kernel and user, 100 ns units) from the same record.</summary>
+    public static (IReadOnlyDictionary<long, uint> Switches, IReadOnlyDictionary<long, long> Cpu) ReadWithTimes(int processId)
     {
         if (!Environment.Is64BitProcess)
         {
@@ -358,7 +427,7 @@ internal static class ThreadSwitches
         }
     }
 
-    private static Dictionary<long, uint> Find(IntPtr buffer, int processId)
+    private static (IReadOnlyDictionary<long, uint> Switches, IReadOnlyDictionary<long, long> Cpu) Find(IntPtr buffer, int processId)
     {
         var entry = buffer;
         while (true)
@@ -367,6 +436,7 @@ internal static class ThreadSwitches
             {
                 var count = Marshal.ReadInt32(entry, NumberOfThreads);
                 var switches = new Dictionary<long, uint>(count);
+                var cpu = new Dictionary<long, long>(count);
                 for (var i = 0; i < count; i++)
                 {
                     var thread = entry + ThreadsArray + (i * ThreadRecordSize);
@@ -377,10 +447,12 @@ internal static class ThreadSwitches
                             $"Thread record {i} names process {owner}, not {processId}: the SYSTEM_THREAD_INFORMATION layout is not the one this reader assumes.");
                     }
 
-                    switches[Marshal.ReadIntPtr(thread, ClientIdThread).ToInt64()] = unchecked((uint)Marshal.ReadInt32(thread, ContextSwitches));
+                    var id = Marshal.ReadIntPtr(thread, ClientIdThread).ToInt64();
+                    switches[id] = unchecked((uint)Marshal.ReadInt32(thread, ContextSwitches));
+                    cpu[id] = Marshal.ReadInt64(thread, KernelTime) + Marshal.ReadInt64(thread, UserTime);
                 }
 
-                return switches;
+                return (switches, cpu);
             }
 
             var next = Marshal.ReadInt32(entry, NextEntryOffset);
@@ -409,6 +481,14 @@ internal static class ThreadNames
     private const int ThreadQuerySetWin32StartAddress = 9;
     private const uint FromAddress = 0x4;
     private const uint UnchangedRefCount = 0x2;
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<long, string> Seen = new();
+
+    /// <summary>Names a thread now, once, so it can be named after it has gone.</summary>
+    public static void Remember(long thread) => _ = Seen.GetOrAdd(thread, Of);
+
+    /// <summary>The name remembered for a thread, or its name now if it was never remembered.</summary>
+    public static string Remembered(long thread) => Seen.TryGetValue(thread, out var name) ? name : Of(thread);
 
     public static string Of(long thread)
     {
