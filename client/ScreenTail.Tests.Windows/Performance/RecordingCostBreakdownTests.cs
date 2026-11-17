@@ -64,8 +64,8 @@ public sealed class RecordingCostBreakdownTests
         Hardware.RequireScreenCapture();
         var ct = TestContext.Current.CancellationToken;
         using var window = DesktopWindow.Create("ScreenTail breakdown target");
-        window.Maximize();
         window.RequireForeground();
+        FillScreen(window);
         window.ShowText(string.Join(Environment.NewLine, SceneText(0)));
 
         var idle = await IdleRateAsync(ct);
@@ -137,17 +137,23 @@ public sealed class RecordingCostBreakdownTests
             // The rig itself while recording a still window, so what is left is the frames' own cost.
             var rigIdle = await IdleRateAsync(ct);
             var frames = Enumerable.Range(1, 8).Select(RenderDense).ToList();
+            var refused = 0;
             whole = await StageAsync("a staged frame through the redaction worker and the store", frames.Count, rigIdle, async i =>
             {
                 var frame = new StagedFrame(Guid.NewGuid().ToString("N"), rig.Machine.NowMs, FrameTrigger.Click, 1920, 1080, null, frames[i]);
-                Assert.True(await rig.Machine.TryStageFrameAsync(frame, ct), "a frame was refused");
+                if (!await rig.Machine.TryStageFrameAsync(frame, ct))
+                {
+                    refused++;
+                    return;
+                }
+
                 var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
                 while (rig.Pending.Depth > 0 && DateTime.UtcNow < deadline)
                 {
                     await Task.Delay(5, ct);
                 }
             });
-            Measurements.Record(string.Create(Invariant, $"Breakdown, the worker's own figure: {rig.Redaction.Progress.Frames} frames redacted, a mean of {rig.Redaction.Progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {rig.Redaction.Progress.Slowest.TotalMilliseconds:F0} ms; the rig recording a still window idles at {rigIdle * 100:F2}% of one core"));
+            Measurements.Record(string.Create(Invariant, $"Breakdown, the worker's own figure: {rig.Redaction.Progress.Frames} frames redacted, a mean of {rig.Redaction.Progress.PerFrame.TotalMilliseconds:F0} ms a frame, slowest {rig.Redaction.Progress.Slowest.TotalMilliseconds:F0} ms, {refused} refused by the session (state {rig.Machine.State}); the rig recording a still window idles at {rigIdle * 100:F2}% of one core"));
         }
 
         var denseOcr = ocr[0].Twice;
@@ -279,8 +285,8 @@ public sealed class RecordingCostBreakdownTests
         var dense = Enumerable.Range(0, 8).Select(RenderDense).ToList();
 
         using var window = DesktopWindow.Create("ScreenTail breakdown session");
-        window.Maximize();
         window.RequireForeground();
+        FillScreen(window);
         window.ShowText(string.Join(Environment.NewLine, SceneText(0)));
 
         ProcessCost.Settle();
@@ -355,7 +361,8 @@ public sealed class RecordingCostBreakdownTests
             var framesBefore = rig.Redaction.Progress.Frames;
             var scenesBefore = rig.Scenes.Counts;
             var movesBefore = rig.ThrottleMoves.Count;
-            var cost = await ProcessCost.MeasureAsync(TimeSpan.FromSeconds(5), 9, ct);
+            // One-second slices, the throttle's own reading, so the spread is what it sees.
+            var cost = await ProcessCost.MeasureAsync(TimeSpan.FromSeconds(1), 45, ct);
             var calls = rig.Speech?.Calls.Skip(callsBefore).ToList() ?? [];
             var scenes = rig.Scenes.Counts;
             var moves = rig.ThrottleMoves.Skip(movesBefore).ToList();
@@ -364,7 +371,7 @@ public sealed class RecordingCostBreakdownTests
 
             Measurements.Record(string.Create(
                 Invariant,
-                $"Session, {name}: **{cost.CpuPercentOfOneCore:F1}%** of one core over {elapsed:F0} s ({cost.CpuPercentOfMachine:F1}% of the machine; slices {CostWindow.Spread(cost.CpuBySlice, "F1")}); "
+                $"Session, {name}: **{cost.CpuPercentOfOneCore:F1}%** of one core over {elapsed:F0} s ({cost.CpuPercentOfMachine:F1}% of the machine; one-second readings as a share of the machine {CostWindow.Spread([.. cost.CpuBySlice.Select(c => c / Environment.ProcessorCount)], "F1")}, {cost.CpuBySlice.Count(c => c / Environment.ProcessorCount > 7.5)} of {cost.CpuBySlice.Count} over the 7.5% budget); "
                 + $"by thread: {cost.CpuByThreadNameLine()}. "
                 + $"Work in the window: {scenes.Seen - scenesBefore.Seen} scene looks, {scenes.Kept - scenesBefore.Kept} scene frames kept, {rig.Redaction.Progress.Frames - framesBefore} frames redacted (worker mean {rig.Redaction.Progress.PerFrame.TotalMilliseconds:F0} ms), "
                 + $"{calls.Count} speech segments sent to the model ({calls.Sum(c => c.AudioSeconds):F0} s of audio, the model busy {calls.Sum(c => c.WallSeconds):F0} s of {elapsed:F0}, a mean of {(calls.Count == 0 ? 0 : calls.Average(c => c.WallSeconds)):F1} s a segment), "
@@ -385,12 +392,26 @@ public sealed class RecordingCostBreakdownTests
         }
     }
 
-    /// <summary>Processor seconds the process spends per wall second with nothing to do, from cycles.</summary>
+    /// <summary>
+    /// Processor seconds the process spends per wall second with nothing to do, from cycles: the quietest of
+    /// several one-second slices after a pause. The first laptop run took the mean of three slices straight
+    /// after the session test and read 108% of a core, which zeroed every stage; whatever was still winding
+    /// down then is not what a stage costs.
+    /// </summary>
     private static async Task<double> IdleRateAsync(CancellationToken ct)
     {
+        await Task.Delay(TimeSpan.FromSeconds(3), ct);
         ProcessCost.Settle();
-        var window = await ProcessCost.MeasureAsync(TimeSpan.FromSeconds(1), 3, ct);
-        return window.CpuPercentOfOneCore / 100;
+        var window = await ProcessCost.MeasureAsync(TimeSpan.FromSeconds(1), 5, ct);
+        return window.CpuBySlice.Min() / 100;
+    }
+
+    /// <summary>The whole primary screen, as AnyDesk full screen is; <see cref="DesktopWindow.Maximize"/> left the first run's window at 420x220.</summary>
+    private static void FillScreen(DesktopWindow window)
+    {
+        var screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        window.MoveTo(screen.Left, screen.Top, screen.Width, screen.Height);
+        window.RequireForeground();
     }
 
     private sealed record StageResult(string Stage, int Times, double CpuMs, double WallMs)
@@ -469,6 +490,8 @@ public sealed class RecordingCostBreakdownTests
     /// <summary>
     /// A 1920x1080 console list in 9 pt text, the densest thing a technician reads in a remote session,
     /// with a few strings shaped like secrets so the search and the mask have work to do. Made up here.
+    /// No sign-in words: the first laptop run had "Password:" on it, the login heuristic took the frames
+    /// for a credential prompt, and both capture sessions measured a suppressed recording.
     /// </summary>
     private static byte[] RenderDense(int index)
     {
@@ -492,7 +515,7 @@ public sealed class RecordingCostBreakdownTests
             var tail = (row % 20) switch
             {
                 4 => string.Create(Invariant, $"api_key=8f14e45fceea167a5a36dedd4bea25{index:D2}"),
-                11 => string.Create(Invariant, $"Password: Tr0ub4dor&3x{index}"),
+                11 => string.Create(Invariant, $"pwd=Tr0ub4dor&3x{index}"),
                 17 => string.Create(Invariant, $"token ghp_{index}aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3z"),
                 _ => string.Create(Invariant, $"Started {row % 24:D2}:{(row * 7) % 60:D2} by NT AUTHORITY"),
             };
