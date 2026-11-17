@@ -1,14 +1,14 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>AC3: one full-screen capture, then count the overlay's marker pixels where the overlay sits.</summary>
 internal static class OverlayCheck
 {
-    public const string OverlayTitle = "ScreenTail.Spike.Overlay";
+    public const string OverlayTitle = "ScreenTrail.Spike.Overlay";
     public const byte MarkerR = 0xFF;
     public const byte MarkerG = 0x00;
     public const byte MarkerB = 0xFF;

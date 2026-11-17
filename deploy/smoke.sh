@@ -21,8 +21,8 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/.." && pwd)
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/screentail-smoke.XXXXXX")
-project="screentail-smoke-$$"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/screentrail-smoke.XXXXXX")
+project="screentrail-smoke-$$"
 http_port="${SMOKE_HTTP_PORT:-80}"
 https_port="${SMOKE_HTTPS_PORT:-443}"
 origin="https://localhost:$https_port"
@@ -57,12 +57,12 @@ pass "the examples hold no secret"
 
 "$here/make-secrets.sh" "$scratch/secrets" >/dev/null
 cp "$here/api.env.example" "$scratch/api.env"
-sed -e "s|^SCREENTAIL_DOMAIN=.*|SCREENTAIL_DOMAIN=localhost|" \
+sed -e "s|^SCREENTRAIL_DOMAIN=.*|SCREENTRAIL_DOMAIN=localhost|" \
     -e "s|^ADMIN_GOOGLE_CLIENT_ID=.*|ADMIN_GOOGLE_CLIENT_ID=smoke-test-placeholder.apps.googleusercontent.com|" \
-    -e "s|^SCREENTAIL_HTTP_PORT=.*|SCREENTAIL_HTTP_PORT=$http_port|" \
-    -e "s|^SCREENTAIL_HTTPS_PORT=.*|SCREENTAIL_HTTPS_PORT=$https_port|" \
-    -e "s|^SCREENTAIL_SECRETS_DIR=.*|SCREENTAIL_SECRETS_DIR=$scratch/secrets|" \
-    -e "s|^SCREENTAIL_API_ENV=.*|SCREENTAIL_API_ENV=$scratch/api.env|" \
+    -e "s|^SCREENTRAIL_HTTP_PORT=.*|SCREENTRAIL_HTTP_PORT=$http_port|" \
+    -e "s|^SCREENTRAIL_HTTPS_PORT=.*|SCREENTRAIL_HTTPS_PORT=$https_port|" \
+    -e "s|^SCREENTRAIL_SECRETS_DIR=.*|SCREENTRAIL_SECRETS_DIR=$scratch/secrets|" \
+    -e "s|^SCREENTRAIL_API_ENV=.*|SCREENTRAIL_API_ENV=$scratch/api.env|" \
     "$here/env.example" > "$scratch/compose.env"
 
 compose config --quiet
@@ -178,8 +178,8 @@ pass "the proxy does not answer on IPv6"
 
 # The database as each role sees it. The API's role reads and writes rows and does nothing else: no
 # table, no temporary table, and no write to the record of which migrations ran.
-psql_as() { compose exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align -v ON_ERROR_STOP=1 --username "$1" --dbname screentail --command "$2" 2>&1; }
-[ "$(psql_as screentail 'SHOW log_error_verbosity')" = terse ] || fail "postgres is not logging tersely"
+psql_as() { compose exec -T postgres psql --no-psqlrc --quiet --tuples-only --no-align -v ON_ERROR_STOP=1 --username "$1" --dbname screentrail --command "$2" 2>&1; }
+[ "$(psql_as screentrail 'SHOW log_error_verbosity')" = terse ] || fail "postgres is not logging tersely"
 psql_as screentail_app 'SELECT count(*) FROM "__EFMigrationsHistory"' | grep -Eq '^[1-9][0-9]*$' \
     || fail "the API's role cannot read the migration history (the control for the refusals below)"
 for statement in \
@@ -319,7 +319,7 @@ pass "a client's own X-Forwarded-For is not believed (limited at call $limited)"
 # network's gateway and used up the gateway's count: this one is answered only if the API counts it as
 # the container's own address, not the gateway's (what every IPv6 client would look like, were IPv6
 # published).
-proxy_ip=$(sed -n 's/^SCREENTAIL_PROXY_IP=//p' "$scratch/compose.env")
+proxy_ip=$(sed -n 's/^SCREENTRAIL_PROXY_IP=//p' "$scratch/compose.env")
 other=$(docker run --rm --network "${project}_edge" --read-only --cap-drop ALL --security-opt no-new-privileges:true \
     -v "$scratch/root.crt:/root.crt:ro" "$curl_image" \
     --silent --show-error --output /dev/null --write-out '%{http_code}' --cacert /root.crt --max-time 20 \

@@ -32,7 +32,7 @@ describe('App', () => {
   it('says plainly that sign-in is not configured when the build has no client id', async () => {
     render(<App api={fakeApi()} />);
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to ScreenTail admin' })).toBeDefined();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to ScreenTrail admin' })).toBeDefined();
     expect(screen.getByText('Sign-in is not configured.')).toBeDefined();
     expect(screen.queryByRole('button', { name: 'Sign in with Google' })).toBeNull();
   });
@@ -64,14 +64,14 @@ describe('App', () => {
   it("shows the backend's refusal when the account may not sign up", async () => {
     const api = fakeApi({
       signIn: async () => {
-        throw new ApiError(403, 'This Google account is not on the list allowed to set up ScreenTail.', 'signup_not_allowed');
+        throw new ApiError(403, 'This Google account is not on the list allowed to set up ScreenTrail.', 'signup_not_allowed');
       },
     });
     render(<App api={api} button={fakeGoogle()} />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in with Google' }));
 
-    expect((await screen.findByRole('alert')).textContent).toContain('not on the list allowed to set up ScreenTail');
+    expect((await screen.findByRole('alert')).textContent).toContain('not on the list allowed to set up ScreenTrail');
     expect(screen.queryByRole('navigation')).toBeNull();
   });
 
@@ -84,7 +84,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to ScreenTail admin' })).toBeDefined();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Sign in to ScreenTrail admin' })).toBeDefined();
     expect(api.signOut).toHaveBeenCalledOnce();
   });
 
@@ -92,7 +92,7 @@ describe('App', () => {
     const api = fakeApi({
       session: async () => session,
       signOut: async () => {
-        throw new ApiError(0, 'ScreenTail could not reach the server. Check your connection and try again.');
+        throw new ApiError(0, 'ScreenTrail could not reach the server. Check your connection and try again.');
       },
     });
     render(<App api={api} button={fakeGoogle()} />);
@@ -103,7 +103,7 @@ describe('App', () => {
     expect(alert.textContent).toContain('Sign-out did not complete, so you are still signed in.');
     expect(alert.textContent).toContain('could not reach the server');
     expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeDefined();
-    expect(screen.queryByRole('heading', { name: 'Sign in to ScreenTail admin' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Sign in to ScreenTrail admin' })).toBeNull();
   });
 
   it('moves between sections from the navigation, marks the current one and focuses its heading', async () => {
@@ -205,7 +205,7 @@ describe('App', () => {
         await new Promise<void>((resolve) => {
           release = resolve;
         });
-        throw new ApiError(503, 'ScreenTail could not reach Google. Try again in a minute.');
+        throw new ApiError(503, 'ScreenTrail could not reach Google. Try again in a minute.');
       },
       signIn: async () => {
         throw new ApiError(401, 'Google did not confirm this sign-in. Try signing in again.', 'sign_in_failed');
@@ -235,7 +235,7 @@ describe('App', () => {
         if (asked === 1) {
           return { nonce: 'nonce-1', expiresAt: '2099-01-01T00:00:00Z', expiresInSeconds: 120 };
         }
-        throw new ApiError(503, 'ScreenTail could not reach Google. Try again in a minute.');
+        throw new ApiError(503, 'ScreenTrail could not reach Google. Try again in a minute.');
       },
     });
     render(<App api={api} button={fakeGoogle()} />);

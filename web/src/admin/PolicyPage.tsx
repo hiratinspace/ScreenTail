@@ -108,7 +108,7 @@ export function PolicyPage({ api }: Props) {
         <legend className="section-title">Local-only</legend>
         <Check
           id="local-only"
-          label="Local-only: drafts are made on the PC and nothing is sent to ScreenTail's servers"
+          label="Local-only: drafts are made on the PC and nothing is sent to ScreenTrail's servers"
           hint="Publishing to your PSA and documentation still works when a technician clicks Publish."
           checked={draft.localOnly}
           onChange={(v) => set('localOnly', v)}

@@ -18,10 +18,10 @@ string), then add one line before step 6:
 
 ```powershell
 $env:Providers__Demo = 'true'
-dotnet run --project src\ScreenTail.Api
+dotnet run --project src\ScreenTrail.Api
 ```
 
-The same thing as an argument, for one run: `dotnet run --project src\ScreenTail.Api -- --Providers:Demo=true`.
+The same thing as an argument, for one run: `dotnet run --project src\ScreenTrail.Api -- --Providers:Demo=true`.
 To switch it off, remove the variable (`Remove-Item Env:Providers__Demo`) and restart the backend.
 
 While it is on, **every tenant's** PSA and knowledge base are the demo, whatever credentials are stored,

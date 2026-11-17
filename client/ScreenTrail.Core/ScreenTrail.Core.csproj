@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Platform-neutral capture logic (ADR-0002). Must never reference Windows-only APIs. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ScreenTrail.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SQLite + SQLCipher; the bundle carries native libraries for Windows, macOS and Linux. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Numbered migrations (Guide §5), applied in order by SqliteSessionStore. -->
+    <EmbeddedResource Include="Store\Migrations\*.sql" LogicalName="ScreenTrail.Core.Store.Migrations.%(Filename)%(Extension)" />
+    <!-- ST-113: the update feed, the package hosts and the manifest keys, compiled in rather than read
+         from a file on the machine that the user could rewrite. CI's signing job reads the same file. -->
+    <EmbeddedResource Include="..\..\shared\release\update-trust.json" LogicalName="ScreenTrail.Core.Update.update-trust.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTrail.Shared\ScreenTrail.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The redaction tests stand in for the pattern library to simulate a detector running out of budget. -->
+    <InternalsVisibleTo Include="ScreenTrail.Tests" />
+    <!-- The performance rig builds an indicator guard over a plain yes, which the service itself cannot. -->
+    <InternalsVisibleTo Include="ScreenTrail.Tests.Windows" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ST-023: one registry, shipped with the service and used by its tests. -->
+    <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,4 @@
-# ScreenTail v1 wireframes (ST-014)
+# ScreenTrail v1 wireframes (ST-014)
 
 These are low-fidelity, clickable wireframes of every v1 client screen (S1–S8), plus the five annotated flows. They're greyscale on purpose: they settle layout, content, states and flow. Visual design comes in ST-015 (hi-fi Review) and ST-016 (tokens and components).
 

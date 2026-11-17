@@ -1,6 +1,6 @@
-# What ScreenTail does with your data
+# What ScreenTrail does with your data
 
-For an MSP evaluating ScreenTail, and for the customer who asks what that tool on the technician's screen
+For an MSP evaluating ScreenTrail, and for the customer who asks what that tool on the technician's screen
 is. Written in plain language on purpose: a data-flow document nobody outside engineering can read is a
 document that gets forwarded and never checked.
 
@@ -12,7 +12,7 @@ lead.
 
 ## The short version
 
-ScreenTail watches a remote-support session on the **technician's** machine, turns it into a draft ticket
+ScreenTrail watches a remote-support session on the **technician's** machine, turns it into a draft ticket
 note, and shows that note to the technician before anything leaves the device. It never publishes on its
 own.
 
@@ -55,7 +55,7 @@ characters", "a shortcut", "Enter"), and there is no field anywhere in the data 
 key or a character (INV-2). This is enforced by the schema as well as by the hook, so a future change
 cannot quietly add one.
 
-**Only the technician's microphone** is captured (INV-9). ScreenTail does not record the customer's audio
+**Only the technician's microphone** is captured (INV-9). ScreenTrail does not record the customer's audio
 at all in v1. See [consent guidance](../legal/consent-guidance.md) for why that distinction matters.
 
 **Capture stops by itself** when a password field has focus, when an excluded application is in front,
@@ -179,7 +179,7 @@ whole. The space between two words is judged against the height of the row, or o
 where the two sit on one line, so large text beside small is judged by its own size (2026-11-10). A password goes further: its cue's row and every row the match touches on the screen are
 masked, the cue included, in the stored text and in the picture alike. The one exception is on the
 cue's own row: the words wholly left of the cue stay readable, so the line still says what it was
-(ScreenTail's cues are Latin, read left to right), unless any of what was masked on that row starts
+(ScreenTrail's cues are Latin, read left to right), unless any of what was masked on that row starts
 left of the cue's end, and then the row is masked whole. A row with any right-to-left letter on it, Hebrew or
 Arabic say, is masked whole. Nothing is inferred: what stays readable is chosen by where it is on the
 screen, never by the order the OCR engine listed it. That is the owner's decision of 2026-11-09
@@ -329,12 +329,12 @@ when that cannot be done cleanly. Tests drive real requests through the API at I
 Trace, in the Development pipeline and in the Production one (which adds the HTTPS redirect), send
 malformed requests to Kestrel itself at Debug and Trace, and fail if any of that text reaches the log.
 Another fails if a second log sink is added beside the scrubbing one in either environment. The level
-is `SCREENTAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend) and Information
+is `SCREENTRAIL_LOG_LEVEL` on the client (`Logging:LogLevel:Default` on the backend) and Information
 unless said otherwise.
 
-**A crash leaves a stack trace and nothing else.** With `SCREENTAIL_CRASH_REPORTS=1` a crash writes the
+**A crash leaves a stack trace and nothing else.** With `SCREENTRAIL_CRASH_REPORTS=1` a crash writes the
 exception types and frames (never the message, which is where a path or a title ends up) to
-`%LOCALAPPDATA%\ScreenTail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
+`%LOCALAPPDATA%\ScreenTrail\crashes\`. Nothing reads that folder yet; sending is ST-098's. Without the
 opt-in nothing is written.
 
 **A local-only session is drafted on the device** (ST-065 AC3). When the egress guard would refuse the
@@ -367,7 +367,7 @@ policy fetch's own failure schedule (ten minutes), so it goes no more often than
 locks local-only (`403 local_only`), before any model is asked, whatever the device believes; the device
 then drafts the session on its own, and the drafts queued behind it, for the hour its policy fetch takes
 to bring the lock. And an installed client reads its backend address only from the machine-wide setting
-an administrator writes (`HKLM\SOFTWARE\ScreenTail`, the installer's `BACKENDURL`), never from a per-user
+an administrator writes (`HKLM\SOFTWARE\ScreenTrail`, the installer's `BACKENDURL`), never from a per-user
 environment variable, because that address decides where the allowlist points and where the policy
 comes from. The speech model is not
 fetched in local-only mode either (ST-046): it carries no customer data, but it is a request the
@@ -393,7 +393,7 @@ contains no content.
 
 ---
 
-## What ScreenTail cannot protect you from
+## What ScreenTrail cannot protect you from
 
 Said plainly, because a document that claims everything is covered is not one a security lead should
 trust:
@@ -401,7 +401,7 @@ trust:
 - **Anyone with the technician's Windows account.** They can read the store, because the technician can.
   The answer is your own account security and disk encryption, not ours.
 - **Anyone running as SYSTEM** on that machine. Likewise, more so.
-- **A compromised remote-support tool.** If the tool ScreenTail is watching is itself hostile, it controls
+- **A compromised remote-support tool.** If the tool ScreenTrail is watching is itself hostile, it controls
   the screen being captured. Worth saying aloud, since watching one is the product's entire premise.
 - **A technician who opens the wrong window.** Scope defaults and suppression reduce this; they do not
   eliminate it. The review step exists partly for this reason: the technician sees every screenshot

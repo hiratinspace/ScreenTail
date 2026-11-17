@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Turns a spare Windows laptop into ScreenTail's real-hardware test machine: a self-hosted GitHub
+    Turns a spare Windows laptop into ScreenTrail's real-hardware test machine: a self-hosted GitHub
     Actions runner that runs inside the signed-in desktop session, so hooks, UI Automation and screen
     capture all work.
 
@@ -74,7 +74,7 @@ else {
     $architecture = (Get-CimInstance Win32_Processor | Select-Object -First 1).Architecture
     if ($architecture -eq 12) { $runnerArch = 'arm64' } else { $runnerArch = 'x64' }
 
-    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/actions/runner/releases/latest' -Headers @{ 'User-Agent' = 'screentail-setup' }
+    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/actions/runner/releases/latest' -Headers @{ 'User-Agent' = 'screentrail-setup' }
     $version = $release.tag_name.TrimStart('v')
     $asset = $release.assets | Where-Object { $_.name -eq "actions-runner-win-$runnerArch-$version.zip" } | Select-Object -First 1
     if (-not $asset) { throw "No runner package for win-$runnerArch in release $($release.tag_name)." }
@@ -117,7 +117,7 @@ if ($policy -in @('Restricted', 'Undefined')) {
 # --- 3. Start at sign-in, in the desktop session ---------------------------------------------
 
 Write-Step 'Start the runner at sign-in'
-$shortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'ScreenTail Actions Runner.lnk'
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'ScreenTrail Actions Runner.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $RunnerDir 'run.cmd'

@@ -98,7 +98,7 @@ export function App({ api = defaultApi, button = defaultButton }: AppProps) {
       </a>
       {view.kind === 'loading' && (
         <main id="content" className="center-pane">
-          <p role="status">Loading ScreenTail admin</p>
+          <p role="status">Loading ScreenTrail admin</p>
         </main>
       )}
       {view.kind === 'signedOut' && (

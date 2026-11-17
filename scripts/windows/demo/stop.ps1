@@ -4,11 +4,11 @@
 
 .DESCRIPTION
     start.ps1 records each process it launches (by id, name and start time) in
-    %LOCALAPPDATA%\ScreenTail.Dev\demo\state.json. This script stops exactly those, in the order that
+    %LOCALAPPDATA%\ScreenTrail.Dev\demo\state.json. This script stops exactly those, in the order that
     leaves nothing waiting on something already gone: the UI, the capture service and its window, then
     the backend and its window, then the database container if start had to start it.
 
-    A process whose id now belongs to something else (Windows reuses ids) is left alone. ScreenTail
+    A process whose id now belongs to something else (Windows reuses ids) is left alone. ScreenTrail
     processes that start did not launch are listed and left alone.
 
     The capture service is closed forcefully. For a clean finish press Ctrl+C in its window first; a
@@ -32,15 +32,15 @@ $labels = @{
 }
 $order = @('ui', 'service', 'service-window', 'backend', 'backend-window', 'database')
 
-Write-Host 'Stopping the ScreenTail demo.'
+Write-Host 'Stopping the ScreenTrail demo.'
 Assert-Windows
 
 $entries = @(Get-DemoState)
 if ($entries.Count -eq 0) {
     Write-Ok 'Nothing to stop: there is no record of a demo started by start.cmd.'
-    $others = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
+    $others = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue)
     if ($others.Count -gt 0) {
-        Write-Note 'These ScreenTail processes are running but were not started by start.cmd, so they are left alone:'
+        Write-Note 'These ScreenTrail processes are running but were not started by start.cmd, so they are left alone:'
         foreach ($process in $others) {
             Write-Note "  pid $($process.Id)  $($process.ProcessName)"
         }
@@ -118,7 +118,7 @@ if ($failed.Count -gt 0) {
 
 Remove-Item -LiteralPath $script:DemoStateFile -Force -ErrorAction SilentlyContinue
 
-$others = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
+$others = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue)
 if ($others.Count -gt 0) {
     Write-Note 'Still running, and not started by start.cmd (left alone):'
     foreach ($process in $others) {

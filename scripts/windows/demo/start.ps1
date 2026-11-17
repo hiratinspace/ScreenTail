@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Starts the ScreenTail demo: the backend, then the capture service and the UI pointed at it.
+    Starts the ScreenTrail demo: the backend, then the capture service and the UI pointed at it.
 
 .DESCRIPTION
     Run setup.ps1 once first. Then, every time:
@@ -16,13 +16,13 @@
          is enrolled and its one-hour token is checked against the backend;
       4. publishes the capture service and the UI into one folder if the client changed (the pipe
          handshake needs both in one folder), then starts the service in its own window with
-         SCREENTAIL_BACKEND and SCREENTAIL_DEVICE_TOKEN set for that process only, and then the UI.
+         SCREENTRAIL_BACKEND and SCREENTRAIL_DEVICE_TOKEN set for that process only, and then the UI.
 
     Nothing is set machine-wide or user-wide, and nothing is installed. stop.ps1 stops exactly what this
     started. Running start again while the demo is running changes nothing.
 
     The lines the backend's and the capture service's scrubbing loggers write are also kept in
-    %LOCALAPPDATA%\ScreenTail.Dev\demo\logs (backend.log, service.log; 2 MB each, the one before kept as
+    %LOCALAPPDATA%\ScreenTrail.Dev\demo\logs (backend.log, service.log; 2 MB each, the one before kept as
     .1.log), so report.cmd can include them. Anything else they print (a .NET crash message, native
     library output) shows in their window only; the log has it withheld (see common.ps1).
 
@@ -69,10 +69,10 @@ function Get-BackendFailure([string[]]$Lines) {
     if ($text -match 'ConnectionStrings:Postgres') {
         return @('The backend did not get its database connection: user secrets were not read.', 'Run setup.cmd again. If it says the connection is saved, tell the developer: the Development environment is not being applied.')
     }
-    return @('The backend stopped while starting.', 'Read its window (titled "ScreenTail demo: backend"); the lines above are its last words.')
+    return @('The backend stopped while starting.', 'Read its window (titled "ScreenTrail demo: backend"); the lines above are its last words.')
 }
 
-Write-Host 'Starting the ScreenTail demo.'
+Write-Host 'Starting the ScreenTrail demo.'
 
 # --- 1. Checks ----------------------------------------------------------------------------------------------
 
@@ -107,7 +107,7 @@ if ($previous.Count -gt 0) {
 
 switch (Get-RunnerState) {
     'job' {
-        Stop-Demo -Problem 'A GitHub Actions job is running on this laptop right now. Hardware jobs drive the keyboard, mouse and screen, and start ScreenTail themselves.' -Fix @(
+        Stop-Demo -Problem 'A GitHub Actions job is running on this laptop right now. Hardware jobs drive the keyboard, mouse and screen, and start ScreenTrail themselves.' -Fix @(
             'Wait for it to finish (github.com/hiratinspace/ScreenTail/actions shows it), then start again.')
     }
     'idle' {
@@ -116,13 +116,13 @@ switch (Get-RunnerState) {
     }
 }
 
-$others = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
+$others = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue)
 if ($others.Count -gt 0) {
     $lines = @($others | ForEach-Object {
         if ($_.Path) { $where = $_.Path } else { $where = '(path unreadable)' }
         "pid $($_.Id)  $($_.ProcessName)  $where"
     })
-    Stop-Demo -Problem 'ScreenTail is already running, started some other way (not by this script). There can be only one capture service per user.' -Detail $lines -Fix @(
+    Stop-Demo -Problem 'ScreenTrail is already running, started some other way (not by this script). There can be only one capture service per user.' -Detail $lines -Fix @(
         'Quit it from its tray icon (right-click > Quit) and press Ctrl+C in the capture service window,',
         "or close it from PowerShell:  Stop-Process -Id $(@($others | ForEach-Object { $_.Id }) -join ',')",
         'Then start again.')
@@ -156,7 +156,7 @@ Write-Ok 'The development certificate is trusted.'
 $owner = Get-PortOwner $script:DemoBackendPort
 if ($owner) {
     Stop-Demo -Problem "Port $script:DemoBackendPort is already in use by $($owner.Name) (pid $($owner.Id)). The backend needs it." -Fix @(
-        'If that is an earlier ScreenTail backend (usually "dotnet"), close its window, or:',
+        'If that is an earlier ScreenTrail backend (usually "dotnet"), close its window, or:',
         "  Stop-Process -Id $($owner.Id)",
         'Otherwise close the program that uses it. Then start again.')
 }
@@ -166,7 +166,7 @@ if (Test-TcpPort -HostName 'localhost' -Port $script:DemoBackendPort) {
 }
 Write-Ok "Port $script:DemoBackendPort is free."
 
-foreach ($name in @('SCREENTAIL_BACKEND', 'SCREENTAIL_DEVICE_TOKEN')) {
+foreach ($name in @('SCREENTRAIL_BACKEND', 'SCREENTRAIL_DEVICE_TOKEN')) {
     foreach ($scope in @('User', 'Machine')) {
         if ([Environment]::GetEnvironmentVariable($name, $scope)) {
             Write-Caution "$name is set in your Windows $scope environment. The demo overrides it for what it starts, but other programs see it."
@@ -286,12 +286,12 @@ if (-not $writer) {
 $backendScript = @'
 __LOGLOADER__
 $ErrorActionPreference = 'Continue'
-$Host.UI.RawUI.WindowTitle = 'ScreenTail demo: backend'
+$Host.UI.RawUI.WindowTitle = 'ScreenTrail demo: backend'
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS = __URL__
 $env:Summarization__Provider = __PROVIDER__
 Set-Location -LiteralPath __DIR__
-Write-Host 'ScreenTail backend (Development). Leave this window open; stop.cmd closes it.'
+Write-Host 'ScreenTrail backend (Development). Leave this window open; stop.cmd closes it.'
 $script:DemoLog.Path = __LOG__
 $code = 'unknown'
 $type = $null
@@ -327,7 +327,7 @@ $backendScript = $backendScript.Replace('__LOGWRITER__', (ConvertTo-Quoted $scri
 # Who this backend drafts with, for report.cmd: the provider's name only.
 [IO.File]::WriteAllText($script:DemoDraftingFile, $drafting)
 
-$backendWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_DEVICE_TOKEN' = $null } -Body {
+$backendWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTRAIL_DEVICE_TOKEN' = $null } -Body {
     Start-DemoWindow -Script $backendScript
 }
 $backendWindowEntry = New-ProcessEntry -Role 'backend-window' -Process $backendWindow
@@ -392,7 +392,7 @@ if (Test-Path -LiteralPath $script:DemoDeviceCredential) {
 else {
     # A token already in this window's environment is used if it is a JWT with at least 20 minutes left
     # and the backend accepts it. Otherwise a Development device is enrolled for a fresh one.
-    $candidate = $env:SCREENTAIL_DEVICE_TOKEN
+    $candidate = $env:SCREENTRAIL_DEVICE_TOKEN
     $candidateExpires = Get-TokenExpiry $candidate
     if ($candidate -and $candidateExpires -and $candidateExpires -gt [DateTimeOffset]::UtcNow.AddMinutes(20)) {
         $check = Invoke-Probe -Url "$script:DemoBackendUrl/v1/me" -Headers @{ 'Authorization' = "Bearer $candidate" }
@@ -411,7 +411,7 @@ else {
             Invoke-Native -FilePath 'dotnet' -ArgumentList @($apiDll, '--enrol-dev-device') -WorkingDirectory $script:DemoApiDir
         }
         foreach ($line in $enrol.Lines) {
-            $match = [regex]::Match($line, '^SCREENTAIL_DEVICE_TOKEN=(\S+)\s*$')
+            $match = [regex]::Match($line, '^SCREENTRAIL_DEVICE_TOKEN=(\S+)\s*$')
             if ($match.Success) { $token = $match.Groups[1].Value }
         }
         if ($enrol.ExitCode -ne 0 -or -not $token) {
@@ -445,8 +445,8 @@ else {
 # --- 4. The client ----------------------------------------------------------------------------------------------
 
 Write-Step 'The capture service and the UI'
-$serviceExe = Join-Path $script:DemoAppDir 'ScreenTail.Service.exe'
-$uiExe = Join-Path $script:DemoAppDir 'ScreenTail.UI.exe'
+$serviceExe = Join-Path $script:DemoAppDir 'ScreenTrail.Service.exe'
+$uiExe = Join-Path $script:DemoAppDir 'ScreenTrail.UI.exe'
 
 # Publishing takes a minute or two, so it is done only when something under client\ or shared\ is newer
 # than the last publish. bin and obj are build output and do not count.
@@ -525,9 +525,9 @@ if (Test-Path -LiteralPath $script:DemoServiceExited) { Remove-Item -LiteralPath
 $serviceScript = @'
 __LOGLOADER__
 $ErrorActionPreference = 'Continue'
-$Host.UI.RawUI.WindowTitle = 'ScreenTail demo: capture service'
+$Host.UI.RawUI.WindowTitle = 'ScreenTrail demo: capture service'
 Set-Location -LiteralPath __DIR__
-Write-Host 'ScreenTail capture service. Ctrl+C here stops capture cleanly; stop.cmd closes this window.'
+Write-Host 'ScreenTrail capture service. Ctrl+C here stops capture cleanly; stop.cmd closes this window.'
 $script:DemoLog.Path = __LOG__
 $code = 'unknown'
 $type = $null
@@ -593,7 +593,7 @@ $serviceScript = $serviceScript.Replace('__EXITED__', (ConvertTo-Quoted $script:
 # The two variables the service reads, in its environment only. The token travels in the environment
 # block, never on a command line. With an activated device the token is removed instead, so nothing stale
 # from the user's environment is inherited.
-$serviceWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_BACKEND' = $script:DemoBackendUrl; 'SCREENTAIL_DEVICE_TOKEN' = $token } -Body {
+$serviceWindow = Invoke-WithEnvironment -Variables @{ 'SCREENTRAIL_BACKEND' = $script:DemoBackendUrl; 'SCREENTRAIL_DEVICE_TOKEN' = $token } -Body {
     Start-DemoWindow -Script $serviceScript
 }
 Add-Entry (New-ProcessEntry -Role 'service-window' -Process $serviceWindow)
@@ -613,14 +613,14 @@ for ($second = 0; $second -lt 30; $second++) {
                 'Allow it in Windows Security > App & browser control, or ask the developer (ticket ST-112 is the signing fix).')
         }
         Fail -Problem 'The capture service stopped straight after starting.' -Detail @($reason) -Fix @(
-            'Read its window (titled "ScreenTail demo: capture service"). If it says another service is running, run stop.cmd and start again.')
+            'Read its window (titled "ScreenTrail demo: capture service"). If it says another service is running, run stop.cmd and start again.')
     }
     if (-not $service) {
-        $service = Get-Process -Name 'ScreenTail.Service' -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq $serviceExe } | Select-Object -First 1
+        $service = Get-Process -Name 'ScreenTrail.Service' -ErrorAction SilentlyContinue | Where-Object { $_.Path -ieq $serviceExe } | Select-Object -First 1
         if ($service) { Add-Entry (New-ProcessEntry -Role 'service' -Process $service) }
     }
     try {
-        $pipes = @([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object { $_ -like '*\ScreenTail.*' })
+        $pipes = @([IO.Directory]::GetFiles('\\.\pipe\') | Where-Object { $_ -like '*\ScreenTrail.*' })
     }
     catch {
         # .NET Framework refuses to list the pipes when any pipe on the machine has a name that is not a
@@ -638,7 +638,7 @@ for ($second = 0; $second -lt 30; $second++) {
     Start-Sleep -Seconds 1
 }
 if (-not $service) {
-    Fail -Problem 'The capture service did not start.' -Fix @('Read its window (titled "ScreenTail demo: capture service").')
+    Fail -Problem 'The capture service did not start.' -Fix @('Read its window (titled "ScreenTrail demo: capture service").')
 }
 if ($listening) {
     Write-Ok 'The capture service is running and listening for the UI.'
@@ -651,7 +651,7 @@ else {
 }
 
 try {
-    $ui = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_DEVICE_TOKEN' = $null; 'SCREENTAIL_BACKEND' = $null } -Body {
+    $ui = Invoke-WithEnvironment -Variables @{ 'SCREENTRAIL_DEVICE_TOKEN' = $null; 'SCREENTRAIL_BACKEND' = $null } -Body {
         Start-Process -FilePath $uiExe -WorkingDirectory $script:DemoAppDir -PassThru
     }
 }
@@ -667,16 +667,16 @@ Add-Entry (New-ProcessEntry -Role 'ui' -Process $ui)
 Start-Sleep -Seconds 4
 if ($ui.HasExited) {
     Fail -Problem "The UI closed straight after starting (exit code $($ui.ExitCode))." -Fix @(
-        'Start again. If it repeats, set SCREENTAIL_CRASH_REPORTS=1 in this window, start again, and send the crash report to the developer.')
+        'Start again. If it repeats, set SCREENTRAIL_CRASH_REPORTS=1 in this window, start again, and send the crash report to the developer.')
 }
-Write-Ok 'The UI is running: the ScreenTail icon is in the notification area (bottom right; it may be under the ^ arrow).'
+Write-Ok 'The UI is running: the ScreenTrail icon is in the notification area (bottom right; it may be under the ^ arrow).'
 
 # --- Ready ------------------------------------------------------------------------------------------------------
 
 Write-Host ''
 Write-Host 'READY.' -ForegroundColor Green
-Write-Note "Backend: $script:DemoBackendUrl (window 'ScreenTail demo: backend')"
-Write-Note "Capture service: window 'ScreenTail demo: capture service'"
+Write-Note "Backend: $script:DemoBackendUrl (window 'ScreenTrail demo: backend')"
+Write-Note "Capture service: window 'ScreenTrail demo: capture service'"
 Write-Note 'UI: the tray icon. The first time, the setup wizard opens: on Activate, press Skip for now.'
 if ($expires) {
     Write-Note ('Device token good until ' + $expires.ToLocalTime().ToString('HH:mm') + '. If the demo runs later than that, run stop.cmd then start.cmd.')

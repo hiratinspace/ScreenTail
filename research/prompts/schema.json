@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://screentail.app/schemas/prompts/note_v2.json",
+  "$id": "https://screentrail.app/schemas/prompts/note_v2.json",
   "title": "note_v2 output",
   "description": "The only shape a drafting model may return. Mirrors DraftNote in session.v1: the pair is checked for drift by research/tests/test_prompt_schema.py, because a note the client cannot store is a failed draft.",
   "type": "object",

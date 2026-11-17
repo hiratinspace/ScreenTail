@@ -1,4 +1,4 @@
-# ScreenTail: ranked weaknesses
+# ScreenTrail: ranked weaknesses
 
 **Date:** 2026-09-15 · **Against:** `main` @ 35/81 tickets · **Method:** four independent adversarial
 reviews (security, invariant enforcement, performance, test quality), every headline claim re-verified by
@@ -19,7 +19,7 @@ still point at the right words; read each section's opening note before its body
 
 By **what the product cannot survive being wrong about**, not by how hard it is to fix.
 
-ScreenTail's premise is that a technician can point a recording tool at a customer's screen because the
+ScreenTrail's premise is that a technician can point a recording tool at a customer's screen because the
 recording is redacted, visibly indicated, and never published unreviewed. Anything that breaks one of
 those three is ranked above anything that merely costs CPU, however expensive.
 
@@ -31,7 +31,7 @@ those three is ranked above anything that merely costs CPU, however expensive.
 | **P3** | Correct when convenient. |
 
 A recurring theme runs through P0 and P1 and is worth naming once: **the enforcement points are weaker
-than the policy objects.** The decision classes in `ScreenTail.Core` are well written and well tested. The
+than the policy objects.** The decision classes in `ScreenTrail.Core` are well written and well tested. The
 places that *apply* those decisions (the Windows glue, the loops, the UI process) are frequently
 untested, unwired, or both. Every P0 below is an enforcement gap, not a policy error.
 
@@ -46,7 +46,7 @@ untested, unwired, or both. Every P0 below is an enforcement gap, not a policy e
 > and all three fail if the check is removed. The design question this raised (whether a genuinely blank
 > frame should be kept) is decided and argued in **ADR-0004**: it is not, and the cost is accepted.
 
-**`client/ScreenTail.Core/Privacy/RedactionWorker.cs:235`**
+**`client/ScreenTrail.Core/Privacy/RedactionWorker.cs:235`**
 
 ```csharp
 if (!text.IsEmpty && text.MeanConfidence < _options.MinimumConfidence)
@@ -60,7 +60,7 @@ then yields no regions, `Complete` is true, `WindowsFrameMasker.Paint` early-ret
 The comment two lines above says *"A frame the recogniser could not make out is where a secret is most
 likely to survive, so it goes rather than being stored unchecked."* The guard exempts precisely that case.
 
-**Compounding:** `client/ScreenTail.Service/Privacy/WindowsOcrRecogniser.cs:32,83` always returns
+**Compounding:** `client/ScreenTrail.Service/Privacy/WindowsOcrRecogniser.cs:32,83` always returns
 `UnknownConfidence = 1.0`, so the confidence gate beneath it can never fire on the only platform that
 ships. Two independent defences, both inert.
 
@@ -88,11 +88,11 @@ difference is visible. Then decide whether a frame with genuinely no text (a bla
 > running, which is the ST-085 item left for the laptop.
 
 **No tray icon exists anywhere in the repository.** No `NotifyIcon`, no `Shell_NotifyIcon`, no taskbar
-package. `client/ScreenTail.Core/Shell/TrayPresence.cs:38` computes what a tray icon *would* display and
+package. `client/ScreenTrail.Core/Shell/TrayPresence.cs:38` computes what a tray icon *would* display and
 has zero production callers.
 
 **The HUD is never shown by the running app.** `HudWindow` is constructed in exactly one place:
-`client/ScreenTail.UI/Hud/HudPreview.cs:51`, the CI screenshot harness. The normal startup path
+`client/ScreenTrail.UI/Hud/HudPreview.cs:51`, the CI screenshot harness. The normal startup path
 (`App.xaml.cs:64-75`) opens `ShellWindow`, which at `Shell/ShellWindow.xaml.cs:25-34` injects a **literal
 fake snapshot** (`State = "recording"`, `SessionId = "preview"`).
 
@@ -100,7 +100,7 @@ INV-4 (*capture is always visibly indicated; there is no silent-capture mode*) i
 makes this product defensible. It is currently unenforced by anything.
 
 **Root cause.** The UI process does not connect to the capture service. `IpcClient` has no production
-caller. `ScreenTail.UI` has no `ProjectReference` to the service. The whole UI is, today, a screenshot
+caller. `ScreenTrail.UI` has no `ProjectReference` to the service. The whole UI is, today, a screenshot
 harness with real logic behind it.
 
 **Fix.** Wire the UI to the service. This one change also resolves P1-2, P1-6 and three ⚠ entries in the
@@ -117,7 +117,7 @@ work left in the project and it is not currently a ticket.
 > helper that also refuses to guess at an unrecognised state string from a newer service. Two tests cover
 > the null case the original test omitted.
 
-**`client/ScreenTail.Core/Hud/HudState.cs:91`**
+**`client/ScreenTrail.Core/Hud/HudState.cs:91`**
 
 ```csharp
 Visible: !hidden || state.Tone is HudTone.Recording or HudTone.Paused or HudTone.Scope);
@@ -143,16 +143,16 @@ its most important instance.
 
 ## P0-4 · INV-6's scope clause has no test, and deleting it leaves the suite green
 
-> **Fixed in ST-048 (#57).** The decision loop moved into `ScreenTail.Core/Capture/SessionRecorder.cs`, behind
+> **Fixed in ST-048 (#57).** The decision loop moved into `ScreenTrail.Core/Capture/SessionRecorder.cs`, behind
 > `IScreenshotCapturer` and a `Func<ScopeDecision?>`: the `IForegroundWatcher` pattern this document
 > recommended. `ScopeRecordingTests` is the store-level twin of `PausedAndSuppressedWriteNothing`:
 > six tests reading the encrypted store, and deleting the drop fails three of them (verified by doing it).
 > `ClickCaptureLoop` keeps the hook buffer, the signal reader and the logging, and no longer holds a rule.
 
-`ScreenTail.Tests` references **Core and Shared only**. Twelve `ScreenTail.Service` files have zero test
+`ScreenTrail.Tests` references **Core and Shared only**. Twelve `ScreenTrail.Service` files have zero test
 coverage, including all three sites that actually enforce scope:
 
-- `client/ScreenTail.Service/Capture/ClickCaptureLoop.cs:90-94`: the `!scope.MayRecord(...)` drop
+- `client/ScreenTrail.Service/Capture/ClickCaptureLoop.cs:90-94`: the `!scope.MayRecord(...)` drop
 - `ClickCaptureLoop.cs:115`, `SceneSampleLoop.cs:71`, `WindowsCaptureSources.cs:56`: the frame gates
 
 **Delete lines 90-94 and all ~721 tests still pass**, while the product records keystroke counts taken in
@@ -183,7 +183,7 @@ exactly one `ClickEvent`, zero typing-derived events, zero frames.
 > reported as the foreground. **The two Windows tests have not been run yet**; they need the laptop
 > (ST-018).
 
-**`client/ScreenTail.Service/Detection/WindowsForegroundWatcher.cs:102-109`**
+**`client/ScreenTrail.Service/Detection/WindowsForegroundWatcher.cs:102-109`**
 
 ```csharp
 hook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND /* 0x0003 */, EVENT_OBJECT_NAMECHANGE /* 0x800C */, ...)
@@ -242,7 +242,7 @@ already exists).
 > read as facts. The sample survives for the CI render and a test fails the build if anything outside the
 > window's own file reaches it.
 
-`client/ScreenTail.UI/Diagnostics/DiagnosticsWindow.xaml.cs:25-36`: the parameterless constructor (the
+`client/ScreenTrail.UI/Diagnostics/DiagnosticsWindow.xaml.cs:25-36`: the parameterless constructor (the
 only one used) renders a hard-coded sample: `Local-only: true`, `Egress blocked: 0`,
 `Policy: policy-2026-09-13`, `Microphone: Headset Microphone (Realtek)`. Nothing populates it from live
 state.
@@ -329,7 +329,7 @@ store's headline threat.
 ## P1-8 · Threat-model claims contradicted by the code
 
 - **T8** says the IPC token is *"never written to disk."* `CaptureHost.cs:56` writes it to
-  `%LOCALAPPDATA%\ScreenTail\ipc.token`. It is ACL'd to the user (defensible, and necessary for the UI to
+  `%LOCALAPPDATA%\ScreenTrail\ipc.token`. It is ACL'd to the user (defensible, and necessary for the UI to
   read it), but the document asserts a stronger control than exists.
 - **T12** says *"one client at a time."* `IpcServer` documents itself as accepting any number.
 - **T10** lists `EgressPolicy`/`EgressGuard` as the shipping mitigation with no "not yet wired" caveat,

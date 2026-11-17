@@ -4,7 +4,7 @@ using System.Windows;
 using System.Windows.Forms;
 using Application = System.Windows.Application;
 
-namespace ScreenTail.Spike.Overlay;
+namespace ScreenTrail.Spike.Overlay;
 
 /// <summary>Stand-in for the UI process: a tray icon plus a capture-excluded, non-activating overlay.</summary>
 public partial class App : Application
@@ -35,7 +35,7 @@ public partial class App : Application
         _tray = new NotifyIcon
         {
             Icon = SystemIcons.Information,
-            Text = "ScreenTail spike overlay",
+            Text = "ScreenTrail spike overlay",
             ContextMenuStrip = menu,
             Visible = true,
         };

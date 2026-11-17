@@ -38,20 +38,20 @@ answers it.
 ## 2. Get the code and fill in the two settings files
 
 ```bash
-git clone https://github.com/hiratinspace/ScreenTail.git && cd ScreenTail/deploy
+git clone https://github.com/hiratinspace/ScreenTail.git && cd ScreenTrail/deploy
 cp env.example .env           # compose's settings: the name, the client id, ports
 cp api.env.example api.env    # the API's settings: signup allowlist, seats, drafting provider
 ```
 
 Git ignores `.env`, `api.env` and `secrets/`. Neither settings file holds a secret. In `.env` set
-`SCREENTAIL_DOMAIN`. In `api.env` set `Admin__SignupAllowlist__0` to the Google address that will
+`SCREENTRAIL_DOMAIN`. In `api.env` set `Admin__SignupAllowlist__0` to the Google address that will
 create the first tenant (add `__1`, `__2` for more), and review the ADR-0009 defaults listed there.
 Delete a line rather than blanking it: an empty value is not the default.
 
 ## 3. Create the Google OAuth client id
 
 As in `docs/dev/web-admin.md` section 1: a **Web application** client whose **Authorized JavaScript
-origin** is `https://<SCREENTAIL_DOMAIN>` exactly (no path, no trailing slash), with no redirect URI.
+origin** is `https://<SCREENTRAIL_DOMAIN>` exactly (no path, no trailing slash), with no redirect URI.
 The client secret Google shows is not used anywhere; do not store it. Put the client id in `.env` as
 `ADMIN_GOOGLE_CLIENT_ID`: compose gives it to the API and bakes it into the page when the proxy image
 is built. Without it the page says sign-in is not configured.
@@ -83,7 +83,7 @@ docker compose up -d postgres
 docker compose run --rm migrate     # "migrations: applied N: ..."
 docker compose up -d
 docker compose ps                   # postgres, api and proxy "healthy"
-curl https://<SCREENTAIL_DOMAIN>/health   # {"status":"ok"}
+curl https://<SCREENTRAIL_DOMAIN>/health   # {"status":"ok"}
 ```
 
 The first start asks Let's Encrypt for the certificate, which takes a few seconds once DNS and port 80
@@ -93,18 +93,18 @@ is a no-op.
 
 ## 6. The first tenant and the first technician
 
-Open `https://<SCREENTAIL_DOMAIN>` and sign in with Google as the allowlisted address. The first sign-in
+Open `https://<SCREENTRAIL_DOMAIN>` and sign in with Google as the allowlisted address. The first sign-in
 asks for the organisation's name and creates the tenant with that person as its owner
 (`Admin__NewTenantSeats` seats). From then on, **Technicians and seats → Invite a technician** gives a
 one-time code to hand on (there is no mail provider yet), which the technician enters in the Windows
-client's **Settings → This device**. The client reaches the backend at `https://<SCREENTAIL_DOMAIN>`:
+client's **Settings → This device**. The client reaches the backend at `https://<SCREENTRAIL_DOMAIN>`:
 an installed client reads that address from the machine-wide setting its installer writes
-(`BACKENDURL`, `docs/dev/installer.md`); `SCREENTAIL_BACKEND` is for development builds only. Give it
+(`BACKENDURL`, `docs/dev/installer.md`); `SCREENTRAIL_BACKEND` is for development builds only. Give it
 on either installer's command line, as an administrator:
 
 ```powershell
-ScreenTail-Setup.exe BACKENDURL=https://<SCREENTAIL_DOMAIN> /quiet /norestart /log C:\Windows\Temp\screentail-setup.log
-msiexec /i ScreenTail.msi BACKENDURL=https://<SCREENTAIL_DOMAIN> /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
+ScreenTrail-Setup.exe BACKENDURL=https://<SCREENTRAIL_DOMAIN> /quiet /norestart /log C:\Windows\Temp\screentrail-setup.log
+msiexec /i ScreenTrail.msi BACKENDURL=https://<SCREENTRAIL_DOMAIN> /qn /norestart /l*v C:\Windows\Temp\screentrail-install.log
 ```
 
 The operator's command line works through the same image:
@@ -118,28 +118,28 @@ docker compose run --rm api --offboard-tenant <tenant-id>
 ## 7. Updating
 
 ```bash
-(umask 077 && mkdir -p ~/screentail-backups && docker compose exec -T postgres \
-    pg_dump -U screentail -Fc screentail > ~/screentail-backups/backup-$(date +%F).dump)
+(umask 077 && mkdir -p ~/screentrail-backups && docker compose exec -T postgres \
+    pg_dump -U screentail -Fc screentrail > ~/screentrail-backups/backup-$(date +%F).dump)
 git pull
 docker compose build
 docker compose run --rm migrate
 docker compose up -d
 ```
 
-A changed `ADMIN_GOOGLE_CLIENT_ID` or `SCREENTAIL_DOMAIN` needs `docker compose build proxy` and
+A changed `ADMIN_GOOGLE_CLIENT_ID` or `SCREENTRAIL_DOMAIN` needs `docker compose build proxy` and
 `docker compose up -d`. To move an image to a newer patch, change its tag and digest together in the
 Dockerfile or `compose.yaml`.
 
 ## 8. Backups and restore
 
-The database is the volume `screentail_postgres-data`. Back it up with `pg_dump` (above) as often as
+The database is the volume `screentrail_postgres-data`. Back it up with `pg_dump` (above) as often as
 you can afford to lose. Write dumps **outside the checkout** with `umask 077`, as above (git also
 ignores `deploy/*.dump`), keep copies off the host, and restore one now and then to know it works:
 
 ```bash
 docker compose stop api proxy
 docker compose exec -T postgres pg_restore -U screentail -d screentail --clean --if-exists \
-    < ~/screentail-backups/backup-YYYY-MM-DD.dump
+    < ~/screentrail-backups/backup-YYYY-MM-DD.dump
 docker compose run --rm migrate     # brings an older dump up to this build's schema, and takes the
                                     # API's role's writes on the migration record back
 docker compose up -d
@@ -149,8 +149,8 @@ A restore onto a new host needs the same `secrets/` directory copied there first
 `up` (the API's role and its password are made when the volume is first initialised): then
 `docker compose up -d postgres`, the restore and `migrate` as above, then `docker compose up -d`. Keep
 backups of `secrets/` readable by their owner only (`umask 077`, files 0600, for example
-`(umask 077 && tar -czf ~/screentail-secrets-$(date +%F).tgz -C . secrets)`), and apart from the
-database dumps. Caddy's volume `screentail_caddy-data` holds the certificate and ACME account; losing it
+`(umask 077 && tar -czf ~/screentrail-secrets-$(date +%F).tgz -C . secrets)`), and apart from the
+database dumps. Caddy's volume `screentrail_caddy-data` holds the certificate and ACME account; losing it
 only means asking for a new certificate. No frame or capture is ever in the database (INV-7), only
 tenants, devices, policy, sealed credentials and counts.
 
@@ -166,7 +166,7 @@ services:
         target: Vault__PreviousMasterKey
 secrets:
   vault-previous-master-key:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/vault-previous-master-key
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/vault-previous-master-key
 ```
 
 1. Make the new key: `mv secrets/vault-master-key secrets/vault-previous-master-key`, then
@@ -190,7 +190,7 @@ secret file with target `Summarization__FallbackApiKey`, never in `api.env`.
 ## 9. What not to do
 
 - **Never set `ASPNETCORE_FORWARDEDHEADERS_ENABLED`.** The API trusts `X-Forwarded-For` only from the
-  proxy's fixed address (`ForwardedHeaders__KnownProxies__0`, set by compose from `SCREENTAIL_PROXY_IP`)
+  proxy's fixed address (`ForwardedHeaders__KnownProxies__0`, set by compose from `SCREENTRAIL_PROXY_IP`)
   and refuses to start with the variable on as well (ADR-0009).
 - **Never publish PostgreSQL's port or the API's.** Only the proxy has ports; the `data` network has no
   route out. Reach the database with `docker compose exec postgres psql -U screentail`.
@@ -230,12 +230,12 @@ secret file with target `Summarization__FallbackApiKey`, never in `api.env`.
 - **Backups**: where they go, how often, and who restores one to check.
 - **Full IPv6**: an IPv6 subnet on the edge network with a fixed IPv6 address for the proxy, listed as
   `ForwardedHeaders__KnownProxies__1`, then publishing on `[::]` and adding the `AAAA` record.
-- **A superuser as the schema owner.** `POSTGRES_USER` (`screentail`), which migrations and backups use,
+- **A superuser as the schema owner.** `POSTGRES_USER` (`screentrail`), which migrations and backups use,
   is a superuser, as the postgres image makes it. A non-superuser owner of the database and schema would
   narrow what a leaked `migrate-connection` can do.
 - **Plaintext between the API and PostgreSQL** on the internal bridge. If PostgreSQL moves off this host
   (a managed database), the connection string needs `SSL Mode=VerifyFull` and the server's CA.
-- **Memory and process limits.** The API has `mem_limit` 2g by default (`SCREENTAIL_API_MEMORY` in
+- **Memory and process limits.** The API has `mem_limit` 2g by default (`SCREENTRAIL_API_MEMORY` in
   `.env`). It is a backstop, not a guarantee. The friendlier of the two choices was taken: 1536m would
   have left PostgreSQL room on a 2 GB host, but .NET caps its heap at 75% of the limit, about 1.15 GB,
   which is under a rough 1.2 GB estimate for one tenant's full burst of drafts and publishes at their

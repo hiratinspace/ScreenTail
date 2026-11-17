@@ -1,0 +1,208 @@
+using System.Globalization;
+using ScreenTrail.Core.Sessions;
+using ScreenTrail.Core.Store;
+
+namespace ScreenTrail.Core.History;
+
+/// <summary>The statuses Spec §5 S4 filters by. Derived from the session, never stored separately.</summary>
+public enum SessionStatus
+{
+    /// <summary>Still running, or finalising.</summary>
+    Pending,
+
+    /// <summary>Drafted and waiting for someone to review it.</summary>
+    Draft,
+
+    Published,
+
+    /// <summary>The technician threw it away. The row stays so the history can say so (INV-12).</summary>
+    Discarded,
+
+    /// <summary>Capture started late or was interrupted, so the note may be missing steps.</summary>
+    Partial,
+}
+
+public sealed record HistoryFilter
+{
+    public DateTimeOffset? From { get; init; }
+
+    public DateTimeOffset? To { get; init; }
+
+    /// <summary>Empty means every status, which is what the screen opens with.</summary>
+    public IReadOnlySet<SessionStatus> Statuses { get; init; } = new HashSet<SessionStatus>();
+
+    /// <summary>Remote-tool kinds as they appear in the schema; empty means all.</summary>
+    public IReadOnlySet<string> Tools { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+}
+
+/// <param name="Captured">Sessions ScreenTrail recorded.</param>
+/// <param name="Total">Remote sessions that happened, captured or not.</param>
+public sealed record Coverage(int Captured, int Total)
+{
+    public int Percent => Total == 0 ? 0 : (int)Math.Round(Captured * 100.0 / Total, MidpointRounding.AwayFromZero);
+
+    /// <summary>Spec §5 S4's banner. Null when there is nothing to report rather than "0 of 0 (0%)".</summary>
+    public string? Banner => Total == 0
+        ? null
+        : string.Create(CultureInfo.InvariantCulture, $"Captured {Captured} of {Total} remote sessions ({Percent}%)");
+}
+
+/// <summary>
+/// The session history screen's contents (ST-079, Spec §5 S4).
+///
+/// Status is derived here rather than stored, for the same reason the note pane's banners are: it is a
+/// claim about a session, and the only thing entitled to make it is the session itself. A status column
+/// written at finalize would go on saying "draft" after the note was published, and would say nothing
+/// about a session that was discarded afterwards.
+///
+/// Platform-neutral, so the filtering and the coverage arithmetic can be argued about without a window,
+/// which matters because Spec §5 S4 renders two hundred rows and the ticket puts a number on it.
+/// </summary>
+public static class SessionHistory
+{
+    /// <summary>
+    /// What the row's badge says.
+    ///
+    /// Order matters: discarded wins over everything, because a session someone threw away is not a draft
+    /// waiting for them however complete it was. Partial comes before draft for the opposite reason: a
+    /// note with missing steps should not sit in the list looking like any other.
+    /// </summary>
+    public static SessionStatus StatusOf(SessionSummary session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+
+        if (string.Equals(session.State, SessionStateNames.Discarded, StringComparison.Ordinal))
+        {
+            return SessionStatus.Discarded;
+        }
+
+        if (string.Equals(session.State, SessionStateNames.Published, StringComparison.Ordinal))
+        {
+            return SessionStatus.Published;
+        }
+
+        if (session.PartialCapture)
+        {
+            return SessionStatus.Partial;
+        }
+
+        return session.Title is not null ? SessionStatus.Draft : SessionStatus.Pending;
+    }
+
+    /// <summary>
+    /// History with no sessions, with the next step (Spec §5 S4). There is no Start button: a session is
+    /// started by the remote tool coming to the front, or by the service's own hotkey. Word joiners
+    /// (U+2060) hold the shortcut on one line: wrapped, it broke after "Ctrl".
+    /// </summary>
+    public const string Empty = "No sessions yet. Start a remote session and ScreenTrail will capture it, or press Ctrl\u2060+\u2060Alt\u2060+\u2060R to start one now.";
+
+    /// <summary>The words History and the tray use for a publish that may have reached the ticket and was never confirmed.</summary>
+    public const string NotConfirmedLabel = "Not confirmed";
+
+    /// <summary>
+    /// Whether the row says "Not confirmed" beside its status (contract v10): a publish of the session may
+    /// have reached the ticket and nobody has said whether it did.
+    ///
+    /// Beside the status, not one of them. The mark lives apart from the session's state (migration
+    /// 0013), so a session in doubt is still a draft that may be discarded, or published in part and
+    /// kept, and the filters and the discard rule go on reading the status alone. A discarded session
+    /// never says it: the technician threw it away, and nothing can be done about it from here (INV-12).
+    /// </summary>
+    public static bool PublishUnconfirmed(SessionSummary session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return session.PublishUnconfirmed && StatusOf(session) != SessionStatus.Discarded;
+    }
+
+    /// <summary>
+    /// What a <c>sessions</c> row says beside the tool (contract v11, spec v0.6.9 S4): the note's own
+    /// title, the ticket and the published ticket's company, each null when unknown or blank. Nothing for a
+    /// discarded session, whatever its row still holds: the technician threw it away (INV-12).
+    /// </summary>
+    public static (string? Title, string? Ticket, string? Company) Labels(SessionSummary session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return StatusOf(session) == SessionStatus.Discarded
+            ? (null, null, null)
+            : (Known(session.Title), Known(session.Ticket), Known(session.Company));
+    }
+
+    /// <summary>The words trimmed, or null for none.</summary>
+    internal static string? Known(string? words) => string.IsNullOrWhiteSpace(words) ? null : words.Trim();
+
+    /// <summary>
+    /// The same over the History screen's rows: whether "Mark as published" may be offered for this one.
+    /// The service decides again when asked.
+    /// </summary>
+    public static bool MayMarkPublished(Shared.Ipc.SessionRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return row.PublishUnconfirmed && !string.Equals(row.Status, nameof(SessionStatus.Discarded), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Newest first, filtered. The store already returns them in order; this preserves it.</summary>
+    public static IReadOnlyList<SessionSummary> Filter(IEnumerable<SessionSummary> sessions, HistoryFilter? filter = null)
+    {
+        ArgumentNullException.ThrowIfNull(sessions);
+        filter ??= new HistoryFilter();
+
+        return
+        [
+            .. sessions.Where(session =>
+                (filter.From is not { } from || session.StartedAt >= from)
+
+                // Inclusive of the end day's sessions: a technician picking "to Friday" means Friday, and
+                // a range that silently excluded Friday's work would look like the history losing rows.
+                && (filter.To is not { } to || session.StartedAt <= to)
+                && (filter.Statuses.Count == 0 || filter.Statuses.Contains(StatusOf(session)))
+                && (filter.Tools.Count == 0 || filter.Tools.Contains(session.RemoteTool))),
+        ];
+    }
+
+    /// <summary>
+    /// The coverage banner, over whatever the filters left.
+    ///
+    /// Spec §5 S4 puts it above a filtered table, so it has to describe that table: a banner still
+    /// reporting the week while the technician is looking at one day is a number that answers a question
+    /// nobody asked, and it is the kind of number people quote in a QBR.
+    /// </summary>
+    /// <param name="observed">Remote sessions detected, captured or not (ST-023). Null when unknown, and
+    /// the banner then reports what was captured against itself rather than inventing a denominator.</param>
+    public static Coverage CoverageOf(IReadOnlyList<SessionSummary> shown, int? observed = null)
+    {
+        ArgumentNullException.ThrowIfNull(shown);
+        var captured = shown.Count;
+        return new Coverage(captured, Math.Max(observed ?? captured, captured));
+    }
+
+    /// <summary>
+    /// What a bulk discard is about to destroy, for the typed confirmation (Spec §5 S4, v0.4.1 Q6).
+    ///
+    /// Already-discarded sessions are counted out: there is nothing left of them to destroy, and a
+    /// confirmation asking a technician to type "5" when only three sessions will change is a
+    /// confirmation that has misled them about the thing it exists to slow down. Published sessions are
+    /// counted out too, because the service refuses them (owner decision, fail closed: the spec does not
+    /// say a published session may be discarded, and its note is already in the PSA).
+    /// </summary>
+    public static IReadOnlyList<SessionSummary> Discardable(IEnumerable<SessionSummary> selected)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        return [.. selected.Where(session => MayDiscard(StatusOf(session)))];
+    }
+
+    /// <summary>
+    /// The same rule over the History screen's rows, whose status the service has already worked out. A
+    /// status this build does not know is not one it may destroy.
+    /// </summary>
+    public static IReadOnlyList<Shared.Ipc.SessionRow> Discardable(IEnumerable<Shared.Ipc.SessionRow> selected)
+    {
+        ArgumentNullException.ThrowIfNull(selected);
+        return [.. selected.Where(row => Enum.TryParse<SessionStatus>(row.Status, ignoreCase: true, out var status)
+            && Enum.IsDefined(status)
+            && !int.TryParse(row.Status, NumberStyles.Integer, CultureInfo.InvariantCulture, out _)
+            && MayDiscard(status))];
+    }
+
+    /// <summary>Whether a session with this status is one a discard may still take.</summary>
+    public static bool MayDiscard(SessionStatus status) => status is not (SessionStatus.Discarded or SessionStatus.Published);
+}

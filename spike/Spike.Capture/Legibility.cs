@@ -3,10 +3,10 @@ using System.Drawing.Imaging;
 using System.Drawing.Text;
 using System.Globalization;
 using System.Text;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 using Tesseract;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>
 /// AC4: renders 4K frames full of 9 pt UI text at common display scales, downscales to ≤ 1600 px,

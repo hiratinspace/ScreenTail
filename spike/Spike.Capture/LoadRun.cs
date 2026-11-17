@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>The AC1 load test: hooks under concurrent UIA polling, Whisper, screenshots and OCR.</summary>
 internal static class LoadRun

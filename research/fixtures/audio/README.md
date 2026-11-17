@@ -60,7 +60,7 @@ On Windows, run the recording through the real pipeline (the same detector, gate
 hallucination filter a session uses) and keep what it heard:
 
 ```powershell
-dotnet run --project client/ScreenTail.Service -c Release -- `
+dotnet run --project client/ScreenTrail.Service -c Release -- `
     --transcribe research/fixtures/audio/narration-01.wav > heard.txt
 ```
 

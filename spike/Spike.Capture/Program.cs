@@ -1,6 +1,6 @@
 using System.Globalization;
 using System.Runtime;
-using ScreenTail.Spike.Capture;
+using ScreenTrail.Spike.Capture;
 
 // Physical pixels everywhere, so window bounds, hook coordinates and captures agree on every monitor.
 Native.SetProcessDpiAwarenessContext(Native.DpiAwarenessContextPerMonitorV2);

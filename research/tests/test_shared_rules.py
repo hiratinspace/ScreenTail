@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT / "prompts"))
 import checks  # noqa: E402
 
 RULES = json.loads((ROOT / "prompts" / "shared-rules.json").read_text(encoding="utf-8"))
-LIBRARY = ROOT.parent / "client" / "ScreenTail.Core" / "Privacy" / "PatternLibrary.cs"
+LIBRARY = ROOT.parent / "client" / "ScreenTrail.Core" / "Privacy" / "PatternLibrary.cs"
 
 NOT_PATTERNS = {
     "redaction_markers",

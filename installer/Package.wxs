@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  ScreenTail's Windows Installer package (ST-112, ADR-0007). Built by installer/build.ps1 with WiX 5:
+  ScreenTrail's Windows Installer package (ST-112, ADR-0007). Built by installer/build.ps1 with WiX 5:
   never by hand, because the payload it harvests is the publish output that script checks first.
 
   Per machine, into Program Files: MSP tools (Intune, RMM agents) install as the system account, and
@@ -14,19 +14,19 @@
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-  <Package Name="ScreenTail"
-           Manufacturer="ScreenTail"
+  <Package Name="ScreenTrail"
+           Manufacturer="ScreenTrail"
            Version="$(var.Version)"
            UpgradeCode="{85199A85-ACAA-43AA-8CDC-BA38D3570929}"
            Scope="perMachine"
            Compressed="yes"
            Language="1033">
 
-    <!-- The UpgradeCode above is how Windows recognises an older ScreenTail; it never changes
+    <!-- The UpgradeCode above is how Windows recognises an older ScreenTrail; it never changes
          (InstallerAuthoringTests holds it). An upgrade removes the old version completely before the new
          one is installed, and that removal is an uninstall with UPGRADINGPRODUCTCODE set, which is what
          keeps the user-data step below from running during it. -->
-    <MajorUpgrade DowngradeErrorMessage="A newer version of ScreenTail is already installed. Uninstall it first to install this one." />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of ScreenTrail is already installed. Uninstall it first to install this one." />
 
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
@@ -39,26 +39,26 @@
          shortcut takes the executable's own icon, which is this one too. The path is from the repository
          root, where package.ps1 runs WiX (WiX resolves a relative SourceFile from its working folder); the
          workflow check allows no preprocessor value but the five variables package.ps1 passes. -->
-    <Icon Id="ScreenTail.ico" SourceFile="client\ScreenTail.UI\Assets\app.ico" />
-    <Property Id="ARPPRODUCTICON" Value="ScreenTail.ico" />
+    <Icon Id="ScreenTrail.ico" SourceFile="client\ScreenTrail.UI\Assets\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ScreenTrail.ico" />
 
     <!-- ST-112. The service registers for Restart Manager's restart, so that another program's installer
-         that closes it starts it again. ScreenTail's own package does not: an upgrade or an uninstall
+         that closes it starts it again. ScreenTrail's own package does not: an upgrade or an uninstall
          leaves the service down until the next sign-in, as ADR-0007 says, and Windows Installer's restart
          would otherwise start the new service from the installer's own, elevated, process. -->
     <Property Id="MSIDISABLERMRESTART" Value="1" />
 
     <!-- And Windows Installer's Restart Manager asks only programs registered for restart to close, which
-         ScreenTail's service is, and if anything holding an installed file is not, it asks nobody: a
+         ScreenTrail's service is, and if anything holding an installed file is not, it asks nobody: a
          virus scanner, an endpoint agent or the CI runner's monitor reading the executable at that moment
-         is never asked to close by ScreenTail's installer. Whatever is not asked is ended as before (the
+         is never asked to close by ScreenTrail's installer. Whatever is not asked is ended as before (the
          close steps below, and the uninstall step). -->
     <Property Id="MSIRMSHUTDOWN" Value="2" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" />
 
     <!-- Whisper's native libraries need the Visual C++ 2015-2022 x64 runtime, which a fresh Windows does
          not have. Installing without it would put a service on the machine whose speech fails at the
-         first session, so the package says so instead. ScreenTail-Setup.exe installs the runtime first;
+         first session, so the package says so instead. ScreenTrail-Setup.exe installs the runtime first;
          an MSP deploying this package on its own deploys the runtime before it. Never a reason to refuse
          an uninstall or a repair. -->
     <Property Id="VCRUNTIMEX64">
@@ -70,14 +70,14 @@
                       Bitness="always64" />
     </Property>
     <Launch Condition="Installed OR VCRUNTIMEX64 = &quot;#1&quot;"
-            Message="ScreenTail needs the Microsoft Visual C++ 2015-2022 Redistributable (x64). Install it first, or install ScreenTail with ScreenTail-Setup.exe, which includes it." />
+            Message="ScreenTrail needs the Microsoft Visual C++ 2015-2022 Redistributable (x64). Install it first, or install ScreenTrail with ScreenTrail-Setup.exe, which includes it." />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="ScreenTail" />
+      <Directory Id="INSTALLFOLDER" Name="ScreenTrail" />
     </StandardDirectory>
 
-    <!-- Only ever C:\Program Files\ScreenTail (or wherever this machine's 64-bit Program Files is).
-         INSTALLFOLDER is a public property, so a command line could otherwise put ScreenTail in a folder
+    <!-- Only ever C:\Program Files\ScreenTrail (or wherever this machine's 64-bit Program Files is).
+         INSTALLFOLDER is a public property, so a command line could otherwise put ScreenTrail in a folder
          ordinary users can change, and the uninstall would run the service from there as the system
          account. The expected folder comes from the environment, not from a property the same command
          line could set. Checked once the folders are resolved, in both sequences, so a silent install
@@ -85,9 +85,9 @@
          installed service from [INSTALLFOLDER] as the system account too, so a command line that names
          another folder there is refused the same way. A correct installation is always in this folder, so
          its uninstall and repair pass. -->
-    <SetProperty Id="EXPECTEDINSTALLFOLDER" Value="[%ProgramW6432]\ScreenTail\" Before="CostInitialize" Sequence="both" />
+    <SetProperty Id="EXPECTEDINSTALLFOLDER" Value="[%ProgramW6432]\ScreenTrail\" Before="CostInitialize" Sequence="both" />
     <CustomAction Id="RefuseInstallFolder"
-                  Error="ScreenTail lives only in its folder under Program Files. Remove INSTALLFOLDER from the command line and try again." />
+                  Error="ScreenTrail lives only in its folder under Program Files. Remove INSTALLFOLDER from the command line and try again." />
     <InstallUISequence>
       <Custom Action="RefuseInstallFolder" After="CostFinalize" Condition="INSTALLFOLDER ~&lt;&gt; EXPECTEDINSTALLFOLDER" />
     </InstallUISequence>
@@ -105,42 +105,42 @@
     <Component Id="ServiceAtSignIn" Directory="INSTALLFOLDER" Guid="{A76EDE4A-0847-4A9D-B9B2-7295633443BC}">
       <RegistryValue Root="HKLM"
                      Key="Software\Microsoft\Windows\CurrentVersion\Run"
-                     Name="ScreenTail.Service"
+                     Name="ScreenTrail.Service"
                      Type="string"
-                     Value="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot;"
+                     Value="&quot;[INSTALLFOLDER]ScreenTrail.Service.exe&quot;"
                      KeyPath="yes" />
     </Component>
 
-    <!-- The backend's address, for every user of the machine: msiexec /i ScreenTail.msi BACKENDURL=https://...
+    <!-- The backend's address, for every user of the machine: msiexec /i ScreenTrail.msi BACKENDURL=https://...
          An installed service reads it only from here, a key an ordinary user cannot change, and ignores
-         SCREENTAIL_BACKEND (DeploymentAddresses). The value already on the machine is read into a property of
+         SCREENTRAIL_BACKEND (DeploymentAddresses). The value already on the machine is read into a property of
          its own and used only when the command line gives none, so an upgrade or a repair keeps it and a new
          value given later replaces it. Not given at all, nothing is written, and the service drafts on the
-         device. ScreenTail-Setup.exe BACKENDURL=https://... passes it on to here (Bundle.wxs). Both
+         device. ScreenTrail-Setup.exe BACKENDURL=https://... passes it on to here (Bundle.wxs). Both
          properties are hidden, so Windows Installer's log names them and shows asterisks for the value,
          as the service never logs the address. A verbose log still records the registry write with its
          value (RegAddValue), which MsiHiddenProperties does not cover; docs/dev/installer.md says so. -->
     <Property Id="BACKENDURL" Secure="yes" Hidden="yes" />
     <Property Id="BACKENDURLKEPT" Secure="yes" Hidden="yes">
-      <RegistrySearch Id="BackendUrlKept" Root="HKLM" Key="Software\ScreenTail" Name="BackendUrl" Type="raw" Bitness="always64" />
+      <RegistrySearch Id="BackendUrlKept" Root="HKLM" Key="Software\ScreenTrail" Name="BackendUrl" Type="raw" Bitness="always64" />
     </Property>
     <SetProperty Id="BACKENDURL" Value="[BACKENDURLKEPT]" After="AppSearch" Sequence="both" Condition="NOT BACKENDURL AND BACKENDURLKEPT" />
     <Component Id="BackendAddress" Directory="INSTALLFOLDER" Condition="BACKENDURL" Guid="{5B0E3C21-7F44-4C8B-9E2D-3A61C9D47B18}">
-      <RegistryValue Root="HKLM" Key="Software\ScreenTail" Name="BackendUrl" Type="string" Value="[BACKENDURL]" KeyPath="yes" />
+      <RegistryValue Root="HKLM" Key="Software\ScreenTrail" Name="BackendUrl" Type="string" Value="[BACKENDURL]" KeyPath="yes" />
     </Component>
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut" Guid="{343F2DE9-FFC0-40FC-BCBF-5364C20CBE67}">
         <Shortcut Id="UiShortcut"
-                  Name="ScreenTail"
-                  Description="ScreenTail: session notes from remote support"
-                  Target="[INSTALLFOLDER]ScreenTail.UI.exe"
+                  Name="ScreenTrail"
+                  Description="ScreenTrail: session notes from remote support"
+                  Target="[INSTALLFOLDER]ScreenTrail.UI.exe"
                   WorkingDirectory="INSTALLFOLDER" />
-        <RegistryValue Root="HKLM" Key="Software\ScreenTail" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RegistryValue Root="HKLM" Key="Software\ScreenTrail" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
 
-    <Feature Id="ScreenTail" Title="ScreenTail">
+    <Feature Id="ScreenTrail" Title="ScreenTrail">
       <ComponentGroupRef Id="Payload" />
       <ComponentRef Id="ServiceAtSignIn" />
       <ComponentRef Id="StartMenuShortcut" />
@@ -164,21 +164,21 @@
          which does the same (UpgradeRelease). These still end a copy that is running when new files are about to be
          installed. Whether to move them earlier is the owner's decision (#247). -->
     <util:CloseApplication Id="CloseService"
-                           Target="ScreenTail.Service.exe"
+                           Target="ScreenTrail.Service.exe"
                            CloseMessage="no"
                            EndSessionMessage="no"
                            RebootPrompt="no"
                            TerminateProcess="1"
                            Condition="WIX_UPGRADE_DETECTED OR REMOVE~=&quot;ALL&quot;" />
     <util:CloseApplication Id="CloseUi"
-                           Target="ScreenTail.UI.exe"
+                           Target="ScreenTrail.UI.exe"
                            CloseMessage="no"
                            EndSessionMessage="no"
                            RebootPrompt="no"
                            TerminateProcess="1"
                            Condition="WIX_UPGRADE_DETECTED OR REMOVE~=&quot;ALL&quot;" />
 
-    <!-- INV-12 and the ticket. Windows Installer removes what it installed; this clears what ScreenTail
+    <!-- INV-12 and the ticket. Windows Installer removes what it installed; this clears what ScreenTrail
          made afterwards for each user: the data folder (the store, its key, the device's token) and the
          UI's own Run value. The installed service does it in its uninstall mode, run as the system
          account before the files go. It deletes a user's folder only while that user is signed in, under
@@ -193,7 +193,7 @@
          start, at most 15 seconds, so the step ends inside the minute WixQuietExec waits for it
          (ProgramFilesRelease). -->
     <SetProperty Id="RemoveUserData"
-                 Value="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot; --uninstall-cleanup"
+                 Value="&quot;[INSTALLFOLDER]ScreenTrail.Service.exe&quot; --uninstall-cleanup"
                  Before="RemoveUserData"
                  Sequence="execute"
                  Condition="REMOVE~=&quot;ALL&quot; AND NOT UPGRADINGPRODUCTCODE" />
@@ -208,7 +208,7 @@
          upgrade removes the old version completely (RemoveExistingProducts, straight after InstallValidate)
          before it installs the new one, and in the upgrade logs of 2026-11-01 Restart Manager ended the
          running service only about a second before this version's RemoveFiles deleted its files: a scanner
-         still reading ScreenTail.Service.exe then leaves it for a restart, and the upgrade ends with 3010.
+         still reading ScreenTrail.Service.exe then leaves it for a restart, and the upgrade ends with 3010.
          So this version's own removal, when an upgrade is what removes it, first runs its installed
          service in its upgrade mode, as the system account: it stops copies still running from the folder
          and waits, under the same budget and two clean looks, until no other program has an installed file
@@ -218,13 +218,13 @@
          upgrade.
 
          Why in the version being removed and not in the new package: before RemoveExistingProducts the new
-         files are not on the machine yet, so the only ScreenTail executable a step of the new package could
+         files are not on the machine yet, so the only ScreenTrail executable a step of the new package could
          run is the old one, and a version from before this step, given a flag it does not know, would
          start the capture service as the system account. (A deferred step of the new package could not
          come before RemoveExistingProducts where it is scheduled now, outside the transaction, either.) So
          an upgrade is covered from the first version that has this step onwards (docs/dev/installer.md). -->
     <SetProperty Id="ReleaseForUpgrade"
-                 Value="&quot;[INSTALLFOLDER]ScreenTail.Service.exe&quot; --upgrade-release"
+                 Value="&quot;[INSTALLFOLDER]ScreenTrail.Service.exe&quot; --upgrade-release"
                  Before="ReleaseForUpgrade"
                  Sequence="execute"
                  Condition="REMOVE~=&quot;ALL&quot; AND UPGRADINGPRODUCTCODE" />

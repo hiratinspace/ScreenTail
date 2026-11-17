@@ -1,6 +1,6 @@
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>Drains the hook ring off the hook thread: clicks go to screenshots, keys become burst counts.</summary>
 internal sealed class InputPump(SpscRing<InputSample> ring, ScreenshotPipeline shots, RunReport report)

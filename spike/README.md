@@ -19,7 +19,7 @@ Privacy: the spike records no key identities (only the categories `typing_burst`
 - A microphone. It's optional: without one, synthetic audio keeps the speech-to-text CPU load the same.
 - An RDP target (any Windows PC or VM with Remote Desktop enabled) for AC2.
 - A 4K monitor if you have one, for AC4. Without one, the synthetic 4K test still covers it.
-- Internet access on first run. It downloads the Whisper base model (about 150 MB) and Tesseract English data (about 4 MB) into `%LOCALAPPDATA%\ScreenTail.Spike`.
+- Internet access on first run. It downloads the Whisper base model (about 150 MB) and Tesseract English data (about 4 MB) into `%LOCALAPPDATA%\ScreenTrail.Spike`.
 
 ## Build
 
@@ -49,7 +49,7 @@ The script pulls and builds, records machine info, runs the overlay check by its
 
 ## Manual runs
 
-The same steps by hand. Each run prints its output folder (`%LOCALAPPDATA%\ScreenTail.Spike\runs\<timestamp>-<command>`). `Ctrl+C` ends a run early and still writes the report. In the commands below, `cap` stands for `dotnet run -c Release --project Spike.Capture --`.
+The same steps by hand. Each run prints its output folder (`%LOCALAPPDATA%\ScreenTrail.Spike\runs\<timestamp>-<command>`). `Ctrl+C` ends a run early and still writes the report. In the commands below, `cap` stands for `dotnet run -c Release --project Spike.Capture --`.
 
 1. **Start the overlay.** In a separate terminal, run `dotnet run -c Release --project Spike.Overlay`. A magenta pill appears top-right and an info icon appears in the tray.
 2. **Overlay exclusion (AC3) with a control case:**

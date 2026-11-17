@@ -1,6 +1,6 @@
 # Performance budgets (ST-031)
 
-ST-031 sets ScreenTail's budgets: idle CPU under 1%, recording CPU under 15% of a four-core machine,
+ST-031 sets ScreenTrail's budgets: idle CPU under 1%, recording CPU under 15% of a four-core machine,
 memory under 600 MB with speech, and disk under 40 MB for a twenty-minute session. This page says how
 each one is measured, whether CI enforces it, and the latest numbers from the test laptop (SCREENTRAIL,
 Windows 11, 8 logical processors).
@@ -154,7 +154,7 @@ every 20 ms. A window behind renaming itself 74 times a second reached a hook ov
 time and woke the narrowed foreground pump 4 times a second, its own poll included.
 
 The idle reports now name the busiest threads by their own description (`.NET TP Worker`,
-`ScreenTail foreground watcher`, never a window title) and give each watcher pump's rate. The first laptop
+`ScreenTrail foreground watcher`, never a window title) and give each watcher pump's rate. The first laptop
 run with the narrowed hooks (41347969730, before the console fix) measured the quiet idle service at
 **22.4 wakeups a second** net, the foreground watcher's pump at 0.6 and the focus watcher's at 0.0, the
 busiest threads the .NET timer (8.3), pool gate (4.5) and a pool worker (4.2); nothing near the 29.4 a
@@ -170,7 +170,7 @@ desktop (pumps 2.4 and 0.0), both under the ceiling of 40.
 
 ## Over budget: what gives first (AC2)
 
-Built 2026-10-29 (`client/ScreenTail.Core/Perf`). While a session is under way the service reads its own
+Built 2026-10-29 (`client/ScreenTrail.Core/Perf`). While a session is under way the service reads its own
 processor time once a second, as a share of the whole machine (process processor time over wall time,
 divided by the logical processors), and compares it with the recording budget in `CpuBudget`: 15% of a
 four-core machine. A machine with more cores is held to the same amount of processor, 60% of one core
@@ -240,7 +240,7 @@ one at a time at 51 s. During a demo rehearsal, with the service's console log i
 2. Run `scripts\windows\measure-idle.ps1 -Label "recording, speaking"` alongside, so the throttle's
    reading can be compared with what `Get-Process` sees.
 3. If the narrated session trips the throttle, check how many scene frames it kept. The count is in
-   the service's log at debug level (start the service with `SCREENTAIL_LOG_LEVEL=Debug`; each kept frame
+   the service's log at debug level (start the service with `SCREENTRAIL_LOG_LEVEL=Debug`; each kept frame
    logs `Scene frame N of M samples`). Compare it with a session of the same length without narration.
    A count near zero means narration alone holds the service over budget and costs the session its scene
    frames; paste both counts here, since that is a reason to revisit the budget or the order in which
@@ -358,7 +358,7 @@ service-sized segment's pass waits nearly the whole pass.
 
 What would let a stop go inside the bound, none of it done here: whisper.cpp installing the abort on its
 sched backends (the CPU backend reads one after every graph node), upstream and then in a Whisper.net
-release, or in a runtime built for ScreenTail; the sized context, which shortens the pass about four
+release, or in a runtime built for ScreenTrail; the sized context, which shortens the pass about four
 times for a short segment (the owner's decision after ST-027's recorded speech); or transcription in a
 process of its own that the stop ends. Thread count and context size are the owner's, from ST-031.
 
@@ -368,8 +368,8 @@ process of its own that the stop ends. Thread count and context size are the own
 and the full 1500 for anything longer than 19.4 s. `WhisperRecogniser` builds one processor per size from
 the same model, so the extra states cost no measurable memory: loaded and used on 2.2 s, 10.3 s and
 20.7 s, the full recogniser took 149.2 MB private and the sized one (three states) 147.3 MB. It is off by
-default; set `SCREENTAIL_SPEECH_SIZED_CONTEXT=1` (or `true`, `on`) for the service, or for
-`ScreenTail.Service transcribe`, to turn it on. The service logs `encoder window sized to each segment`
+default; set `SCREENTRAIL_SPEECH_SIZED_CONTEXT=1` (or `true`, `on`) for the service, or for
+`ScreenTrail.Service transcribe`, to turn it on. The service logs `encoder window sized to each segment`
 or `full` at start.
 
 Word error on synthetic speech, three voices, run 44027063937:
@@ -413,7 +413,7 @@ the pattern search alone ran about 1.6 times slower in Debug, measured on a Mac.
   nonsense.
 - **No skips, no pictures, no titles.** The tests run on every job. On a hosted runner the windows are
   half a second, nothing is enforced, and the speech test says it did not measure rather than download
-  148 MB. The laptop keeps its model copy in `%LOCALAPPDATA%\ScreenTail.Tests\models`. Measurements are
+  148 MB. The laptop keeps its model copy in `%LOCALAPPDATA%\ScreenTrail.Tests\models`. Measurements are
   text in the job summary and `measurements.txt`; nothing here writes an image or a window title.
 - **Cost.** The laptop capabilities job grew from about 2 to 5.4 minutes, and the hosted Windows tests
   by about half a minute. With the breakdown and the narrated sessions (ST-031, 2026-11-17) the
@@ -422,7 +422,7 @@ the pattern search alone ran about 1.6 times slower in Debug, measured on a Mac.
 
 ## Whole-process numbers, by hand
 
-The CI figures are what ScreenTail's code adds. The whole process (the runtime, SQLCipher, the OCR
+The CI figures are what ScreenTrail's code adds. The whole process (the runtime, SQLCipher, the OCR
 engine, the speech model) is measured on the real processes during a demo rehearsal:
 
 ```powershell

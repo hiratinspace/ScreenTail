@@ -30,11 +30,11 @@ $root = Join-Path ([System.IO.Path]::GetTempPath()) ("check-demo-stopped-tests-"
 New-Item -ItemType Directory -Force -Path $root | Out-Null
 
 # A name no process has, so the process half of the check is quiet unless a case says otherwise.
-$nobody = 'ScreenTail.NoSuchProcess'
+$nobody = 'ScreenTrail.NoSuchProcess'
 $self = Get-Process -Id $PID
 $selfTicks = $self.StartTime.ToUniversalTime().Ticks
-$busy = 'The ScreenTail demo is running on this laptop. Run scripts\windows\demo\stop.cmd, then re-run this job.'
-$idle = 'The ScreenTail demo is not running.'
+$busy = 'The ScreenTrail demo is running on this laptop. Run scripts\windows\demo\stop.cmd, then re-run this job.'
+$idle = 'The ScreenTrail demo is not running.'
 
 function Write-State {
     param([string]$Path, [object[]]$Entries)
@@ -58,13 +58,13 @@ $onBattery = '::error::This laptop is running on battery (42% left), which can r
 $lowCharge = '::error::This laptop''s battery is at 18%, too low to be sure it lasts this job even on the charger: let it charge to at least 30%, then re-run this job.'
 
 $cases = @(
-    [pscustomobject]@{ Name = 'no state file and no ScreenTail process passes'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'no state file and no ScreenTrail process passes'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
     [pscustomobject]@{ Name = 'a state file with nothing in it passes'; Entries = @(); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
     [pscustomobject]@{ Name = 'a live capture service that start.cmd launched fails'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($busy) },
     [pscustomobject]@{ Name = 'a recorded process that has since exited passes'; Entries = @((Entry 'service' $PID $self.ProcessName ($selfTicks - 36000000000))); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
-    [pscustomobject]@{ Name = 'a recorded id that now belongs to another program passes'; Entries = @((Entry 'service' $PID 'ScreenTail.Service' $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
-    [pscustomobject]@{ Name = 'a ScreenTail process the demo did not start is named with its id and is to be closed'; Entries = $null; Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($unrecorded, $closeIt) },
-    [pscustomobject]@{ Name = 'a ScreenTail process in another desktop session passes'; Entries = $null; Names = @($self.ProcessName); Session = $elsewhere; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'a recorded id that now belongs to another program passes'; Entries = @((Entry 'service' $PID 'ScreenTrail.Service' $selfTicks)); Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle) },
+    [pscustomobject]@{ Name = 'a ScreenTrail process the demo did not start is named with its id and is to be closed'; Entries = $null; Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($unrecorded, $closeIt) },
+    [pscustomobject]@{ Name = 'a ScreenTrail process in another desktop session passes'; Entries = $null; Names = @($self.ProcessName); Session = $elsewhere; ExpectExit = 0; MustSay = @($idle) },
     [pscustomobject]@{ Name = 'the demo running says stop.cmd, even with a process beside it'; Entries = @((Entry 'service' $PID $self.ProcessName $selfTicks)); Names = @($self.ProcessName); Session = $here; ExpectExit = 1; MustSay = @($busy) },
     [pscustomobject]@{ Name = 'a passing check prints the readiness block and still exits 0, whatever it finds'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 0; MustSay = @($idle, 'Laptop readiness (warns only, never fails the job):', '  Power source: AC (no battery)', '  CPU busy:     '); Readiness = $true },
     [pscustomobject]@{ Name = 'a laptop on battery stops with one line saying plug it in'; Entries = $null; Names = @($nobody); Session = $here; ExpectExit = 1; MustSay = @($idle, $onBattery); Power = @('-PowerSource', 'Battery', '-BatteryPercent', '42') },

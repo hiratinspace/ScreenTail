@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 /// <summary>Legibility proxy for ST-001 AC4: how many ground-truth words survive downscale + JPEG + OCR.</summary>
 public static partial class OcrAgreement

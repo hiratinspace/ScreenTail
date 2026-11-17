@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
     Prints how the shipped remote tools' and browsers' windows are drawn, so the owner can check that
-    ScreenTail's see-through rule will not skip their frames.
+    ScreenTrail's see-through rule will not skip their frames.
 
 .DESCRIPTION
-    ScreenTail skips a frame when the window in front is a layered window drawn below full opacity
+    ScreenTrail skips a frame when the window in front is a layered window drawn below full opacity
     (WS_EX_LAYERED with LWA_ALPHA under 255), because what lies behind it would be in the frame. A colour
     key (LWA_COLORKEY) is skipped too, except for a remote tool in the shipped registry, which may use one
     for shaped corners. Per-pixel alpha (UpdateLayeredWindow, where GetLayeredWindowAttributes fails) is
@@ -21,7 +21,7 @@
     size, and the layered flags. Window titles are never printed: they can name customers and machines,
     and this output may be pasted into an issue.
 
-    A line reading "layered alpha=NNN" with NNN under 255 is a window ScreenTail will not photograph.
+    A line reading "layered alpha=NNN" with NNN under 255 is a window ScreenTrail will not photograph.
 #>
 
 [CmdletBinding()]

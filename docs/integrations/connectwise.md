@@ -1,9 +1,9 @@
 # ConnectWise Manage
 
-How ScreenTail talks to ConnectWise PSA (ST-091, ST-092), what a tenant has to supply, and how to check
+How ScreenTrail talks to ConnectWise PSA (ST-091, ST-092), what a tenant has to supply, and how to check
 it against a sandbox before a pilot.
 
-## What ScreenTail does with it
+## What ScreenTrail does with it
 
 | Call | Route | When |
 |---|---|---|
@@ -65,18 +65,18 @@ holds Publish, `Ctrl+Enter` and Retry on such a row until the technician ticks "
 and the capture service refuses to send a destination it holds as landed or unknown unless the client
 says the technician checked (`publish_again`, `docs/ipc-contract.md`).
 Every refusal reaches the technician as a kind and two sentences, with ConnectWise's own words about what
-it refused and nothing else from the response (`backend/src/ScreenTail.Api/Providers/README.md`).
+it refused and nothing else from the response (`backend/src/ScreenTrail.Api/Providers/README.md`).
 
 ## What the tenant supplies
 
 1. **An API member** in ConnectWise: System → Members → API Members. Give it a role that can read
    service tickets and companies, add service notes, add time entries and add documents; nothing more.
 2. **API keys for that member**: the member's API Keys tab → New. ConnectWise shows the private key once.
-3. **The credential string** ScreenTail stores is the three joined the way ConnectWise's Basic auth
+3. **The credential string** ScreenTrail stores is the three joined the way ConnectWise's Basic auth
    wants them: `companyId+publicKey:privateKey`, where `companyId` is the login company (the one typed
    on the sign-in screen, lower case).
 4. **The site**: the base URL the tenant signs in to, for example `https://na.myconnectwise.net` or
-   `https://eu.myconnectwise.net`, or an on-premises host. ScreenTail appends `/v4_6_release/apis/3.0/`.
+   `https://eu.myconnectwise.net`, or an on-premises host. ScreenTrail appends `/v4_6_release/apis/3.0/`.
    It must be reachable at a public internet address: the backend refuses a site on its own machine or
    a private network, when it is stored and again when it is called.
 
@@ -94,13 +94,13 @@ signed-in session with its CSRF header. A technician's device cannot store or re
 **`ConnectWise:ClientId`**: the clientId ConnectWise issues per integration vendor at
 developer.connectwise.com. It is ours, not the tenant's, set once per deployment like the vault's master
 key. Without it every call is refused before it is sent. A technician reads "ConnectWise is not fully
-set up yet. Ask your ScreenTail owner to finish the ConnectWise setup.", with no setting named. The
-owner, on the ConnectWise card in the web admin, reads "Set ConnectWise:ClientId on the ScreenTail
+set up yet. Ask your ScreenTrail owner to finish the ConnectWise setup.", with no setting named. The
+owner, on the ConnectWise card in the web admin, reads "Set ConnectWise:ClientId on the ScreenTrail
 server, or ask whoever runs it to.", and the server logs a warning naming `ConnectWise:ClientId` when it
 starts without one (owner decision 2026-11-16).
 
 **Accepted (2026-11-15 security review): the clientId goes to whichever site a tenant stores.** It is
-sent on every call, so a tenant that stores a site it controls sees it. ScreenTail does not limit
+sent on every call, so a tenant that stores a site it controls sees it. ScreenTrail does not limit
 ConnectWise calls to ConnectWise's own hosts, because ConnectWise PSA also runs on premises under each
 customer's own domain, and an allowlist would lock those tenants out. The clientId is a public
 identifier of the integration, not an access credential: it names the vendor to ConnectWise for
@@ -118,11 +118,11 @@ there is one:
 2. Store the credential with the `PUT` above, against a backend running with `ConnectWise:ClientId` set.
 3. Search:
    ```bash
-   curl "$BACKEND/v1/psa/tickets?q=printer" -H "Authorization: Bearer $SCREENTAIL_DEVICE_TOKEN"
+   curl "$BACKEND/v1/psa/tickets?q=printer" -H "Authorization: Bearer $SCREENTRAIL_DEVICE_TOKEN"
    ```
    Expect open tickets whose summary contains the word, newest first, each with its company. A number
    returns that ticket first. `pr` is refused with `query_too_short`; a wrong key comes back as
-   `psa_unauthenticated` with "Ask your ScreenTail owner to update the ConnectWise connection in the web admin."
+   `psa_unauthenticated` with "Ask your ScreenTrail owner to update the ConnectWise connection in the web admin."
 4. Map a company (ST-097): `PUT /v1/integrations/hudu/companies` with a company the sandbox has, one it
    does not have, and one whose name has an apostrophe in it. Expect `204`, `400 no_such_psa_company`
    and `204`. The condition syntax (`name = '…'`, `name contains '…'`, single quotes) is written from the
@@ -138,12 +138,12 @@ Record what you saw in this file, dated, so the next person knows the recorded s
 
 ## What the recorded shapes are
 
-`backend/tests/ScreenTail.Api.Tests/Providers/ConnectWise/ScriptedConnectWise.cs` answers the routes
+`backend/tests/ScreenTrail.Api.Tests/Providers/ConnectWise/ScriptedConnectWise.cs` answers the routes
 above with the fields the provider reads, in the JSON ConnectWise returns them in, written from the API
 documentation rather than captured from a sandbox. The contract harness (`PsaProviderContract`) and the
 provider's own tests run against it. When the sandbox check has been done, replace what differs.
 
-`backend/tests/ScreenTail.Api.Tests/Providers/StandIns/ConnectWiseStandIn.cs` is the same shapes as a
+`backend/tests/ScreenTrail.Api.Tests/Providers/StandIns/ConnectWiseStandIn.cs` is the same shapes as a
 real HTTPS server the provider reaches over a socket, with the rules above (credential, `clientId`,
 search conditions and paging, company lookup by name, note flags, time entry window and member). Correct it along with the
 recorded shapes. The providers README says what its tests prove and what they cannot.

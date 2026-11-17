@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 /// <summary>
 /// Fixed-capacity latency recorder safe to call from a low-level hook callback:

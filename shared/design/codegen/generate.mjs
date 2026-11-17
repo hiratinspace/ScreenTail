@@ -10,9 +10,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
 const tokensFile = resolve(here, '../tokens.json');
 const targets = {
-  wpfDark: resolve(repoRoot, 'client/ScreenTail.UI/Theme/Tokens.Dark.g.xaml'),
-  wpfLight: resolve(repoRoot, 'client/ScreenTail.UI/Theme/Tokens.Light.g.xaml'),
-  wpfCommon: resolve(repoRoot, 'client/ScreenTail.UI/Theme/Tokens.Common.g.xaml'),
+  wpfDark: resolve(repoRoot, 'client/ScreenTrail.UI/Theme/Tokens.Dark.g.xaml'),
+  wpfLight: resolve(repoRoot, 'client/ScreenTrail.UI/Theme/Tokens.Light.g.xaml'),
+  wpfCommon: resolve(repoRoot, 'client/ScreenTrail.UI/Theme/Tokens.Common.g.xaml'),
   css: resolve(repoRoot, 'web/src/styles/tokens.g.css'),
 };
 const banner = 'Generated from shared/design/tokens.json by shared/design/codegen/generate.mjs. Do not edit by hand.';

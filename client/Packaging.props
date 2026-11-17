@@ -1,8 +1,8 @@
 <Project>
   <!--
     How the two processes are published for the installer (ST-112, ADR-0007). Imported by
-    ScreenTail.Service and ScreenTail.UI only; installer/build.ps1 turns it on with
-    -p:ScreenTailInstaller=true. Every other build (dotnet build, the tests, run-local.ps1, the demo)
+    ScreenTrail.Service and ScreenTrail.UI only; installer/build.ps1 turns it on with
+    -p:ScreenTrailInstaller=true. Every other build (dotnet build, the tests, run-local.ps1, the demo)
     is unchanged.
 
     ADR-0003 left two gaps to packaging. The switch that stops the runtime loading startup hooks lived in
@@ -26,7 +26,7 @@
     <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(ScreenTailInstaller)' == 'true'">
+  <PropertyGroup Condition="'$(ScreenTrailInstaller)' == 'true'">
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>

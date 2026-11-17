@@ -76,7 +76,7 @@ export function SignIn({ button, nextNonce, onCredential, busy, error }: SignInP
     <main id="content" className="center-pane" aria-labelledby="signin-title">
       <section className="card narrow">
         <h1 id="signin-title" className="title">
-          Sign in to ScreenTail admin
+          Sign in to ScreenTrail admin
         </h1>
         <p className="secondary">
           Owners sign in with their Google account. The first sign-in of an invited account sets up your organisation.
@@ -87,7 +87,7 @@ export function SignIn({ button, nextNonce, onCredential, busy, error }: SignInP
             <div ref={slot} className="google-slot" aria-busy={busy} />
             {busy && (
               <p role="status" className="secondary">
-                Checking your sign-in with ScreenTail.
+                Checking your sign-in with ScreenTrail.
               </p>
             )}
           </>

@@ -40,7 +40,7 @@ export const world = {
   },
 };
 
-export const sessionCookie = '__Host-screentail-admin';
+export const sessionCookie = '__Host-screentrail-admin';
 
 export interface GoogleAccount {
   sub: string;
@@ -105,7 +105,7 @@ const fakeGis = `(() => {
       button.type = 'button';
       button.textContent = 'Sign in with Google (test)';
       button.addEventListener('click', async () => {
-        callback({ credential: await window.screentailTestCredential(nonce, clientId) });
+        callback({ credential: await window.screentrailTestCredential(nonce, clientId) });
       });
       element.appendChild(button);
     },
@@ -151,13 +151,13 @@ export const test = base.extend<Fixtures>({
         await route.abort('blockedbyclient');
       }
     });
-    await page.exposeBinding('screentailTestCredential', (_source, nonce: string, clientId: string) => google.credential(nonce, clientId));
-    await page.exposeBinding('screentailCspViolation', (_source, line: string) => {
+    await page.exposeBinding('screentrailTestCredential', (_source, nonce: string, clientId: string) => google.credential(nonce, clientId));
+    await page.exposeBinding('screentrailCspViolation', (_source, line: string) => {
       violations.push(line);
     });
     await page.addInitScript(() => {
       document.addEventListener('securitypolicyviolation', (e) => {
-        const report = (window as unknown as { screentailCspViolation: (line: string) => void }).screentailCspViolation;
+        const report = (window as unknown as { screentrailCspViolation: (line: string) => void }).screentrailCspViolation;
         void report(`${e.effectiveDirective} blocked ${e.blockedURI || '(inline)'} at ${e.sourceFile}:${e.lineNumber}`);
       });
     });

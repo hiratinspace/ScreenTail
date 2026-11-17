@@ -68,20 +68,20 @@ the key source with a fake (`FakeGoogleKeys`, `NoGoogle`); no test calls Google.
 
 ### The admin session: an HttpOnly cookie, not a bearer token
 
-A ScreenTail JWT (HS256) signed with a key derived from `Jwt:SigningKey` for admin sessions alone (below),
+A ScreenTrail JWT (HS256) signed with a key derived from `Jwt:SigningKey` for admin sessions alone (below),
 carried in a cookie named
-`__Host-screentail-admin`: **HttpOnly, Secure, SameSite=Strict, Path=/**, no Domain. Its claims are the
+`__Host-screentrail-admin`: **HttpOnly, Secure, SameSite=Strict, Path=/**, no Domain. Its claims are the
 tenant, the owner, `role=owner`, a CSRF value and the owner's session version, and its audience is
-**`screentail-admin`**. It lasts `Admin:SessionLifetime` (8 hours by default) with no refresh; the
+**`screentrail-admin`**. It lasts `Admin:SessionLifetime` (8 hours by default) with no refresh; the
 owner signs in with Google again.
 
-**Why a cookie.** The admin page is the most privileged surface ScreenTail has: it issues the codes that
+**Why a cookie.** The admin page is the most privileged surface ScreenTrail has: it issues the codes that
 enrol machines on technicians' desks. A bearer token in page memory or storage is one script injection
 away from being taken; an HttpOnly cookie is not readable by script at all. The existing device scheme
 stays bearer, because devices are not browsers. The price of a cookie is CSRF, paid twice:
 
 - **SameSite=Strict**: the browser does not send the cookie on any request another site starts.
-- **Double-submit**: every request that is not a GET or HEAD must carry `X-ScreenTail-CSRF` equal to the
+- **Double-submit**: every request that is not a GET or HEAD must carry `X-ScreenTrail-CSRF` equal to the
   CSRF value inside the signed session (compared in constant time). The page learns it from the sign-in
   answer or `GET /v1/admin/session` and keeps it in memory. A custom header also forces a CORS preflight
   that this API never approves. The session stays stateless: the value is in the token, not a table.
@@ -97,7 +97,7 @@ value only the asking browser's cookie is deleted, so another site cannot sign t
 Told apart five ways, any one of which suffices: **the key** (admin sessions are signed with their own
 key, HMAC-SHA256 of the fixed label `screentail-admin-session-key-v1` under `Jwt:SigningKey`, so one
 secret is configured and neither scheme can check the other's signature; changing the label ends every
-admin session); **the audience** (`screentail-api` for devices, `screentail-admin` for owners, and
+admin session); **the audience** (`screentrail-api` for devices, `screentrail-admin` for owners, and
 startup refuses a `Jwt:Audience` equal to the admin one in any case or with a trailing slash); **the
 transport** (the admin scheme reads only its cookie and never the Authorization header; the device
 scheme reads only the header); **the claims** (`OwnerCheck` wants `role=owner` and an owner id and

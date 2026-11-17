@@ -8,7 +8,7 @@ how to run it.
 
 1. Open Google Cloud Console, pick or create a project, and go to **APIs & Services → OAuth consent
    screen**. Choose **External** (or Internal for a Workspace-only deployment), give the app a name
-   ("ScreenTail admin") and a support address. No scopes beyond the default `openid`, `email` and
+   ("ScreenTrail admin") and a support address. No scopes beyond the default `openid`, `email` and
    `profile` are needed. While the consent screen is in **Testing**, add each owner's Google address
    under Test users.
 2. Go to **APIs & Services → Credentials → Create credentials → OAuth client ID**, application type
@@ -45,7 +45,7 @@ Backend (environment variables, or `dotnet user-secrets` in Development):
 | `Testing__GoogleSigningKeys` | empty | **Browser tests only, Development only.** A JSON Web Key Set of public RSA keys that replaces Google's published keys (section 6). Any other environment refuses to start with it set. Never set it on a deployment. |
 
 The backend's other settings (`ConnectionStrings__Postgres`, `Jwt__SigningKey`) are as in
-`backend/README.md`. `Jwt__Audience` must not be `screentail-admin`, which is the admin session's own
+`backend/README.md`. `Jwt__Audience` must not be `screentrail-admin`, which is the admin session's own
 audience; startup refuses it.
 
 Web build (Vite reads `VITE_*` from the environment or from `web/.env.local`, which git ignores):
@@ -53,20 +53,20 @@ Web build (Vite reads `VITE_*` from the environment or from `web/.env.local`, wh
 | Key | What it does |
 |---|---|
 | `VITE_GOOGLE_CLIENT_ID` | The same client id. Without it the sign-in page says "Sign-in is not configured" instead of drawing Google's button. |
-| `SCREENTAIL_API` | Development only: where Vite's proxy sends `/v1`. Default `http://localhost:5000`. |
+| `SCREENTRAIL_API` | Development only: where Vite's proxy sends `/v1`. Default `http://localhost:5000`. |
 
 ## 3. Run it locally
 
 ```bash
 # The backend, as backend/README.md says, plus the admin settings:
-docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentail-db postgres:17-alpine
+docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentrail-db postgres:17-alpine
 cd backend
 export ConnectionStrings__Postgres='Host=localhost;Database=screentail;Username=postgres;Password=dev'
 export Jwt__SigningKey="$(openssl rand -base64 48)"
 export Admin__GoogleClientId='<your client id>.apps.googleusercontent.com'
 export Admin__SignupAllowlist__0='you@yourcompany.example'
-dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api
-dotnet run --project src/ScreenTail.Api          # http://localhost:5000
+dotnet ef database update --project src/ScreenTrail.Api --startup-project src/ScreenTrail.Api
+dotnet run --project src/ScreenTrail.Api          # http://localhost:5000
 
 # The web app, in a second terminal:
 cd web
@@ -149,7 +149,7 @@ styles; the API's closed default is added only to answers that set none.
 
 ```bash
 cd web && npm run lint && npm run typecheck && npm test && npm run build
-cd backend && dotnet test ScreenTail.Backend.sln     # the Admin tests are tests/ScreenTail.Api.Tests/Admin
+cd backend && dotnet test ScreenTrail.Backend.sln     # the Admin tests are tests/ScreenTrail.Api.Tests/Admin
 ```
 
 No test calls Google: the backend's tests replace Google's key set with keys they generate, and the web
@@ -172,15 +172,15 @@ headers a deployment sends (`web/security-headers.ts`), twice: once built with a
 without. CI runs it in the Web job, which runs for a change to `web/` or to the backend's code (`backend/src/`). It takes a few seconds once everything is built.
 
 ```bash
-docker run --rm -d -p 127.0.0.1:55499:5432 -e POSTGRES_PASSWORD=dev --name screentail-e2e-db postgres:17-alpine
-dotnet build backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release
+docker run --rm -d -p 127.0.0.1:55499:5432 -e POSTGRES_PASSWORD=dev --name screentrail-e2e-db postgres:17-alpine
+dotnet build backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj -c Release
 cd web
 npm ci
 npx playwright install --only-shell chromium     # the browser this Playwright version was built against
-SCREENTAIL_E2E_POSTGRES='Host=127.0.0.1;Port=55499;Database=screentail_e2e;Username=postgres;Password=dev' npm run e2e
+SCREENTRAIL_E2E_POSTGRES='Host=127.0.0.1;Port=55499;Database=screentrail_e2e;Username=postgres;Password=dev' npm run e2e
 ```
 
-`SCREENTAIL_E2E_DOTNET` names the `dotnet` to use when it is not on `PATH`, and `SCREENTAIL_E2E_API_DLL`
+`SCREENTRAIL_E2E_DOTNET` names the `dotnet` to use when it is not on `PATH`, and `SCREENTRAIL_E2E_API_DLL`
 an API build other than the Release one above. The database in the connection string is created and
 migrated with the API's own `--migrate`; each run uses addresses of its own, so runs never meet.
 

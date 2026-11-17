@@ -1,8 +1,8 @@
 {
   "_comment": [
-    "Where ScreenTail looks for updates and whose signature it accepts on an update manifest (ST-113, ADR-0008).",
+    "Where ScreenTrail looks for updates and whose signature it accepts on an update manifest (ST-113, ADR-0008).",
     "",
-    "Compiled into the client (ScreenTail.Core embeds this file) and read by installer/update-manifest.ps1,",
+    "Compiled into the client (ScreenTrail.Core embeds this file) and read by installer/update-manifest.ps1,",
     "which checks every manifest it signs against these keys before CI uploads it. Nothing here is a secret:",
     "the keys are public keys, and the private key lives in Azure Key Vault and never leaves it.",
     "",

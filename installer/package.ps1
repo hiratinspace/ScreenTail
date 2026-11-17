@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Wraps a payload into ScreenTail.msi and ScreenTail-Setup.exe with WiX, one step at a time (ST-112,
+    Wraps a payload into ScreenTrail.msi and ScreenTrail-Setup.exe with WiX, one step at a time (ST-112,
     ADR-0007).
 
 .DESCRIPTION
@@ -11,8 +11,8 @@
     build, and CI calls it one step at a time with a sign.ps1 step between each, because every layer has
     to be signed before the next one wraps it:
 
-      Msi       ScreenTail.msi (or -MsiName) from the payload folder
-      Bundle    ScreenTail-Setup.exe from that package and Microsoft's Visual C++ runtime installer,
+      Msi       ScreenTrail.msi (or -MsiName) from the payload folder
+      Bundle    ScreenTrail-Setup.exe from that package and Microsoft's Visual C++ runtime installer,
                 the exact file pinned in installer/tools.json (URL, version, SHA-256), downloaded
                 here and checked against the pin and to be Microsoft-signed
       Detach    takes the setup program's engine out into work\engine.exe, to be signed on its own
@@ -33,14 +33,14 @@
     Where the payload is and everything is written. Default: artifacts\installer in the repository.
 
 .PARAMETER MsiName
-    The package's file name. Default ScreenTail.msi.
+    The package's file name. Default ScreenTrail.msi.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidateSet('Msi', 'Bundle', 'Detach', 'Reattach')][string]$Step,
     [string]$Version = '0.1.0',
     [string]$Output,
-    [string]$MsiName = 'ScreenTail.msi'
+    [string]$MsiName = 'ScreenTrail.msi'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,7 +65,7 @@ $payload = Join-Path $Output 'payload'
 $packages = Join-Path $Output 'packages'
 $tools = Join-Path $work 'tools'
 $msi = Join-Path $packages $MsiName
-$bundle = Join-Path $packages 'ScreenTail-Setup.exe'
+$bundle = Join-Path $packages 'ScreenTrail-Setup.exe'
 $engine = Join-Path $work 'engine.exe'
 New-Item -ItemType Directory -Force -Path $work, $packages | Out-Null
 
@@ -101,7 +101,7 @@ function Invoke-Wix([string]$What, [string[]]$Arguments) {
 }
 
 if ($Step -eq 'Msi') {
-    if (-not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {
+    if (-not (Test-Path (Join-Path $payload 'ScreenTrail.Service.exe'))) {
         throw "There is no payload in $payload. Run build.ps1 -Stage Payload first."
     }
     $util = Get-Extension 'WixToolset.Util.wixext' 'wixext5\WixToolset.Util.wixext.dll'
@@ -138,8 +138,8 @@ if ($Step -eq 'Bundle') {
     }
     Write-Host "  vc_redist.x64.exe $vcVersion, signed by Microsoft"
 
-    Write-Step 'Building ScreenTail-Setup.exe'
-    Invoke-Wix 'Building ScreenTail-Setup.exe' @(
+    Write-Step 'Building ScreenTrail-Setup.exe'
+    Invoke-Wix 'Building ScreenTrail-Setup.exe' @(
         'build', (Join-Path $PSScriptRoot 'Bundle.wxs'),
         '-arch', 'x64',
         '-ext', $bal,

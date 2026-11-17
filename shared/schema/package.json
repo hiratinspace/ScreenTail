@@ -1,5 +1,5 @@
 {
-  "name": "screentail-schema",
+  "name": "screentrail-schema",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -9,7 +9,7 @@
   "scripts": {
     "codegen": "node codegen/generate.mjs",
     "test": "node test/validate-examples.mjs",
-    "check": "npm run codegen && git diff --exit-code -- ../../client/ScreenTail.Shared/Generated ../../web/src/generated"
+    "check": "npm run codegen && git diff --exit-code -- ../../client/ScreenTrail.Shared/Generated ../../web/src/generated"
   },
   "devDependencies": {
     "ajv": "8.20.0",

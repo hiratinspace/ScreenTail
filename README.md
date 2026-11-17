@@ -1,6 +1,6 @@
-# ScreenTail
+# ScreenTrail
 
-ScreenTail turns a remote-support session into a ticket note. A Windows app records what an MSP technician does during a session (clicks, screenshots and spoken narration), removes sensitive content on the device, and drafts the note. The technician reviews and edits the draft, then publishes it to their PSA and documentation tools.
+ScreenTrail turns a remote-support session into a ticket note. A Windows app records what an MSP technician does during a session (clicks, screenshots and spoken narration), removes sensitive content on the device, and drafts the note. The technician reviews and edits the draft, then publishes it to their PSA and documentation tools.
 
 **Status:** in development and not yet released. There is no released installer or supported build yet, and nothing here is ready for production use or customer data.
 
@@ -20,9 +20,9 @@ ScreenTail turns a remote-support session into a ticket note. A Windows app reco
 You need the .NET 10 SDK. The client builds on any OS. Its core tests run anywhere; the Windows-specific parts run only on Windows.
 
 ```
-dotnet build client/ScreenTail.sln
-dotnet test client/ScreenTail.sln
-dotnet test backend/ScreenTail.Backend.sln
+dotnet build client/ScreenTrail.sln
+dotnet test client/ScreenTrail.sln
+dotnet test backend/ScreenTrail.Backend.sln
 ```
 
 - **Web:** Node 24 (see `.nvmrc`), then `cd web && npm ci && npm test`.

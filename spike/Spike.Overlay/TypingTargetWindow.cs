@@ -2,7 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
-namespace ScreenTail.Spike.Overlay;
+namespace ScreenTrail.Spike.Overlay;
 
 /// <summary>
 /// A plain, focusable text window for <c>Spike.Capture run --drive-input</c> to type into, so unattended
@@ -10,7 +10,7 @@ namespace ScreenTail.Spike.Overlay;
 /// </summary>
 public sealed class TypingTargetWindow : Window
 {
-    public const string TargetTitle = "ScreenTail.Spike.TypingTarget";
+    public const string TargetTitle = "ScreenTrail.Spike.TypingTarget";
 
     public TypingTargetWindow()
     {

@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 /// <summary>
 /// Detects a low-level hook that Windows silently removed (callback exceeded LowLevelHooksTimeout).

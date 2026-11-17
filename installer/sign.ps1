@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    The one signing step for ScreenTail's installer (ST-112, ADR-0007).
+    The one signing step for ScreenTrail's installer (ST-112, ADR-0007).
 
 .DESCRIPTION
     Signs the files it is given with SHA-256 and an RFC 3161 timestamp, so a signature stays valid after
@@ -12,9 +12,9 @@
     Configured from the environment, never from a file in the repository:
 
       Azure Artifact Signing (formerly Trusted Signing), the recommended way:
-        SCREENTAIL_SIGNING_ENDPOINT   for example https://eus.codesigning.azure.net
-        SCREENTAIL_SIGNING_ACCOUNT    the Artifact Signing account name
-        SCREENTAIL_SIGNING_PROFILE    the certificate profile name
+        SCREENTRAIL_SIGNING_ENDPOINT   for example https://eus.codesigning.azure.net
+        SCREENTRAIL_SIGNING_ACCOUNT    the Artifact Signing account name
+        SCREENTRAIL_SIGNING_PROFILE    the certificate profile name
         and a credential the Azure SDK finds:
           in CI, GitHub's own OIDC token for the job (workload identity federation): AZURE_TENANT_ID
           and AZURE_CLIENT_ID of an app registration that trusts this repository's 'signing'
@@ -25,12 +25,12 @@
           principal, which CI does not use).
 
       A certificate in the Windows certificate store (a hardware token, or a cloud HSM's key provider):
-        SCREENTAIL_SIGNING_THUMBPRINT the certificate's SHA-1 thumbprint, current user's store
-        SCREENTAIL_TIMESTAMP_URL      optional; default http://timestamp.digicert.com
+        SCREENTRAIL_SIGNING_THUMBPRINT the certificate's SHA-1 thumbprint, current user's store
+        SCREENTRAIL_TIMESTAMP_URL      optional; default http://timestamp.digicert.com
 
     With neither, it signs nothing, lists what it would have signed, and exits successfully: an
     unsigned build is a development build, and the peer checks treat it as one (ADR-0003). With
-    SCREENTAIL_REQUIRE_SIGNING=1 (CI's signing job sets it) an unconfigured run fails instead, so a job
+    SCREENTRAIL_REQUIRE_SIGNING=1 (CI's signing job sets it) an unconfigured run fails instead, so a job
     that is meant to sign can never produce an unsigned build by accident.
 
     With -Verify it signs nothing and checks the finished build instead: every file's signature is one
@@ -39,7 +39,7 @@
     and its engine are signed by that publisher; and every signature of ours carries a timestamp. With
     the Artifact Signing settings in its environment, every signature of ours must also carry Artifact
     Signing's identity-validation usage, which installed builds compare updates by. An unsigned build
-    passes with a notice, unless SCREENTAIL_REQUIRE_SIGNING=1.
+    passes with a notice, unless SCREENTRAIL_REQUIRE_SIGNING=1.
 
     It prints file names and the signing mode, never a credential. The signing tools run by absolute
     path: signtool from the Windows SDK, and Microsoft's Artifact Signing client at the version and
@@ -80,16 +80,16 @@ Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN
 $ArtifactSigningTimestamp = 'http://timestamp.acs.microsoft.com'
 
 function Get-SigningMode {
-    $endpoint = $env:SCREENTAIL_SIGNING_ENDPOINT
-    $account = $env:SCREENTAIL_SIGNING_ACCOUNT
-    $profileName = $env:SCREENTAIL_SIGNING_PROFILE
+    $endpoint = $env:SCREENTRAIL_SIGNING_ENDPOINT
+    $account = $env:SCREENTRAIL_SIGNING_ACCOUNT
+    $profileName = $env:SCREENTRAIL_SIGNING_PROFILE
     if ($endpoint -or $account -or $profileName) {
         if (-not ($endpoint -and $account -and $profileName)) {
-            throw 'Artifact Signing is partly configured: SCREENTAIL_SIGNING_ENDPOINT, SCREENTAIL_SIGNING_ACCOUNT and SCREENTAIL_SIGNING_PROFILE are needed together.'
+            throw 'Artifact Signing is partly configured: SCREENTRAIL_SIGNING_ENDPOINT, SCREENTRAIL_SIGNING_ACCOUNT and SCREENTRAIL_SIGNING_PROFILE are needed together.'
         }
         return 'artifact-signing'
     }
-    if ($env:SCREENTAIL_SIGNING_THUMBPRINT) {
+    if ($env:SCREENTRAIL_SIGNING_THUMBPRINT) {
         return 'certificate'
     }
     return 'none'
@@ -138,7 +138,7 @@ function Test-ValidationUsage($Certificate) {
 
 function Test-Build([string[]]$Files) {
     # The finished build, checked as a whole: what the peer checks and Windows will see.
-    $mine = @('ScreenTail.Service.exe', 'ScreenTail.UI.exe')
+    $mine = @('ScreenTrail.Service.exe', 'ScreenTrail.UI.exe')
     $signatures = @{}
     $unsigned = New-Object System.Collections.Generic.List[string]
     foreach ($file in $Files) {
@@ -152,8 +152,8 @@ function Test-Build([string[]]$Files) {
         $signatures[$file] = $signature
     }
     if ($unsigned.Count -gt 0) {
-        if ($env:SCREENTAIL_REQUIRE_SIGNING -eq '1') {
-            throw "SCREENTAIL_REQUIRE_SIGNING is set and $($unsigned.Count) file(s) are not signed: $($unsigned -join ', ')"
+        if ($env:SCREENTRAIL_REQUIRE_SIGNING -eq '1') {
+            throw "SCREENTRAIL_REQUIRE_SIGNING is set and $($unsigned.Count) file(s) are not signed: $($unsigned -join ', ')"
         }
         Write-Host "  unsigned development build, $($unsigned.Count) file(s) not signed; nothing else to check"
         return
@@ -161,7 +161,7 @@ function Test-Build([string[]]$Files) {
 
     $exes = @($signatures.Keys | Where-Object { (Split-Path $_ -Leaf) -in $mine })
     if ($exes.Count -ne 2) {
-        throw 'Verifying a build needs both ScreenTail.Service.exe and ScreenTail.UI.exe among the files.'
+        throw 'Verifying a build needs both ScreenTrail.Service.exe and ScreenTrail.UI.exe among the files.'
     }
     $thumbprints = @($exes | ForEach-Object { $signatures[$_].SignerCertificate.Thumbprint } | Sort-Object -Unique)
     if ($thumbprints.Count -ne 1) {
@@ -234,8 +234,8 @@ if ($toSign.Count -eq 0) {
 }
 
 if ($mode -eq 'none') {
-    if ($env:SCREENTAIL_REQUIRE_SIGNING -eq '1') {
-        throw 'SCREENTAIL_REQUIRE_SIGNING is set and signing is not configured. Refusing to produce an unsigned build here.'
+    if ($env:SCREENTRAIL_REQUIRE_SIGNING -eq '1') {
+        throw 'SCREENTRAIL_REQUIRE_SIGNING is set and signing is not configured. Refusing to produce an unsigned build here.'
     }
     $names = ($toSign | ForEach-Object { Split-Path $_ -Leaf }) -join ', '
     Write-Host "  NOT SIGNED (signing is not configured; docs/dev/installer.md says how to turn it on): $names"
@@ -247,15 +247,15 @@ if ($mode -eq 'none') {
 
 $signtool = Find-SignTool
 $arguments = @('sign', '/fd', 'SHA256', '/td', 'SHA256')
-$scratch = Join-Path ([IO.Path]::GetTempPath()) ('screentail-sign-' + [guid]::NewGuid().ToString('N'))
+$scratch = Join-Path ([IO.Path]::GetTempPath()) ('screentrail-sign-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $scratch | Out-Null
 try {
     if ($mode -eq 'artifact-signing') {
         $dlib = Get-ArtifactSigningDlib (Join-Path $scratch 'client')
         $metadata = [ordered]@{
-            Endpoint = $env:SCREENTAIL_SIGNING_ENDPOINT
-            CodeSigningAccountName = $env:SCREENTAIL_SIGNING_ACCOUNT
-            CertificateProfileName = $env:SCREENTAIL_SIGNING_PROFILE
+            Endpoint = $env:SCREENTRAIL_SIGNING_ENDPOINT
+            CodeSigningAccountName = $env:SCREENTRAIL_SIGNING_ACCOUNT
+            CertificateProfileName = $env:SCREENTRAIL_SIGNING_PROFILE
         }
         $others = @('ManagedIdentityCredential', 'SharedTokenCacheCredential', 'VisualStudioCredential', 'VisualStudioCodeCredential',
             'AzureCliCredential', 'AzurePowerShellCredential', 'AzureDeveloperCliCredential', 'InteractiveBrowserCredential')
@@ -283,11 +283,11 @@ try {
         $metadata | ConvertTo-Json | Set-Content -Path $metadataFile -Encoding ASCII
         $arguments += @('/tr', $ArtifactSigningTimestamp, '/dlib', $dlib, '/dmdf', $metadataFile)
     } else {
-        $timestamp = $env:SCREENTAIL_TIMESTAMP_URL
+        $timestamp = $env:SCREENTRAIL_TIMESTAMP_URL
         if (-not $timestamp) {
             $timestamp = 'http://timestamp.digicert.com'
         }
-        $arguments += @('/tr', $timestamp, '/sha1', $env:SCREENTAIL_SIGNING_THUMBPRINT)
+        $arguments += @('/tr', $timestamp, '/sha1', $env:SCREENTRAIL_SIGNING_THUMBPRINT)
     }
 
     Write-Host "  signing $($toSign.Count) file(s) ($mode): $(($toSign | ForEach-Object { Split-Path $_ -Leaf }) -join ', ')"

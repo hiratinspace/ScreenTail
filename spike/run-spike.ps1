@@ -106,7 +106,7 @@ if ($branch -ne 'st-001-client-stack-spike') {
 }
 & git pull --ff-only
 Assert-ExitCode 'git pull'
-& dotnet build ScreenTail.Spike.sln -c Release
+& dotnet build ScreenTrail.Spike.sln -c Release
 Assert-ExitCode 'Build'
 New-Item -ItemType Directory -Force -Path $evidence | Out-Null
 

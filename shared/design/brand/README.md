@@ -1,6 +1,6 @@
-# ScreenTail logo files (Iris, Spec v0.6.0)
+# ScreenTrail logo files (Iris, Spec v0.6.0)
 
-The refined ScreenTail mark: one ribbon hook, drawn once and turned 180 degrees, folds into an S around an
+The refined ScreenTrail mark: one ribbon hook, drawn once and turned 180 degrees, folds into an S around an
 upright 4:3 screen. Every file is a flat-fill vector on a 64-unit grid (80 units for the tiles), with no
 gradients and no background plate unless the name says so. Colours are the brand tokens in
 `../tokens.json`: Iris #6A43C4, Ribbon 400 #B2A6EC, frame #141030, paper #F7F5FE, ink #0A071E. The rules
@@ -85,8 +85,8 @@ masks correctly, and writes:
 
 | Output | Frames |
 |---|---|
-| `client/ScreenTail.UI/Assets/app.ico` | 16, 20, 24 from `app-icon-small.svg`; 32, 40, 48 from `glyph-mid-on-navy.svg`; 64, 128, 256 from `app-icon-256.svg` |
-| `client/ScreenTail.UI/Assets/Tray/tray-<state>-<light\|dark>.ico` | 16, 20, 24 from the `-16` file; 32, 40, 48 from the `-32` file |
+| `client/ScreenTrail.UI/Assets/app.ico` | 16, 20, 24 from `app-icon-small.svg`; 32, 40, 48 from `glyph-mid-on-navy.svg`; 64, 128, 256 from `app-icon-256.svg` |
+| `client/ScreenTrail.UI/Assets/Tray/tray-<state>-<light\|dark>.ico` | 16, 20, 24 from the `-16` file; 32, 40, 48 from the `-32` file |
 
 Frames below 256 are 32-bit BMP, the 256 frame is PNG. The UI uses `app.ico` as the executable's icon and
 on every window (`Window.Base`), and the tray loads the state's icon at the screen's small-icon size (16 at

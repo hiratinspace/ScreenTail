@@ -1,0 +1,440 @@
+using ScreenTrail.Core.Input;
+using ScreenTrail.Core.Shell;
+using ScreenTrail.Core.Speech;
+using ScreenTrail.Shared.Ipc;
+using ScreenTrail.Shared.Settings;
+
+namespace ScreenTrail.Core.Settings;
+
+public sealed record ToolChoice(string Id, string DisplayName);
+
+/// <param name="Name">What is saved: the model's name, or null for the default, which names no model.</param>
+/// <param name="Hint">Size and accuracy in a phrase, for the model picker (Spec §5 S5).</param>
+public sealed record ModelChoice(string? Name, string Hint)
+{
+    /// <summary>What the picker calls it: the model's name, or "Automatic" for the default.</summary>
+    public string Label => Name ?? "Automatic";
+}
+
+/// <summary>One line of the scene-change sensitivity picker.</summary>
+/// <param name="Value">What is saved: "low", "medium" or "high" (<see cref="CaptureSettingsRules.Sensitivities"/>).</param>
+/// <param name="Label">What the picker calls it, and what it does to the number of screenshots.</param>
+public sealed record SensitivityChoice(string Value, string Label);
+
+/// <param name="PolicyForcesAllWindows">The admin's policy set the scope; the radio is read-only here (INV-11).</param>
+/// <param name="DefaultGraceSeconds">The registry's grace, shown when the technician has not set one.</param>
+/// <param name="Microphones">The capture devices connected when the card loaded, the default communications device marked.</param>
+public sealed record CaptureSnapshot(CaptureSettings Settings, IReadOnlyList<ToolChoice> Tools, IReadOnlyList<MicrophoneDevice> Microphones, bool PolicyForcesAllWindows, int DefaultGraceSeconds);
+
+/// <summary>One line of the microphone picker.</summary>
+/// <param name="Id">What is saved: Windows' endpoint id, or null for Windows' default.</param>
+/// <param name="Label">What the picker shows.</param>
+public sealed record MicrophoneOption(string? Id, string Label);
+
+/// <summary>What Settings → Capture asks the service (ST-080). Over the pipe in the running application; a fake in tests.</summary>
+public interface ICaptureGateway
+{
+    Task<CaptureSnapshot?> LoadAsync(CancellationToken ct = default);
+
+    /// <summary>Null when saved and applied; otherwise the reason.</summary>
+    Task<string?> SaveAsync(CaptureSettings settings, CancellationToken ct = default);
+}
+
+/// <summary>
+/// Settings → Capture's rules (ST-080, Spec §5 S5). "All windows" warns about other customers' data
+/// and is not saved until confirmed (INV-5); a hotkey is checked as typed and a clash names an
+/// alternative inline (ST-029); the microphone is chosen here and used the next time it opens, and a
+/// chosen one that is not connected falls back to Windows' default and says so (AC3); the speech model
+/// applies at the next start, which the screen says rather than pretending otherwise.
+/// </summary>
+public sealed class CapturePanel(ICaptureGateway gateway)
+{
+    public const string AllWindowsWarning = "All windows means every window that has focus during a session is captured: a browser tab with other customers' data, your email, a password manager that is not excluded. Confirm you want this.";
+
+    private readonly ICaptureGateway _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
+    private readonly List<ToolToggle> _tools = [];
+    private readonly Dictionary<HotkeyAction, string> _hotkeys = [];
+    private CaptureSettings _loaded = new();
+
+    /// <summary>What <see cref="Current"/> was when last loaded or saved; a fresh panel's own before either.</summary>
+    private CaptureSettings _baseline = new();
+
+    /// <summary>The last snapshot read, its settings kept at what was last saved, for <see cref="Undo"/>.</summary>
+    private CaptureSnapshot? _snapshot;
+    private bool _allWindowsConfirmed;
+    private string? _refusal;
+
+    public sealed class ToolToggle(ToolChoice tool, bool enabled)
+    {
+        public string Id => tool.Id;
+
+        public string DisplayName => tool.DisplayName;
+
+        public bool Enabled { get; internal set; } = enabled;
+    }
+
+    public bool Loaded { get; private set; }
+
+    public IReadOnlyList<ToolToggle> Tools => _tools;
+
+    public bool CaptureAllWindows
+    {
+        get;
+        set
+        {
+            if (field != value)
+            {
+                _allWindowsConfirmed = false;
+            }
+
+            field = value;
+        }
+    }
+
+    public bool ScopeLocked { get; private set; }
+
+    /// <summary>The inline warning while "All windows" is chosen and not yet confirmed; null otherwise.</summary>
+    public string? ScopeWarning => CaptureAllWindows && !ScopeLocked ? AllWindowsWarning : null;
+
+    public bool AutoStart { get; set; } = true;
+
+    public int GraceSeconds { get; set; } = 120;
+
+    public int DefaultGraceSeconds { get; private set; } = 120;
+
+    public string Sensitivity { get; set; } = "medium";
+
+    /// <summary>
+    /// The sensitivity picker's lines, by name (Spec v0.6.8): the picker showed the stored values, "low",
+    /// "medium" and "high", which say nothing about which way more screenshots lies.
+    /// </summary>
+    public static IReadOnlyList<SensitivityChoice> SensitivityChoices { get; } =
+    [
+        new("low", "Low: fewer screenshots"),
+        new("medium", "Medium"),
+        new("high", "High: more screenshots"),
+    ];
+
+    /// <summary>
+    /// The line that is chosen now, however the stored value is cased. A value the list does not have is
+    /// shown as Medium, which is how the sampler runs it. Choosing the line already shown changes nothing.
+    /// </summary>
+    public SensitivityChoice SelectedSensitivity
+    {
+        get => SensitivityChoices.FirstOrDefault(c => string.Equals(c.Value, Sensitivity, StringComparison.OrdinalIgnoreCase)) ?? SensitivityChoices[1];
+        set
+        {
+            if (value is not null && !string.Equals(value.Value, SelectedSensitivity.Value, StringComparison.Ordinal))
+            {
+                Sensitivity = value.Value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// When a new choice takes effect. The microphone reads the choice each time it opens, and within a
+    /// session it opens again after every pause and every moment capture stopped (a password field, an
+    /// excluded app), so it can be sooner than the next session.
+    /// </summary>
+    public const string MicrophoneApplies = "A new choice is used the next time the microphone opens: at the next session, or sooner if a session pauses or stops capturing for a moment, as it does at a password field.";
+
+    /// <summary>The capture devices the service found connected when the card loaded.</summary>
+    public IReadOnlyList<MicrophoneDevice> Microphones { get; private set; } = [];
+
+    /// <summary>The chosen device's Windows id, or null for Windows' default communications device.</summary>
+    public string? MicrophoneId { get; set; }
+
+    /// <summary>
+    /// The picker's lines: Windows' default first, naming the device it is now, then each device
+    /// connected; and, when the saved choice is not connected, that choice too, so that saving
+    /// something else on the card does not quietly forget it.
+    /// </summary>
+    public IReadOnlyList<MicrophoneOption> MicrophoneOptions
+    {
+        get
+        {
+            var fallback = MicrophoneChoice.Resolve(Microphones, null).Device;
+            var options = new List<MicrophoneOption>
+            {
+                new(null, fallback is null ? "Windows default (none connected)" : $"Windows default ({fallback.Name})"),
+            };
+            options.AddRange(Microphones.Select(m => new MicrophoneOption(m.Id, m.Name)));
+            if (_loaded.MicrophoneId is { } saved && MicrophoneChoice.Resolve(Microphones, saved).ChosenIsMissing)
+            {
+                options.Add(new MicrophoneOption(saved, "The microphone chosen before (not connected)"));
+            }
+
+            return options;
+        }
+    }
+
+    /// <summary>The line in <see cref="MicrophoneOptions"/> that is chosen now.</summary>
+    public MicrophoneOption SelectedMicrophone =>
+        MicrophoneOptions.FirstOrDefault(o => string.Equals(o.Id, MicrophoneId, StringComparison.OrdinalIgnoreCase)) ?? MicrophoneOptions[0];
+
+    /// <summary>
+    /// What the card says about the microphone beside the picker, or null when there is nothing to say:
+    /// that the chosen device is not connected and which one is used instead, or that there is none.
+    /// Either way sessions start; only narration depends on it.
+    /// </summary>
+    public string? MicrophoneNote
+    {
+        get
+        {
+            var resolved = MicrophoneChoice.Resolve(Microphones, MicrophoneId);
+            if (resolved.Device is null)
+            {
+                return "No microphone is connected. Sessions still record clicks and screenshots, without narration.";
+            }
+
+            return resolved.ChosenIsMissing
+                ? $"The chosen microphone is not connected, so Windows' default ({resolved.Device.Name}) is used until it is back. Sessions start either way."
+                : null;
+        }
+    }
+
+    /// <summary>
+    /// The model picker's lines: the default first, naming the model it uses now, then each model. With no
+    /// model chosen, which is how every installation starts, the picker used to show nothing (Spec v0.6.8).
+    /// </summary>
+    public IReadOnlyList<ModelChoice> Models { get; } =
+    [
+        new ModelChoice(null, $"recommended, uses {SpeechModels.For(Environment.ProcessorCount).Name}"),
+        .. SpeechModels.All.Select(m => new ModelChoice(m.Name, m.Name switch
+        {
+            "tiny.en" => "smallest download, fastest, least accurate",
+            "small.en" => "largest download, slowest, best accuracy",
+            _ => "the middle: what most laptops run well",
+        })),
+    ];
+
+    /// <summary>Null is the model chosen for this machine's cores.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>
+    /// The line in <see cref="Models"/> that is chosen now, never none: the default when no model is named,
+    /// and when the one named is not in the list, since the service then runs the default. Choosing the
+    /// line already shown changes nothing; choosing the default saves no name.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.AllowNull]
+    public ModelChoice SelectedModel
+    {
+        get => Models.FirstOrDefault(m => m.Name is not null && string.Equals(m.Name, Model, StringComparison.OrdinalIgnoreCase)) ?? Models[0];
+        set
+        {
+            // A picker that is cleared hands over nothing: that is the default, never an empty picker.
+            var chosen = value ?? Models[0];
+            if (!ReferenceEquals(chosen, SelectedModel))
+            {
+                Model = chosen.Name;
+            }
+        }
+    }
+
+    public bool StartUiAtLogin { get; set; }
+
+    public string AppliesAtNextStart { get; } = "The speech model applies at the next start of the capture service.";
+
+    public string HotkeyText(HotkeyAction action) => _hotkeys.TryGetValue(action, out var text) ? text : HotkeyBindings.Defaults[action].ToString();
+
+    public void SetHotkey(HotkeyAction action, string? text)
+    {
+        _refusal = null;
+        _hotkeys[action] = (text ?? string.Empty).Trim();
+    }
+
+    /// <summary>Why this action's chord cannot be saved (a shape problem, or a clash with the alternative to try), or null.</summary>
+    public string? HotkeyProblem(HotkeyAction action)
+    {
+        if (!_hotkeys.TryGetValue(action, out var text))
+        {
+            return null;
+        }
+
+        if (!Hotkey.TryParse(text, out var hotkey) || !hotkey.Value.IsUsable)
+        {
+            return "Not a chord like Ctrl+Alt+R: two modifiers and a key.";
+        }
+
+        var conflict = Current().Conflicts().FirstOrDefault(c => c.Action == action);
+        return conflict is null ? null : $"{conflict.Reason}{(conflict.Suggestion is { } s ? $" Try {s}." : string.Empty)}";
+    }
+
+    public string? Problem => _refusal ?? Unsavable;
+
+    /// <summary>Why the fields cannot be saved as they are, leaving out the service's last refusal, which a new save may not repeat.</summary>
+    internal string? Unsavable
+    {
+        get
+        {
+            if (ScopeWarning is not null && !_allWindowsConfirmed)
+            {
+                return "Confirm capturing all windows before saving.";
+            }
+
+            var problems = Current().Problems();
+            return problems.Count > 0 ? problems[0] : null;
+        }
+    }
+
+    public bool CanSave => Loaded && Problem is null;
+
+    /// <summary>
+    /// Whether the screen holds a change the technician has not saved: what would be saved differs from
+    /// what was last loaded or saved. The shell reads the panel again when the service comes back only
+    /// when this is false, so a reconnect never overwrites an edit (2026-10-12 review, S-144).
+    /// </summary>
+    public bool HasUnsavedEdits => !Same(Current(), _baseline);
+
+    /// <summary>What was last loaded or saved, for Settings' Save bar to compare against.</summary>
+    internal CaptureSettings Baseline => _baseline;
+
+    public void SetTool(string id, bool enabled)
+    {
+        _refusal = null;
+        foreach (var tool in _tools.Where(t => string.Equals(t.Id, id, StringComparison.OrdinalIgnoreCase)))
+        {
+            tool.Enabled = enabled;
+        }
+    }
+
+    /// <summary>The technician read the warning and still wants every window (INV-5).</summary>
+    public void ConfirmAllWindows() => _allWindowsConfirmed = true;
+
+    public CaptureSettings Current() => new()
+    {
+        DisabledTools = [.. _tools.Where(t => !t.Enabled).Select(t => t.Id)],
+        CaptureAllWindows = ScopeLocked ? _loaded.CaptureAllWindows : CaptureAllWindows,
+        AutoStart = AutoStart,
+        GraceSeconds = GraceSeconds == DefaultGraceSeconds ? null : GraceSeconds,
+        Hotkeys = _hotkeys.Where(h => h.Value != HotkeyBindings.Defaults[h.Key].ToString()).ToDictionary(h => h.Key.ToString(), h => h.Value, StringComparer.Ordinal),
+        Sensitivity = Sensitivity,
+        SpeechModel = Model,
+        MicrophoneId = MicrophoneId,
+        StartUiAtLogin = StartUiAtLogin,
+    };
+
+    public async Task LoadAsync(CancellationToken ct = default)
+    {
+        _refusal = null;
+        var snapshot = await _gateway.LoadAsync(ct).ConfigureAwait(false);
+        if (snapshot is null)
+        {
+            Loaded = false;
+            _refusal = "The capture service did not answer, so these settings cannot be shown.";
+            return;
+        }
+
+        Apply(snapshot);
+    }
+
+    /// <summary>
+    /// Puts every field back to what was last loaded or saved, asking the service nothing (Settings' Undo
+    /// changes). The scope the admin's policy set stays as the policy has it.
+    /// </summary>
+    public void Undo()
+    {
+        if (_snapshot is not null)
+        {
+            _refusal = null;
+            Apply(_snapshot);
+        }
+    }
+
+    private void Apply(CaptureSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        _loaded = snapshot.Settings;
+        _tools.Clear();
+        _tools.AddRange(snapshot.Tools.Select(t => new ToolToggle(t, !_loaded.DisabledTools.Contains(t.Id, StringComparer.OrdinalIgnoreCase))));
+        ScopeLocked = snapshot.PolicyForcesAllWindows;
+        CaptureAllWindows = snapshot.PolicyForcesAllWindows || _loaded.CaptureAllWindows;
+        _allWindowsConfirmed = CaptureAllWindows;
+        AutoStart = _loaded.AutoStart;
+        DefaultGraceSeconds = snapshot.DefaultGraceSeconds;
+        GraceSeconds = _loaded.GraceSeconds ?? snapshot.DefaultGraceSeconds;
+        Sensitivity = _loaded.Sensitivity;
+        Microphones = snapshot.Microphones;
+        MicrophoneId = _loaded.MicrophoneId;
+        Model = _loaded.SpeechModel;
+        StartUiAtLogin = _loaded.StartUiAtLogin;
+        _hotkeys.Clear();
+        foreach (var (name, text) in _loaded.Hotkeys)
+        {
+            if (Enum.TryParse<HotkeyAction>(name, ignoreCase: false, out var action))
+            {
+                _hotkeys[action] = text;
+            }
+        }
+
+        Loaded = true;
+        _baseline = Current();
+    }
+
+    public async Task<bool> SaveAsync(CancellationToken ct = default)
+    {
+        _refusal = null;
+        if (!CanSave)
+        {
+            return false;
+        }
+
+        var settings = Current();
+        _refusal = await _gateway.SaveAsync(settings, ct).ConfigureAwait(false);
+        if (_refusal is not null)
+        {
+            return false;
+        }
+
+        _loaded = settings;
+        _baseline = settings;
+        _snapshot = _snapshot is null ? null : _snapshot with { Settings = settings };
+        return true;
+    }
+
+    private static bool Same(CaptureSettings a, CaptureSettings b) =>
+        a.CaptureAllWindows == b.CaptureAllWindows
+        && a.AutoStart == b.AutoStart
+        && a.GraceSeconds == b.GraceSeconds
+        && string.Equals(a.Sensitivity, b.Sensitivity, StringComparison.Ordinal)
+        && string.Equals(a.SpeechModel, b.SpeechModel, StringComparison.Ordinal)
+        && string.Equals(a.MicrophoneId, b.MicrophoneId, StringComparison.Ordinal)
+        && a.StartUiAtLogin == b.StartUiAtLogin
+        && a.DisabledTools.Order(StringComparer.Ordinal).SequenceEqual(b.DisabledTools.Order(StringComparer.Ordinal), StringComparer.Ordinal)
+        && a.Hotkeys.Count == b.Hotkeys.Count
+        && a.Hotkeys.All(h => b.Hotkeys.TryGetValue(h.Key, out var other) && string.Equals(h.Value, other, StringComparison.Ordinal));
+}
+
+/// <summary>Settings → Capture's gateway, over the pipe (ST-080), the level meter's included (AC3).</summary>
+public sealed class PipeCapture(CaptureConnection connection) : ICaptureGateway, IMicrophoneLevelGateway
+{
+    private readonly CaptureConnection _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+
+    public async Task<CaptureSnapshot?> LoadAsync(CancellationToken ct = default)
+    {
+        var reported = await _connection.RequestAsync<CaptureSettingsReported>(id => new GetCaptureSettingsCommand { RequestId = id }, ct).ConfigureAwait(false);
+        return reported is null
+            ? null
+            : new CaptureSnapshot(
+                reported.Settings,
+                [.. reported.Tools.Select(t => new ToolChoice(t.Id, t.DisplayName))],
+                [.. reported.Microphones.Select(m => new MicrophoneDevice(m.Id, m.Name, m.IsDefault))],
+                reported.PolicyForcesAllWindows,
+                reported.DefaultGraceSeconds);
+    }
+
+    public async Task<string?> SaveAsync(CaptureSettings settings, CancellationToken ct = default)
+    {
+        var result = await _connection.SendAsync(id => new SetCaptureSettingsCommand { RequestId = id, Settings = settings }, ct).ConfigureAwait(false);
+        return result.Ok ? null : result.Error ?? "The capture service refused the settings.";
+    }
+
+    public async Task<MeterReading?> ReadLevelAsync(string? deviceId, CancellationToken ct = default)
+    {
+        var reported = await _connection.RequestAsync<MicrophoneLevelReported>(id => new GetMicrophoneLevelCommand { RequestId = id, DeviceId = deviceId }, ct).ConfigureAwait(false);
+        return reported is null ? null : new MeterReading(reported.State, reported.Level, reported.DeviceId);
+    }
+
+    public async Task StopLevelAsync(CancellationToken ct = default) =>
+        _ = await _connection.SendAsync(id => new StopMicrophoneLevelCommand { RequestId = id }, ct).ConfigureAwait(false);
+}

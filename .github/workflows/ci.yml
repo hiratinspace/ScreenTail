@@ -109,16 +109,16 @@ jobs:
             # The Web job's browser tests run the real backend (ADR-0009, "Testing in a real browser"), so a
             # change to the backend's code or its build settings runs them too (owner, 2026-11-04).
             flag '^(web/|\.nvmrc|deploy/web/|backend/src/|backend/Directory\.(Build|Packages)\.props)' web
-            flag '^(research/|client/ScreenTail\.Core/Privacy/PatternLibrary\.cs|backend/tests/ScreenTail\.Api\.Tests/Summarize/DifferentialCasesTests\.cs)' research
-            flag '^(shared/schema/|client/ScreenTail\.Shared/Generated/|web/src/generated/)' schema
-            flag '^(shared/design/|client/ScreenTail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
+            flag '^(research/|client/ScreenTrail\.Core/Privacy/PatternLibrary\.cs|backend/tests/ScreenTrail\.Api\.Tests/Summarize/DifferentialCasesTests\.cs)' research
+            flag '^(shared/schema/|client/ScreenTrail\.Shared/Generated/|web/src/generated/)' schema
+            flag '^(shared/design/|client/ScreenTrail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
             # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
             # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
             # for evidence that is never coming.
             # The Windows tests count only for those areas and the files at the project's root, which they
             # all share; the UI tests' folders run on the hosted job and nightly on the laptop (owner,
             # 2026-11-12). A new root file fails the check below until hardware-checks.yml names it too.
-            only '^(client/ScreenTail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTail\.Platform/|client/ScreenTail\.Tests\.Windows/((Capabilities|Capture|Detection|Host|Input|Ipc|Performance|Privacy|Speech|Store)/|[^/]+$)|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
+            only '^(client/ScreenTrail\.(Service|Core)/(Capabilities|Detection|Input|Capture|Privacy|Store|Ipc|Sessions|Speech)/|client/ScreenTrail\.Platform/|client/ScreenTrail\.Tests\.Windows/((Capabilities|Capture|Detection|Host|Input|Ipc|Performance|Privacy|Speech|Store)/|[^/]+$)|scripts/windows/|\.github/workflows/hardware-checks\.yml)' hardware
             # The Windows scripts, which are parse-checked below. This used to ride on
             # spike-windows.yml, which now runs only by hand, so without this line a change to
             # check-skips.ps1 would be checked by nothing at all (2026-09-20 review).
@@ -140,7 +140,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-          FILE: client/ScreenTail.Tests.Windows/skip-baseline.json
+          FILE: client/ScreenTrail.Tests.Windows/skip-baseline.json
         run: |
           compare() {
             local was="$1" now="$2" bad=0
@@ -216,11 +216,11 @@ jobs:
       - name: The runner already has an SDK that satisfies global.json
         run: dotnet --version
       - name: Restore
-        run: dotnet restore ScreenTail.sln
+        run: dotnet restore ScreenTrail.sln
       - name: Format and analyzers
-        run: dotnet format ScreenTail.sln --verify-no-changes --no-restore
+        run: dotnet format ScreenTrail.sln --verify-no-changes --no-restore
       - name: Build (warnings are errors)
-        run: dotnet build ScreenTail.sln -c Release --no-restore
+        run: dotnet build ScreenTrail.sln -c Release --no-restore
       # Each test app is run directly rather than through `dotnet test`, so that it writes a TRX the
       # skip gate below can read. `dotnet test` exits 0 when every test skips, which is the hole ST-018
       # closes, and its argument forwarding does not reach xUnit's own -result-trx.
@@ -229,7 +229,7 @@ jobs:
           $out = Join-Path $env:RUNNER_TEMP 'trx'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $failed = $false
-          foreach ($proj in 'ScreenTail.Tests/ScreenTail.Tests.csproj', 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj') {
+          foreach ($proj in 'ScreenTrail.Tests/ScreenTrail.Tests.csproj', 'ScreenTrail.Tests.Windows/ScreenTrail.Tests.Windows.csproj') {
             $name = [System.IO.Path]::GetFileNameWithoutExtension($proj)
             $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
               Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
@@ -253,7 +253,7 @@ jobs:
         timeout-minutes: 4
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
-          dotnet run --project ScreenTail.UI -c Release --no-build -- --gallery --screenshot $out
+          dotnet run --project ScreenTrail.UI -c Release --no-build -- --gallery --screenshot $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $files = Get-ChildItem $out -Filter '*.png'
           if ($files.Count -lt 3) { throw "Expected 3 gallery screenshots, found $($files.Count)." }
@@ -268,7 +268,7 @@ jobs:
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'shell-render.log'
-          dotnet run --project ScreenTail.UI -c Release --no-build -- --screenshot $out | Tee-Object -FilePath $log
+          dotnet run --project ScreenTrail.UI -c Release --no-build -- --screenshot $out | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Ten shell views, seven onboarding steps and the panel answered and unanswered, each in three
           # themes. The counts are what the harness renders, so a view that stops rendering is noticed.
@@ -302,7 +302,7 @@ jobs:
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'note-render.log'
-          dotnet run --project ScreenTail.UI -c Release --no-build -- --note --screenshot $out | Tee-Object -FilePath $log
+          dotnet run --project ScreenTrail.UI -c Release --no-build -- --note --screenshot $out | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $notes = Get-ChildItem $out -Filter 'note-*.png'
           if ($notes.Count -lt 18) { throw "Expected 18 note-pane screenshots, found $($notes.Count)." }
@@ -327,7 +327,7 @@ jobs:
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'gallery'
           $log = Join-Path $env:RUNNER_TEMP 'hud-render.log'
-          dotnet run --project ScreenTail.UI -c Release --no-build -- --hud --screenshot $out | Tee-Object -FilePath $log
+          dotnet run --project ScreenTrail.UI -c Release --no-build -- --hud --screenshot $out | Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $hud = Get-ChildItem $out -Filter 'hud-*.png'
           if ($hud.Count -lt 30) { throw "Expected 30 HUD screenshots, found $($hud.Count)." }
@@ -385,10 +385,10 @@ jobs:
         run: ./installer/manifest.ps1 -Write -Folder artifacts/installer/payload
       - name: Hand the payload to the signing job
         id: payload
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTAIL_SIGNING == 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTRAIL_SIGNING == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: screentail-installer-payload
+          name: screentrail-installer-payload
           path: artifacts/installer/payload
           retention-days: 1
           if-no-files-found: error
@@ -397,7 +397,7 @@ jobs:
       - name: Build the package
         run: ./installer/package.ps1 -Step Msi -Version "0.1.${{ github.run_number }}"
       - name: Sign the package (signs nothing here)
-        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail.msi
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTrail.msi
       - name: Build the setup program
         run: ./installer/package.ps1 -Step Bundle -Version "0.1.${{ github.run_number }}"
       - name: Detach the setup engine
@@ -407,28 +407,28 @@ jobs:
       - name: Reattach the setup engine
         run: ./installer/package.ps1 -Step Reattach -Version "0.1.${{ github.run_number }}"
       - name: Sign the setup program (signs nothing here)
-        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTrail-Setup.exe
       - name: Check every signature (an unsigned build passes with a notice)
-        run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
+        run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTrail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTrail-Setup.exe
       - name: Write the pilot update manifest (signs nothing here)
-        run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
+        run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTrail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Build an older package from the same payload, for the upgrade check
-        run: ./installer/package.ps1 -Step Msi -Version "0.0.${{ github.run_number }}" -MsiName ScreenTail-older.msi
+        run: ./installer/package.ps1 -Step Msi -Version "0.0.${{ github.run_number }}" -MsiName ScreenTrail-older.msi
       - name: Smoke test (silent install, upgrade, uninstall, setup program)
         run: >-
           ./installer/smoke-test.ps1
-          -Msi artifacts/installer/packages/ScreenTail.msi
+          -Msi artifacts/installer/packages/ScreenTrail.msi
           -Version "0.1.${{ github.run_number }}"
-          -OlderMsi artifacts/installer/packages/ScreenTail-older.msi
-          -Bundle artifacts/installer/packages/ScreenTail-Setup.exe
+          -OlderMsi artifacts/installer/packages/ScreenTrail-older.msi
+          -Bundle artifacts/installer/packages/ScreenTrail-Setup.exe
           -Logs "${{ runner.temp }}/installer-logs"
       - name: Upload the unsigned installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: screentail-installer-unsigned
+          name: screentrail-installer-unsigned
           path: |
-            artifacts/installer/packages/ScreenTail.msi
-            artifacts/installer/packages/ScreenTail-Setup.exe
+            artifacts/installer/packages/ScreenTrail.msi
+            artifacts/installer/packages/ScreenTrail-Setup.exe
           retention-days: 7
           if-no-files-found: error
       - name: Upload the installer logs
@@ -442,7 +442,7 @@ jobs:
 
   # Signing, in a job of its own, because a job that builds and signs lets build code run where the
   # signing token can be asked for. Only for a push to main, only after the unsigned build passed, only
-  # when the repository variable SCREENTAIL_SIGNING is 'true', and always in the 'signing' environment,
+  # when the repository variable SCREENTRAIL_SIGNING is 'true', and always in the 'signing' environment,
   # which only main may deploy to and which Azure's federated credential trusts alone. It is the one job
   # with id-token: write, and sign.ps1 asks for the OIDC token itself; nothing is stored anywhere.
   #
@@ -456,7 +456,7 @@ jobs:
   installer-sign:
     name: Installer (Windows, signing)
     needs: installer
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTAIL_SIGNING == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTRAIL_SIGNING == 'true'
     runs-on: windows-latest
     environment: signing
     # actions: read is for one thing: reading the payload artifact's digest back from GitHub's API.
@@ -490,10 +490,10 @@ jobs:
         run: ./installer/manifest.ps1 -Check -Folder artifacts/installer/payload
       - name: Sign the payload
         env:
-          SCREENTAIL_REQUIRE_SIGNING: '1'
-          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
-          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
-          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_REQUIRE_SIGNING: '1'
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Folder artifacts/installer/payload
@@ -501,23 +501,23 @@ jobs:
         run: ./installer/package.ps1 -Step Msi -Version "0.1.${{ github.run_number }}"
       - name: Sign the package
         env:
-          SCREENTAIL_REQUIRE_SIGNING: '1'
-          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
-          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
-          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_REQUIRE_SIGNING: '1'
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail.msi
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTrail.msi
       - name: Build the setup program from the signed package
         run: ./installer/package.ps1 -Step Bundle -Version "0.1.${{ github.run_number }}"
       - name: Detach the setup engine
         run: ./installer/package.ps1 -Step Detach -Version "0.1.${{ github.run_number }}"
       - name: Sign the setup engine
         env:
-          SCREENTAIL_REQUIRE_SIGNING: '1'
-          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
-          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
-          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_REQUIRE_SIGNING: '1'
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/work/engine.exe
@@ -525,43 +525,43 @@ jobs:
         run: ./installer/package.ps1 -Step Reattach -Version "0.1.${{ github.run_number }}"
       - name: Sign the setup program
         env:
-          SCREENTAIL_REQUIRE_SIGNING: '1'
-          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
-          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
-          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_REQUIRE_SIGNING: '1'
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
-        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTail-Setup.exe
+        run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTrail-Setup.exe
       # The Artifact Signing settings (names, not credentials) tell the check which mode signed the build,
       # so it can require the identity-validation usage installed builds compare updates by.
       - name: Check every signature (timestamped, one publisher)
         env:
-          SCREENTAIL_REQUIRE_SIGNING: '1'
-          SCREENTAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTAIL_SIGNING_ENDPOINT }}
-          SCREENTAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTAIL_SIGNING_ACCOUNT }}
-          SCREENTAIL_SIGNING_PROFILE: ${{ vars.SCREENTAIL_SIGNING_PROFILE }}
-        run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTail-Setup.exe
+          SCREENTRAIL_REQUIRE_SIGNING: '1'
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
+        run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTrail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTrail-Setup.exe
       # ST-113: the pilot manifest for the signed MSI, signed by the pilot Key Vault key through this
       # job's OIDC token, as the pilot identity, and checked against the keys the client trusts for
       # pilot before it is written. The client refuses a stable manifest signed by the pilot key, and
       # the stable key and identity are only in release-stable (promote-stable.yml). Skipped with a
-      # notice until SCREENTAIL_UPDATE_PILOT_KEY and SCREENTAIL_UPDATE_BASE are set on the signing
+      # notice until SCREENTRAIL_UPDATE_PILOT_KEY and SCREENTRAIL_UPDATE_BASE are set on the signing
       # environment. Setting them up is the owner's step (docs/dev/installer.md, "Updates").
       - name: Write and sign the pilot update manifest (stable is signed only by promote-stable.yml)
         env:
-          SCREENTAIL_UPDATE_PILOT_KEY: ${{ vars.SCREENTAIL_UPDATE_PILOT_KEY }}
-          SCREENTAIL_UPDATE_PILOT_CLIENT_ID: ${{ vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID }}
-          SCREENTAIL_UPDATE_BASE: ${{ vars.SCREENTAIL_UPDATE_BASE }}
+          SCREENTRAIL_UPDATE_PILOT_KEY: ${{ vars.SCREENTRAIL_UPDATE_PILOT_KEY }}
+          SCREENTRAIL_UPDATE_PILOT_CLIENT_ID: ${{ vars.SCREENTRAIL_UPDATE_PILOT_CLIENT_ID }}
+          SCREENTRAIL_UPDATE_BASE: ${{ vars.SCREENTRAIL_UPDATE_BASE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-        run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
+        run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTrail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Upload the signed installer
         id: signed
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: screentail-installer
+          name: screentrail-installer
           path: |
-            artifacts/installer/packages/ScreenTail.msi
-            artifacts/installer/packages/ScreenTail-Setup.exe
+            artifacts/installer/packages/ScreenTrail.msi
+            artifacts/installer/packages/ScreenTrail-Setup.exe
           retention-days: 7
           if-no-files-found: error
       # The pilot manifest only. Kept longer than the installer, because promote-stable.yml reads it when
@@ -569,7 +569,7 @@ jobs:
       - name: Upload the signed update manifests
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: screentail-update-manifests
+          name: screentrail-update-manifests
           path: artifacts/installer/manifests
           retention-days: 90
           if-no-files-found: ignore
@@ -599,9 +599,9 @@ jobs:
       - name: Smoke test the signed build
         run: >-
           ./installer/smoke-test.ps1
-          -Msi artifacts/installer/packages/ScreenTail.msi
+          -Msi artifacts/installer/packages/ScreenTrail.msi
           -Version "0.1.${{ github.run_number }}"
-          -Bundle artifacts/installer/packages/ScreenTail-Setup.exe
+          -Bundle artifacts/installer/packages/ScreenTrail-Setup.exe
           -Logs "${{ runner.temp }}/installer-logs"
       - name: Upload the installer logs
         if: always()
@@ -652,17 +652,17 @@ jobs:
       - name: The runner already has an SDK that satisfies global.json
         run: dotnet --version
       - name: Restore
-        run: dotnet restore ScreenTail.Backend.sln
+        run: dotnet restore ScreenTrail.Backend.sln
       - name: Format and analyzers
-        run: dotnet format ScreenTail.Backend.sln --verify-no-changes --no-restore
+        run: dotnet format ScreenTrail.Backend.sln --verify-no-changes --no-restore
       - name: Build (warnings are errors)
-        run: dotnet build ScreenTail.Backend.sln -c Release --no-restore
+        run: dotnet build ScreenTrail.Backend.sln -c Release --no-restore
       - name: Test
         # The suite runs on SQLite; PostgresActivationRaceTests also needs the job's Postgres, where it
         # makes and drops a database of its own (ST-010, the activation race). On CI it fails without this.
         env:
-          SCREENTAIL_TEST_POSTGRES: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=ci-only-not-a-secret
-        run: dotnet test ScreenTail.Backend.sln -c Release --no-build
+          SCREENTRAIL_TEST_POSTGRES: Host=localhost;Port=5432;Database=postgres;Username=postgres;Password=ci-only-not-a-secret
+        run: dotnet test ScreenTrail.Backend.sln -c Release --no-build
 
       # The migrations are what a deployment actually runs, and they are generated code: a model change
       # that produces SQL Postgres rejects would pass every test above and fail on the day it ships.
@@ -675,7 +675,7 @@ jobs:
           export PATH="$PATH:$HOME/.dotnet/tools"
           # --configuration in full: `dotnet ef` reads -c as --context, so the short form sends it looking
           # for a DbContext named "Release" and then for a Debug build that the Release step never made.
-          ef() { dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api --no-build --configuration Release; }
+          ef() { dotnet ef database update --project src/ScreenTrail.Api --startup-project src/ScreenTrail.Api --no-build --configuration Release; }
           ef
 
           # Applying twice must be a no-op. A migration that is not idempotent breaks the second
@@ -705,7 +705,7 @@ jobs:
         working-directory: .
         run: |
           set -euo pipefail
-          api=backend/src/ScreenTail.Api
+          api=backend/src/ScreenTrail.Api
           decoys="$api/appsettings.json $api/appsettings.Development.json $api/appsettings.Local.json $api/Properties/launchSettings.json $api/secrets.json $api/.env $api/.env.local $api/api.env $api/msbuild.binlog"
           for f in $decoys; do
             if [ -e "$f" ]; then
@@ -718,11 +718,11 @@ jobs:
           trap 'for f in $decoys; do rm -f "$f"; done; if [ -n "$made_properties" ]; then rmdir "$api/Properties" 2>/dev/null || true; fi; docker rm -f decoy-check >/dev/null 2>&1 || true' EXIT
           for f in $decoys; do printf '{"Decoy":"not a secret"}\n' > "$f"; done
 
-          docker build -q -f backend/Dockerfile --target build -t screentail-api:decoy-build . >/dev/null
-          docker build -q -f backend/Dockerfile -t screentail-api:decoy . >/dev/null
-          found=$(docker run --rm --entrypoint sh screentail-api:decoy-build -c \
+          docker build -q -f backend/Dockerfile --target build -t screentrail-api:decoy-build . >/dev/null
+          docker build -q -f backend/Dockerfile -t screentrail-api:decoy . >/dev/null
+          found=$(docker run --rm --entrypoint sh screentrail-api:decoy-build -c \
             "find /repo /app \( -name 'appsettings*.json' -o -name launchSettings.json -o -name secrets.json -o -name '*.env' -o -name '.env' -o -name '.env.*' -o -name '*.binlog' \) -print")
-          docker create --name decoy-check screentail-api:decoy >/dev/null
+          docker create --name decoy-check screentrail-api:decoy >/dev/null
           shipped=$(docker export decoy-check | tar -t | grep -E '(^|/)(appsettings[^/]*\.json|launchSettings\.json|secrets\.json|[^/]*\.env|\.env(\.[^/]*)?|[^/]*\.binlog)$' || true)
           if [ -n "$found$shipped" ]; then
             printf '%s\n' $found $shipped | sed 's/^/::error::In the image: /'
@@ -733,7 +733,7 @@ jobs:
 
       - name: Container build
         working-directory: .
-        run: docker build -f backend/Dockerfile -t screentail-api:ci .
+        run: docker build -f backend/Dockerfile -t screentrail-api:ci .
 
       # ST-007. The deployment in deploy/, built and started as the owner would start it, with throwaway
       # secrets and Caddy's own CA for localhost, then checked from outside: the page's headers against
@@ -787,9 +787,9 @@ jobs:
       - name: Browser tests (Playwright, Chromium)
         timeout-minutes: 8
         env:
-          SCREENTAIL_E2E_POSTGRES: Host=localhost;Port=5432;Database=screentail_e2e;Username=postgres;Password=ci-only-not-a-secret
+          SCREENTRAIL_E2E_POSTGRES: Host=localhost;Port=5432;Database=screentrail_e2e;Username=postgres;Password=ci-only-not-a-secret
         run: |
-          dotnet build ../backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release --nologo -v quiet
+          dotnet build ../backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj -c Release --nologo -v quiet
           npx playwright install --only-shell chromium
           npm run e2e
       - name: Upload the browser tests' traces (failures only; the pages hold made-up test data)
@@ -1026,34 +1026,34 @@ jobs:
           # frames wait in, the session machine and store, and a file from every other area the laptop
           # exists to check. And these do not: a backend, web or docs change never takes the keyboard.
           must_need = [
-              'client/ScreenTail.Core/Privacy/RedactionWorker.cs',
-              'client/ScreenTail.Core/Capture/PendingFrames.cs',
-              'client/ScreenTail.Core/Sessions/SessionMachine.cs',
-              'client/ScreenTail.Core/Store/SqliteSessionStore.cs',
-              'client/ScreenTail.Core/Capabilities/CachedCapabilityProbe.cs',
-              'client/ScreenTail.Service/Capture/ClickCaptureLoop.cs',
-              'client/ScreenTail.Service/Detection/WindowsForegroundWatcher.cs',
-              'client/ScreenTail.Service/Input/WindowsInputHooks.cs',
-              'client/ScreenTail.Core/Ipc/IpcServer.cs',
-              'client/ScreenTail.Service/Speech/WindowsMicrophone.cs',
-              'client/ScreenTail.Platform/Ipc/WindowsClientVerifier.cs',
+              'client/ScreenTrail.Core/Privacy/RedactionWorker.cs',
+              'client/ScreenTrail.Core/Capture/PendingFrames.cs',
+              'client/ScreenTrail.Core/Sessions/SessionMachine.cs',
+              'client/ScreenTrail.Core/Store/SqliteSessionStore.cs',
+              'client/ScreenTrail.Core/Capabilities/CachedCapabilityProbe.cs',
+              'client/ScreenTrail.Service/Capture/ClickCaptureLoop.cs',
+              'client/ScreenTrail.Service/Detection/WindowsForegroundWatcher.cs',
+              'client/ScreenTrail.Service/Input/WindowsInputHooks.cs',
+              'client/ScreenTrail.Core/Ipc/IpcServer.cs',
+              'client/ScreenTrail.Service/Speech/WindowsMicrophone.cs',
+              'client/ScreenTrail.Platform/Ipc/WindowsClientVerifier.cs',
               'scripts/windows/check-skips.ps1',
-              'client/ScreenTail.Core/Input/HookLifetime.cs',
-              'client/ScreenTail.Core/Detection/ScopePolicy.cs',
-              'client/ScreenTail.Core/Speech/SpeechModels.cs',
-              'client/ScreenTail.Tests.Windows/Input/InputHookTests.cs',
-              'client/ScreenTail.Tests.Windows/Host/CaptureControllerTests.cs',
+              'client/ScreenTrail.Core/Input/HookLifetime.cs',
+              'client/ScreenTrail.Core/Detection/ScopePolicy.cs',
+              'client/ScreenTrail.Core/Speech/SpeechModels.cs',
+              'client/ScreenTrail.Tests.Windows/Input/InputHookTests.cs',
+              'client/ScreenTrail.Tests.Windows/Host/CaptureControllerTests.cs',
               '.github/workflows/hardware-checks.yml',
           ]
           # A screen and its Windows tests do not either: the hosted job runs those, and the nightly run
           # puts them on the laptop (owner, 2026-11-12).
           must_not = [
-              'backend/ScreenTail.Backend.sln',
+              'backend/ScreenTrail.Backend.sln',
               'web/package.json',
               'docs/adr/0001-client-stack.md',
-              'client/ScreenTail.UI/Review/FilmstripView.xaml',
-              'client/ScreenTail.Tests.Windows/Review/FilmstripEditTests.cs',
-              'client/ScreenTail.Tests.Windows/Shell/ConfirmWindowTests.cs',
+              'client/ScreenTrail.UI/Review/FilmstripView.xaml',
+              'client/ScreenTrail.Tests.Windows/Review/FilmstripEditTests.cs',
+              'client/ScreenTrail.Tests.Windows/Shell/ConfirmWindowTests.cs',
           ]
 
           tracked = set(filter(None, subprocess.run(['git', 'ls-files'], capture_output=True, text=True, check=True).stdout.split('\n')))
@@ -1131,8 +1131,8 @@ jobs:
                       bad.append(f"{project} reads {path}, and a change to it does not run the backend job.")
 
           # Read by research/tests/test_shared_rules.py and test_differential_cases.py.
-          for path in ['client/ScreenTail.Core/Privacy/PatternLibrary.cs',
-                       'backend/tests/ScreenTail.Api.Tests/Summarize/DifferentialCasesTests.cs']:
+          for path in ['client/ScreenTrail.Core/Privacy/PatternLibrary.cs',
+                       'backend/tests/ScreenTrail.Api.Tests/Summarize/DifferentialCasesTests.cs']:
               if not research.match(path):
                   bad.append(f"The research tests read {path}, and a change to it does not run the research job.")
 

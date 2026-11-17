@@ -52,7 +52,7 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.underscore_camel.required_prefix = _
 dotnet_naming_style.underscore_camel.capitalization = camel_case
 
-# CA1716 flags `ScreenTail.Shared` (Guide §2 names the project) because `Shared` is a VB keyword.
+# CA1716 flags `ScreenTrail.Shared` (Guide §2 names the project) because `Shared` is a VB keyword.
 # Nothing here is consumed from VB, so the rule only adds noise.
 dotnet_diagnostic.CA1716.severity = none
 
@@ -60,7 +60,7 @@ dotnet_diagnostic.IDE0161.severity = warning
 dotnet_diagnostic.IDE0011.severity = warning
 dotnet_diagnostic.IDE0044.severity = warning
 
-[client/ScreenTail.Tests/**.cs]
+[client/ScreenTrail.Tests/**.cs]
 # Tests call short-lived store/API methods dozens of times; threading TestContext.Current.CancellationToken
 # through every call adds noise without making cancellation meaningfully faster.
 dotnet_diagnostic.xUnit1051.severity = suggestion

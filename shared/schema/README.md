@@ -18,7 +18,7 @@
 
 `npm run codegen` writes:
 
-- `client/ScreenTail.Shared/Generated/SessionV1.g.cs`: immutable C# records with `required` members. `SessionEvent` is a `System.Text.Json` polymorphic base, and `ScreenTail.Shared.Schema.SessionJson` holds the matching serializer settings.
+- `client/ScreenTrail.Shared/Generated/SessionV1.g.cs`: immutable C# records with `required` members. `SessionEvent` is a `System.Text.Json` polymorphic base, and `ScreenTrail.Shared.Schema.SessionJson` holds the matching serializer settings.
 - `SessionValidator` (hand-written, next to `SessionJson`) checks what the types can't: the frame rule above, `schema_version`, `ts_ms` ordering, and that every `frame_id`, `segment_id`, `frame_refs` and `transcript_refs` points at something that exists. `SessionJson` runs it on both read and write, so an invalid session is neither read in nor written out.
 - `web/src/generated/session.v1.ts`: TypeScript types (json-schema-to-typescript).
 
@@ -26,12 +26,12 @@ Generated files are committed. CI regenerates them and fails if they differ (`np
 
 ## Examples
 
-`examples/valid/*.json` must pass and `examples/invalid/*.json` must fail. They're checked twice: by ajv (`npm test`) and by `ScreenTail.Tests/Schema`, which also round-trips every valid example through the generated C# types. Invalid examples are named after the rule they break.
+`examples/valid/*.json` must pass and `examples/invalid/*.json` must fail. They're checked twice: by ajv (`npm test`) and by `ScreenTrail.Tests/Schema`, which also round-trips every valid example through the generated C# types. Invalid examples are named after the rule they break.
 
 ## Changing the schema
 
 1. Edit `session.v1.json`. Breaking changes need `session.v2`.
 2. Add or adjust examples.
 3. From `shared/schema`, run `npm ci`, then `npm test`, then `npm run codegen`.
-4. Run `dotnet test client/ScreenTail.sln` and `cd web && npm run typecheck`.
+4. Run `dotnet test client/ScreenTrail.sln` and `cd web && npm run typecheck`.
 5. Commit the schema, the examples and the regenerated files together.

@@ -12,10 +12,10 @@ describe('DownloadPage', () => {
   });
 
   it('links to the configured installer', async () => {
-    const api = fakeApi({ download: async () => ({ url: 'https://downloads.example/ScreenTail.msi', message: 'Install ScreenTail.' }) });
+    const api = fakeApi({ download: async () => ({ url: 'https://downloads.example/ScreenTrail.msi', message: 'Install ScreenTrail.' }) });
     render(<DownloadPage api={api} />);
 
-    const link = await screen.findByRole('link', { name: 'Download ScreenTail for Windows' });
-    expect(link.getAttribute('href')).toBe('https://downloads.example/ScreenTail.msi');
+    const link = await screen.findByRole('link', { name: 'Download ScreenTrail for Windows' });
+    expect(link.getAttribute('href')).toBe('https://downloads.example/ScreenTrail.msi');
   });
 });

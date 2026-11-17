@@ -1,0 +1,148 @@
+using System.ComponentModel;
+using ScreenTrail.Core.Review;
+using ScreenTrail.Core.Review.Publish;
+using ScreenTrail.Shared.Schema;
+using ScreenTrail.UI.Review.Publish;
+using ScreenTrail.UI.Review.Timeline;
+
+namespace ScreenTrail.UI.Review;
+
+/// <summary>
+/// The Review screen: the envelope header over the note and the screenshots, and the receipt in their
+/// place after publishing (Spec v0.6.0 §5 S3, Outbox; ST-074, ST-075, ST-078).
+///
+/// Four view models over one session. The first two existed and were never hosted together: until
+/// 2026-09-25 the shell's Review area showed the word "Review" and each pane was rendered only by the
+/// screenshot harness. The timeline (ST-076) joined the same day, below the three. Two of them reach into
+/// the strip: a transcript line and a step's frame both select their frame there, and the note shows the strip's frames on its steps (v0.6.5).
+/// </summary>
+public sealed class ReviewViewModel : IAsyncDisposable
+{
+    private bool _disposed;
+
+    /// <param name="frames">Where the images come from and where the edits go: over the pipe in the running application.</param>
+    /// <param name="write">Persists the note; null in the harness, which shows a note it cannot save.</param>
+    /// <param name="confirm">The typed-confirmation dialog.</param>
+    /// <param name="publish">The right pane's rules and its PSA delegates. Null shows the pane with no PSA to connect to.</param>
+    /// <param name="timelineExpanded">Whether the bottom panel was open last time (Spec §5 S3: state persists).</param>
+    /// <param name="timelineToggled">Told when it opens or closes, so the shell can remember.</param>
+    /// <param name="discard">
+    /// The header's Discard once DISCARD is typed (Spec §5 S3): asks the service to throw this session
+    /// away by name, and throws with the service's words when it refuses. Null in the harness, which
+    /// disables the button.
+    /// </param>
+    /// <param name="discardBlocked">Why Discard may not be asked about now (the session is still being captured), or null.</param>
+    /// <param name="next">History's rows and the way to open one, for the receipt's Next to check (Spec v0.6.0 §5 S3).</param>
+    /// <param name="openSettings">Opens Settings, for "See integrations".</param>
+    public ReviewViewModel(
+        Session session,
+        IReviewFrames? frames,
+        Func<DraftNote, CancellationToken, Task>? write = null,
+        Func<TypedConfirmation, bool>? confirm = null,
+        PublishPanel? publish = null,
+        bool timelineExpanded = false,
+        Action<bool>? timelineToggled = null,
+        bool draftPending = false,
+        Func<CancellationToken, Task>? discard = null,
+        Func<string?>? discardBlocked = null,
+        NextSessions? next = null,
+        Action? openSettings = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        SessionId = session.SessionId;
+        // The envelope's subject line (Spec v0.6.0 §5 S3): the note's own title once there is one.
+        Title = string.IsNullOrWhiteSpace(session.Draft?.SuggestedTitle) ? "Review" : session.Draft.SuggestedTitle;
+        Strip = new FilmstripViewModel(session, frames);
+        // The note carries each step's frame (Spec v0.6.0 §5 S3), the strip's own items, so a blur or an
+        // exclusion there is what the step's row shows; pressing one opens it enlarged.
+        Note = new NoteEditorViewModel(session, write, confirm, discard, showFrame: OpenFrame, draftPending: draftPending, discardBlocked: discardBlocked, strip: Strip);
+
+        // These two lambdas are all that keep the note as it arrived, an excluded frame and a frame inside
+        // its undo window out of a publish, and the service trusts the list (T-172).
+        Publish = new PublishViewModel(
+            publish ?? PublishPanel.Unconnected(session),
+            () => Note.CurrentNote,
+            () => Strip.IncludedFrameIds,
+            () => Strip.PublishHeldBecause,
+            next,
+            openSettings,
+            session.SessionId);
+        Timeline = new TimelineViewModel(
+            session,
+            id =>
+            {
+                _ = Strip.Select(id);
+                Note.Highlight(id);
+            },
+            timelineExpanded,
+            timelineToggled);
+
+        // The header changes whenever what goes out does, and the publish pane's frame ceiling (E-18)
+        // depends on exactly that.
+        Strip.PropertyChanged += OnStripChanged;
+
+        // What is still open beside Publish follows the note's inferred steps as they are checked.
+        Note.PropertyChanged += OnNoteChanged;
+    }
+
+    public string SessionId { get; }
+
+    /// <summary>The header's title (Spec §5 S3's title bar): the note's own title once there is one.</summary>
+    public string Title { get; }
+
+    public NoteEditorViewModel Note { get; }
+
+    public FilmstripViewModel Strip { get; }
+
+    public PublishViewModel Publish { get; }
+
+    public TimelineViewModel Timeline { get; }
+
+    /// <summary>
+    /// Leaving Review (T-169): the last of what was typed is written rather than lost to the autosave's
+    /// pause, and a delete still inside its undo window is committed and its answer read. The shell calls
+    /// it when it lets go of the pane for good (Core.Shell.HeldPane): another session's pane replaces it,
+    /// its session goes away, or the window closes. Safe to call more than once.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Strip.PropertyChanged -= OnStripChanged;
+        Note.PropertyChanged -= OnNoteChanged;
+        await Note.DisposeAsync().ConfigureAwait(true);
+        await Strip.DisposeAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// A step's frame, pressed on its row: selected in the strip, as the v0.5 chip did (T-165), and
+    /// enlarged over the note, where `B` blurs it and `Esc` goes back to the step.
+    /// </summary>
+    private void OpenFrame(string? frameId)
+    {
+        if (Strip.Select(frameId) && Strip.Selected is FrameItem item)
+        {
+            _ = Strip.EnlargeCommand.ExecuteAsync(item);
+        }
+    }
+
+    private void OnNoteChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(NoteEditorViewModel.UnverifiedLabel))
+        {
+            Publish.NoteChanged();
+        }
+    }
+
+    private void OnStripChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(FilmstripViewModel.Header) or nameof(FilmstripViewModel.PublishHeldBecause))
+        {
+            Publish.FramesChanged();
+        }
+    }
+}

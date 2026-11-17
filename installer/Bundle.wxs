@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  ScreenTail-Setup.exe (ST-112, ADR-0007): the Visual C++ runtime ScreenTail's speech needs, then
-  ScreenTail.msi. For a machine that may not have the runtime, which is every fresh Windows install.
-  An MSP that already deploys the runtime can deploy ScreenTail.msi on its own instead.
+  ScreenTrail-Setup.exe (ST-112, ADR-0007): the Visual C++ runtime ScreenTrail's speech needs, then
+  ScreenTrail.msi. For a machine that may not have the runtime, which is every fresh Windows install.
+  An MSP that already deploys the runtime can deploy ScreenTrail.msi on its own instead.
 
   Variables, all passed by build.ps1:
     Version        the product version, the same as the package's
-    Msi            the built (and, when configured, signed) ScreenTail.msi
+    Msi            the built (and, when configured, signed) ScreenTrail.msi
     VcRedist       Microsoft's vc_redist.x64.exe, the version pinned in tools.json, downloaded by
                    package.ps1 and checked against the pin's SHA-256 and version and to be Microsoft-signed
     VcRedistBuild  the pinned runtime's build number, so an older runtime already on the machine is upgraded
@@ -20,15 +20,15 @@
        shared/design/brand by build-icons.py. It is the setup program's icon in Explorer, in its progress
        window and in Installed apps. The path is from the repository root, where package.ps1 runs WiX, as
        in Package.wxs. -->
-  <Bundle Name="ScreenTail"
-          Manufacturer="ScreenTail"
+  <Bundle Name="ScreenTrail"
+          Manufacturer="ScreenTrail"
           Version="$(var.Version)"
           UpgradeCode="{B06B249C-CE0B-47AF-AD9E-C7FF7D00A4C0}"
-          IconSourceFile="client\ScreenTail.UI\Assets\app.ico"
+          IconSourceFile="client\ScreenTrail.UI\Assets\app.ico"
           bal:CommandLineVariables="caseInsensitive">
 
-    <!-- The backend's address, passed on to the package: ScreenTail-Setup.exe BACKENDURL=https://...,
-         with /quiet or /passive or neither. The package writes it to HKLM\SOFTWARE\ScreenTail\BackendUrl,
+    <!-- The backend's address, passed on to the package: ScreenTrail-Setup.exe BACKENDURL=https://...,
+         with /quiet or /passive or neither. The package writes it to HKLM\SOFTWARE\ScreenTrail\BackendUrl,
          the only place an installed service reads it from (Package.wxs). Overridable, so the setup
          program takes it from its command line (in any case, as msiexec users may type it), and passed
          only when given: an upgrade or a repair without it hands the package nothing, and the package
@@ -39,7 +39,7 @@
 
     <!-- No setup window of its own: the runtime installs as a prerequisite with a small progress window,
          and then the package shows its own progress (with /quiet, nothing at all). The standard setup
-         window would need licence terms to show, and ScreenTail has none to put there yet; ST-111's
+         window would need licence terms to show, and ScreenTrail has none to put there yet; ST-111's
          privacy policy link belongs in the product once it exists. -->
     <BootstrapperApplication>
       <bal:WixInternalUIBootstrapperApplication />
@@ -61,17 +61,17 @@
                          Bitness="always64" />
 
     <Chain>
-      <!-- Shared with other software, so permanent: uninstalling ScreenTail never takes it away. Skipped
+      <!-- Shared with other software, so permanent: uninstalling ScreenTrail never takes it away. Skipped
            when the same or a newer build is already there; 1638 is the runtime's own "a newer version is
            installed", which is success here.
 
            3010 and 1641 are success too, and that is what keeps a silent install from restarting the
            machine. The runtime's installer answers 3010 when it replaced a runtime another program had
            loaded: the new files are in place at the next restart, and until then that program, and
-           ScreenTail, run on the runtime that was there. The setup program's prerequisite step treats any
-           restart a prerequisite reports as one to make at once: it stops before ScreenTail.msi, exits
-           1641 with ScreenTail not installed, and with /quiet and no /norestart it restarts the machine
-           without asking. So the restart is not passed on: ScreenTail installs, the exit code is the
+           ScreenTrail, run on the runtime that was there. The setup program's prerequisite step treats any
+           restart a prerequisite reports as one to make at once: it stops before ScreenTrail.msi, exits
+           1641 with ScreenTrail not installed, and with /quiet and no /norestart it restarts the machine
+           without asking. So the restart is not passed on: ScreenTrail installs, the exit code is the
            package's own, and the runtime's exit code stays in the log (the line "The process for
            package: VcRuntimeX64 exited with code"). The runtime's installer is told to write its own
            log next to the setup program's, so why it wanted a restart can be read there. -->
@@ -88,7 +88,7 @@
         <ExitCode Value="1641" Behavior="success" />
       </ExePackage>
 
-      <MsiPackage Id="ScreenTail" SourceFile="$(var.Msi)">
+      <MsiPackage Id="ScreenTrail" SourceFile="$(var.Msi)">
         <MsiProperty Name="BACKENDURL" Value="[BACKENDURL]" Condition="BACKENDURL" />
       </MsiPackage>
     </Chain>

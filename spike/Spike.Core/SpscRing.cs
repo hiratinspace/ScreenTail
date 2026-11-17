@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 /// <summary>
 /// Single-producer/single-consumer ring buffer. The producer is the hook thread, so a write must never

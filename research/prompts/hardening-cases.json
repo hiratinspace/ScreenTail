@@ -3,7 +3,7 @@
     "Drafts the note prompt's post-conditions must refuse, and drafts they must not.",
     "",
     "Read by both implementations of those post-conditions: research/prompts/checks.py, which scores the",
-    "eval corpus offline, and backend/src/ScreenTail.Api/Summarize/DraftValidator.cs, which runs in front",
+    "eval corpus offline, and backend/src/ScreenTrail.Api/Summarize/DraftValidator.cs, which runs in front",
     "of a technician. Each claims to mirror the other and each drifted: on 2026-09-19 a review found that",
     "curly quotes, 'the password was reset to X', bare AWS and GitHub key shapes, and iex, iwr, certutil",
     "and bitsadmin all passed the C# one and were caught by the Python one. A comment saying two things",

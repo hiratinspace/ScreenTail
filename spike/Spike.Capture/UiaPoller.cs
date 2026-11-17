@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Drawing;
 using FlaUI.UIA3;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>
 /// Polls the focused UIA element every 250 ms on its own MTA thread (AC2) and adds UIA load for AC1.

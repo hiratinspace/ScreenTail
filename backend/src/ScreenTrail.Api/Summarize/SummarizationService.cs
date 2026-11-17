@@ -1,0 +1,390 @@
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using ScreenTrail.Api.Providers;
+
+namespace ScreenTrail.Api.Summarize;
+
+/// <param name="CostUsd">What this call cost. Estimated by the provider from its own token counts.</param>
+public sealed record LlmDraft(string Json, decimal CostUsd);
+
+/// <summary>
+/// A model that can turn a session into a note (ST-063).
+///
+/// One method, because a session gets one call. The abstraction exists so that Gemini Flash is a
+/// default rather than a dependency: the scope document names it, the backlog allows OpenAI and
+/// Anthropic to be swapped in, and none of the rules in <see cref="SummarizationService"/> know which
+/// is running.
+/// </summary>
+public interface ILlmProvider
+{
+    /// <summary>Which model answered. Recorded with the cost and shown in diagnostics; never a key.</summary>
+    string Name { get; }
+
+    /// <param name="repair">
+    /// Why the last attempt was rejected, when this is the second try. The model is told what it got
+    /// wrong rather than simply asked again, because asking again usually produces the same answer.
+    /// </param>
+    Task<ProviderResult<LlmDraft>> DraftAsync(SummarizeBundle bundle, string? repair, CancellationToken ct = default);
+}
+
+/// <summary>
+/// What each tenant has spent on drafting (ST-063).
+///
+/// Per tenant and per day. One busy MSP must not stop drafting for everyone else on the same instance,
+/// and a cap that resets is a budget rather than a wall.
+/// </summary>
+public interface ICostLedger
+{
+    Task<decimal> SpentTodayAsync(Guid tenantId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Claims <paramref name="estimateUsd"/> of today's budget before a call is made, or returns null
+    /// when the tenant cannot afford it.
+    ///
+    /// The cap used to be read, and then acted on a model call later, so everything that started in
+    /// between passed a check nobody had yet moved. A reservation is a row, which is how the next
+    /// request to look can see it.
+    /// </summary>
+    Task<Guid?> ReserveAsync(Guid tenantId, string sessionId, string provider, decimal estimateUsd, CancellationToken ct = default);
+
+    /// <summary>Replaces a reservation with what the call actually cost. Zero releases it.</summary>
+    Task SettleAsync(Guid reservationId, decimal costUsd, CancellationToken ct = default);
+
+    /// <summary>Records a cost with no reservation behind it. For backfills and tests, not the draft path.</summary>
+    Task RecordAsync(Guid tenantId, string sessionId, string provider, decimal costUsd, CancellationToken ct = default);
+}
+
+public enum SummarizeStatus
+{
+    Ok,
+
+    /// <summary>
+    /// No provider is configured on this deployment, or the one configured refuses its key, its account
+    /// or its model. Actionable by an operator, and not a failure of the session: the client queues it
+    /// and the same session drafts once the setting is right.
+    /// </summary>
+    NotConfigured,
+
+    /// <summary>The tenant has spent its day. Spec §6: the client drafts on the device instead.</summary>
+    CostCapReached,
+
+    /// <summary>Nobody answered. The client queues it (ST-064) rather than losing the session.</summary>
+    Unavailable,
+
+    /// <summary>The model answered and what it said could not be shown.</summary>
+    Invalid,
+}
+
+/// <param name="Repaired">The first answer broke the rules and the second one did not. Logged, and worth watching.</param>
+/// <param name="RetryAfter">
+/// When the provider said to come back, for an <see cref="SummarizeStatus.Unavailable"/> it named a time
+/// for. The endpoint passes it on as the 503's Retry-After, so a session stuck behind a daily quota waits
+/// for the time Google named rather than spending its attempts inside the hour (2026-10-12 review).
+/// </param>
+public sealed record SummarizeResult(
+    SummarizeStatus Status,
+    DraftJson? Draft = null,
+    string? Reason = null,
+    decimal CostUsd = 0,
+    string? Provider = null,
+    bool UsedFallback = false,
+    bool Repaired = false,
+    TimeSpan? RetryAfter = null)
+{
+    public bool Ok => Status == SummarizeStatus.Ok;
+}
+
+/// <summary>
+/// The one model call a session gets (ST-063).
+///
+/// Most of this class is about the days it does not work. The happy path is a request and a parse; the
+/// value is what happens when a provider is slow, a model returns something malformed, or a bug drafts
+/// the same session in a loop and somebody gets a bill.
+///
+/// <b>The cap is checked before the call, not after.</b> A cap enforced after the request has already
+/// been paid for is an alert.
+///
+/// <b>A rejected draft is retried once, with the reasons.</b> A model that cited a frame it invented
+/// usually fixes it when told which one. Once and not in a loop: a second failure is a model having a
+/// bad day, and a third is a bill for two notes nobody can use.
+///
+/// <b>Nothing is stored.</b> INV-7 says the backend never persists a capture; the bundle lives for the
+/// length of one call, and what is written afterwards is a cost row with a tenant, a session id, a
+/// provider name and a number.
+/// </summary>
+/// <param name="time">
+/// The clock the deadline runs on. The system clock when none is given, as in production; a test hands
+/// in one it moves, so a deadline lands on the call it means to cut off rather than on whichever call a
+/// busy machine was still in when the real one ran out.
+/// </param>
+public sealed class SummarizationService(
+    ILlmProvider primary,
+    ILlmProvider? fallback,
+    ICostLedger ledger,
+    SummarizationOptions options,
+    TimeProvider? time = null)
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// A place in the draft named only by <c>schema.json</c>'s own field names and by indexes, such as
+    /// <c>$.steps[0].text</c>. Any other name in a path is one the model made up.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex SchemaPath = new(
+        @"^\$(?:\.(?:problem|steps|text|confidence|frame_refs|transcript_refs|result|follow_ups|suggested_title"
+        + @"|suggested_time_minutes|kb_candidate|kb_reason|source|prompt_version)|\[\d{1,4}\]){0,4}$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    public async Task<SummarizeResult> DraftAsync(Guid tenantId, SummarizeBundle bundle, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(bundle);
+
+        if (!options.Configured)
+        {
+            return new SummarizeResult(
+                SummarizeStatus.NotConfigured,
+                Reason: "No summarization provider is configured on this deployment.");
+        }
+
+        // Claimed before anything is spent, and claimed as a row so the next request to look can see it.
+        // Reading the total and writing the cost a model call apart is how five hundred simultaneous
+        // requests all passed a ten-dollar cap (2026-09-19 review).
+        //
+        // A tenant past its budget is told so and drafts on the device (Spec §6's "Cloud drafting paused
+        // for today").
+        var reservation = await ledger
+            .ReserveAsync(tenantId, bundle.SessionId, primary.Name, options.MaxSessionCostUsd, ct)
+            .ConfigureAwait(false);
+
+        if (reservation is null)
+        {
+            return new SummarizeResult(
+                SummarizeStatus.CostCapReached,
+                Reason: "This tenant has reached its drafting budget for today.");
+        }
+
+        return await DraftWithinBudgetAsync(reservation.Value, bundle, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The call itself, with the budget already claimed.
+    ///
+    /// Its own method so that every way out settles the reservation. An outage costs nothing and must
+    /// give the budget back, or one bad afternoon at the provider spends a tenant's whole day.
+    /// </summary>
+    private async Task<SummarizeResult> DraftWithinBudgetAsync(Guid reservation, SummarizeBundle bundle, CancellationToken ct)
+    {
+        using var timer = new CancellationTokenSource(options.Timeout, time ?? TimeProvider.System);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct, timer.Token);
+
+        // Zero until a model has answered, and settled in the finally whatever happens before then. The
+        // first call used to sit above the try: a provider that threw rather than returning a failure
+        // left the reservation claimed for the rest of the day, and a hundred of those is a tenant's
+        // whole budget spent on nothing (2026-09-20 review).
+        var cost = 0m;
+
+        // What the calls that did not answer may have cost. Filled in by ChooseAsync before it asks the
+        // fallback, so a fallback that throws cannot take the primary's charge with it.
+        var owed = new StrongBox<decimal>();
+        var repaired = false;
+        var usedFallback = false;
+        LlmDraft? model;
+        ProviderError? failure;
+        ProviderError? repairFailure = null;
+        (DraftJson? Draft, string Reason) outcome = (null, string.Empty);
+
+        try
+        {
+            (model, usedFallback, failure) = await ChooseAsync(bundle, owed, deadline.Token).ConfigureAwait(false);
+            if (model is not null)
+            {
+                cost += model.CostUsd;
+                outcome = Interpret(model.Json, bundle);
+            }
+
+            if (model is not null && outcome.Draft is null)
+            {
+                // Told what it got wrong rather than simply asked again: asking again usually produces the
+                // same answer, and this call is not free.
+                var again = usedFallback ? fallback! : primary;
+                var second = await again.DraftAsync(bundle, outcome.Reason, deadline.Token).ConfigureAwait(false);
+                if (second.Ok)
+                {
+                    cost += second.Value!.CostUsd;
+                    outcome = Interpret(second.Value.Json, bundle);
+                    repaired = outcome.Draft is not null;
+                }
+                else
+                {
+                    // The repair is a second call, and one that was sent and never came back is a second
+                    // call the model may have run (2026-10-12 review).
+                    repairFailure = second.Error!;
+                    cost += Owed(repairFailure);
+                }
+            }
+        }
+        finally
+        {
+            // Recorded whatever the outcome, and whatever went wrong getting there.
+            //
+            // A rejected draft cost real money, and a cap that only counts successes is a cap a broken
+            // model walks straight through. The 2026-09-19 review found the harder half: this was the
+            // last statement in the method, so anything that threw after the model answered lost the
+            // cost entirely: a billed draft, no row, and a daily cap that never moved.
+            //
+            // CancellationToken.None, not the request's. The money is gone whether or not the technician
+            // is still waiting for the answer, and a client that hangs up mid-request was cancelling the
+            // write that records what they spent.
+            cost += owed.Value;
+            await ledger.SettleAsync(reservation, cost, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        if (model is null)
+        {
+            // Nobody answered. The reservation was settled above: at nothing when the request never
+            // left, at the estimate when it did and we gave up waiting. Invalid is left for an answer
+            // that could not be shown and a request refused for what was in it.
+            return Unanswered(failure!) ?? new SummarizeResult(SummarizeStatus.Invalid, Reason: failure!.ToString());
+        }
+
+        var provider = usedFallback ? fallback! : primary;
+        if (outcome.Draft is not null)
+        {
+            return new SummarizeResult(SummarizeStatus.Ok, outcome.Draft, null, cost, provider.Name, usedFallback, repaired);
+        }
+
+        // The first answer broke a rule and the repair did not answer. Nothing has shown this session
+        // cannot be drafted: the call that would have fixed it never ran, so it is the outage or the
+        // setting the repair's failure says it is, and the client queues it. Answered as invalid, a 429
+        // on the second call lost the session for good (review round 2 of the 2026-10-12 fixes). The
+        // first answer's bill and whatever the repair may have cost are already settled above.
+        if (repairFailure is not null && Unanswered(repairFailure) is { } unanswered)
+        {
+            return unanswered with { CostUsd = cost, Provider = provider.Name, UsedFallback = usedFallback };
+        }
+
+        return new SummarizeResult(SummarizeStatus.Invalid, Reason: outcome.Reason, CostUsd: cost, Provider: provider.Name, UsedFallback: usedFallback);
+    }
+
+    /// <summary>
+    /// What a call that did not answer means for the session, or null when the provider refused the
+    /// request for what was in it, which asking again does not change.
+    ///
+    /// A provider that refused this deployment (its key, its account, its model) is a setting an operator
+    /// changes, after which the same session drafts. It was answered as invalid, which the client fails
+    /// for good, so every session finished while a key was wrong was lost (review round 1 of the
+    /// 2026-10-12 fixes).
+    /// </summary>
+    private static SummarizeResult? Unanswered(ProviderError failure) => failure.Kind switch
+    {
+        ProviderErrorKind.Unavailable => new SummarizeResult(SummarizeStatus.Unavailable, Reason: failure.ToString(), RetryAfter: failure.RetryAfter),
+        ProviderErrorKind.Unauthenticated or ProviderErrorKind.Forbidden or ProviderErrorKind.NotFound =>
+            new SummarizeResult(SummarizeStatus.NotConfigured, Reason: failure.ToString()),
+        _ => null,
+    };
+
+    /// <summary>
+    /// Asks the primary, and the fallback only when the primary was unreachable.
+    ///
+    /// Only an outage falls over. A rejected payload is rejected twice, and a revoked key is not fixed by
+    /// spending money somewhere else. Both would buy a second failure at the price of a second call.
+    ///
+    /// <c>owed</c> collects what the calls that failed may have cost. Kept apart from the failure that is
+    /// reported, because falling over used to replace the primary's failure with the fallback's, and with
+    /// it the only record that the first call may have been paid for. Added to before the fallback is
+    /// asked, and not returned, so a fallback that throws leaves the primary's charge where the caller's
+    /// finally can still see it.
+    /// </summary>
+    private async Task<(LlmDraft? Draft, bool UsedFallback, ProviderError? Failure)> ChooseAsync(
+        SummarizeBundle bundle,
+        StrongBox<decimal> owed,
+        CancellationToken ct)
+    {
+        var first = await primary.DraftAsync(bundle, null, ct).ConfigureAwait(false);
+        if (first.Ok)
+        {
+            return (first.Value, false, null);
+        }
+
+        owed.Value += Owed(first.Error!);
+        if (first.Error!.Kind != ProviderErrorKind.Unavailable || fallback is null)
+        {
+            return (null, false, first.Error);
+        }
+
+        var second = await fallback.DraftAsync(bundle, null, ct).ConfigureAwait(false);
+        if (second.Ok)
+        {
+            return (second.Value, true, null);
+        }
+
+        owed.Value += Owed(second.Error!);
+        return (null, true, second.Error);
+    }
+
+    /// <summary>
+    /// What a call that did not answer is settled at.
+    ///
+    /// What the provider billed, when it answered with a bill: a model that ran and returned nothing usable
+    /// is still on the invoice (2026-10-12 review). Otherwise the estimate when the call may have run,
+    /// because we stopped waiting and the model did not stop working, and a cap that ignores the calls it
+    /// never saw the end of is a cap a slow afternoon walks straight through (2026-09-20 review). Nothing,
+    /// when the provider says the request never left.
+    /// </summary>
+    private decimal Owed(ProviderError error) =>
+        error.CostUsd ?? (error.MayHaveBeenBilled ? options.MaxSessionCostUsd : 0m);
+
+    /// <summary>Parses what the model said and applies the post-conditions to it.</summary>
+    private static (DraftJson? Draft, string Reason) Interpret(string json, SummarizeBundle bundle)
+    {
+        DraftJson? draft;
+        try
+        {
+            draft = JsonSerializer.Deserialize<DraftJson>(Extract(json), Json);
+        }
+        catch (JsonException ex)
+        {
+            // Not the parser's message: it quotes the property it was reading, and the model chose that
+            // name. This reason is the repair prompt and the 422 body (2026-10-12 review). Where it
+            // tripped is said only when the place is one of the schema's own.
+            return (null, ex.Path is { } path && SchemaPath.IsMatch(path)
+                ? $"The model did not return the agreed shape, at {path}."
+                : "The model did not return the agreed shape.");
+        }
+
+        if (draft is null)
+        {
+            return (null, "The model returned nothing usable.");
+        }
+
+        IReadOnlyList<string> reasons;
+        try
+        {
+            reasons = DraftValidator.Check(draft, bundle);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException)
+        {
+            // Every rule has a match timeout, and a model can write the text that reaches one. That is a
+            // draft nobody could check, which is a draft that may not be shown, not a 500 after the bill.
+            return (null, "The draft could not be checked in time.");
+        }
+
+        return reasons.Count == 0
+            ? (draft, string.Empty)
+            : (null, string.Join(" ", reasons));
+    }
+
+    /// <summary>
+    /// Pulls the object out of whatever the model wrapped it in.
+    ///
+    /// Models fence JSON in markdown without being asked, and a draft rejected for a pair of backticks
+    /// costs a retry for nothing.
+    /// </summary>
+    private static string Extract(string text)
+    {
+        var start = text.IndexOf('{', StringComparison.Ordinal);
+        var end = text.LastIndexOf('}');
+        return start >= 0 && end > start ? text[start..(end + 1)] : text;
+    }
+}

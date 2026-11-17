@@ -1,4 +1,4 @@
-# ADR-0001: Client stack for the ScreenTail Windows client
+# ADR-0001: Client stack for the ScreenTrail Windows client
 
 - **Status:** **Accepted 2026-09-12**, when ST-001 AC1 and AC3 passed on real hardware (see [Evidence](#evidence)). Amended 2026-09-11 to .NET 10 (finding 1). Status line updated 2026-09-15; the decision itself is unchanged.
 - **Date:** 2026-09-10
@@ -140,7 +140,7 @@ These came up while building the spike and hold regardless of how the Windows ru
     (open at 0.6, close at 0.35), a 700 ms hangover, a 250 ms preroll, a 400 ms minimum and a 20 s
     maximum. Played a synthetic ten-minute session with about 3.5 s of speech a minute, it hands on
     **7.0% of the audio**: 42 s of 600 s, as 10 segments. Against the 49–62% of eight threads measured
-    above for continuous feeding, that projects to roughly 3–4%, inside ST-031's 15% for all of ScreenTail.
+    above for continuous feeding, that projects to roughly 3–4%, inside ST-031's 15% for all of ScreenTrail.
 
     **That is a duty cycle, not a CPU measurement.** It says how much audio reaches Whisper, not what
     Whisper then costs, and it is computed from probabilities a test made up rather than from Silero

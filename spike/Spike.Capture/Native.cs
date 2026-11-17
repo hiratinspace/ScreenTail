@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 internal static class Native
 {

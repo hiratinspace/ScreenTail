@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Installs, upgrades and uninstalls ScreenTail silently, and checks what each step left (ST-112).
+    Installs, upgrades and uninstalls ScreenTrail silently, and checks what each step left (ST-112).
 
 .DESCRIPTION
     The installer's acceptance check on a real Windows machine, the way an MSP tool runs it: msiexec
     with /qn, then the setup program with /quiet. For a throwaway machine only (CI's hosted runner, a
-    VM): it installs into Program Files, starts the service, and deletes ScreenTail's data folder for
-    the user running it. It refuses to start where ScreenTail is installed or has data, unless -Force.
+    VM): it installs into Program Files, starts the service, and deletes ScreenTrail's data folder for
+    the user running it. It refuses to start where ScreenTrail is installed or has data, unless -Force.
 
     Every check prints PASS or FAIL with what it saw, the uninstall step's own report is copied from
     the installer's log, and a summary goes to the job summary on CI. Exits 1 if anything failed.
@@ -22,7 +22,7 @@
     upgrade replaces it and keeps the user's data.
 
 .PARAMETER Bundle
-    ScreenTail-Setup.exe. Installed and uninstalled after the package, with a link planted where the
+    ScreenTrail-Setup.exe. Installed and uninstalled after the package, with a link planted where the
     data folder would be, to check the uninstall leaves what a link points at untouched. Installed with
     BACKENDURL, to check it reaches the machine-wide value, and upgraded without it, to check the value
     is kept.
@@ -36,25 +36,25 @@ param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$OlderMsi,
     [string]$Bundle,
-    [string]$Logs = (Join-Path ([IO.Path]::GetTempPath()) 'screentail-installer-logs'),
+    [string]$Logs = (Join-Path ([IO.Path]::GetTempPath()) 'screentrail-installer-logs'),
     [switch]$Force
 )
 
 $ErrorActionPreference = 'Stop'
 
-$installDir = Join-Path $env:ProgramFiles 'ScreenTail'
-$serviceExe = Join-Path $installDir 'ScreenTail.Service.exe'
-$uiExe = Join-Path $installDir 'ScreenTail.UI.exe'
-$dataDir = Join-Path $env:LOCALAPPDATA 'ScreenTail'
+$installDir = Join-Path $env:ProgramFiles 'ScreenTrail'
+$serviceExe = Join-Path $installDir 'ScreenTrail.Service.exe'
+$uiExe = Join-Path $installDir 'ScreenTrail.UI.exe'
+$dataDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail'
 $machineRun = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
 $userRun = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\ScreenTail.lnk'
+$shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\ScreenTrail.lnk'
 $uninstallKeys = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
 # The backend address the packages are given. Under .invalid, which never resolves (RFC 6761), so a service
 # started with it in place reaches nobody.
-$smokeBackend = 'https://screentail-smoke.invalid'
-$decoyName = 'ScreenTail.SmokeDecoy'
-$decoyCommand = '"C:\Elsewhere\ScreenTail.Dev\ScreenTail.UI.exe"'
+$smokeBackend = 'https://screentrail-smoke.invalid'
+$decoyName = 'ScreenTrail.SmokeDecoy'
+$decoyCommand = '"C:\Elsewhere\ScreenTrail.Dev\ScreenTrail.UI.exe"'
 
 $results = New-Object System.Collections.Generic.List[object]
 
@@ -71,7 +71,7 @@ function Check([string]$Name, [bool]$Ok, [string]$Detail = '') {
 }
 
 function Note([string]$Name, [string]$Detail = '') {
-    # Something the run met that is not ScreenTail's doing and not a failure, said by name: in the output,
+    # Something the run met that is not ScreenTrail's doing and not a failure, said by name: in the output,
     # as a notice on the run, and as a row of the summary.
     $results.Add([pscustomobject]@{ Check = $Name; Result = 'NOTE'; Detail = $Detail })
     Write-Host "NOTE  $Name $Detail"
@@ -115,7 +115,7 @@ function Invoke-Msi([string]$Action, [string]$Package, [string]$LogName, [string
 function Get-ArpEntries {
     foreach ($key in $uninstallKeys) {
         if (Test-Path $key) {
-            Get-ChildItem $key | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'ScreenTail' }
+            Get-ChildItem $key | ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.PSObject.Properties['DisplayName'] -and $_.DisplayName -eq 'ScreenTrail' }
         }
     }
 }
@@ -129,7 +129,7 @@ function Get-RunValue([string]$Key, [string]$Name) {
 }
 
 function Get-InstalledProcesses {
-    @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($installDir + '\', [StringComparison]::OrdinalIgnoreCase) })
+    @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($installDir + '\', [StringComparison]::OrdinalIgnoreCase) })
 }
 
 function Get-Subsystem([string]$Path) {
@@ -167,7 +167,7 @@ function Start-InstalledService([string]$ErrorLog) {
     return $false
 }
 
-function Get-UninstallReport([string]$Folder, [datetime]$Since, [string]$Prefix = 'ScreenTail uninstall:') {
+function Get-UninstallReport([string]$Folder, [datetime]$Since, [string]$Prefix = 'ScreenTrail uninstall:') {
     # What the uninstall step (or the upgrade step, by its own prefix) said about itself, which
     # WixQuietExec copied into the installer's log.
     @(Get-ChildItem $Folder -Filter '*.log' | Where-Object { $_.LastWriteTime -ge $Since } |
@@ -208,7 +208,7 @@ try {
 '@
 
 function Start-ForeignHolder([string]$Name) {
-    $service = @(Get-InstalledProcesses | Where-Object { $_.ProcessName -eq 'ScreenTail.Service' }) | Select-Object -First 1
+    $service = @(Get-InstalledProcesses | Where-Object { $_.ProcessName -eq 'ScreenTrail.Service' }) | Select-Object -First 1
     Check "${Name}: the installed service is running before the upgrade" ($null -ne $service)
     # A file name from the step's name: "msiexec /qn upgrade" has a slash in it.
     $record = Join-Path $Logs ('holder-' + ($Name -replace '[^A-Za-z0-9]+', '-') + '.txt')
@@ -260,13 +260,13 @@ function Write-PendingRestartState([string]$When) {
     }
     $ours = @(Get-PendingRestartFiles).Count
     $said = $(if ($markers.Count -gt 0) { $markers -join ', ' } else { 'none' })
-    Write-Host "  Pending restart ${When}: markers: $said; file operations left for a restart: $renames, of ScreenTail's files: $ours"
+    Write-Host "  Pending restart ${When}: markers: $said; file operations left for a restart: $renames, of ScreenTrail's files: $ours"
 }
 
 function Test-SetupLog([string]$What, [string]$LogName, [int]$Code) {
     # What the setup program's own log says about restarts. Its exit code alone cannot say which package
-    # wanted one: the 1641 of 2026-11-11 was the Visual C++ runtime's installer, not ScreenTail's package.
-    # ScreenTail's package must never need a restart, the setup program must never start one, and a
+    # wanted one: the 1641 of 2026-11-11 was the Visual C++ runtime's installer, not ScreenTrail's package.
+    # ScreenTrail's package must never need a restart, the setup program must never start one, and a
     # runtime that wanted one is named, with its exit code, rather than passed over or failed for.
     $lines = @(Get-Content (Join-Path $Logs $LogName) -ErrorAction SilentlyContinue)
     $runtime = @($lines | Where-Object { $_ -match 'The process for package: VcRuntimeX64 exited with code: 0x[0-9a-fA-F]+' }) | Select-Object -First 1
@@ -279,9 +279,9 @@ function Test-SetupLog([string]$What, [string]$LogName, [int]$Code) {
             Write-Host "  The setup program ran the Visual C++ runtime's installer: exit $runtimeCode; $translated"
         }
     }
-    $package = @($lines | Where-Object { $_ -match 'Applied execute package: ScreenTail, result: ' }) | Select-Object -Last 1
-    $said = $(if ("$package" -match '(Applied execute package: ScreenTail, result: .*)$') { $Matches[1] } else { 'the log has no line for the package' })
-    Check "${What}: the setup program ran ScreenTail's package, and the package needed no restart" ("$package" -match 'Applied execute package: ScreenTail, result: 0x0, restart: None\s*$') $said
+    $package = @($lines | Where-Object { $_ -match 'Applied execute package: ScreenTrail, result: ' }) | Select-Object -Last 1
+    $said = $(if ("$package" -match '(Applied execute package: ScreenTrail, result: .*)$') { $Matches[1] } else { 'the log has no line for the package' })
+    Check "${What}: the setup program ran ScreenTrail's package, and the package needed no restart" ("$package" -match 'Applied execute package: ScreenTrail, result: 0x0, restart: None\s*$') $said
     $end = @($lines | Where-Object { $_ -match 'i007: Exit code: ' }) | Select-Object -Last 1
     $said = $(if ("$end" -match '(Exit code: .*)$') { $Matches[1] } else { 'the log has no exit line' })
     Check "${What}: the setup program did not restart the machine, and its log has the exit code it returned" ("$end" -match ('Exit code: 0x{0:x}, restarting: No\s*$' -f $Code)) $said
@@ -292,7 +292,7 @@ function Get-BackendUrl {
     # reads (a 32-bit PowerShell would see the WOW6432Node copy instead).
     $view = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
     try {
-        $key = $view.OpenSubKey('SOFTWARE\ScreenTail')
+        $key = $view.OpenSubKey('SOFTWARE\ScreenTrail')
         if (-not $key) {
             return $null
         }
@@ -332,7 +332,7 @@ function Test-UpgradeHeld($Holder, [string[]]$Report) {
     if ($line -match '^held (\d+) ms$') {
         $held = [int]$Matches[1]
     }
-    Check "${name}: another program held ScreenTail.Service.exe open, read sharing only, from the old service's end for $holdMs ms" ($held -ge ($holdMs - 50)) "$line"
+    Check "${name}: another program held ScreenTrail.Service.exe open, read sharing only, from the old service's end for $holdMs ms" ($held -ge ($holdMs - 50)) "$line"
     $wait = @($Report | Where-Object { $_ -match 'waited (\d+) ms for other programs to close the installed files; (\d+) still open\.' }) | Select-Object -First 1
     $waited = -1
     $open = -1
@@ -385,7 +385,7 @@ function Invoke-Close([string]$Exe, [string]$Mode, [string]$Name, [switch]$Resta
 }
 
 function Test-ClosedByItself([string]$What, $Result) {
-    # Windows waits about five seconds for a program it asked; ScreenTail takes a fraction of that.
+    # Windows waits about five seconds for a program it asked; ScreenTrail takes a fraction of that.
     Check "${What}: the request was made" ($Result.Code -eq 0 -and @($Result.Lines | Where-Object { $_ -eq 'processes 1' }).Count -eq 1) "exit $($Result.Code)"
     $line = @($Result.Lines | Where-Object { $_ -match '^exited \d+ \d+ -?\d+$' }) | Select-Object -First 1
     $parts = "$line" -split ' '
@@ -421,7 +421,7 @@ function Test-StoreClosed([string]$What, $Result) {
 }
 
 function Test-InstalledLayout([string]$ExpectedVersion) {
-    foreach ($file in @('ScreenTail.Service.exe', 'ScreenTail.UI.exe', 'e_sqlcipher.dll', 'Registry\remote-tools.json', 'Registry\exclusions-default.json', 'runtimes\win-x64\whisper.dll')) {
+    foreach ($file in @('ScreenTrail.Service.exe', 'ScreenTrail.UI.exe', 'e_sqlcipher.dll', 'Registry\remote-tools.json', 'Registry\exclusions-default.json', 'runtimes\win-x64\whisper.dll')) {
         Check "installed: $file" (Test-Path (Join-Path $installDir $file))
     }
     # Only where the folder exists. Given a folder that is not there, Windows PowerShell's Get-ChildItem
@@ -442,16 +442,16 @@ function Test-InstalledLayout([string]$ExpectedVersion) {
             Check "$(Split-Path $exe -Leaf) is a Windows program (no console window)" ($subsystem -eq 2) "subsystem $subsystem"
         }
     }
-    $run = Get-RunValue $machineRun 'ScreenTail.Service'
+    $run = Get-RunValue $machineRun 'ScreenTrail.Service'
     Check 'the service starts at sign-in from the machine Run key' ($run -eq "`"$serviceExe`"") "value: $run"
-    Check 'nothing starts the UI from the machine Run key' ($null -eq (Get-RunValue $machineRun 'ScreenTail.UI'))
+    Check 'nothing starts the UI from the machine Run key' ($null -eq (Get-RunValue $machineRun 'ScreenTrail.UI'))
     Check 'Start menu shortcut' (Test-Path $shortcut)
     if (Test-Path $shortcut) {
         $target = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut).TargetPath
         Check 'the shortcut opens the installed UI' ($target -ieq $uiExe) "target: $target"
     }
     $msiEntries = @(Get-ArpEntries | Where-Object { $_.PSObject.Properties['WindowsInstaller'] -and $_.WindowsInstaller -eq 1 })
-    Check 'one ScreenTail package is installed' ($msiEntries.Count -eq 1) "found $($msiEntries.Count)"
+    Check 'one ScreenTrail package is installed' ($msiEntries.Count -eq 1) "found $($msiEntries.Count)"
     if ($msiEntries.Count -eq 1 -and $ExpectedVersion) {
         Check "the installed version is $ExpectedVersion" ($msiEntries[0].DisplayVersion -eq $ExpectedVersion) "found $($msiEntries[0].DisplayVersion)"
     }
@@ -459,11 +459,11 @@ function Test-InstalledLayout([string]$ExpectedVersion) {
 
 function Test-Removed {
     Check 'the install folder is gone' (-not (Test-Path $installDir))
-    Check 'the machine Run value is gone' ($null -eq (Get-RunValue $machineRun 'ScreenTail.Service'))
+    Check 'the machine Run value is gone' ($null -eq (Get-RunValue $machineRun 'ScreenTrail.Service'))
     Check 'the Start menu shortcut is gone' (-not (Test-Path $shortcut))
-    Check 'no ScreenTail entry is left in Programs and Features' (@(Get-ArpEntries).Count -eq 0)
-    Check 'no ScreenTail process is running' (@(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue).Count -eq 0)
-    Check 'the machine key the shortcut used is gone' (-not (Test-Path 'HKLM:\Software\ScreenTail'))
+    Check 'no ScreenTrail entry is left in Programs and Features' (@(Get-ArpEntries).Count -eq 0)
+    Check 'no ScreenTrail process is running' (@(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue).Count -eq 0)
+    Check 'the machine key the shortcut used is gone' (-not (Test-Path 'HKLM:\Software\ScreenTrail'))
 }
 
 # --- Preconditions -------------------------------------------------------------------------------------
@@ -472,7 +472,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
     throw 'Run this as an administrator: the package installs for the whole machine.'
 }
 if (-not $Force -and ((Test-Path $installDir) -or (Test-Path $dataDir))) {
-    throw "ScreenTail is installed here, or $dataDir exists. This test uninstalls it and deletes that folder; run it on a throwaway machine, or pass -Force."
+    throw "ScreenTrail is installed here, or $dataDir exists. This test uninstalls it and deletes that folder; run it on a throwaway machine, or pass -Force."
 }
 foreach ($file in @($Msi, $OlderMsi, $Bundle) | Where-Object { $_ }) {
     if (-not (Test-Path $file)) {
@@ -496,10 +496,10 @@ Write-Host "This account has a session on the machine: $signedIn"
 
 # --- An install folder outside Program Files is refused -------------------------------------------------
 Write-Step 'A silent install into another folder is refused'
-$elsewhere = Join-Path $env:SystemDrive 'ScreenTailElsewhere'
+$elsewhere = Join-Path $env:SystemDrive 'ScreenTrailElsewhere'
 $code = Invoke-Msi '/i' $Msi 'install-elsewhere.log' "INSTALLFOLDER=$elsewhere"
 Check 'msiexec /i with INSTALLFOLDER outside Program Files fails' ($code -ne 0) "exit $code"
-Check 'and installs nothing there' (-not (Test-Path (Join-Path $elsewhere 'ScreenTail.Service.exe')))
+Check 'and installs nothing there' (-not (Test-Path (Join-Path $elsewhere 'ScreenTrail.Service.exe')))
 Check 'and registers nothing' (@(Get-ArpEntries).Count -eq 0)
 Remove-Item $elsewhere -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -520,7 +520,7 @@ if ($OlderMsi) {
     Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
     Check 'the running service is the installed one' ((Get-InstalledProcesses).Count -ge 1)
 
-    New-ItemProperty -Path $userRun -Name 'ScreenTail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $userRun -Name 'ScreenTrail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $userRun -Name $decoyName -Value $decoyCommand -PropertyType String -Force | Out-Null
 
     Write-Step 'Silent upgrade to the new package while the service is running'
@@ -538,18 +538,18 @@ if ($OlderMsi) {
     }
     Check 'msiexec /i new /qn over the older one exits 0, with no restart needed' ($code -eq 0) "exit $code"
     Check 'the upgrade ran while the package was held open for reading only, as the update installer holds it' ($code -eq 0)
-    $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
+    $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTrail upgrade:'
     $upgradeReport | ForEach-Object { Write-Host "  $_" }
     Test-UpgradeHeld $holder $upgradeReport
     Check 'the upgrade ran no uninstall step' (@(Get-UninstallReport $Logs $since).Count -eq 0)
     Check 'the upgrade closed the running copies' ((Get-InstalledProcesses).Count -eq 0)
     Check 'the upgrade kept the user data (store key still there)' (Test-Path (Join-Path $dataDir 'store.key'))
-    Check "the upgrade left the UI's own Run value alone" ($null -ne (Get-RunValue $userRun 'ScreenTail'))
+    Check "the upgrade left the UI's own Run value alone" ($null -ne (Get-RunValue $userRun 'ScreenTrail'))
 } else {
     Write-Step 'Silent install'
     $code = Invoke-Msi '/i' $Msi 'install.log'
     Check 'msiexec /i /qn exits 0' ($code -eq 0) "exit $code"
-    New-ItemProperty -Path $userRun -Name 'ScreenTail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $userRun -Name 'ScreenTrail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $userRun -Name $decoyName -Value $decoyCommand -PropertyType String -Force | Out-Null
 }
 
@@ -635,35 +635,35 @@ $closed = Invoke-Close $uiExe 'RestartManager' 'ui-restart-manager'
 Test-RestartManagerShutdown 'the UI' $closed
 Check 'Restart Manager can restart the UI: it registered for restart' (@($closed.Lines | Where-Object { $_ -match '^restartable \d+ True$' }).Count -eq 1)
 Test-ClosedByItself "Restart Manager's request to the UI" $closed
-Get-Process -Name 'ScreenTail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name 'ScreenTrail.UI' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 Check 'the installed service starts again for the uninstall' (Start-InstalledService)
 
 # --- An uninstall that names another install folder runs nothing from there ----------------------------
 # The uninstall runs the installed service from the install folder as the system account, so it must
 # never take that folder from the command line. Either the folder check refuses the uninstall (and
-# ScreenTail stays installed), or Windows Installer keeps the installed folder for an installed product
+# ScreenTrail stays installed), or Windows Installer keeps the installed folder for an installed product
 # and ignores the command line's, which is what the hosted image does (2026-11-16): then the uninstall
-# runs from Program Files, nothing runs from the other folder, and ScreenTail is installed again for the
+# runs from Program Files, nothing runs from the other folder, and ScreenTrail is installed again for the
 # checks below.
 Write-Step 'A silent uninstall that names another install folder runs nothing from there'
 $code = Invoke-Msi '/x' $Msi 'uninstall-elsewhere.log' "INSTALLFOLDER=$elsewhere"
 $elsewhereLog = @(Get-Content (Join-Path $Logs 'uninstall-elsewhere.log') -ErrorAction SilentlyContinue)
-$fromElsewhere = [regex]::Escape((Join-Path $elsewhere 'ScreenTail.Service.exe'))
+$fromElsewhere = [regex]::Escape((Join-Path $elsewhere 'ScreenTrail.Service.exe'))
 Check 'nothing was started from the folder the command line named' (@($elsewhereLog | Where-Object { $_ -match $fromElsewhere }).Count -eq 0)
 if ($code -ne 0) {
     # Refused means refused by the folder check, and nothing else: any other failure fails the step.
     Check 'the uninstall was refused by the folder check (1603, RefuseInstallFolder)' ($code -eq 1603 -and @($elsewhereLog | Where-Object { $_ -match 'RefuseInstallFolder' }).Count -ge 1) "exit $code"
-    Check 'and ScreenTail is still installed' (@(Get-ArpEntries).Count -eq 1)
-    Check 'with its service still in Program Files' (Test-Path (Join-Path $installDir 'ScreenTail.Service.exe'))
+    Check 'and ScreenTrail is still installed' (@(Get-ArpEntries).Count -eq 1)
+    Check 'with its service still in Program Files' (Test-Path (Join-Path $installDir 'ScreenTrail.Service.exe'))
 } else {
     $resolved = @($elsewhereLog | ForEach-Object { [regex]::Match($_, '^Property\(S\): INSTALLFOLDER = (.*)$') } | Where-Object { $_.Success } | ForEach-Object { $_.Groups[1].Value.Trim() }) | Select-Object -Last 1
     Check 'Windows Installer kept the installed folder for the uninstall' ($resolved -eq "$installDir\") "INSTALLFOLDER $resolved"
-    Check 'and the uninstall step ran from Program Files' (@($elsewhereLog | Where-Object { $_ -match [regex]::Escape((Join-Path $installDir 'ScreenTail.Service.exe')) }).Count -ge 1)
+    Check 'and the uninstall step ran from Program Files' (@($elsewhereLog | Where-Object { $_ -match [regex]::Escape((Join-Path $installDir 'ScreenTrail.Service.exe')) }).Count -ge 1)
     Write-Step 'Install again for the checks below'
     $code = Invoke-Msi '/i' $Msi 'install-again.log'
     Check 'msiexec /i /qn exits 0' ($code -eq 0) "exit $code"
-    New-ItemProperty -Path $userRun -Name 'ScreenTail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $userRun -Name 'ScreenTrail' -Value "`"$uiExe`"" -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $userRun -Name $decoyName -Value $decoyCommand -PropertyType String -Force | Out-Null
     Test-InstalledLayout $version
     Check 'the installed service starts again for the uninstall' (Start-InstalledService)
@@ -677,17 +677,17 @@ Remove-Item $elsewhere -Recurse -Force -ErrorAction SilentlyContinue
 # The uninstall must remove the key and the credential, leave the store, and leave the link and what it
 # points at untouched.
 Write-Step 'A second technician who is not signed in, with data and a planted link'
-Add-Type -Namespace ScreenTailSmoke -Name Profiles -MemberDefinition '[DllImport("userenv.dll", CharSet = CharSet.Unicode)] public static extern int CreateProfile(string sid, string name, System.Text.StringBuilder path, uint size);'
+Add-Type -Namespace ScreenTrailSmoke -Name Profiles -MemberDefinition '[DllImport("userenv.dll", CharSet = CharSet.Unicode)] public static extern int CreateProfile(string sid, string name, System.Text.StringBuilder path, uint size);'
 $otherName = 'stsmoke' + (Get-Random -Minimum 1000 -Maximum 9999)
 $password = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + 'Aa1!') -AsPlainText -Force
-New-LocalUser -Name $otherName -Password $password -Description 'ScreenTail installer smoke test' | Out-Null
+New-LocalUser -Name $otherName -Password $password -Description 'ScreenTrail installer smoke test' | Out-Null
 $otherSid = (New-Object Security.Principal.NTAccount($otherName)).Translate([Security.Principal.SecurityIdentifier]).Value
 $profilePath = New-Object System.Text.StringBuilder 260
-$hr = [ScreenTailSmoke.Profiles]::CreateProfile($otherSid, $otherName, $profilePath, 260)
+$hr = [ScreenTrailSmoke.Profiles]::CreateProfile($otherSid, $otherName, $profilePath, 260)
 $otherProfile = $profilePath.ToString()
 Check 'a profile exists for a second technician who has never signed in' ($hr -eq 0 -and $otherProfile -and (Test-Path $otherProfile)) ('result 0x{0:X8}' -f $hr)
-$otherData = Join-Path $otherProfile 'AppData\Local\ScreenTail'
-$outside = Join-Path $env:SystemDrive 'ScreenTailSmokeOutside'
+$otherData = Join-Path $otherProfile 'AppData\Local\ScreenTrail'
+$outside = Join-Path $env:SystemDrive 'ScreenTrailSmokeOutside'
 New-Item -ItemType Directory -Force -Path $otherData, $outside | Out-Null
 foreach ($name in @('store.key', 'device.cred', 'store.db')) {
     Set-Content -Path (Join-Path $otherData $name) -Value 'smoke'
@@ -697,9 +697,9 @@ New-Item -ItemType SymbolicLink -Path (Join-Path $otherData 'device.cred.tmp') -
 
 # --- Uninstall -----------------------------------------------------------------------------------------
 Write-Step 'Silent uninstall while the service is running'
-$runningBefore = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTail.Service' }).Count
-# ScreenTail's own processes, so the check below can tell another program's hold from theirs.
-$screenTailIds = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+$runningBefore = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTrail.Service' }).Count
+# ScreenTrail's own processes, so the check below can tell another program's hold from theirs.
+$screenTailIds = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
 Check 'the installed service is running before the uninstall' ($runningBefore -ge 1) "running $runningBefore"
 $since = Get-Date
 $code = Invoke-Msi '/x' $Msi 'uninstall.log'
@@ -713,7 +713,7 @@ Test-ReleaseWait $report
 # does, so the uninstall step finds none left to end (before the service had a window this always said 1).
 # The package asks only programs registered for restart and nobody when anything else holds an installed
 # file (MSIRMSHUTDOWN=2), so 1 is right too, but only when the installer's log shows such a holder: one
-# Restart Manager detected that is not a ScreenTail process. Counted, never named: a friendly name can be
+# Restart Manager detected that is not a ScreenTrail process. Counted, never named: a friendly name can be
 # a window title.
 $stoppedLine = @($report | Where-Object { $_ -match 'running copies stopped' }) | Select-Object -First 1
 $stopped = if ("$stoppedLine" -match 'uninstall: (\d+) running copies stopped') { [int]$Matches[1] } else { -1 }
@@ -722,7 +722,7 @@ $detected = @(Get-Content (Join-Path $Logs 'uninstall.log') -ErrorAction Silentl
     ForEach-Object { [int]([regex]::Match($_, 'with id (\d+)').Groups[1].Value) })
 $otherHolders = @($detected | Where-Object { $screenTailIds -notcontains $_ } | Select-Object -Unique).Count
 Check 'Restart Manager closed the running service before the uninstall step, or another program held a file so nobody was asked' ($stopped -eq 0 -or ($stopped -eq 1 -and $otherHolders -ge 1)) "stopped $stopped, other holders $otherHolders"
-Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTail'))
+Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTrail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)
 Remove-ItemProperty -Path $userRun -Name $decoyName -ErrorAction SilentlyContinue
 
@@ -756,20 +756,20 @@ if ($Bundle) {
     Write-Step 'Silent install with the setup program, given the backend address'
     Write-PendingRestartState 'before the setup program'
     $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-install.log')`" BACKENDURL=$smokeBackend"
-    Check 'ScreenTail-Setup.exe /quiet BACKENDURL=... exits 0' ($code -eq 0) "exit $code"
+    Check 'ScreenTrail-Setup.exe /quiet BACKENDURL=... exits 0' ($code -eq 0) "exit $code"
     Test-SetupLog 'setup program install' 'setup-install.log' $code
     Write-PendingRestartState 'after the setup program'
     Test-InstalledLayout $version
     # The address is the smoke test's own made-up one, so printing it here leaks nothing.
     $address = Get-BackendUrl
-    Check 'the setup program passed BACKENDURL on: HKLM\SOFTWARE\ScreenTail\BackendUrl holds it' ($address -eq $smokeBackend) "value: $address"
+    Check 'the setup program passed BACKENDURL on: HKLM\SOFTWARE\ScreenTrail\BackendUrl holds it' ($address -eq $smokeBackend) "value: $address"
     Test-AddressNotLogged 'setup program install' 'setup-install'
     $bundles = @(Get-ArpEntries | Where-Object { $_.PSObject.Properties['BundleVersion'] })
     Check 'the setup program is listed in Programs and Features' ($bundles.Count -eq 1) "found $($bundles.Count)"
 
     # A folder outside the profile, and the data folder replaced by a junction to it. The uninstall must
     # leave the junction and everything it points at.
-    $sentinel = Join-Path $env:SystemDrive 'ScreenTailSmokeSentinel'
+    $sentinel = Join-Path $env:SystemDrive 'ScreenTrailSmokeSentinel'
     New-Item -ItemType Directory -Force -Path $sentinel | Out-Null
     Set-Content -Path (Join-Path $sentinel 'keep.txt') -Value 'must survive the uninstall'
     New-Item -ItemType Junction -Path $dataDir -Target $sentinel | Out-Null
@@ -777,7 +777,7 @@ if ($Bundle) {
     Write-Step 'Silent uninstall with the setup program, with a link where the data folder was'
     $since = Get-Date
     $code = Invoke-Process $Bundle "/uninstall /quiet /norestart /log `"$(Join-Path $Logs 'setup-uninstall.log')`""
-    Check 'ScreenTail-Setup.exe /uninstall /quiet exits 0' ($code -eq 0) "exit $code"
+    Check 'ScreenTrail-Setup.exe /uninstall /quiet exits 0' ($code -eq 0) "exit $code"
     Test-SetupLog 'setup program uninstall' 'setup-uninstall.log' $code
     Write-PendingRestartState 'after the setup program''s uninstall'
     Test-Removed
@@ -808,7 +808,7 @@ if ($OlderMsi) {
     $holder = Start-ForeignHolder 'msiexec /passive upgrade'
     $code = Invoke-Msi '/i' $Msi 'upgrade-passive.log' '' '/passive'
     Check 'msiexec /i new /passive /norestart over the older one exits 0, with no restart needed' ($code -eq 0) "exit $code"
-    $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
+    $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTrail upgrade:'
     $upgradeReport | ForEach-Object { Write-Host "  $_" }
     Test-UpgradeHeld $holder $upgradeReport
     Test-InstalledLayout $version
@@ -825,15 +825,15 @@ if ($OlderMsi) {
         $code = Invoke-Msi '/i' (Resolve-Path $OlderMsi).Path 'install-older-3.log' "BACKENDURL=$smokeBackend"
         Check 'msiexec /i older BACKENDURL=... /qn exits 0 (for the setup program''s upgrade)' ($code -eq 0) "exit $code"
         $address = Get-BackendUrl
-        Check 'msiexec wrote BACKENDURL to HKLM\SOFTWARE\ScreenTail\BackendUrl' ($address -eq $smokeBackend) "value: $address"
+        Check 'msiexec wrote BACKENDURL to HKLM\SOFTWARE\ScreenTrail\BackendUrl' ($address -eq $smokeBackend) "value: $address"
         Test-AddressNotLogged 'msiexec install with BACKENDURL' 'install-older-3'
         Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
         $since = Get-Date
         $holder = Start-ForeignHolder 'setup program upgrade'
         $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-upgrade.log')`""
-        Check 'ScreenTail-Setup.exe /quiet over the older package exits 0, with no restart needed' ($code -eq 0) "exit $code"
+        Check 'ScreenTrail-Setup.exe /quiet over the older package exits 0, with no restart needed' ($code -eq 0) "exit $code"
         Test-SetupLog 'setup program upgrade' 'setup-upgrade.log' $code
-        $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTail upgrade:'
+        $upgradeReport = Get-UninstallReport $Logs $since 'ScreenTrail upgrade:'
         $upgradeReport | ForEach-Object { Write-Host "  $_" }
         Test-UpgradeHeld $holder $upgradeReport
         Test-InstalledLayout $version
@@ -843,7 +843,7 @@ if ($OlderMsi) {
         Write-Step 'Silent uninstall with the setup program, after its upgrade'
         $since = Get-Date
         $code = Invoke-Process $Bundle "/uninstall /quiet /norestart /log `"$(Join-Path $Logs 'setup-uninstall-2.log')`""
-        Check 'ScreenTail-Setup.exe /uninstall /quiet exits 0, after its upgrade' ($code -eq 0) "exit $code"
+        Check 'ScreenTrail-Setup.exe /uninstall /quiet exits 0, after its upgrade' ($code -eq 0) "exit $code"
         Test-SetupLog 'setup program uninstall after its upgrade' 'setup-uninstall-2.log' $code
         Test-Removed
         Test-ReleaseWait (Get-UninstallReport $Logs $since)
@@ -861,10 +861,10 @@ if ($OlderMsi) {
     }
 }
 
-# Anything of ScreenTail's still running here would be a failure above; ended now, so it cannot hold the
+# Anything of ScreenTrail's still running here would be a failure above; ended now, so it cannot hold the
 # job's output open past the end of the script.
-$left = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI' -ErrorAction SilentlyContinue)
-Write-Host "ScreenTail processes left at the end: $($left.Count)"
+$left = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue)
+Write-Host "ScreenTrail processes left at the end: $($left.Count)"
 $left | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # --- Summary -------------------------------------------------------------------------------------------

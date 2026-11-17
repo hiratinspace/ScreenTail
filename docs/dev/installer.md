@@ -7,18 +7,18 @@ Two files come out of a build:
 
 | File | For |
 |---|---|
-| `ScreenTail.msi` | MSP deployment (Intune, RMM, GPO). Per machine. Needs the Visual C++ 2015-2022 x64 runtime already on the machine, and refuses to install without it |
-| `ScreenTail-Setup.exe` | Any machine, including a fresh Windows: installs that runtime if it is missing or older, then the MSI |
+| `ScreenTrail.msi` | MSP deployment (Intune, RMM, GPO). Per machine. Needs the Visual C++ 2015-2022 x64 runtime already on the machine, and refuses to install without it |
+| `ScreenTrail-Setup.exe` | Any machine, including a fresh Windows: installs that runtime if it is missing or older, then the MSI |
 
-Both install to `C:\Program Files\ScreenTail` for every user of the machine, start the capture service
-at each sign-in, and put ScreenTail in the Start menu. **Until the code-signing certificate exists every
+Both install to `C:\Program Files\ScreenTrail` for every user of the machine, start the capture service
+at each sign-in, and put ScreenTrail in the Start menu. **Until the code-signing certificate exists every
 build is unsigned**: a development build, which Windows SmartScreen will warn about and which the two
 processes accept from each other only because they sit in the same folder. **Never deploy an unsigned
 build to a technician's machine.** It is for test VMs: the peer checks run in their development form,
 and nothing tells a user that the program is ours.
 
-The install folder is always `C:\Program Files\ScreenTail` (the machine's own 64-bit Program Files).
-Setting `INSTALLFOLDER` on the command line makes the install fail rather than put ScreenTail somewhere
+The install folder is always `C:\Program Files\ScreenTrail` (the machine's own 64-bit Program Files).
+Setting `INSTALLFOLDER` on the command line makes the install fail rather than put ScreenTrail somewhere
 ordinary users can change, because the uninstall runs the installed service as the system account. The
 same check runs on an uninstall and a repair: a command line that names another folder there fails too,
 and an ordinary uninstall or repair (no `INSTALLFOLDER`) is unaffected.
@@ -50,29 +50,29 @@ CI builds it on every pull request that touches `client/` or `installer/` (the *
 job): it runs the same steps the signing job runs, with nothing signed, then installs, upgrades over an
 older build, runs both installed programs, uninstalls, and checks what each step left. It also upgrades
 three ways (msiexec `/qn`, the update installer's `/passive /norestart`, and the setup program) while
-another process reads `ScreenTail.Service.exe` for 4 seconds from the moment the old service ends, and
+another process reads `ScreenTrail.Service.exe` for 4 seconds from the moment the old service ends, and
 each must exit 0 with nothing left for a restart. It installs the setup program with `BACKENDURL` and
 checks the machine-wide `BackendUrl` value holds it, gives `msiexec` the address before the setup
 program's upgrade and checks the upgrade, given none, kept it, and checks that no installer log shows the
-address but for Windows Installer's record of the registry write (see "The backend address" below). The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
+address but for Windows Installer's record of the registry write (see "The backend address" below). The unsigned packages are a workflow artifact, `screentrail-installer-unsigned`,
 kept seven days. To try one: download it from the run's summary page, on a throwaway VM.
 
 For every run of the setup program the test also reads the setup program's own log, because its exit
-code cannot say which package wanted a restart. ScreenTail's package must report `restart: None`, the
+code cannot say which package wanted a restart. ScreenTrail's package must report `restart: None`, the
 last line must say `restarting: No` with the exit code the test saw, and the machine's pending-restart
 state is printed before and after. When the Visual C++ runtime's installer exits 3010 (the hosted
 image's runtime is older than the pinned one and in use), the test passes and says so in a
 `NOTE` line, a notice on the run and a row of the summary, with the runtime's exit code; the runtime's
 own log, `setup-install_000_VcRuntimeX64.log`, is in the `installer-logs` artifact. A restart wanted by
-ScreenTail's package is still a failure. This is what the job met on 2026-11-11, when Microsoft
+ScreenTrail's package is still a failure. This is what the job met on 2026-11-11, when Microsoft
 published a newer runtime than the image carries (see "Restarts and the setup program" under "Deploy it silently").
 
-`installer\smoke-test.ps1` is that check, and can be run on a VM by hand. It uninstalls ScreenTail and
-deletes its data folder, so it refuses to run where ScreenTail is installed unless given `-Force`.
+`installer\smoke-test.ps1` is that check, and can be run on a VM by hand. It uninstalls ScreenTrail and
+deletes its data folder, so it refuses to run where ScreenTrail is installed unless given `-Force`.
 
 ### The pinned Visual C++ runtime
 
-`ScreenTail-Setup.exe` carries one exact `vc_redist.x64.exe`, pinned under `downloads` in
+`ScreenTrail-Setup.exe` carries one exact `vc_redist.x64.exe`, pinned under `downloads` in
 `installer\tools.json`: a versioned `download.visualstudio.microsoft.com/download/pr/...` URL, the
 file's four-part version (today `14.52.37029.0`) and its SHA-256. `package.ps1 -Step Bundle` downloads
 that URL and nothing else, and the build stops with a plain sentence if the download fails, if the
@@ -104,7 +104,7 @@ To move to a newer runtime, in a reviewed pull request:
    true and the test prints no runtime line; if the image's runtime is older, the test prints
    `The setup program ran the Visual C++ runtime's installer: exit 0`, or a `NOTE` with exit 3010
    when the old runtime was in use (a pass, as above). The setup logs are in the `installer-logs`
-   artifact. Either way ScreenTail's package must still install with `restart: None`.
+   artifact. Either way ScreenTrail's package must still install with `restart: None`.
 
 A pin Microsoft later takes down fails the build at the download, with the URL in the message: move
 the pin as above.
@@ -126,7 +126,7 @@ None of these is in the repository, and nothing in CI creates or changes them.
 2. **Azure:** create an app registration and give it the certificate profile signer role on the
    profile (*Trusted Signing Certificate Profile Signer* before the service was renamed). **Do not
    create a client secret.** Add a *federated credential* to it instead: scenario *GitHub Actions
-   deploying Azure resources*, organisation `hiratinspace`, repository `ScreenTail`, entity type
+   deploying Azure resources*, organisation `hiratinspace`, repository `ScreenTrail`, entity type
    *Environment*, name `signing`. Its subject is then exactly
    `repo:hiratinspace/ScreenTail:environment:signing`, so Azure accepts a token from the signing job
    in that environment and from nothing else.
@@ -139,24 +139,24 @@ None of these is in the repository, and nothing in CI creates or changes them.
    - **Recommended by default: *Required reviewers*** (the owner), so every signing run waits for a
      person to approve it.
    - Add these environment **variables** (none of them is a credential): `AZURE_TENANT_ID`,
-     `AZURE_CLIENT_ID` (the app registration's), `SCREENTAIL_SIGNING_ENDPOINT`,
-     `SCREENTAIL_SIGNING_ACCOUNT` and `SCREENTAIL_SIGNING_PROFILE`.
+     `AZURE_CLIENT_ID` (the app registration's), `SCREENTRAIL_SIGNING_ENDPOINT`,
+     `SCREENTRAIL_SIGNING_ACCOUNT` and `SCREENTRAIL_SIGNING_PROFILE`.
 4. **GitHub, *Settings → Secrets and variables → Actions → Variables*:** add the repository variable
-   `SCREENTAIL_SIGNING` = `true`. This is the switch, and the last step: before it, no signing job runs.
+   `SCREENTRAIL_SIGNING` = `true`. This is the switch, and the last step: before it, no signing job runs.
 
 ### What CI then does
 
 Every merge to main that touches the client or the installer runs three installer jobs:
 
 - **Installer (Windows)**, as on a pull request, with no token and no signing setting. It also hands
-  the checked payload, and only that, to the next job as the artifact `screentail-installer-payload`
+  the checked payload, and only that, to the next job as the artifact `screentrail-installer-payload`
   (kept one day), with the artifact's id, its digest and the SHA-256 of every file as job outputs.
 - **Installer (Windows, signing)**, the only job that may ask GitHub for an OIDC token, always in the
   `signing` environment. It checks out the same commit, downloads the payload by the id the first job
   reported, and refuses to sign unless the artifact's digest and every file match what the first job
   recorded. Then it runs one exact command per step: sign the payload, build the MSI from it, sign the MSI, build the setup program from that, detach its engine,
   sign the engine, reattach it, sign the setup program, check every signature, upload the artifact
-  `screentail-installer`. It runs no restore, no build and nothing compiled from the repository, and
+  `screentrail-installer`. It runs no restore, no build and nothing compiled from the repository, and
   nothing it runs comes from the first job: WiX is downloaded and checked against `tools.json` in this
   job. Each `sign.ps1` step asks for the token itself, hands it to `signtool` in a temporary file and
   deletes it. It fails rather than upload an unsigned build if the configuration is incomplete.
@@ -175,9 +175,9 @@ so an edit that would weaken them fails before it merges. It tries itself first 
 that must pass and must fail, so a check that waved everything through would fail rather than be
 trusted.
 
-**On a developer's machine**, set the same three `SCREENTAIL_SIGNING_*` variables in the shell and sign in
+**On a developer's machine**, set the same three `SCREENTRAIL_SIGNING_*` variables in the shell and sign in
 with `az login`, or, for a certificate on a hardware token or a cloud HSM that appears in the Windows
-certificate store, set `SCREENTAIL_SIGNING_THUMBPRINT` (and optionally `SCREENTAIL_TIMESTAMP_URL`). Then
+certificate store, set `SCREENTRAIL_SIGNING_THUMBPRINT` (and optionally `SCREENTRAIL_TIMESTAMP_URL`). Then
 run `build.ps1` as above. A private key in a file is deliberately not supported. Nothing about signing is
 ever committed.
 
@@ -190,7 +190,7 @@ Why it works this way is ADR-0008. In short: the capture service checks a signed
 HTTPS feed, downloads a newer release in the background while no session is recording, and Settings →
 Updates offers **Install update** when it is ready. Pressing it checks the package again and starts
 Windows Installer, which asks for an administrator's approval (UAC) for the per-machine package.
-ScreenTail closes while it installs, and the capture service starts again at the next sign-in. MSPs
+ScreenTrail closes while it installs, and the capture service starts again at the next sign-in. MSPs
 that push updates with their own tools keep doing so; an admin can turn checks off (`updateCheckHours` 0).
 
 **Nothing is switched on in the repository yet.** `shared/release/update-trust.json`, compiled into the
@@ -239,11 +239,11 @@ needs the stable key, which only the `release-stable` environment's identity can
 owner's approval.
 
 1. **Azure Key Vault, two keys:** a vault (Premium, for HSM-backed keys) with two **EC P-256** keys for
-   signing, for example `screentail-update-pilot` and `screentail-update-stable`. Never one key for both:
+   signing, for example `screentrail-update-pilot` and `screentrail-update-stable`. Never one key for both:
    the trust file and the client refuse the same key listed for two channels. Note each key identifier
    **with its version**.
 2. **Azure, two app registrations for the manifests** (separate from the Artifact Signing one above),
-   for example `screentail-update-pilot` and `screentail-update-stable`:
+   for example `screentrail-update-pilot` and `screentrail-update-stable`:
    - the pilot one gets a federated credential for entity type *Environment*, name `signing`
      (subject `repo:<owner>/<repo>:environment:signing`), and on the **pilot key only** a role that
      allows only `keys/sign/action` (a custom role; *Key Vault Crypto User* works but allows more);
@@ -262,25 +262,25 @@ owner's approval.
    download, list every host it redirects to, exactly, in `packageHosts` too**: the client follows a
    redirect only onto a listed host, so an unlisted CDN edge host makes every download fail.
 5. **GitHub, the `signing` environment** (it already has deployment branches `main` only, from "Switch
-   signing on"): **environment** variables `SCREENTAIL_UPDATE_PILOT_KEY` (the pilot key's versioned
-   identifier), `SCREENTAIL_UPDATE_PILOT_CLIENT_ID` (the pilot app registration's client id) and
-   `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in `/`). From then on every signed build
-   on main also writes `pilot/win-x64.json` (artifact `screentail-update-manifests`, kept 90 days).
+   signing on"): **environment** variables `SCREENTRAIL_UPDATE_PILOT_KEY` (the pilot key's versioned
+   identifier), `SCREENTRAIL_UPDATE_PILOT_CLIENT_ID` (the pilot app registration's client id) and
+   `SCREENTRAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in `/`). From then on every signed build
+   on main also writes `pilot/win-x64.json` (artifact `screentrail-update-manifests`, kept 90 days).
    **Builds are signed for pilot only.**
 6. **GitHub, a new environment `release-stable`**, for promotion to stable. Mandatory: deployment
    branches `main` only, and required reviewers (the owner; tick *Prevent self-review* if anyone else can
-   push to main). **Environment** variables: `SCREENTAIL_STABLE_RELEASE` = `true`,
-   `SCREENTAIL_UPDATE_STABLE_KEY` (the stable key's versioned identifier),
-   `SCREENTAIL_UPDATE_STABLE_CLIENT_ID` (the stable app registration's client id) and `AZURE_TENANT_ID`.
+   push to main). **Environment** variables: `SCREENTRAIL_STABLE_RELEASE` = `true`,
+   `SCREENTRAIL_UPDATE_STABLE_KEY` (the stable key's versioned identifier),
+   `SCREENTRAIL_UPDATE_STABLE_CLIENT_ID` (the stable app registration's client id) and `AZURE_TENANT_ID`.
    Until this exists, the promotion workflow fails closed.
 
 **Set every one of these on its environment, never as a repository or organisation variable**: a job
 falls back to those when its environment has no such variable, which would put one channel's settings
-in front of the other's job (and `SCREENTAIL_STABLE_RELEASE` there would open the gate). The script
+in front of the other's job (and `SCREENTRAIL_STABLE_RELEASE` there would open the gate). The script
 refuses to sign while it can see the other channel's settings, and `scripts/ci/check_installer_jobs.py`
-fails a change that names them in the wrong workflow. The old shared names (`SCREENTAIL_UPDATE_KEY`,
+fails a change that names them in the wrong workflow. The old shared names (`SCREENTRAIL_UPDATE_KEY`,
 and `AZURE_CLIENT_ID` for the manifests) are not used: the script refuses to run while
-`SCREENTAIL_UPDATE_KEY` is set.
+`SCREENTRAIL_UPDATE_KEY` is set.
 
 Rotating a key: add the new one for the same channel in a pull request, ship a release signed by the
 old key, then switch that environment's `..._KEY` variable to the new key; remove the old key from the
@@ -288,13 +288,13 @@ trust file a release later.
 
 ### Release to pilot, then promote to stable
 
-1. From a signing run on main, upload `ScreenTail.msi` to `<base><version>/ScreenTail.msi` and
+1. From a signing run on main, upload `ScreenTrail.msi` to `<base><version>/ScreenTrail.msi` and
    `pilot/win-x64.json` to `<feed>pilot/win-x64.json`. Check it first:
    `powershell -File .\installer\update-manifest.ps1 -Verify pilot\win-x64.json`.
 2. To promote that release: *Actions → promote-stable → Run workflow* on main, with the ci run's id and
    the version, and approve it. It first checks that the run is a successful ci.yml run of a push to main,
    and refuses anything else. Upload the `stable/win-x64.json` it produces (artifact
-   `screentail-stable-manifest`, kept one day) to `<feed>stable/win-x64.json`.
+   `screentrail-stable-manifest`, kept one day) to `<feed>stable/win-x64.json`.
 
 ### Laptop checks, with the first signed build
 
@@ -311,21 +311,21 @@ Every command runs as an administrator or the system account, which is what Intu
 
 ```powershell
 # Machines that may not have the Visual C++ runtime (any fresh Windows)
-ScreenTail-Setup.exe BACKENDURL=https://screentail.example.com /quiet /norestart /log C:\Windows\Temp\screentail-setup.log
+ScreenTrail-Setup.exe BACKENDURL=https://screentrail.example.com /quiet /norestart /log C:\Windows\Temp\screentrail-setup.log
 
 # Machines where the runtime is deployed separately
-msiexec /i ScreenTail.msi BACKENDURL=https://screentail.example.com /qn /norestart /l*v C:\Windows\Temp\screentail-install.log
+msiexec /i ScreenTrail.msi BACKENDURL=https://screentrail.example.com /qn /norestart /l*v C:\Windows\Temp\screentrail-install.log
 ```
 
-Put your ScreenTail backend's address in place of `https://screentail.example.com`. `/passive` in
+Put your ScreenTrail backend's address in place of `https://screentrail.example.com`. `/passive` in
 place of `/quiet` (or `/qn`) shows a progress bar and asks nothing, and takes `BACKENDURL` the same way.
 Left out, nothing is written (see below).
 
-- **The backend address:** an installed ScreenTail reads it only from
-  `HKEY_LOCAL_MACHINE\SOFTWARE\ScreenTail`, value `BackendUrl` (a string), which only an administrator can
-  change, and ignores the `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN` variables those development
-  builds use. "Installed" means running from `ScreenTail` under the machine's Program Files, the one folder
-  the package installs into, or being the signed `ScreenTail.Service.exe` wherever it runs.
+- **The backend address:** an installed ScreenTrail reads it only from
+  `HKEY_LOCAL_MACHINE\SOFTWARE\ScreenTrail`, value `BackendUrl` (a string), which only an administrator can
+  change, and ignores the `SCREENTRAIL_BACKEND` and `SCREENTRAIL_DEVICE_TOKEN` variables those development
+  builds use. "Installed" means running from `ScreenTrail` under the machine's Program Files, the one folder
+  the package installs into, or being the signed `ScreenTrail.Service.exe` wherever it runs.
   `BACKENDURL` writes it, on the `msiexec` line or on the setup program's, which passes it on to the
   package. Write the name in capitals, as above; the setup program also takes it in any case. It is read
   only when the package is installed or upgraded: an upgrade or a repair without it keeps the value
@@ -338,39 +338,39 @@ Left out, nothing is written (see below).
   reinstalling, write the value with your RMM tool or Group Policy:
 
   ```powershell
-  reg add HKLM\SOFTWARE\ScreenTail /v BackendUrl /t REG_SZ /d https://screentail.example.com /f /reg:64
+  reg add HKLM\SOFTWARE\ScreenTrail /v BackendUrl /t REG_SZ /d https://screentrail.example.com /f /reg:64
   ```
 
   The service reads it when it starts, at the next sign-in. Without it nothing is sent, sessions are
   drafted on the device, and the device card in Settings and the diagnostics panel say that an
   administrator sets the address.
 
-- **Upgrading from a build that used `SCREENTAIL_BACKEND`:** builds before the 2026-11-15 security review
+- **Upgrading from a build that used `SCREENTRAIL_BACKEND`:** builds before the 2026-11-15 security review
   also read the address from that environment variable. An installed copy no longer does, so a machine
   that relied on it has no backend after the upgrade until the address is set: pass `BACKENDURL` on the
-  upgrade's `msiexec` or `ScreenTail-Setup.exe` line, or run the `reg add` line above, before or after
+  upgrade's `msiexec` or `ScreenTrail-Setup.exe` line, or run the `reg add` line above, before or after
   upgrading. Setup programs built before the 2026-11-16 follow-up did not pass `BACKENDURL` on: with one
   of those, use `msiexec` or the `reg add` line. Development builds,
   the demo and the end-to-end run are not installed and keep reading the variable.
 
-- **Intune:** add `ScreenTail.msi` as a *line-of-business app* (product code detection is automatic), with
-  the Visual C++ 2015-2022 x64 runtime as a Win32 app it depends on; or wrap `ScreenTail-Setup.exe` as a
-  Win32 app with the commands above and detect the file `C:\Program Files\ScreenTail\ScreenTail.Service.exe`.
+- **Intune:** add `ScreenTrail.msi` as a *line-of-business app* (product code detection is automatic), with
+  the Visual C++ 2015-2022 x64 runtime as a Win32 app it depends on; or wrap `ScreenTrail-Setup.exe` as a
+  Win32 app with the commands above and detect the file `C:\Program Files\ScreenTrail\ScreenTrail.Service.exe`.
 - **RMM tools:** run either command above. Exit code `0` is success, `3010` success with a restart
   pending, `1618` another installation in progress (retry), anything else a failure; the log says why.
-- **Restarts and the setup program:** `ScreenTail-Setup.exe` updates the Visual C++ runtime when the
+- **Restarts and the setup program:** `ScreenTrail-Setup.exe` updates the Visual C++ runtime when the
   machine's is older than the one it carries (Microsoft's current one on the day of the build). When
   another program has the old runtime loaded, Microsoft's installer replaces what it can, leaves the
   rest for the next restart and exits `3010`. The setup program does not pass that on: it installs
-  ScreenTail, which runs on the runtime that was already there, and exits with the package's own code,
+  ScreenTrail, which runs on the runtime that was already there, and exits with the package's own code,
   so `0`. The runtime's update finishes at the machine's next restart, whenever that is. To see whether
   it happened, look in the setup log for `The process for package: VcRuntimeX64 exited with code: 0xbc2`;
   the runtime's own log is written next to it, with `_000_VcRuntimeX64` in its name. **Builds before
-  this fix (2026-11-11) stopped there instead:** exit `1641`, ScreenTail not installed until the setup
+  this fix (2026-11-11) stopped there instead:** exit `1641`, ScreenTrail not installed until the setup
   program was run again after a restart, and without `/norestart` a `/quiet` install restarted the
   machine without asking. Keep `/norestart` on every command line all the same.
 - **Upgrades:** deploy the newer package the same way. It replaces the old version and keeps every
-  user's data. Running ScreenTail processes are ended first, so no restart is needed. That reaches
+  user's data. Running ScreenTrail processes are ended first, so no restart is needed. That reaches
   every signed-in user when the installer runs as the system account (as Intune and RMM tools run it);
   run by hand from one user's session, it may only reach that session. Where Windows Installer's Restart
   Manager reaches a session (the session the installer was started from), it asks first, and both
@@ -381,7 +381,7 @@ Left out, nothing is written (see below).
   ends nothing. Before the old version's files are removed, its removal waits, the way the uninstall
   does (below), until no other program has one of them open, so a scanner reading the service's
   executable does not turn the upgrade into `3010`; the log says so in lines starting
-  `ScreenTail upgrade:`. That wait is part of the version being removed, so it covers upgrades from the
+  `ScreenTrail upgrade:`. That wait is part of the version being removed, so it covers upgrades from the
   first version that has it: an upgrade from an older build can still ask for a restart once.
 - The service starts at each user's **next sign-in**. Nothing starts for a user who is already signed in
   until then. The UI opens from the Start menu (or at sign-in, if the technician turns "Start UI at login"
@@ -391,26 +391,26 @@ Left out, nothing is written (see below).
 
 ```powershell
 # Installed with the setup program
-"C:\ProgramData\Package Cache\<id>\ScreenTail-Setup.exe" /uninstall /quiet /norestart
+"C:\ProgramData\Package Cache\<id>\ScreenTrail-Setup.exe" /uninstall /quiet /norestart
 # or, from the same file that installed it
-ScreenTail-Setup.exe /uninstall /quiet /norestart
+ScreenTrail-Setup.exe /uninstall /quiet /norestart
 
 # Installed with the MSI
-msiexec /x ScreenTail.msi /qn /norestart /l*v C:\Windows\Temp\screentail-uninstall.log
+msiexec /x ScreenTrail.msi /qn /norestart /l*v C:\Windows\Temp\screentrail-uninstall.log
 # or by product code, from Programs and Features or:
-#   Get-Package ScreenTail | Select-Object -ExpandProperty FastPackageReference
+#   Get-Package ScreenTrail | Select-Object -ExpandProperty FastPackageReference
 ```
 
-Or *Settings → Apps → ScreenTail → Uninstall*.
+Or *Settings → Apps → ScreenTrail → Uninstall*.
 
 **What an uninstall removes, for everybody:** the program files, the Start menu shortcut, the machine
-entry that starts the service at sign-in, every running ScreenTail process, and the "Start UI at login"
+entry that starts the service at sign-in, every running ScreenTrail process, and the "Start UI at login"
 entry of every signed-in user.
 
 **Usually no restart needed.** Before Windows Installer deletes the program files, the uninstall waits
 until no other program has one of them open, and checks twice, a quarter of a second apart. Virus
 scanners and endpoint agents read a program's file while it runs, and one still reading
-`ScreenTail.Service.exe` when the files go would make Windows Installer leave it for a restart (exit
+`ScreenTrail.Service.exe` when the files go would make Windows Installer leave it for a restart (exit
 code `3010`, the folder left behind until then). The log says how long it waited and how many files were
 still open (`waited ... ms for other programs`); when the wait ran out, the next line names those files
 by their path inside the install folder and says whether the hold shares deletion (only one that does not
@@ -420,34 +420,34 @@ costs a restart). A restart can still be asked for when:
   copies and removing data took a while: the whole step has to end inside the minute Windows
   Installer's helper gives it); the log then says how many files were still open;
 - a program opens a file in the moment after the second check, before the step exits;
-- a running ScreenTail copy could not be stopped.
+- a running ScreenTrail copy could not be stopped.
 
 **Running copies close by themselves when Windows asks.** The capture service has one hidden window
 for this (ST-112): at sign-out, at shutdown, when Restart Manager asks for an installer, and on a
-`WM_CLOSE` (`taskkill /im ScreenTail.Service.exe` without `/f`), it stops capture, releases the
+`WM_CLOSE` (`taskkill /im ScreenTrail.Service.exe` without `/f`), it stops capture, releases the
 microphone, closes its store and exits, in well under a second when idle and never holding Windows more
 than four seconds. A session that was recording is not finalized then: it is recovered as partial at the
 next start, as after a crash, because finishing a note needs up to twenty seconds of redaction that
 Windows does not give. The UI already closed on Windows' request. In the uninstall log, the step's line
 `N running copies stopped` counts only the copies Restart Manager did not close: other users' sessions
 when the installer runs as the system account, and any session where another program (a scanner, an
-endpoint agent) held an installed file at that moment, because ScreenTail's package asks only programs
+endpoint agent) held an installed file at that moment, because ScreenTrail's package asks only programs
 registered for restart and asks nobody when something else is in the way (`MSIRMSHUTDOWN=2`).
 
-**Other programs' installers can close ScreenTail, and it starts again.** Any installer that replaces a
-file ScreenTail has loaded, a silent Visual C++ runtime update for one, can now ask it to close through
+**Other programs' installers can close ScreenTrail, and it starts again.** Any installer that replaces a
+file ScreenTrail has loaded, a silent Visual C++ runtime update for one, can now ask it to close through
 Restart Manager, and it does. The service is registered for restart, so Restart Manager starts it again
 when that installer is done, in its ordinary state: watching, not recording. A session that was recording
 then is split: the part before the close is recovered as partial when the service starts again, and the
-technician starts a new one if the support session goes on. ScreenTail's own installer does not
-restart it (`MSIDISABLERMRESTART`): after a ScreenTail upgrade or uninstall the service stays down until
+technician starts a new one if the support session goes on. ScreenTrail's own installer does not
+restart it (`MSIDISABLERMRESTART`): after a ScreenTrail upgrade or uninstall the service stays down until
 the next sign-in, as above. The UI is registered for restart too, so a running UI does not keep
 Windows Installer from asking the service. Another program holding an installed file (a virus scanner,
-an endpoint agent) still does: ScreenTail's package then asks nobody, and the service is ended as
+an endpoint agent) still does: ScreenTrail's package then asks nobody, and the service is ended as
 before. **Neither process runs elevated**: started with "Run as administrator", restarted by an
 elevated installer, run as a user who is not the one signed in, or in session 0, the service or the UI
 exits with 0 and starts normally at the next sign-in (or, for the UI, from the Start menu). Each refusal
-leaves a warning in the Windows Application log, source `ScreenTail`, event 1100 to 1103 for the service
+leaves a warning in the Windows Application log, source `ScreenTrail`, event 1100 to 1103 for the service
 and 1200 to 1203 for the UI, with a fixed sentence and nothing about the user. Run the service from a
 normal, not elevated, prompt on a developer's machine too, unless UAC is off.
 
@@ -511,8 +511,8 @@ installed service is about 150 ms (smoke test).
 
 `3010` still means the uninstall succeeded; the files left are deleted at the next restart.
 
-**For a technician who is signed in at that moment:** their whole ScreenTail data folder,
-`%LOCALAPPDATA%\ScreenTail`: the recorded sessions and drafts, the store's key, the device's sign-in
+**For a technician who is signed in at that moment:** their whole ScreenTrail data folder,
+`%LOCALAPPDATA%\ScreenTrail`: the recorded sessions and drafts, the store's key, the device's sign-in
 token, the speech models, settings and crash reports. The key and the token go first. It runs with that
 technician's own rights.
 
@@ -521,7 +521,7 @@ machine): the store's key, the device's sign-in token and its temporary file, an
 removed, and nothing else. **The recorded sessions and drafts stay on disk but can no longer be read**:
 they are encrypted, and the key is gone. Also left in their folder: files with no session content
 (settings, the cached tenant policy, the UI's preferences, the speech models, stack-only crash reports),
-and the folder itself. They, or an administrator, delete `%LOCALAPPDATA%\ScreenTail` in that profile to
+and the folder itself. They, or an administrator, delete `%LOCALAPPDATA%\ScreenTrail` in that profile to
 clear the rest.
 
 **Left alone, everywhere:**
@@ -533,8 +533,8 @@ clear the rest.
   that no longer exists, and Windows passes over it;
 - the Visual C++ runtime, which other software shares.
 
-The uninstall log counts each of these: search it for `ScreenTail uninstall:`.
+The uninstall log counts each of these: search it for `ScreenTrail uninstall:`.
 
-**To erase a technician's data completely, use "Delete everything" in ScreenTail's Settings while
-ScreenTail is still installed** (INV-12). It removes the store, its key and the device's token, and asks
-first. Once ScreenTail is uninstalled that button is gone with it, and the rules above are what apply.
+**To erase a technician's data completely, use "Delete everything" in ScreenTrail's Settings while
+ScreenTrail is still installed** (INV-12). It removes the store, its key and the device's token, and asks
+first. Once ScreenTrail is uninstalled that button is gone with it, and the rules above are what apply.

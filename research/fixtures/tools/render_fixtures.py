@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent.parent
 WIDTH, HEIGHT = 1600, 900
 
-# Windows-ish flat palette. Not the ScreenTail token set: this is the captured desktop, not our UI.
+# Windows-ish flat palette. Not the ScreenTrail token set: this is the captured desktop, not our UI.
 DESKTOP = (32, 38, 46)
 WINDOW = (243, 243, 243)
 CHROME = (225, 225, 225)

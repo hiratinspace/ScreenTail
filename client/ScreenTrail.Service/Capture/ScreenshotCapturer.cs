@@ -1,0 +1,627 @@
+using System.Diagnostics;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using ScreenTrail.Core.Capture;
+using ScreenTrail.Core.Detection;
+using ScreenTrail.Core.Detection.Registry;
+
+namespace ScreenTrail.Service.Capture;
+
+/// <summary>
+/// Captures the window in front (ST-025).
+///
+/// The grab is a GDI <c>BitBlt</c> with <c>CAPTUREBLT</c>, which is what ST-001 proved works and, crucially,
+/// honours display affinity: the HUD sets <c>WDA_EXCLUDEFROMCAPTURE</c> on itself, so it is absent from
+/// these frames without this code knowing the HUD exists. <c>Graphics.CopyFromScreen</c> cannot be used:
+/// it rejects <c>SRCCOPY | CAPTUREBLT</c>, which the spike found the hard way.
+///
+/// Each stage is timed separately. ADR-0001 measured 178 ms p95 for this path against a 120 ms budget but
+/// recorded only the total, and the total does not say what to fix. With the split, a slow grab argues for
+/// Windows.Graphics.Capture and a slow encode argues for WIC; without it, either change is a guess.
+/// </summary>
+[SupportedOSPlatform("windows")]
+/// <param name="registry">
+/// The shipped remote-tool registry, so a colour-keyed window of a remote tool is not refused for its
+/// shaped corners (<see cref="WindowCover.ShowsWhatIsBehind"/>). Null treats every colour-keyed window as
+/// see-through.
+/// </param>
+internal sealed partial class ScreenshotCapturer(int jpegQuality = 82, ILogger? logger = null, RemoteToolRegistry? registry = null) : IScreenshotCapturer, IDisposable
+{
+    private static readonly ImageCodecInfo JpegCodec =
+        ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == ImageFormat.Jpeg.Guid);
+
+    // Held between captures. The laptop measured the grab at 18.7 ms for a 420x220 window, which is far too
+    // much for 92,000 pixels: almost all of it is creating and destroying these, not copying pixels. They
+    // are cheap to keep and expensive to make, so they are made once and kept until the size changes.
+    private readonly Lock _gate = new();
+    private IntPtr _screenDc;
+    private IntPtr _memoryDc;
+    private IntPtr _bitmap;
+    private IntPtr _gridDc;
+    private IntPtr _gridBitmap;
+    private int _bitmapWidth;
+    private int _bitmapHeight;
+    private bool _disposed;
+    private long _skippedCovered;
+    private long _skippedSeeThrough;
+
+    // The windows a see-through skip has been logged for, so a translucent window costs one log line and
+    // not one per click. Cleared when it grows, which at worst repeats a line.
+    private readonly HashSet<nint> _seeThroughLogged = [];
+
+    // Reused under the lock by the covered check, so it allocates nothing per capture once warm.
+    private readonly List<WindowAbove> _above = new(64);
+    private readonly char[] _className = new char[64];
+    private readonly char[] _toolClassName = new char[256];
+
+    /// <summary>Samples skipped because another application's window lay over the one in front. A count, for diagnostics.</summary>
+    internal long SkippedCovered => Interlocked.Read(ref _skippedCovered);
+
+    /// <summary>Samples skipped because the window in front let what is behind it show through. A count, for diagnostics.</summary>
+    internal long SkippedSeeThrough => Interlocked.Read(ref _skippedSeeThrough);
+
+    /// <summary>
+    /// A test seam, null in production: runs inside the lock before the foreground is read, where a capture
+    /// that waited for a slow one finds itself. Nothing is read before it runs, so nothing read is stale.
+    /// </summary>
+    internal Action? BeforeGrab { get; set; }
+
+    /// <summary>
+    /// A test seam, false in production. A test can only make windows in its own process, and a window
+    /// of the process in front is that application's own menu or toolbar, which never counts as cover.
+    /// With this set, the test's own windows are judged as another application's would be.
+    /// </summary>
+    internal bool JudgeOwnWindowsAsForeign { get; init; }
+
+    // No size argument: the frame is captured at the window's own size and the downscale belongs to
+    // the redaction worker, after the text has been read (ADR-0001 finding 2a). A parameter here that
+    // did nothing had four callers believing it did (weaknesses P3).
+    public CapturedFrame? CaptureForegroundWindow(nint expected = 0)
+    {
+        lock (_gate)
+        {
+            // The foreground and its rectangle are read inside the lock, after waiting for it. A grab holds
+            // the lock for about 300 ms at 4K, and a capture that read them first and then waited could copy
+            // a rectangle the judged window had already left (INV-5).
+            BeforeGrab?.Invoke();
+            if (_disposed || !ReadTarget(expected, minWidth: 1, minHeight: 1, out var window, out var rect))
+            {
+                return null;
+            }
+
+            // The interim half of capturing the window rather than the screen: another application's
+            // window over this one, topmost or not, would be in the frame, so the sample is skipped.
+            if (IsCovered(window, rect))
+            {
+                _ = Interlocked.Increment(ref _skippedCovered);
+                return null;
+            }
+
+            // The same for what lies under it: a window drawn translucent or with a colour key lets the
+            // window behind show through, and that one may be excluded (INV-6, WindowCover). A remote
+            // tool's colour key is allowed for its shaped corners, so only then is the registry asked.
+            var layering = LayeringOf(window);
+            if (WindowCover.ShowsWhatIsBehind(layering, remoteTool: layering.ColorKey && IsRemoteTool(window)))
+            {
+                _ = Interlocked.Increment(ref _skippedSeeThrough);
+                LogSeeThroughOnce(window, layering);
+                return null;
+            }
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+            if (!Prepare(width, height))
+            {
+                return null;
+            }
+
+            // Captured and staged at native resolution (ADR-0001 finding 2a). Shrinking here would be
+            // quicker (downscaling during the copy measured a 4K frame at about 48 ms against a 120 ms
+            // budget), but the redaction worker has to read this frame's text to find the secrets in it,
+            // and 1600 px was measured as illegible below 200% scaling. A cheaper capture that makes OCR
+            // miss a password is not a cheaper capture. The downscale happens in the worker instead, after
+            // masking, on pixels that have already been read.
+            var grabStart = Stopwatch.GetTimestamp();
+            var previous = SelectObject(_memoryDc, _bitmap);
+            var copied = BitBlt(_memoryDc, 0, 0, width, height, _screenDc, rect.Left, rect.Top, SRCCOPY | CAPTUREBLT);
+            DrawCursor(_memoryDc, rect, 1.0);
+            _ = SelectObject(_memoryDc, previous);
+            var grab = Stopwatch.GetElapsedTime(grabStart);
+            if (!copied)
+            {
+                return null;
+            }
+
+            var convertStart = Stopwatch.GetTimestamp();
+            using var stored = Image.FromHbitmap(_bitmap);
+            var convert = Stopwatch.GetElapsedTime(convertStart);
+
+            var encodeStart = Stopwatch.GetTimestamp();
+            var bytes = Encode(stored);
+            var encode = Stopwatch.GetElapsedTime(encodeStart);
+
+            // No resize stage: the frame is staged at the size it was captured.
+            return new CapturedFrame(bytes, stored.Width, stored.Height, width, height, new CaptureTiming(grab, convert, TimeSpan.Zero, encode));
+        }
+    }
+
+    /// <summary>
+    /// ST-026: the window in front, reduced to <see cref="PerceptualHash.GridLength"/> cells.
+    ///
+    /// StretchBlt with HALFTONE does the averaging on the way out of the screen DC, so this never
+    /// materialises a full-size bitmap, never converts one, and never encodes anything. The box filter it
+    /// applies is the same one <see cref="SceneGrid"/> applies to a synthetic screen, which is what lets
+    /// the Mac tests mean something about this path.
+    ///
+    /// The deliberate difference from <see cref="CaptureForegroundWindow"/>: no CAPTUREBLT and no cursor.
+    /// A cursor moving is not a scene change, and drawing it here would make the pointer travelling across
+    /// a still screen look like news once a second.
+    /// </summary>
+    public byte[]? CaptureSceneGrid(nint expected = 0)
+    {
+        lock (_gate)
+        {
+            // Read after the lock is taken, for the same reason as a full capture.
+            if (_disposed
+                || !ReadTarget(expected, PerceptualHash.Columns, PerceptualHash.Rows, out _, out var rect)
+                || !PrepareGrid())
+            {
+                return null;
+            }
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+
+            var previous = SelectObject(_gridDc, _gridBitmap);
+            _ = SetStretchBltMode(_gridDc, STRETCH_HALFTONE);
+            _ = SetBrushOrgEx(_gridDc, 0, 0, IntPtr.Zero);
+            var copied = StretchBlt(
+                _gridDc, 0, 0, PerceptualHash.Columns, PerceptualHash.Rows,
+                _screenDc, rect.Left, rect.Top, width, height,
+                SRCCOPY);
+            _ = SelectObject(_gridDc, previous);
+            if (!copied)
+            {
+                return null;
+            }
+
+            using var reduced = Image.FromHbitmap(_gridBitmap);
+            var grid = new byte[PerceptualHash.GridLength];
+            for (var row = 0; row < PerceptualHash.Rows; row++)
+            {
+                for (var column = 0; column < PerceptualHash.Columns; column++)
+                {
+                    var pixel = reduced.GetPixel(column, row);
+
+                    // Rec. 601 luma, in integers: the grid is compared against itself, so what matters is
+                    // that green counts for most of it and that the same sum is produced every time.
+                    grid[(row * PerceptualHash.Columns) + column] =
+                        (byte)(((pixel.R * 299) + (pixel.G * 587) + (pixel.B * 114)) / 1000);
+                }
+            }
+
+            return grid;
+        }
+    }
+
+    /// <summary>
+    /// The window in front and its rectangle, read now. The window that was judged in scope, or nothing:
+    /// checked here rather than at the caller because this is the last moment before the pixels are read,
+    /// and any gap between the two is a window in which the foreground can move (INV-5).
+    /// </summary>
+    private static bool ReadTarget(nint expected, int minWidth, int minHeight, out IntPtr window, out Rect rect)
+    {
+        window = GetForegroundWindow();
+        rect = default;
+        if (window == IntPtr.Zero || (expected != 0 && window != expected) || !GetWindowRect(window, out rect))
+        {
+            return false;
+        }
+
+        return rect.Right - rect.Left >= minWidth && rect.Bottom - rect.Top >= minHeight;
+    }
+
+    /// <summary>
+    /// Whether another application's window lies over the window in front (<see cref="WindowCover"/>).
+    /// Walks up the z-order from the window, so only what is above it is looked at, and reads window
+    /// properties only. Measured against the window's visible frame rather than its rectangle, which on a
+    /// maximized window reaches a few pixels under the taskbar.
+    /// </summary>
+    private bool IsCovered(IntPtr window, Rect rect)
+    {
+        var target = VisibleBounds(window, rect);
+        _ = GetWindowThreadProcessId(window, out var owner);
+        _above.Clear();
+        var walked = 0;
+        var above = GetWindow(window, GW_HWNDPREV);
+        while (above != IntPtr.Zero && walked < WindowCover.MaxWindowsAbove)
+        {
+            walked++;
+
+            // Visibility first: most windows above the one in front are hidden ones (tooltips, message
+            // windows, things not shown yet), and for those nothing else needs asking. Any shown window
+            // above counts, topmost or not: an ordinary window over this one is in the frame too.
+            if (IsWindowVisible(above) && !IsIconic(above) && GetWindowRect(above, out var aboveRect))
+            {
+                _ = GetWindowThreadProcessId(above, out var aboveOwner);
+                _above.Add(new WindowAbove(
+                    VisibleBounds(above, aboveRect),
+                    Visible: true,
+                    Cloaked: IsCloaked(above),
+                    Topmost: ((long)GetWindowLongPtr(above, GWL_EXSTYLE) & WS_EX_TOPMOST) != 0,
+                    SameProcess: aboveOwner == owner && !JudgeOwnWindowsAsForeign,
+                    ExcludedFromCapture: GetWindowDisplayAffinity(above, out var affinity) && affinity != WDA_NONE,
+                    Taskbar: IsTaskbar(above)));
+            }
+
+            above = GetWindow(above, GW_HWNDPREV);
+        }
+
+        return WindowCover.AnyCovers(target, _above, walkComplete: above == IntPtr.Zero);
+    }
+
+    /// <summary>
+    /// Says once per window that its frames are being skipped for translucency, so a tool that loses its
+    /// frames this way is visible in the log rather than quietly empty. The process name and the opacity,
+    /// never the title (INV-10). Says which way it is see-through: an opacity or a colour key.
+    /// </summary>
+    private void LogSeeThroughOnce(IntPtr window, TargetLayering layering)
+    {
+        if (logger is null || !logger.IsEnabled(LogLevel.Information))
+        {
+            return;
+        }
+
+        if (_seeThroughLogged.Count >= 64)
+        {
+            _seeThroughLogged.Clear();
+        }
+
+        if (!_seeThroughLogged.Add(window))
+        {
+            return;
+        }
+
+        // Computed into a local first, as CaptureHost does: the analyzer objects to work in a logging call's
+        // arguments, even behind the IsEnabled guard above.
+        _ = GetWindowThreadProcessId(window, out var processId);
+        var process = ProcessNameOf(processId);
+        var how = layering.Alpha && layering.Opacity < byte.MaxValue
+            ? $"opacity {layering.Opacity} of 255"
+            : "a colour key";
+        LogSeeThrough(logger, process, how);
+    }
+
+    private static string ProcessNameOf(uint processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            return process.ProcessName;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            return "unknown";
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "No frames of {Process} while it is drawn see-through ({How}): what is behind it would be in the frame. Logged once per window.")]
+    private static partial void LogSeeThrough(ILogger logger, string process, string how);
+
+    /// <summary>Whether the window belongs to a remote tool in the shipped registry, by the same match the scope policy uses.</summary>
+    private bool IsRemoteTool(IntPtr window)
+    {
+        if (registry is null)
+        {
+            return false;
+        }
+
+        _ = GetWindowThreadProcessId(window, out var processId);
+        var length = GetClassName(window, _toolClassName, _toolClassName.Length);
+        var className = length > 0 ? new string(_toolClassName, 0, length) : string.Empty;
+        return registry.MatchTool(Detection.WindowsForegroundWatcher.ReadProcess(processId).Name, className) is not null;
+    }
+
+    /// <summary>How the window in front is blended with what is behind it, read from its styles (<see cref="TargetLayering"/>).</summary>
+    private static TargetLayering LayeringOf(IntPtr window)
+    {
+        if (((long)GetWindowLongPtr(window, GWL_EXSTYLE) & WS_EX_LAYERED) == 0)
+        {
+            return TargetLayering.Opaque;
+        }
+
+        // Fails for a window drawn with UpdateLayeredWindow: per-pixel alpha, nothing to read.
+        return GetLayeredWindowAttributes(window, out _, out var opacity, out var flags)
+            ? new TargetLayering(Layered: true, AttributesKnown: true, ColorKey: (flags & LWA_COLORKEY) != 0, Alpha: (flags & LWA_ALPHA) != 0, opacity)
+            : new TargetLayering(Layered: true, AttributesKnown: false, ColorKey: false, Alpha: false, Opacity: byte.MaxValue);
+    }
+
+    private static ScreenRect VisibleBounds(IntPtr window, Rect fallback) =>
+        DwmGetWindowAttribute(window, DWMWA_EXTENDED_FRAME_BOUNDS, out Rect frame, Marshal.SizeOf<Rect>()) == 0
+            ? new ScreenRect(frame.Left, frame.Top, frame.Right, frame.Bottom)
+            : new ScreenRect(fallback.Left, fallback.Top, fallback.Right, fallback.Bottom);
+
+    private static bool IsCloaked(IntPtr window) =>
+        DwmGetWindowAttribute(window, DWMWA_CLOAKED, out int cloaked, sizeof(int)) == 0 && cloaked != 0;
+
+    private bool IsTaskbar(IntPtr window)
+    {
+        var length = GetClassName(window, _className, _className.Length);
+        if (length <= 0)
+        {
+            return false;
+        }
+
+        var name = _className.AsSpan(0, length);
+        return name.Equals("Shell_TrayWnd", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Shell_SecondaryTrayWnd", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The tiny destination for <see cref="CaptureSceneGrid"/>, made once and kept.</summary>
+    private bool PrepareGrid()
+    {
+        if (_screenDc == IntPtr.Zero)
+        {
+            _screenDc = GetDC(IntPtr.Zero);
+            if (_screenDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_gridDc == IntPtr.Zero)
+        {
+            _gridDc = CreateCompatibleDC(_screenDc);
+            if (_gridDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_gridBitmap == IntPtr.Zero)
+        {
+            _gridBitmap = CreateCompatibleBitmap(_screenDc, PerceptualHash.Columns, PerceptualHash.Rows);
+        }
+
+        return _gridBitmap != IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Makes sure the device contexts and the bitmap exist and are the right size, reusing them when they
+    /// are. CAPTUREBLT, used in the copy, includes layered windows, which is what makes the HUD's
+    /// exclusion meaningful: without it the HUD would be missing for the wrong reason (ADR-0001 finding 3).
+    /// </summary>
+    private bool Prepare(int width, int height)
+    {
+        if (_screenDc == IntPtr.Zero)
+        {
+            _screenDc = GetDC(IntPtr.Zero);
+            if (_screenDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_memoryDc == IntPtr.Zero)
+        {
+            _memoryDc = CreateCompatibleDC(_screenDc);
+            if (_memoryDc == IntPtr.Zero)
+            {
+                return false;
+            }
+        }
+
+        if (_bitmap != IntPtr.Zero && _bitmapWidth == width && _bitmapHeight == height)
+        {
+            return true;
+        }
+
+        if (_bitmap != IntPtr.Zero)
+        {
+            _ = DeleteObject(_bitmap);
+        }
+
+        _bitmap = CreateCompatibleBitmap(_screenDc, width, height);
+        _bitmapWidth = width;
+        _bitmapHeight = height;
+        return _bitmap != IntPtr.Zero;
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            if (_bitmap != IntPtr.Zero)
+            {
+                _ = DeleteObject(_bitmap);
+                _bitmap = IntPtr.Zero;
+            }
+
+            if (_gridBitmap != IntPtr.Zero)
+            {
+                _ = DeleteObject(_gridBitmap);
+                _gridBitmap = IntPtr.Zero;
+            }
+
+            if (_gridDc != IntPtr.Zero)
+            {
+                _ = DeleteDC(_gridDc);
+                _gridDc = IntPtr.Zero;
+            }
+
+            if (_memoryDc != IntPtr.Zero)
+            {
+                _ = DeleteDC(_memoryDc);
+                _memoryDc = IntPtr.Zero;
+            }
+
+            if (_screenDc != IntPtr.Zero)
+            {
+                _ = ReleaseDC(IntPtr.Zero, _screenDc);
+                _screenDc = IntPtr.Zero;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Draws the cursor where it was. A screenshot of a menu is ambiguous without it: "they clicked
+    /// something here" is the whole point of capturing on click.
+    /// </summary>
+    private static void DrawCursor(IntPtr target, Rect rect, double scale)
+    {
+        var info = new CursorInfo { Size = Marshal.SizeOf<CursorInfo>() };
+        if (!GetCursorInfo(ref info) || info.Flags != CURSOR_SHOWING || info.Cursor == IntPtr.Zero)
+        {
+            return;
+        }
+
+        // Drawn after the stretch, so its position and size are in the stored image's coordinates. A cursor
+        // left at full size on a shrunken frame would be a comically large arrow.
+        var x = (int)Math.Round((info.X - rect.Left) * scale);
+        var y = (int)Math.Round((info.Y - rect.Top) * scale);
+        var size = scale < 1.0 ? (int)Math.Round(32 * scale) : 0;
+        _ = DrawIconEx(target, x, y, info.Cursor, size, size, 0, IntPtr.Zero, DI_NORMAL);
+    }
+
+    private byte[] Encode(Bitmap bitmap)
+    {
+        using var parameters = new EncoderParameters(1);
+        using var quality = new EncoderParameter(Encoder.Quality, (long)jpegQuality);
+        parameters.Param[0] = quality;
+
+        using var buffer = new MemoryStream(128 * 1024);
+        bitmap.Save(buffer, JpegCodec, parameters);
+        return buffer.ToArray();
+    }
+
+    private const int SRCCOPY = 0x00CC0020;
+    private const uint GW_HWNDPREV = 3;
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_EX_TOPMOST = 0x00000008;
+    private const long WS_EX_LAYERED = 0x00080000;
+    private const uint LWA_COLORKEY = 0x00000001;
+    private const uint LWA_ALPHA = 0x00000002;
+    private const uint WDA_NONE = 0;
+    private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+    private const int DWMWA_CLOAKED = 14;
+
+    /// <summary>Averages the source pixels into each destination pixel: a box filter, done by GDI.</summary>
+    private const int STRETCH_HALFTONE = 4;
+    private const int CAPTUREBLT = 0x40000000;
+    private const int CURSOR_SHOWING = 0x00000001;
+    private const int DI_NORMAL = 0x0003;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorInfo
+    {
+        public int Size;
+        public int Flags;
+        public IntPtr Cursor;
+        public int X;
+        public int Y;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowDisplayAffinity(IntPtr hWnd, out uint affinity);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetLayeredWindowAttributes(IntPtr hWnd, out uint colorKey, out byte alpha, out uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, [Out] char[] className, int count);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out Rect value, int size);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Rect lpRect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorInfo(ref CursorInfo pci);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DrawIconEx(IntPtr hdc, int x, int y, IntPtr icon, int width, int height, int step, IntPtr brush, int flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetDC(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int width, int height);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool BitBlt(IntPtr hdc, int x, int y, int cx, int cy, IntPtr hdcSrc, int x1, int y1, int rop);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(IntPtr ho);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest, IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, uint rop);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern int SetStretchBltMode(IntPtr hdc, int mode);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetBrushOrgEx(IntPtr hdc, int x, int y, IntPtr previous);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteDC(IntPtr hdc);
+}

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Fails at once, with one line, when the ScreenTail demo or another ScreenTail process is running here.
+    Fails at once, with one line, when the ScreenTrail demo or another ScreenTrail process is running here.
 
 .DESCRIPTION
     The laptop that runs the hardware jobs is also where the owner runs the demo. While the demo is up
@@ -9,10 +9,10 @@
     regression rather than a machine that is busy. This runs first and says what is going on instead.
 
     Read-only. It looks at two things and changes neither:
-      - the demo's state file (%LOCALAPPDATA%\ScreenTail.Dev\demo\state.json), for a process start.cmd
+      - the demo's state file (%LOCALAPPDATA%\ScreenTrail.Dev\demo\state.json), for a process start.cmd
         launched that is still alive, judged the way stop.cmd judges it: id, name and start time. That
         is the demo, and stop.cmd stops it;
-      - a ScreenTail.Service or ScreenTail.UI process in this desktop session, the one the jobs use.
+      - a ScreenTrail.Service or ScreenTrail.UI process in this desktop session, the one the jobs use.
         One the state file does not record is not something stop.cmd will stop, so the line names it
         by process and id and says to close it.
 
@@ -62,7 +62,7 @@
 [CmdletBinding()]
 param(
     [string]$StateFile,
-    [string[]]$Names = @('ScreenTail.Service', 'ScreenTail.UI'),
+    [string[]]$Names = @('ScreenTrail.Service', 'ScreenTrail.UI'),
     [int]$SessionId = -1,
     [switch]$NoReadiness,
     [ValidateSet('Battery', 'AC', 'NoBattery')]
@@ -83,7 +83,7 @@ if ($session -lt 0) {
 
 $started = @(Get-DemoState | Where-Object { Get-EntryProcess $_ })
 if ($started.Count -gt 0) {
-    Write-Host '::error::The ScreenTail demo is running on this laptop. Run scripts\windows\demo\stop.cmd, then re-run this job.'
+    Write-Host '::error::The ScreenTrail demo is running on this laptop. Run scripts\windows\demo\stop.cmd, then re-run this job.'
     exit 1
 }
 
@@ -94,7 +94,7 @@ if ($running.Count -gt 0) {
     exit 1
 }
 
-Write-Host 'The ScreenTail demo is not running.'
+Write-Host 'The ScreenTrail demo is not running.'
 
 try {
     . (Join-Path $PSScriptRoot 'laptop-readiness.ps1')

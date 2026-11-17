@@ -6,7 +6,7 @@ test.describe('the sign-in page', () => {
     expect(answer?.status()).toBe(200);
     expectPageHeaders(answer!.headers());
 
-    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to ScreenTail admin' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Sign in to ScreenTrail admin' })).toBeVisible();
     await expect(page.getByRole('status').filter({ hasText: 'Sign-in is not configured.' })).toBeVisible();
     await expect(page.getByRole('button', { name: /Sign in with Google/ })).toHaveCount(0);
     expect(await page.evaluate(() => 'google' in window)).toBe(false);
@@ -34,7 +34,7 @@ test.describe('the sign-in page', () => {
     await page.getByRole('button', { name: 'Sign in with Google (test)' }).click();
 
     expect((await refused).status()).toBe(403);
-    await expect(page.getByRole('alert')).toContainText('not on the list allowed to set up ScreenTail');
+    await expect(page.getByRole('alert')).toContainText('not on the list allowed to set up ScreenTrail');
     // A fresh button, for the next try: the spent nonce went with the old one.
     await expect(page.getByRole('button', { name: 'Sign in with Google (test)' })).toBeVisible();
   });

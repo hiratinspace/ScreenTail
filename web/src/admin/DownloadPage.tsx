@@ -32,7 +32,7 @@ export function DownloadPage({ api }: { api: AdminApi }) {
           {download.url ? (
             <p>
               <a className="button primary" href={download.url} rel="noopener">
-                Download ScreenTail for Windows
+                Download ScreenTrail for Windows
               </a>
             </p>
           ) : (
@@ -41,9 +41,9 @@ export function DownloadPage({ api }: { api: AdminApi }) {
             </div>
           )}
           <ol className="steps">
-            <li>Install ScreenTail on the technician's Windows PC.</li>
+            <li>Install ScreenTrail on the technician's Windows PC.</li>
             <li>Create an invite for them on Technicians and give them the code.</li>
-            <li>They enter the code in ScreenTail, in Settings, This device. The device appears on Technicians.</li>
+            <li>They enter the code in ScreenTrail, in Settings, This device. The device appears on Technicians.</li>
           </ol>
         </>
       )}

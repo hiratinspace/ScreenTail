@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S2 Recording HUD · ScreenTail wireframes</title>
+<title>S2 Recording HUD · ScreenTrail wireframes</title>
 <link rel="stylesheet" href="wf.css">
 <script src="wf.js" defer></script>
 <style>
@@ -35,7 +35,7 @@
 </head>
 <body>
 <header class="wf-top">
-  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <a class="crumb" href="index.html">ScreenTrail wireframes</a><span class="crumb">/</span>
   <span class="id">S2 Recording HUD</span><span class="spec">Spec §5 S2, §7</span>
   <nav class="states" aria-label="Wireframe states">
     <button data-state-set="docked">Docked</button>
@@ -91,7 +91,7 @@
   <aside class="notes">
     <h2>Notes</h2>
     <ol>
-      <li><b>Pill:</b> 44 px tall, fully rounded, draggable; its position is remembered. Always on top, never takes focus, and hidden from ScreenTail's own screenshots. That hiding already passes on Windows in ST-001 (AC3). Controls are 32 × 32 (Spec §7). Screen-reader text: "Recording, 12 minutes 41 seconds, 3 items redacted".</li>
+      <li><b>Pill:</b> 44 px tall, fully rounded, draggable; its position is remembered. Always on top, never takes focus, and hidden from ScreenTrail's own screenshots. That hiding already passes on Windows in ST-001 (AC3). Controls are 32 × 32 (Spec §7). Screen-reader text: "Recording, 12 minutes 41 seconds, 3 items redacted".</li>
       <li><b>Click to expand:</b> shows the last 3 timeline events and Mark moment (<span class="kbd">Ctrl+Alt+M</span>). Double-click opens Review for the current session, read-only until you stop.</li>
       <li><b>Right-click:</b> hides the HUD for this session only. The tray still shows recording, so capture is never silent (INV-4).</li>
       <li><b>Wording:</b> Spec S2 says "Paused: elevated window", but ST-021 says "Elevated window: screen not captured". Open question Q5.</li>
@@ -102,7 +102,7 @@
       <li>Every state is spelled out in words, so none of them depends on colour.</li>
     </ul>
     <h3>Screen sharing</h3>
-    <p class="meta">Open question Q1. The same capture exclusion that keeps the HUD out of ScreenTail's screenshots also keeps it out of Teams and Zoom screen shares, so the person watching never sees it and the technician always does. Recommendation: always visible.</p>
+    <p class="meta">Open question Q1. The same capture exclusion that keeps the HUD out of ScreenTrail's screenshots also keeps it out of Teams and Zoom screen shares, so the person watching never sees it and the technician always does. Recommendation: always visible.</p>
   </aside>
 </main>
 <script>

@@ -3,9 +3,9 @@ import { defineConfig } from 'vitest/config';
 import { appHeaders, baseHeaders } from './security-headers.ts';
 
 // ST-099. In development the page and the API share an origin through this proxy, so the admin
-// session's cookie (SameSite=Strict, host-only) is the page's own. SCREENTAIL_API points it at a
+// session's cookie (SameSite=Strict, host-only) is the page's own. SCREENTRAIL_API points it at a
 // backend other than the default one (docs/dev/web-admin.md).
-const api = process.env.SCREENTAIL_API ?? 'http://localhost:5000';
+const api = process.env.SCREENTRAIL_API ?? 'http://localhost:5000';
 
 export default defineConfig({
   plugins: [react()],

@@ -1,4 +1,4 @@
-# ScreenTail on one Linux host with Docker (ST-007): the API, PostgreSQL, and Caddy serving the web
+# ScreenTrail on one Linux host with Docker (ST-007): the API, PostgreSQL, and Caddy serving the web
 # admin's page and the API from one HTTPS origin. docs/dev/deploy.md is the guide.
 #
 #   cp env.example .env && cp api.env.example api.env     # then fill both in (no secrets go in either)
@@ -31,7 +31,7 @@ x-api-build: &api-build
 
 x-dotnet-env: &dotnet-env
   # Docker's secrets, one file per configuration key (SecretFiles in the API).
-  SCREENTAIL_SECRETS_DIR: /run/secrets
+  SCREENTRAIL_SECRETS_DIR: /run/secrets
   # The root filesystem is read-only; the runtime's scratch space is the tmpfs below.
   HOME: /tmp
   # No debugger, profiler or diagnostics socket in production.
@@ -76,7 +76,7 @@ services:
   # (profile "tools"); run it after every build, before `up`. It connects as the schema's owner.
   migrate:
     build: *api-build
-    image: screentail-api:local
+    image: screentrail-api:local
     profiles: [tools]
     <<: *hardening
     restart: "no"
@@ -97,12 +97,12 @@ services:
 
   api:
     build: *api-build
-    image: screentail-api:local
+    image: screentrail-api:local
     <<: *hardening
     # The settings that are not secret (Admin__*, Summarization__*, RateLimit__*, ...). The keys set under
     # `environment` below win over the same keys in that file.
     env_file:
-      - path: ${SCREENTAIL_API_ENV:-./api.env}
+      - path: ${SCREENTRAIL_API_ENV:-./api.env}
         required: true
     environment:
       <<: *dotnet-env
@@ -111,7 +111,7 @@ services:
       # X-Forwarded-Proto the API reads (ADR-0009). Its address, not the network's: the network also holds
       # Docker's gateway, which is how the host itself reaches a container. Never set
       # ASPNETCORE_FORWARDEDHEADERS_ENABLED: the API refuses to start with it and a proxy listed.
-      ForwardedHeaders__KnownProxies__0: ${SCREENTAIL_PROXY_IP:-172.30.80.2}
+      ForwardedHeaders__KnownProxies__0: ${SCREENTRAIL_PROXY_IP:-172.30.80.2}
       # One value for the backend and the page (the build argument below).
       Admin__GoogleClientId: ${ADMIN_GOOGLE_CLIENT_ID:-}
     secrets:
@@ -130,9 +130,9 @@ services:
     # of the limit by default, 1.5 GB here, which is above the rough 1.2 GB that one tenant's full
     # burst of gated drafts and publishes at their largest bodies would take; the gates are per tenant,
     # so no fixed figure covers every tenant bursting at once. On the guide's 2 GB host this equals the
-    # host, so it does not keep memory for PostgreSQL there: on a larger host set SCREENTAIL_API_MEMORY
+    # host, so it does not keep memory for PostgreSQL there: on a larger host set SCREENTRAIL_API_MEMORY
     # in .env to leave PostgreSQL and Caddy a gigabyte or more. docs/dev/deploy.md says why 2g.
-    mem_limit: ${SCREENTAIL_API_MEMORY:-2g}
+    mem_limit: ${SCREENTRAIL_API_MEMORY:-2g}
     # No ports: the proxy is the only way in. The edge network is also the API's way out (Google's keys,
     # the drafting model, each tenant's PSA); the data network has no way out at all.
     networks:
@@ -142,7 +142,7 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "dotnet", "ScreenTail.Api.dll", "--health-probe"]
+      test: ["CMD", "dotnet", "ScreenTrail.Api.dll", "--health-probe"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -155,10 +155,10 @@ services:
       args:
         # Not a secret: the browser is given it. Baked into the page when the image is built.
         VITE_GOOGLE_CLIENT_ID: ${ADMIN_GOOGLE_CLIENT_ID:-}
-    image: screentail-web:local
+    image: screentrail-web:local
     <<: *hardening
     environment:
-      SCREENTAIL_DOMAIN: ${SCREENTAIL_DOMAIN:?Set SCREENTAIL_DOMAIN in .env to the name the admin is served at}
+      SCREENTRAIL_DOMAIN: ${SCREENTRAIL_DOMAIN:?Set SCREENTRAIL_DOMAIN in .env to the name the admin is served at}
     # Caddy runs unprivileged with no capabilities, so it binds 80 and 443 the way Docker allows in a
     # container's own network namespace.
     sysctls:
@@ -167,9 +167,9 @@ services:
     # the network's gateway, and the API would count every IPv6 client as that one address for the rate
     # limit. Full IPv6 (a v6 subnet here and the proxy's v6 address listed too) is a follow-up.
     ports:
-      - "0.0.0.0:${SCREENTAIL_HTTP_PORT:-80}:80"
-      - "0.0.0.0:${SCREENTAIL_HTTPS_PORT:-443}:443"
-      - "0.0.0.0:${SCREENTAIL_HTTPS_PORT:-443}:443/udp"
+      - "0.0.0.0:${SCREENTRAIL_HTTP_PORT:-80}:80"
+      - "0.0.0.0:${SCREENTRAIL_HTTPS_PORT:-443}:443"
+      - "0.0.0.0:${SCREENTRAIL_HTTPS_PORT:-443}:443/udp"
     volumes:
       # Certificates and the ACME account. Keep it: losing it means asking the CA again.
       - caddy-data:/data
@@ -178,7 +178,7 @@ services:
       - /tmp
     networks:
       edge:
-        ipv4_address: ${SCREENTAIL_PROXY_IP:-172.30.80.2}
+        ipv4_address: ${SCREENTRAIL_PROXY_IP:-172.30.80.2}
     depends_on:
       api:
         condition: service_healthy
@@ -196,8 +196,8 @@ networks:
     ipam:
       config:
         # The proxy has a fixed address outside the range Docker hands out, so nothing else can take it.
-        - subnet: ${SCREENTAIL_EDGE_SUBNET:-172.30.80.0/28}
-          ip_range: ${SCREENTAIL_EDGE_DYNAMIC_RANGE:-172.30.80.8/29}
+        - subnet: ${SCREENTRAIL_EDGE_SUBNET:-172.30.80.0/28}
+          ip_range: ${SCREENTRAIL_EDGE_DYNAMIC_RANGE:-172.30.80.8/29}
   data:
     internal: true
     enable_ipv6: false
@@ -210,16 +210,16 @@ volumes:
 # into /run/secrets of the services that list it, and no other.
 secrets:
   postgres-password:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/postgres-password
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/postgres-password
   postgres-app-password:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/postgres-app-password
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/postgres-app-password
   migrate-connection:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/migrate-connection
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/migrate-connection
   api-connection:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/api-connection
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/api-connection
   jwt-signing-key:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/jwt-signing-key
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/jwt-signing-key
   vault-master-key:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/vault-master-key
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/vault-master-key
   summarization-api-key:
-    file: ${SCREENTAIL_SECRETS_DIR:-./secrets}/summarization-api-key
+    file: ${SCREENTRAIL_SECRETS_DIR:-./secrets}/summarization-api-key

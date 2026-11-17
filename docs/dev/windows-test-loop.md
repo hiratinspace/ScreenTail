@@ -1,6 +1,6 @@
 # Windows test loop
 
-ScreenTail's client is Windows-only, and it's developed on a Mac. Each change goes through three layers of checks, and each layer handles only what the one before it can't.
+ScreenTrail's client is Windows-only, and it's developed on a Mac. Each change goes through three layers of checks, and each layer handles only what the one before it can't.
 
 | Where | What runs there | Who starts it |
 |---|---|---|
@@ -15,7 +15,7 @@ ScreenTail's client is Windows-only, and it's developed on a Mac. Each change go
 2. On the laptop, signed in as the account that will stay signed in:
    ```powershell
    git clone https://github.com/hiratinspace/ScreenTail.git
-   cd ScreenTail\scripts\windows
+   cd ScreenTrail\scripts\windows
    powershell -ExecutionPolicy Bypass -File .\setup-test-laptop.ps1 -Token <TOKEN>
    ```
 3. Do the manual steps the script prints: automatic sign-in, no lock screen, plugged in with the lid open, and use the laptop for testing only.
@@ -43,7 +43,7 @@ Every laptop failure during the client P2 merges (2026-10-25) was the machine, n
 - **It does not sleep or lock.** Settings, System, Power: never sleep when plugged in.
 - **Smart App Control is off.** With it on, Windows refuses freshly built files ("An Application Control policy has blocked this file", 0x800711C7) and no test runs. It was turned off on 2026-10-25. To check: `reg query HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`; `VerifiedAndReputablePolicyState` must be `0x0`.
 - **Nothing elevated is in front, and nobody touches it.** The input-injection job clicks and types. An administrator window in front (PowerShell, Settings, Event Viewer) swallows the injected clicks, and `InputHookTests.HooksComeBackForTheSecondSession` fails with an empty collection. Leave the laptop on the plain desktop.
-- **The demo is not running.** The laptop is also where the demo runs (`docs/dev/demo.md`); a test job that starts during a demo takes over the keyboard, mouse and screen. Close the runner's window for the demo, and it comes back at the next sign-in. The other way round, a job that starts while the demo is up fails at its first step (`scripts/windows/check-demo-stopped.ps1`) with one line: run `scripts\windows\demo\stop.cmd`, then re-run the job. A ScreenTail process the demo did not start is named with its process id instead, to be closed by hand, since `stop.cmd` stops only what its state file records. The skip gate still runs after that failure, as it runs after any, and adds a second error, "No TRX reports matched": no tests ran, so there is no report. That second line is the first one's consequence, not another fault.
+- **The demo is not running.** The laptop is also where the demo runs (`docs/dev/demo.md`); a test job that starts during a demo takes over the keyboard, mouse and screen. Close the runner's window for the demo, and it comes back at the next sign-in. The other way round, a job that starts while the demo is up fails at its first step (`scripts/windows/check-demo-stopped.ps1`) with one line: run `scripts\windows\demo\stop.cmd`, then re-run the job. A ScreenTrail process the demo did not start is named with its process id instead, to be closed by hand, since `stop.cmd` stops only what its state file records. The skip gate still runs after that failure, as it runs after any, and adds a second error, "No TRX reports matched": no tests ran, so there is no report. That second line is the first one's consequence, not another fault.
 - **It is plugged in and charged.** A laptop job on battery runs slow and can run out partway, and under load the laptop can lose charge even on the charger, so a run that started on battery or low on charge used to die midway and leave the pull request red for hours (on 2026-11-12 a run that started on battery at 55% was cut off at the 20-minute limit). Since then the first step, once the demo check passes, stops the job at once with one red `::error::` line when:
 
   | The line says | Why | Do this |
@@ -73,11 +73,11 @@ Three things close that hole.
 
 **Each test app is run directly**, not through `dotnet test`, at the path `dotnet msbuild -getProperty:TargetPath` reports, with xUnit's `-result-trx`. `dotnet test` does not forward that option and rejects the Microsoft.Testing.Platform equivalent, which this project has no extension package for.
 
-**`scripts/windows/check-skips.ps1` counts what did not execute** and compares it with `client/ScreenTail.Tests.Windows/skip-baseline.json`. Every skipped test is named in the log and the job summary with its reason. The same assembly runs in three jobs with different permissions, so each has its own number:
+**`scripts/windows/check-skips.ps1` counts what did not execute** and compares it with `client/ScreenTrail.Tests.Windows/skip-baseline.json`. Every skipped test is named in the log and the job summary with its reason. The same assembly runs in three jobs with different permissions, so each has its own number:
 
 | Job | Budget | Why |
 |---|---|---|
-| `hosted` (windows-latest, both test projects) | 10 | Four input-injection tests need `SCREENTAIL_ALLOW_INPUT_INJECTION`; six performance tests refuse to enforce a budget on a shared cloud VM |
+| `hosted` (windows-latest, both test projects) | 10 | Four input-injection tests need `SCREENTRAIL_ALLOW_INPUT_INJECTION`; six performance tests refuse to enforce a budget on a shared cloud VM |
 | `laptop-capabilities` | 4 | The four input-injection tests belong to the job below |
 | `laptop-input` | 0 | Everything runs |
 
@@ -98,7 +98,7 @@ narrowing the flag rather than widening the filter, because widening meant a one
 over the laptop's keyboard, and the hosted Windows job builds and tests everything either way.
 
 **Only the hardware areas' Windows tests count (2026-11-12).** The filter used to take all of
-`client/ScreenTail.Tests.Windows/`, so every screen change, which always touches its own tests there,
+`client/ScreenTrail.Tests.Windows/`, so every screen change, which always touches its own tests there,
 waited about forty minutes for the laptop. Now it takes the folders for the areas above (Capabilities,
 Capture, Detection, Host, Input, Ipc, Performance, Privacy, Speech, Store) and the files at the
 project's root that they all share. Review, Settings, Shell, History, Accessibility, Onboarding,
@@ -161,15 +161,15 @@ demo is.
 
 ## Performance measurements
 
-ST-031's budgets are measured in the capabilities job by `client/ScreenTail.Tests.Windows/Performance`, and the numbers go to the job summary and `measurements.txt` like the redaction figures. They take about three and a half minutes of the laptop's time. `Host/StopTimeTests` (ST-112) adds the capture service's stop time in the middle of a recording, three asks of about 4 s each on the hosted runner (3 s recorded each) and about 20 s in all on the laptop (98 to 191 ms per stop there, run 41927796271), where the sign-out case also waits for the speech model to load; it runs everywhere and skips nowhere, with the 4 s budget held on both (`docs/dev/installer.md`). `docs/dev/performance.md` lists each budget, whether it is enforced, and the latest numbers; `scripts/windows/measure-idle.ps1` measures the real service and UI processes by hand.
+ST-031's budgets are measured in the capabilities job by `client/ScreenTrail.Tests.Windows/Performance`, and the numbers go to the job summary and `measurements.txt` like the redaction figures. They take about three and a half minutes of the laptop's time. `Host/StopTimeTests` (ST-112) adds the capture service's stop time in the middle of a recording, three asks of about 4 s each on the hosted runner (3 s recorded each) and about 20 s in all on the laptop (98 to 191 ms per stop there, run 41927796271), where the sign-out case also waits for the speech model to load; it runs everywhere and skips nowhere, with the 4 s budget held on both (`docs/dev/installer.md`). `docs/dev/performance.md` lists each budget, whether it is enforced, and the latest numbers; `scripts/windows/measure-idle.ps1` measures the real service and UI processes by hand.
 
 ## Writing Windows tests
 
-The Windows-only suite (`client/ScreenTail.Tests.Windows`) runs its tests one at a time in one process, because they share the desktop (`AssemblyInfo.cs` says why). Some WPF rules follow from that one process:
+The Windows-only suite (`client/ScreenTrail.Tests.Windows`) runs its tests one at a time in one process, because they share the desktop (`AssemblyInfo.cs` says why). Some WPF rules follow from that one process:
 
 - **Only one WPF `Application` can exist per process,** and once it shuts down no XAML component loads again. It is the fixture of the `WpfApplicationOwner` collection (`Accessibility/TheApplication.cs`), made once on a thread that pumps for the whole collection and shut down after its last test; the collection orderer in `AssemblyInfo.cs` runs that collection last. A test that needs the app's styles joins the collection, takes `TheApplication` in its constructor and runs its body with `RunAsync`. It never makes an `Application` of its own.
 - **The accessibility suite (`Accessibility/`, ST-084) brings its own test windows to the front** for a few minutes of the laptop's capabilities job: it shows and activates each screen in turn. Its key presses go only to those windows (below), never to another program, but while one of them is in front a person typing on the laptop types into it, so leave the laptop alone while that job runs. (The workflow's comment that the job is safe on a machine in use predates this; it is the owner's to update, since editing that workflow turns the hardware gate on.)
-- **The accessibility suite drives the keyboard without injecting input.** `Keys.Press` hands a test window's `HwndSource` the key messages the message loop would, and holds modifiers with `SetKeyboardState`, which affects the calling thread only, so no key reaches Windows' input queue or any other program's window. That is why it runs on the hosted runner. The axe-windows scan runs in its own process (`ScreenTail.Tests.AxeRunner`), because the engine skips every element of the process that runs it.
+- **The accessibility suite drives the keyboard without injecting input.** `Keys.Press` hands a test window's `HwndSource` the key messages the message loop would, and holds modifiers with `SetKeyboardState`, which affects the calling thread only, so no key reaches Windows' input queue or any other program's window. That is why it runs on the hosted runner. The axe-windows scan runs in its own process (`ScreenTrail.Tests.AxeRunner`), because the engine skips every element of the process that runs it.
 - **A WPF items control with no presentation source makes no item containers,** so a test that reads them gets nulls. Host the control in a hidden `HwndSource` (`Review/UiThread.Hosted`).
 - **Once anything in the process is DPI aware, text is drawn at the screen's scale.** The laptop's screen is scaled, so OCR fixtures are drawn at a fixed 96 dpi (`OcrTests`) rather than whatever the process happens to be using.
 - **The skip budgets are full** (hosted 10 of 10, `laptop-capabilities` 4 of 4). A new Windows test must run on every job, not skip.

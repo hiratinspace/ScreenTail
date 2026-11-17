@@ -1,0 +1,431 @@
+using System.Collections.ObjectModel;
+using System.Globalization;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using ScreenTrail.Core.History;
+using ScreenTrail.Core.Review;
+using ScreenTrail.Core.Shell;
+using ScreenTrail.Shared.Ipc;
+
+namespace ScreenTrail.UI.History;
+
+/// <summary>One row of the History screen, already worded (Spec §5 S4).</summary>
+/// <param name="Frames">"7", or "7 (+1 purged)" when frames were deleted unredacted, because that is a fact about coverage the technician should see before publishing.</param>
+/// <param name="NotConfirmed">A publish of the session may have reached the ticket and was never confirmed: said beside the status, never in place of it (contract v10).</param>
+/// <param name="Badge">The status as the rail draws it: its word, glyph and hue (spec v0.6.9 S4). Null draws the word alone.</param>
+public sealed record HistoryRow(string Id, string Started, string Duration, string Status, string Tool, string Frames, bool NotConfirmed = false, StatusBadge? Badge = null)
+{
+    /// <summary>The status badge's glyph, beside its word.</summary>
+    public string StatusGlyph => Badge?.Glyph ?? string.Empty;
+
+    /// <summary>Which hue the status badge's glyph and edge take (<see cref="StatusBadge.Tone"/>).</summary>
+    public string StatusTone => Badge?.Tone ?? "Muted";
+
+    /// <summary>The Not confirmed badge's glyph.</summary>
+    public static string NotConfirmedGlyph => StatusBadges.NotConfirmed.Glyph;
+
+    /// <summary>The row as a screen reader says it (Spec §7); it read the record itself until ST-084.</summary>
+    public string Spoken => NotConfirmed
+        ? $"{Status}, publish not confirmed, started {Started}, {Duration}, {Tool}, {Frames} screenshots"
+        : $"{Status}, started {Started}, {Duration}, {Tool}, {Frames} screenshots";
+
+    /// <summary>The second badge's words, or nothing for a row that has no such badge.</summary>
+    public string NotConfirmedLabel => NotConfirmed ? SessionHistory.NotConfirmedLabel : string.Empty;
+
+    /// <summary>
+    /// The row's sentence. A table cell with no name of its own is read as "Item: " plus this, so the
+    /// record's printed form (badge glyphs included) must never be what a screen reader hears (Spec §7).
+    /// </summary>
+    public override string ToString() => Spoken;
+
+    public System.Windows.Visibility NotConfirmedVisibility => NotConfirmed ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+}
+
+/// <summary>
+/// The History screen (ST-079), fed by <c>list_sessions</c> over the pipe. The service computes the
+/// status word so the draft's text never crosses just to be turned back into "Draft"; this only formats.
+/// Opening a row is one call on the shell store, which switches the view and names the session at once.
+///
+/// Multi-select and Bulk discard (Spec §5 S4, v0.4.1 Q6): which selected rows qualify is
+/// <see cref="SessionHistory.Discardable(IEnumerable{SessionRow})"/>'s rule, the technician types how
+/// many, and the list is read again afterwards so it says what the service now holds.
+///
+/// "Not confirmed" and Mark as published (contract v10): a row whose publish may have reached the ticket
+/// says so beside its status, and with exactly that one row selected the technician can settle it after
+/// checking the ticket. The question and the service's rule are <see cref="MarkAsPublished"/>'s and
+/// PublishCommands'; this offers the button and shows the answer.
+/// </summary>
+public sealed partial class HistoryViewModel : ObservableObject
+{
+    private readonly ShellState _state;
+    private readonly Func<CancellationToken, Task<IReadOnlyList<SessionRow>?>> _load;
+    private readonly Func<TypedConfirmation, int, Task<bool>>? _confirm;
+    private readonly Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? _discard;
+    private readonly Func<IReadOnlyCollection<string>, string?>? _discardBlocked;
+
+    /// <summary>The reason the last press was held before anything was asked, while it is the one shown.</summary>
+    private string? _held;
+    private readonly Func<string, string, CancellationToken, Task<ConfirmedResult>>? _markPublished;
+    private readonly Dictionary<string, SessionRow> _sessions = new(StringComparer.Ordinal);
+    private readonly TimeProvider _time;
+    private readonly TimeZoneInfo _zone;
+    private IReadOnlyList<SessionRow>? _all;
+    private IReadOnlyList<HistoryRow> _selected = [];
+
+    /// <summary>
+    /// True until the first read, and while the tool list is rebuilt after one, so a filter choice set
+    /// then does not draw the table (and before the first read does not say the service did not answer).
+    /// </summary>
+    private bool _quiet = true;
+
+    /// <summary>The mark's question is up or its answer is on its way (<see cref="OneAtATime"/>).</summary>
+    private readonly OneAtATime _marking = new();
+
+    /// <summary>The discard's typed confirmation is up or its answer is on its way.</summary>
+    private readonly OneAtATime _discarding = new();
+
+    /// <param name="load">The service's rows.</param>
+    /// <param name="confirm">The typed-confirmation dialog, with how many sessions it is for. Null with no discard wired.</param>
+    /// <param name="discard">
+    /// Discards the ids once the technician has typed what the service asks for: the second argument shows
+    /// the dialog for the service's phrase and says whether it was typed. Null in a screen with nothing
+    /// to discard through, which disables Bulk discard.
+    /// </param>
+    /// <param name="discardBlocked">Why these sessions may not be asked about now (a session is being captured), or null.</param>
+    /// <param name="markPublished">
+    /// Asks the technician and then the service to mark the session (its id, then the row as History
+    /// shows it, for the question: when it started, how long, the tool) as published
+    /// (<see cref="MarkAsPublished.RunAsync"/> with the shell's dialog). Null in a screen with nothing to
+    /// ask through, which disables the button.
+    /// </param>
+    public HistoryViewModel(
+        ShellState state,
+        Func<CancellationToken, Task<IReadOnlyList<SessionRow>?>> load,
+        Func<TypedConfirmation, int, Task<bool>>? confirm = null,
+        Func<IReadOnlyList<string>, Func<string, Task<bool>>, CancellationToken, Task<ConfirmedResult>>? discard = null,
+        Func<IReadOnlyCollection<string>, string?>? discardBlocked = null,
+        Func<string, string, CancellationToken, Task<ConfirmedResult>>? markPublished = null,
+        TimeProvider? time = null,
+        TimeZoneInfo? zone = null)
+    {
+        _state = state ?? throw new ArgumentNullException(nameof(state));
+        _load = load ?? throw new ArgumentNullException(nameof(load));
+        _confirm = confirm;
+        _discard = discard;
+        _discardBlocked = discardBlocked;
+        _markPublished = markPublished;
+        _time = time ?? TimeProvider.System;
+        _zone = zone ?? TimeZoneInfo.Local;
+        ToolChoice = ToolChoices[0];
+    }
+
+    /// <summary>The rows the filters keep, newest first.</summary>
+    public ObservableCollection<HistoryRow> Rows { get; } = [];
+
+
+    /// <summary>The tool filter's list: every tool the sessions have.</summary>
+    public ObservableCollection<FilterChoice<string?>> ToolChoices { get; } = [.. HistoryFilters.ToolChoices([])];
+
+
+    [ObservableProperty]
+    public partial FilterChoice<string?> StatusChoice { get; set; } = HistoryFilters.StatusChoices[0];
+
+    [ObservableProperty]
+    public partial FilterChoice<string?>? ToolChoice { get; set; }
+
+    [ObservableProperty]
+    public partial FilterChoice<HistoryPeriod> PeriodChoice { get; set; } = HistoryFilters.PeriodChoices[0];
+
+    /// <summary>What the filters say now.</summary>
+    public TableFilter Filter => new(PeriodChoice?.Value ?? HistoryPeriod.AnyTime, StatusChoice?.Value, ToolChoice?.Value);
+
+    /// <summary>The filters, once there is a session to filter.</summary>
+    public System.Windows.Visibility FiltersVisibility => _all is { Count: > 0 } ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    /// <summary>Clear filters, offered while a filter leaves rows out.</summary>
+    public System.Windows.Visibility ClearFiltersVisibility => Filter.IsActive ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial string Status { get; set; } = "Asking the capture service…";
+
+    /// <summary>What the last discard or mark as published did, for the line beside the buttons. Empty until there is one.</summary>
+    [ObservableProperty]
+    public partial string Notice { get; set; } = string.Empty;
+
+    /// <summary>Why the last discard or mark as published did not happen, or null. Shown beside the buttons, never as a dialog.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DiscardFailed))]
+    public partial string? DiscardError { get; set; }
+
+    public bool DiscardFailed => DiscardError is not null;
+
+    /// <summary>Raised after a discard or a mark as published the service carried out, so the pane can put focus back on the list.</summary>
+    public event EventHandler? Discarded;
+
+    /// <summary>The rows the technician has selected, in the order the table shows them.</summary>
+    public IReadOnlyList<HistoryRow> Selected => _selected;
+
+    /// <summary>How many of the selected sessions a discard would take: the number to type.</summary>
+    public int DiscardableCount => Qualifying().Count;
+
+    /// <summary>
+    /// The line under the table about the selection: how many are selected, and how many of those are
+    /// kept whatever happens, so the number the dialog asks for is never a surprise.
+    /// </summary>
+    public string SelectionNote
+    {
+        get
+        {
+            var selected = _selected.Count;
+            var discardable = DiscardableCount;
+            return selected switch
+            {
+                0 => string.Empty,
+                _ when discardable == selected => selected == 1 ? "1 session selected." : string.Create(CultureInfo.CurrentCulture, $"{selected} sessions selected."),
+                _ => string.Create(CultureInfo.CurrentCulture, $"{discardable} of {selected} selected can be discarded. Published and already discarded sessions are kept."),
+            };
+        }
+    }
+
+    public async Task RefreshAsync(CancellationToken ct = default)
+    {
+        var rows = await _load(ct).ConfigureAwait(true);
+        _all = rows is null ? null : [.. rows.OrderByDescending(r => r.StartedAt)];
+        _quiet = true;
+        OfferTools();
+        _quiet = false;
+        Show();
+    }
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        StatusChoice = HistoryFilters.StatusChoices[0];
+        ToolChoice = ToolChoices[0];
+        PeriodChoice = HistoryFilters.PeriodChoices[0];
+    }
+
+    partial void OnStatusChoiceChanged(FilterChoice<string?> value) => Show();
+
+    partial void OnToolChoiceChanged(FilterChoice<string?>? value) => Show();
+
+    partial void OnPeriodChoiceChanged(FilterChoice<HistoryPeriod> value) => Show();
+
+    /// <summary>The tool list as the sessions have it, keeping the chosen tool while any session has it.</summary>
+    private void OfferTools()
+    {
+        var chosen = ToolChoice?.Value;
+        var offered = HistoryFilters.ToolChoices(_all ?? []);
+        ToolChoices.Clear();
+        foreach (var choice in offered)
+        {
+            ToolChoices.Add(choice);
+        }
+
+        ToolChoice = ToolChoices.FirstOrDefault(c => string.Equals(c.Value, chosen, StringComparison.OrdinalIgnoreCase)) ?? ToolChoices[0];
+    }
+
+    /// <summary>The rows the filters keep, and the line that says how many.</summary>
+    private void Show()
+    {
+        if (_quiet)
+        {
+            return;
+        }
+
+        Rows.Clear();
+        _sessions.Clear();
+        Select([]);
+        OnPropertyChanged(nameof(Filter));
+        OnPropertyChanged(nameof(FiltersVisibility));
+        OnPropertyChanged(nameof(ClearFiltersVisibility));
+        if (_all is null)
+        {
+            Status = "The capture service did not answer.";
+            return;
+        }
+
+        foreach (var row in HistoryFilters.Apply(_all, Filter, _time.GetUtcNow(), _zone))
+        {
+            _sessions[row.Id] = row;
+            Rows.Add(Format(row));
+        }
+
+        var filtered = Filter.IsActive;
+        Status = (Rows.Count, _all.Count) switch
+        {
+            (_, 0) => SessionHistory.Empty,
+            (0, _) => HistoryFilters.NoMatch,
+            (var n, var all) when filtered => string.Create(CultureInfo.CurrentCulture, $"{n} of {all} sessions"),
+            (1, _) => "1 session",
+            (var n, _) => string.Create(CultureInfo.CurrentCulture, $"{n} sessions"),
+        };
+    }
+
+    /// <summary>The table's selection changed. The pane calls this; the table's selection is not bindable.</summary>
+    public void Select(IEnumerable<HistoryRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var chosen = rows.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+        var before = _selected.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+        _selected = [.. Rows.Where(r => chosen.Contains(r.Id))];
+
+        // Why a press was held is about the sessions that were selected; under another selection, or a
+        // filter showing other rows, it would say something no longer true. What a discard that ran
+        // said stays: reading the list again after it clears the selection.
+        if (_held is not null && DiscardError == _held && !before.SetEquals(_selected.Select(r => r.Id)))
+        {
+            DiscardError = null;
+            _held = null;
+        }
+
+        OnPropertyChanged(nameof(Selected));
+        OnPropertyChanged(nameof(DiscardableCount));
+        OnPropertyChanged(nameof(SelectionNote));
+        BulkDiscardCommand.NotifyCanExecuteChanged();
+        MarkPublishedCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand]
+    private void Open(HistoryRow? row)
+    {
+        if (row is not null)
+        {
+            _state.OpenSession(row.Id);
+        }
+    }
+
+    /// <summary>
+    /// Spec §5 S4's Bulk discard. Only the selected sessions that qualify are named, and the technician
+    /// types how many (v0.4.1 Q6). Nothing is asked while any session is being captured (Spec §4).
+    /// One typed confirmation at a time, as the mark below (review of #274).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanBulkDiscard))]
+    private Task BulkDiscardAsync() => _discarding.RunAsync(DiscardSelectedAsync, BulkDiscardCommand.NotifyCanExecuteChanged);
+
+    private async Task DiscardSelectedAsync()
+    {
+        var ids = Qualifying().Select(r => r.Id).ToList();
+        if (_discard is null || _confirm is null || ids.Count == 0)
+        {
+            return;
+        }
+
+        if (_discardBlocked?.Invoke(ids) is { } blocked)
+        {
+            DiscardError = blocked;
+            _held = blocked;
+            return;
+        }
+
+        DiscardError = null;
+        _held = null;
+        var confirm = _confirm;
+        var result = await _discard(ids, phrase => confirm(new TypedConfirmation(phrase), ids.Count), CancellationToken.None).ConfigureAwait(true);
+        switch (result.Outcome)
+        {
+            case ConfirmedOutcome.Declined:
+                return;
+            case ConfirmedOutcome.Done:
+                await RefreshAsync().ConfigureAwait(true);
+                Notice = ids.Count == 1 ? "1 session discarded." : string.Create(CultureInfo.CurrentCulture, $"{ids.Count} sessions discarded.");
+                Discarded?.Invoke(this, EventArgs.Empty);
+                return;
+            default:
+                // Refused or not answered. What the service holds may have moved under the selection, so
+                // the list is read again, and the reason stays beside the button. A session that began
+                // while the count was typed leaves the list and the selection as they are, as the mark does.
+                var error = result.Error ?? ConfirmedAction.RefusedWithoutReason;
+                if (!SessionDiscard.SaysCapturing(error))
+                {
+                    await RefreshAsync().ConfigureAwait(true);
+                }
+
+                DiscardError = error;
+                return;
+        }
+    }
+
+    /// <summary>
+    /// The technician checked the ticket and the earlier publish is there (contract v10). One session at a
+    /// time, since each is a statement about its own ticket: offered with exactly one row selected, and
+    /// that row not confirmed. They are asked first; nothing is asked while a session is being captured,
+    /// and the reason is said beside the button instead (Spec §4).
+    ///
+    /// One question at a time, held here and not left to the command (hosted run on #274): the command's
+    /// Execute does not look at whether it is running (<see cref="OneAtATime"/> says how that went wrong).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanMarkPublished))]
+    private Task MarkPublishedAsync() => _marking.RunAsync(MarkSelectedAsync, MarkPublishedCommand.NotifyCanExecuteChanged);
+
+    private Task MarkSelectedAsync() =>
+        _markPublished is { } mark && MarkableSelection() is { } row
+            ? MarkAsync(mark, row.Id, Described(row))
+            : Task.CompletedTask;
+
+    private async Task MarkAsync(Func<string, string, CancellationToken, Task<ConfirmedResult>> mark, string id, string described)
+    {
+        DiscardError = null;
+        var result = await mark(id, described, CancellationToken.None).ConfigureAwait(true);
+        switch (result.Outcome)
+        {
+            case ConfirmedOutcome.Declined:
+                return;
+            case ConfirmedOutcome.Done:
+                await RefreshAsync().ConfigureAwait(true);
+                Notice = MarkAsPublished.Done;
+                Discarded?.Invoke(this, EventArgs.Empty);
+                return;
+            case ConfirmedOutcome.NotAvailable:
+                DiscardError = result.Error ?? ConfirmedAction.NotConnected;
+                return;
+            default:
+                // Refused. Blocked by a session being captured leaves the list as it is; anything else
+                // may mean what the service holds moved under the selection, so the list is read again.
+                var error = result.Error ?? ConfirmedAction.RefusedWithoutReason;
+                if (!string.Equals(error, MarkAsPublished.WhileCapturing, StringComparison.Ordinal))
+                {
+                    await RefreshAsync().ConfigureAwait(true);
+                }
+
+                DiscardError = error;
+                return;
+        }
+    }
+
+    /// <summary>The row in the words it already shows, so the question names the session without anything new.</summary>
+    /// <summary>
+    /// The session in words for the Mark as published question: "ScreenConnect session, started Mon 14 Sep
+    /// 16:40, 9 min". Not the table's "9:00", which beside a time of day reads as another time.
+    /// </summary>
+    internal static string Described(SessionRow row) =>
+        string.Create(
+            CultureInfo.CurrentCulture,
+            $"{ToolNames.Display(row.Tool)} session, started {row.StartedAt.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture)}, {InboxRail.Duration(row.DurationMs)}");
+
+    private bool CanMarkPublished() => !_marking.Busy && _markPublished is not null && MarkableSelection() is not null;
+
+    /// <summary>The one selected session, when it is one whose publish is not confirmed; otherwise null.</summary>
+    private SessionRow? MarkableSelection() =>
+        _selected.Count == 1 && _sessions.GetValueOrDefault(_selected[0].Id) is { } row && SessionHistory.MayMarkPublished(row) ? row : null;
+
+    private bool CanBulkDiscard() => !_discarding.Busy && _discard is not null && _confirm is not null && DiscardableCount > 0;
+
+    private IReadOnlyList<SessionRow> Qualifying() =>
+        SessionHistory.Discardable(_selected.Select(r => _sessions.GetValueOrDefault(r.Id)).OfType<SessionRow>());
+
+    internal static HistoryRow Format(SessionRow row)
+    {
+        var duration = TimeSpan.FromMilliseconds(row.DurationMs);
+        return new HistoryRow(
+            row.Id,
+            row.StartedAt.ToLocalTime().ToString("ddd d MMM HH:mm", CultureInfo.CurrentCulture),
+            duration.TotalHours >= 1 ? duration.ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture) : duration.ToString(@"m\:ss", CultureInfo.InvariantCulture),
+            // The status in the rail's words, glyph and hue (spec v0.6.9 S4): "Partial capture", not "Partial".
+            row.Status.Length == 0 ? row.Status : StatusBadges.Of(row.Status).Word,
+            ToolNames.Display(row.Tool),
+            row.FramesPurged > 0 ? $"{row.Frames} (+{row.FramesPurged} purged)" : row.Frames.ToString(CultureInfo.InvariantCulture),
+            SessionHistory.MayMarkPublished(row),
+            row.Status.Length == 0 ? null : StatusBadges.Of(row.Status));
+    }
+}

@@ -36,7 +36,7 @@ COPY --from=build /repo/web/dist /srv
 # then checked as it will run, with a stand-in name, so a broken Caddyfile fails the build and not the
 # start.
 RUN caddy fmt --overwrite /etc/caddy/Caddyfile \
- && SCREENTAIL_DOMAIN=screentail.invalid caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+ && SCREENTRAIL_DOMAIN=screentrail.invalid caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
  && rm -rf /data/caddy /config/caddy \
  && chown -R 10001:10001 /data /config
 USER 10001:10001

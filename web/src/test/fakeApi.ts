@@ -113,7 +113,7 @@ export function fakeApi(overrides: Partial<{ [K in keyof AdminApi]: AdminApi[K] 
     integrations: vi.fn(async () => integrations),
     connectIntegration: vi.fn(async () => undefined),
     disconnectIntegration: vi.fn(async () => undefined),
-    checkIntegration: vi.fn(async () => ({ ok: true, message: 'ScreenTail reached the site and the key works.', checkedAt: recently })),
+    checkIntegration: vi.fn(async () => ({ ok: true, message: 'ScreenTrail reached the site and the key works.', checkedAt: recently })),
     download: vi.fn(async () => ({ url: null, message: 'No client download is published for this deployment yet.' })),
   };
   for (const [key, value] of Object.entries(overrides)) {

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Asks every running copy of an installed ScreenTail program to close, the way Windows asks, and says
+    Asks every running copy of an installed ScreenTrail program to close, the way Windows asks, and says
     whether it closed by itself (ST-112). For the installer smoke test.
 
 .DESCRIPTION
@@ -47,7 +47,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
-public static class ScreenTailClose
+public static class ScreenTrailClose
 {
     [StructLayout(LayoutKind.Sequential)]
     struct RM_UNIQUE_PROCESS { public int dwProcessId; public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime; }
@@ -168,11 +168,11 @@ Write-Output "processes $($processes.Count)"
 $ids = [int[]]@($processes | ForEach-Object { $_.Id })
 if ($Mode -eq 'RestartManager') {
     # The waits happen inside, because Restart Manager's restart must come in the same session, after the end.
-    [ScreenTailClose]::RestartManager($Exe, $ids, $WaitSeconds * 1000, [bool]$Restart, $StoreFolder) | ForEach-Object { Write-Output $_ }
+    [ScreenTrailClose]::RestartManager($Exe, $ids, $WaitSeconds * 1000, [bool]$Restart, $StoreFolder) | ForEach-Object { Write-Output $_ }
 } else {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     foreach ($process in $processes) {
-        Write-Output "posted $($process.Id) $([ScreenTailClose]::PostClose($process.Id, 'ScreenTail.Service.SessionEnd'))"
+        Write-Output "posted $($process.Id) $([ScreenTrailClose]::PostClose($process.Id, 'ScreenTrail.Service.SessionEnd'))"
     }
     foreach ($process in $processes) {
         if ($process.WaitForExit($WaitSeconds * 1000)) {

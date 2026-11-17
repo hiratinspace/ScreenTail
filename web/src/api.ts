@@ -93,7 +93,7 @@ export type PolicyChange = Omit<Policy, 'version'> & { confirmAllWindows: boolea
 /** The providers the owner can connect. Integration credentials can only be changed by the tenant owner. */
 export type IntegrationProvider = 'connectwise' | 'hudu';
 
-/** Who made a change: the owner in this admin, a technician on a device, or ScreenTail itself (removing old records). */
+/** Who made a change: the owner in this admin, a technician on a device, or ScreenTrail itself (removing old records). */
 export interface IntegrationActor {
   kind: 'owner' | 'technician' | 'screentail';
   /** Null when the backend no longer knows the person's name. */
@@ -154,7 +154,7 @@ export interface CompanyMappingNow {
   docCompanyId: string;
   docCompanyName: string;
   setAt: string;
-  /** Null when ScreenTail matched the name itself while publishing. */
+  /** Null when ScreenTrail matched the name itself while publishing. */
   setBy: IntegrationActor | null;
 }
 
@@ -207,7 +207,7 @@ export interface AdminApi {
   download(): Promise<Download>;
 }
 
-const csrfHeader = 'X-ScreenTail-CSRF';
+const csrfHeader = 'X-ScreenTrail-CSRF';
 
 const fallback: Record<number, string> = {
   401: 'Your session has ended. Sign in again.',
@@ -216,7 +216,7 @@ const fallback: Record<number, string> = {
   413: 'What you entered is too long to save. Check it and try again.',
   429: 'Too many sign-in attempts from this network. Wait a minute and try again.',
   501: 'Sign-in is not set up on this deployment.',
-  503: 'ScreenTail could not reach Google. Try again in a minute.',
+  503: 'ScreenTrail could not reach Google. Try again in a minute.',
 };
 
 /** The real client, over fetch, against the same origin the page came from. */
@@ -241,7 +241,7 @@ export function httpApi(base = ''): AdminApi {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
     } catch {
-      throw new ApiError(0, 'ScreenTail could not reach the server. Check your connection and try again.');
+      throw new ApiError(0, 'ScreenTrail could not reach the server. Check your connection and try again.');
     }
 
     if (!response.ok) {

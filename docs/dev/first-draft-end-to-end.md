@@ -1,6 +1,6 @@
 # Getting one real session to produce one real note
 
-**What this is for.** ScreenTail has never drafted a note from a session. Every piece exists and is
+**What this is for.** ScreenTrail has never drafted a note from a session. Every piece exists and is
 tested (capture, redaction, the bundle, the sender, the endpoint, the model call), and the whole of it
 has never run in one go. This is the step list for the first time, and for every time after that until
 there is an installer.
@@ -35,7 +35,7 @@ live in the user profile of the machine they were set on. The laptop needs its o
 step 2. Read the value off the Mac without retyping it from memory:
 
 ```bash
-cd backend/src/ScreenTail.Api && dotnet user-secrets list   # prints values; mind the shoulder
+cd backend/src/ScreenTrail.Api && dotnet user-secrets list   # prints values; mind the shoulder
 ```
 
 ## Before you start
@@ -44,7 +44,7 @@ cd backend/src/ScreenTail.Api && dotnet user-secrets list   # prints values; min
 |---|---|
 | The laptop, signed in, with you at the keyboard | The service is Windows-only and the session is a real one |
 | The .NET 10 SDK on it | `dotnet --version` should say `10.x`. `setup-test-laptop.ps1` installed it for the runner; if a fresh shell cannot find it, `winget install Microsoft.DotNet.SDK.10` |
-| Your own clone of the repository | Anywhere outside the runner's `_work` folder, for example `C:\src\ScreenTail`. The runner's checkout is the runner's |
+| Your own clone of the repository | Anywhere outside the runner's `_work` folder, for example `C:\src\ScreenTrail`. The runner's checkout is the runner's |
 | PostgreSQL on the laptop | The API refuses to start without one. Step 0 |
 | A drafting key: Claude's or Gemini's | Claude: an Anthropic API key from the Claude Console (it starts with `sk-ant-`), on the account with credits. Gemini: the free tier is enough, 20 requests a day, and this needs one |
 
@@ -71,7 +71,7 @@ winget install --id PostgreSQL.PostgreSQL.17 -e
 
 The installer asks for a password for the `postgres` user. Write it down; it goes into the connection
 string in step 3. Everything else can be left at its default. (If Docker Desktop is already on the
-laptop, `docker run -d --name screentail-db --restart unless-stopped -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail -v screentail-pgdata:/var/lib/postgresql/data postgres:17-alpine`
+laptop, `docker run -d --name screentrail-db --restart unless-stopped -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail -v screentail-pgdata:/var/lib/postgresql/data postgres:17-alpine`
 does the same job and the password is `dev`. This line used to carry `--rm`, which deletes the
 container, and with it the database, the first time it stops; and it published the port on every
 network interface rather than on this machine only.)
@@ -88,7 +88,7 @@ backend fails certificate validation and the outbox reports a send failure rathe
 ## 2. Save the secrets (once)
 
 ```powershell
-cd C:\src\ScreenTail\backend\src\ScreenTail.Api
+cd C:\src\ScreenTrail\backend\src\ScreenTrail.Api
 dotnet user-secrets set "Summarization:Provider" "claude"     # or leave it out to draft with Gemini
 dotnet user-secrets set "Summarization:ApiKey" "<the Claude key, or the Gemini key without the line above>"
 $bytes = New-Object byte[] 48; [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
@@ -108,7 +108,7 @@ somebody forgets.
 ## 3. Open the backend shell (every time)
 
 ```powershell
-cd C:\src\ScreenTail\backend
+cd C:\src\ScreenTrail\backend
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
 $env:ASPNETCORE_URLS = 'https://localhost:5001;http://localhost:5000'
 $env:ConnectionStrings__Postgres = 'Host=localhost;Database=screentail;Username=postgres;Password=<from step 0>'
@@ -131,7 +131,7 @@ Each line matters:
 ```powershell
 dotnet tool install --global dotnet-ef --version 10.0.12
 $env:Path += ";$env:USERPROFILE\.dotnet\tools"
-dotnet ef database update --project src\ScreenTail.Api --startup-project src\ScreenTail.Api
+dotnet ef database update --project src\ScreenTrail.Api --startup-project src\ScreenTrail.Api
 ```
 
 This creates the `screentail` database if it is not there and applies every migration. The first line
@@ -146,13 +146,13 @@ document, and the token it produces renews itself. The quick one, for a first ru
 flag that prints an hour's access token. In the shell from step 3:
 
 ```powershell
-dotnet run --project src\ScreenTail.Api -- --enrol-dev-device
+dotnet run --project src\ScreenTrail.Api -- --enrol-dev-device
 ```
 
 It prints a tenant, a device, an expiry and a line you can paste:
 
 ```
-SCREENTAIL_DEVICE_TOKEN=eyJhbGciOi...
+SCREENTRAIL_DEVICE_TOKEN=eyJhbGciOi...
 ```
 
 **The token lasts an hour.** Run this again when it expires; it re-uses the same device rather than
@@ -164,7 +164,7 @@ is in Development: a control rather than a warning.
 Same shell:
 
 ```powershell
-dotnet run --project src\ScreenTail.Api
+dotnet run --project src\ScreenTrail.Api
 ```
 
 Leave it running. In a second PowerShell window, check it is alive over HTTPS:
@@ -187,9 +187,9 @@ Windows defaults. Neither changes how the certificate is checked.
 In that second window:
 
 ```powershell
-cd C:\src\ScreenTail
-$env:SCREENTAIL_BACKEND = 'https://localhost:5001'
-$env:SCREENTAIL_DEVICE_TOKEN = '<the token from step 5>'
+cd C:\src\ScreenTrail
+$env:SCREENTRAIL_BACKEND = 'https://localhost:5001'
+$env:SCREENTRAIL_DEVICE_TOKEN = '<the token from step 5>'
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-local.ps1
 ```
 
@@ -205,7 +205,7 @@ unexpected, which is the intended behaviour, not a bug to work around.
 **The first start opens the setup wizard** (ST-083). With the token in the environment the device
 counts as enrolled, so on the Activate step press Skip for now; check the Permissions step's three
 marks, leave the tools as detected, skip Connect, and either run the sixty-second test or Finish.
-Finishing is remembered; the tray's "Set up ScreenTail…" runs it again.
+Finishing is remembered; the tray's "Set up ScreenTrail…" runs it again.
 
 ## 8. Record something worth drafting
 
@@ -240,10 +240,10 @@ own timing.
 
 | What you see | What it means |
 |---|---|
-| "http is not encrypted" | `SCREENTAIL_BACKEND` starts with `http://`. It must be `https://` (step 7) |
+| "http is not encrypted" | `SCREENTRAIL_BACKEND` starts with `http://`. It must be `https://` (step 7) |
 | A certificate error in the service window | Step 1 was skipped or declined |
-| "This device is not enrolled yet" | `SCREENTAIL_DEVICE_TOKEN` is unset or expired: step 5 again |
-| "No summarization provider is configured" | `SCREENTAIL_BACKEND` is unset in the shell that started the client |
+| "This device is not enrolled yet" | `SCREENTRAIL_DEVICE_TOKEN` is unset or expired: step 5 again |
+| "No summarization provider is configured" | `SCREENTRAIL_BACKEND` is unset in the shell that started the client |
 | 501 `not_configured` from the backend | The API is running without a drafting key: `Summarization:ApiKey` is not in user secrets (step 2). A key for the other company (a Gemini key with `Summarization:Provider` set to `claude`, or the reverse) is answered the same way once a draft is tried, with a 401 in the backend window. Without `ASPNETCORE_ENVIRONMENT` (step 3) the API does not get this far: it refuses to start for want of the signing key |
 | Connection refused | The backend is not running, or is not on port 5001 (step 6) |
 | A blocked-host message | The address in step 7 does not match what the guard was told to allow |
@@ -280,7 +280,7 @@ Each of those is a ticket rather than an oversight, and this document should shr
 `--enrol-dev-device` still works in Development. The production path is an invite:
 
 ```bash
-dotnet run --project backend/src/ScreenTail.Api -- --invite "new:Acme IT:5" t.ortiz@acme.example "T. Ortiz"
+dotnet run --project backend/src/ScreenTrail.Api -- --invite "new:Acme IT:5" t.ortiz@acme.example "T. Ortiz"
 # prints the tenant id and, once, a code like  KX7PM-4R2WQ-9HTCE-B3NVA  (72 hours, one device)
 curl -X POST "$BACKEND/v1/devices/activate" -H "Content-Type: application/json" \
   -d '{"code":"KX7PM-4R2WQ-9HTCE-B3NVA","deviceName":"TECH-LAPTOP"}'
@@ -289,8 +289,8 @@ curl -X POST "$BACKEND/v1/devices/token" -H "Content-Type: application/json" -d 
 ```
 
 The client does this itself now: the setup wizard's Activate step (ST-083) and Settings both take the
-code, keep the refresh token under DPAPI in `%LOCALAPPDATA%\ScreenTail\device.cred`, and renew the access
-token on their own. Once a device is activated, `SCREENTAIL_DEVICE_TOKEN` is ignored. To go back to the
+code, keep the refresh token under DPAPI in `%LOCALAPPDATA%\ScreenTrail\device.cred`, and renew the access
+token on their own. Once a device is activated, `SCREENTRAIL_DEVICE_TOKEN` is ignored. To go back to the
 environment's token, delete that file while the service is stopped. Both variables are for development
 builds only: an installed build (signed, or running from Program Files) ignores them and reads its backend
 address from the machine-wide setting the installer writes (`docs/dev/installer.md`, `BACKENDURL`). The `curl` lines above are the same

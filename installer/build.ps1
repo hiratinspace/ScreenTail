@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds ScreenTail's Windows installer: ScreenTail.msi and ScreenTail-Setup.exe (ST-112, ADR-0007).
+    Builds ScreenTrail's Windows installer: ScreenTrail.msi and ScreenTrail-Setup.exe (ST-112, ADR-0007).
 
 .DESCRIPTION
     One repeatable build, the same on a developer's Windows machine and on CI's hosted runner:
@@ -10,10 +10,10 @@
          side, no loose managed assembly, both built as Windows programs, nothing but the x64 natives.
       2. Signs every executable and library in it that is not already signed (installer/sign.ps1).
          Without signing configured it signs nothing and says so.
-      3. Builds ScreenTail.msi from that folder with WiX 5, and signs it.
+      3. Builds ScreenTrail.msi from that folder with WiX 5, and signs it.
       4. Downloads the Visual C++ runtime installer pinned in tools.json, checks its SHA-256, version
          and Microsoft signature, and builds
-         ScreenTail-Setup.exe, which installs that runtime and then the package. Signs it.
+         ScreenTrail-Setup.exe, which installs that runtime and then the package. Signs it.
       5. Reports sizes against the ticket's 250 MB limit.
 
     By default it does all of that in one go, signing as it goes when signing is configured. Steps 3
@@ -37,7 +37,7 @@
     All (the default), or Payload for step 1 alone.
 
 .PARAMETER MsiName
-    The package's file name. Default ScreenTail.msi.
+    The package's file name. Default ScreenTrail.msi.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\installer\build.ps1 -Version 0.1.0
@@ -47,7 +47,7 @@ param(
     [string]$Version = '0.1.0',
     [string]$Output,
     [ValidateSet('All', 'Payload')][string]$Stage = 'All',
-    [string]$MsiName = 'ScreenTail.msi'
+    [string]$MsiName = 'ScreenTrail.msi'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -110,9 +110,9 @@ New-Item -ItemType Directory -Force -Path $work, $packages | Out-Null
 $signing = & $sign -Query
 $whole = $Stage -eq 'All'
 if ($whole) {
-    Write-Host "ScreenTail installer $Version. Signing: $signing."
+    Write-Host "ScreenTrail installer $Version. Signing: $signing."
 } else {
-    Write-Host "ScreenTail installer $Version, stage $Stage. This stage signs nothing; sign.ps1 runs as its own step."
+    Write-Host "ScreenTrail installer $Version, stage $Stage. This stage signs nothing; sign.ps1 runs as its own step."
 }
 
 # Signing inside this script happens only for the whole build. A stage leaves it to its own step.
@@ -123,7 +123,7 @@ function Invoke-Sign([string[]]$Files) {
 }
 
 $msi = Join-Path $packages $MsiName
-$bundle = Join-Path $packages 'ScreenTail-Setup.exe'
+$bundle = Join-Path $packages 'ScreenTrail-Setup.exe'
 $engine = Join-Path $work 'engine.exe'
 
 if ($Stage -in 'All', 'Payload') {
@@ -135,11 +135,11 @@ if ($Stage -in 'All', 'Payload') {
         }
     }
 
-    foreach ($project in @('ScreenTail.Service', 'ScreenTail.UI')) {
+    foreach ($project in @('ScreenTrail.Service', 'ScreenTrail.UI')) {
         Write-Host "  $project"
         $csproj = Join-Path $repo "client\$project\$project.csproj"
         Invoke-Checked "Publishing $project" {
-            dotnet publish $csproj -c Release -p:ScreenTailInstaller=true -p:Version=$Version -o (Join-Path $publish $project) --nologo -v quiet
+            dotnet publish $csproj -c Release -p:ScreenTrailInstaller=true -p:Version=$Version -o (Join-Path $publish $project) --nologo -v quiet
         }
     }
 
@@ -148,7 +148,7 @@ if ($Stage -in 'All', 'Payload') {
     # two different files under one name would mean one process runs with the other's copy.
     Write-Step 'Merging both into one payload'
     New-Item -ItemType Directory -Force -Path $payload | Out-Null
-    foreach ($project in @('ScreenTail.Service', 'ScreenTail.UI')) {
+    foreach ($project in @('ScreenTrail.Service', 'ScreenTrail.UI')) {
         $root = Join-Path $publish $project
         foreach ($file in Get-ChildItem $root -Recurse -File) {
             $relative = $file.FullName.Substring($root.Length + 1)
@@ -180,7 +180,7 @@ if ($Stage -in 'All', 'Payload') {
 
     Write-Step 'Checking the payload'
     $problems = New-Object System.Collections.Generic.List[string]
-    foreach ($exe in @('ScreenTail.Service.exe', 'ScreenTail.UI.exe')) {
+    foreach ($exe in @('ScreenTrail.Service.exe', 'ScreenTrail.UI.exe')) {
         $path = Join-Path $payload $exe
         if (-not (Test-Path $path)) {
             $problems.Add("$exe is not at the top of the payload. The installer puts both executables in one folder and the peer checks need them there.")
@@ -234,7 +234,7 @@ if ($Stage -in 'All', 'Payload') {
             }
         }
         if ($vc.Count -gt 0) {
-            Write-Host 'Needs the Visual C++ 2015-2022 x64 runtime (installed by ScreenTail-Setup.exe, required by ScreenTail.msi):'
+            Write-Host 'Needs the Visual C++ 2015-2022 x64 runtime (installed by ScreenTrail-Setup.exe, required by ScreenTrail.msi):'
             $vc | Sort-Object -Unique | ForEach-Object { Write-Host "  $_" }
         }
     } else {

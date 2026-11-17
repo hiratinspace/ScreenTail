@@ -29,7 +29,7 @@ made it.
 request body is read, and every part of a note has a size limit. Provider names, credentials, site
 addresses and request bodies on the integration routes are capped, and so is the company list read from
 Hudu. A note's "Reviewed by" line always names the signed-in technician. The device sign-in routes read
-small bodies only and refuse a token that is not in the shape ScreenTail issues.
+small bodies only and refuse a token that is not in the shape ScreenTrail issues.
 
 **A locked local-only policy holds without trusting the device.** When an admin locks local-only, the
 backend itself refuses to draft for that tenant, and the client drafts the session on the device
@@ -38,7 +38,7 @@ administrator can write (`BACKENDURL` at install), not from the technician's own
 local-only the device's background sign-in renewal sends nothing.
 
 **The pipe between the UI and the capture service is stricter.** In a signed build each side accepts the
-other only when it is signed by ScreenTail's publisher and runs from the same install folder. The
+other only when it is signed by ScreenTrail's publisher and runs from the same install folder. The
 service claims its pipe name with the first instance it creates, so it never shares the name with a
 pipe it did not make. If the name is taken, the UI says the capture service is not running and capture
 stays suppressed until a verified UI is connected.
@@ -53,7 +53,7 @@ before the next frame, and a title not yet confirmed can only make the decision 
 **Each update channel has its own signing key.** A key is trusted for pilot or for stable, never both,
 and the client refuses a manifest signed with the other channel's key. A build signed without Artifact
 Signing's identity check accepts an update only from the same signing key. Uninstall and repair refuse
-any install folder other than ScreenTail's own under Program Files. Updates themselves stay switched
+any install folder other than ScreenTrail's own under Program Files. Updates themselves stay switched
 off until the owner sets them up (ST-113).
 
 **CI and the self-hosted runner are hardened.** The laptop jobs start PowerShell without user profiles
