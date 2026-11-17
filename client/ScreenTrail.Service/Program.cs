@@ -12,6 +12,7 @@ using ScreenTrail.Service.Host;
 using ScreenTrail.Service.Install;
 using ScreenTrail.Service.Speech;
 using ScreenTrail.Shared.Logging;
+using ScreenTrail.Shared.Settings;
 
 // Before anything else, because everything after it would already be running alongside whatever was
 // loaded. The peer check verifies the file a process started from, and .NET will happily load somebody
@@ -124,6 +125,14 @@ if (args.Contains("--capabilities", StringComparer.Ordinal) || Array.IndexOf(arg
 if (OperatingSystem.IsWindows() && ServiceStart.RefuseIfUnfit(ServiceStart.Read(), Console.Error) is { } refused)
 {
     return refused;
+}
+
+// The product was ScreenTail until 2026-11-17: bring %LOCALAPPDATA%\ScreenTail across before anything
+// opens the store, the key, the credential or the pipe token. The window does the same at its start;
+// whichever runs first moves it. Content-free and never fatal: anything left stays under the old name.
+if (OperatingSystem.IsWindows())
+{
+    _ = LegacyDataFolder.Migrate();
 }
 
 // One capture service per user (ADR-0003). A second copy exits quietly instead of fighting over the pipe.

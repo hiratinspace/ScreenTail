@@ -385,7 +385,7 @@ jobs:
         run: ./installer/manifest.ps1 -Write -Folder artifacts/installer/payload
       - name: Hand the payload to the signing job
         id: payload
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTRAIL_SIGNING == 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (vars.SCREENTRAIL_SIGNING || vars.SCREENTAIL_SIGNING) == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: screentrail-installer-payload
@@ -456,7 +456,7 @@ jobs:
   installer-sign:
     name: Installer (Windows, signing)
     needs: installer
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTRAIL_SIGNING == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (vars.SCREENTRAIL_SIGNING || vars.SCREENTAIL_SIGNING) == 'true'
     runs-on: windows-latest
     environment: signing
     # actions: read is for one thing: reading the payload artifact's digest back from GitHub's API.
@@ -491,9 +491,9 @@ jobs:
       - name: Sign the payload
         env:
           SCREENTRAIL_REQUIRE_SIGNING: '1'
-          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
-          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
-          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT || vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT || vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE || vars.SCREENTAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Folder artifacts/installer/payload
@@ -502,9 +502,9 @@ jobs:
       - name: Sign the package
         env:
           SCREENTRAIL_REQUIRE_SIGNING: '1'
-          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
-          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
-          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT || vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT || vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE || vars.SCREENTAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTrail.msi
@@ -515,9 +515,9 @@ jobs:
       - name: Sign the setup engine
         env:
           SCREENTRAIL_REQUIRE_SIGNING: '1'
-          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
-          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
-          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT || vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT || vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE || vars.SCREENTAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/work/engine.exe
@@ -526,9 +526,9 @@ jobs:
       - name: Sign the setup program
         env:
           SCREENTRAIL_REQUIRE_SIGNING: '1'
-          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
-          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
-          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT || vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT || vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE || vars.SCREENTAIL_SIGNING_PROFILE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
         run: ./installer/sign.ps1 -Path artifacts/installer/packages/ScreenTrail-Setup.exe
@@ -537,9 +537,9 @@ jobs:
       - name: Check every signature (timestamped, one publisher)
         env:
           SCREENTRAIL_REQUIRE_SIGNING: '1'
-          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT }}
-          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT }}
-          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE }}
+          SCREENTRAIL_SIGNING_ENDPOINT: ${{ vars.SCREENTRAIL_SIGNING_ENDPOINT || vars.SCREENTAIL_SIGNING_ENDPOINT }}
+          SCREENTRAIL_SIGNING_ACCOUNT: ${{ vars.SCREENTRAIL_SIGNING_ACCOUNT || vars.SCREENTAIL_SIGNING_ACCOUNT }}
+          SCREENTRAIL_SIGNING_PROFILE: ${{ vars.SCREENTRAIL_SIGNING_PROFILE || vars.SCREENTAIL_SIGNING_PROFILE }}
         run: ./installer/sign.ps1 -Verify -Folder artifacts/installer/payload -Path artifacts/installer/packages/ScreenTrail.msi,artifacts/installer/work/engine.exe,artifacts/installer/packages/ScreenTrail-Setup.exe
       # ST-113: the pilot manifest for the signed MSI, signed by the pilot Key Vault key through this
       # job's OIDC token, as the pilot identity, and checked against the keys the client trusts for
@@ -549,9 +549,9 @@ jobs:
       # environment. Setting them up is the owner's step (docs/dev/installer.md, "Updates").
       - name: Write and sign the pilot update manifest (stable is signed only by promote-stable.yml)
         env:
-          SCREENTRAIL_UPDATE_PILOT_KEY: ${{ vars.SCREENTRAIL_UPDATE_PILOT_KEY }}
-          SCREENTRAIL_UPDATE_PILOT_CLIENT_ID: ${{ vars.SCREENTRAIL_UPDATE_PILOT_CLIENT_ID }}
-          SCREENTRAIL_UPDATE_BASE: ${{ vars.SCREENTRAIL_UPDATE_BASE }}
+          SCREENTRAIL_UPDATE_PILOT_KEY: ${{ vars.SCREENTRAIL_UPDATE_PILOT_KEY || vars.SCREENTAIL_UPDATE_PILOT_KEY }}
+          SCREENTRAIL_UPDATE_PILOT_CLIENT_ID: ${{ vars.SCREENTRAIL_UPDATE_PILOT_CLIENT_ID || vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID }}
+          SCREENTRAIL_UPDATE_BASE: ${{ vars.SCREENTRAIL_UPDATE_BASE || vars.SCREENTAIL_UPDATE_BASE }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
         run: ./installer/update-manifest.ps1 -Channel pilot -Msi artifacts/installer/packages/ScreenTrail.msi -Version "0.1.${{ github.run_number }}" -Out artifacts/installer/manifests
       - name: Upload the signed installer

@@ -50,11 +50,28 @@ public static class InstalledFootprint
     private const string DataUnderProfile = @"AppData\Local\ScreenTrail";
 
     /// <summary>
+    /// The data folder's names under local app data: today's first, then the name before the product was
+    /// renamed (ScreenTail, until 2026-11-17). The service and the window move the old folder across at
+    /// their first start (LegacyDataFolder), so the old one is normally gone; one is still there for a user
+    /// who never signed in after the upgrade, and an uninstall removes it as it removes today's.
+    /// </summary>
+    public static IReadOnlyList<string> DataFolderNames { get; } = ["ScreenTrail", "ScreenTail"];
+
+    /// <summary>
     /// The data folder below a profile, one folder at a time, for a removal that opens each relative to
     /// the one before. Windows' default local app data: a technician whose Local AppData is redirected
     /// somewhere else by policy (Windows does not support that, but it happens) is not found here.
     /// </summary>
     public static IReadOnlyList<string> DataSegments { get; } = DataUnderProfile.Split('\\');
+
+    /// <summary><see cref="DataSegments"/> for one of <see cref="DataFolderNames"/>.</summary>
+    public static IReadOnlyList<string> DataSegmentsFor(string? folderName) =>
+        folderName is null ? DataSegments : [.. DataSegments.SkipLast(1), RequireKnown(folderName)];
+
+    private static string RequireKnown(string folderName) =>
+        DataFolderNames.Contains(folderName, StringComparer.Ordinal)
+            ? folderName
+            : throw new ArgumentException("Not one of the data folder's names.", nameof(folderName));
 
     /// <summary>
     /// What is removed from a data folder whose owner is not signed in: Delete everything's own secrets
@@ -76,10 +93,12 @@ public static class InstalledFootprint
     /// <param name="profiles">Each profile's owner (a security identifier) and folder, as Windows lists them.</param>
     /// <param name="signedIn">The owners who have a session on the machine now, whose tokens the uninstall holds.</param>
     /// <param name="probe">What a folder is, asked without following it.</param>
+    /// <param name="folderName">Which of <see cref="DataFolderNames"/>; today's when null.</param>
     public static IReadOnlyList<DataFolderDecision> PlanDataRemoval(
         IEnumerable<KeyValuePair<string, string?>> profiles,
         IReadOnlySet<string> signedIn,
-        Func<string, PathState> probe)
+        Func<string, PathState> probe,
+        string? folderName = null)
     {
         ArgumentNullException.ThrowIfNull(profiles);
         ArgumentNullException.ThrowIfNull(signedIn);
@@ -94,7 +113,7 @@ public static class InstalledFootprint
                 continue;
             }
 
-            var below = BelowProfile(profile);
+            var below = BelowProfile(profile, folderName);
             var folder = below[^1];
             var states = below.Select(probe).ToList();
             var action = states.Contains(PathState.Link) ? DataFolderAction.LeaveLinked
@@ -111,12 +130,12 @@ public static class InstalledFootprint
     /// The folders from just below the profile down to the data folder: the ones a user could replace
     /// with a link. The profile folder itself is Windows' own, in a folder only administrators change.
     /// </summary>
-    public static IReadOnlyList<string> BelowProfile(string profile)
+    public static IReadOnlyList<string> BelowProfile(string profile, string? folderName = null)
     {
         var root = Normalise(profile) ?? throw new ArgumentException("Not a plain local folder.", nameof(profile));
         var folders = new List<string>();
         var current = root;
-        foreach (var segment in DataUnderProfile.Split('\\'))
+        foreach (var segment in DataSegmentsFor(folderName))
         {
             current += @"\" + segment;
             folders.Add(current);

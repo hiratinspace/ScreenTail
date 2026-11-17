@@ -17,7 +17,7 @@ It needs a Postgres and a signing key, and refuses to start without either. Both
 startup rather than confusing at the first request.
 
 ```bash
-docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentrail-db postgres:17-alpine
+docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentail-db postgres:17-alpine
 
 export ConnectionStrings__Postgres='Host=localhost;Database=screentail;Username=postgres;Password=dev'
 export Jwt__SigningKey="$(openssl rand -base64 48)"

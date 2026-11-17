@@ -15,6 +15,33 @@ internal static class StartAtLogin
 
     private const string ValueName = "ScreenTrail";
 
+    /// <summary>The value's name before the product was renamed (ScreenTail, until 2026-11-17).</summary>
+    private const string LegacyValueName = "ScreenTail";
+
+    /// <summary>
+    /// A technician who had "Start UI at login" on before the rename has a value under the old name that
+    /// starts a program the upgrade removed. It is replaced by today's value pointing at this program, so
+    /// the setting stays on; with no old value there is nothing to do. Called once at the window's start.
+    /// </summary>
+    public static void MigrateLegacyValue()
+    {
+        try
+        {
+            using var run = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
+            if (run?.GetValue(LegacyValueName) is not string)
+            {
+                return;
+            }
+
+            run.SetValue(ValueName, $"\"{Environment.ProcessPath}\"");
+            run.DeleteValue(LegacyValueName, throwOnMissingValue: false);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Security.SecurityException or IOException)
+        {
+            // Left as it was: the setting can still be turned on again in Settings.
+        }
+    }
+
     public static bool Apply(bool enabled)
     {
         try

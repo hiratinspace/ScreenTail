@@ -71,7 +71,7 @@ winget install --id PostgreSQL.PostgreSQL.17 -e
 
 The installer asks for a password for the `postgres` user. Write it down; it goes into the connection
 string in step 3. Everything else can be left at its default. (If Docker Desktop is already on the
-laptop, `docker run -d --name screentrail-db --restart unless-stopped -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail -v screentail-pgdata:/var/lib/postgresql/data postgres:17-alpine`
+laptop, `docker run -d --name screentail-db --restart unless-stopped -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail -v screentail-pgdata:/var/lib/postgresql/data postgres:17-alpine`
 does the same job and the password is `dev`. This line used to carry `--rm`, which deletes the
 container, and with it the database, the first time it stops; and it published the port on every
 network interface rather than on this machine only.)

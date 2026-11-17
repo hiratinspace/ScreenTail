@@ -241,15 +241,20 @@ public sealed partial class UpdateService : IDisposable
             // Prepared first, as every other use of the folder is: a folder that is a link is refused
             // (Prepare throws, and nothing is deleted), so a planted link cannot aim this elsewhere.
             Folder.Prepare();
-            foreach (var file in Directory.EnumerateFiles(Folder.Path, "ScreenTrail-*.msi*"))
+            // ScreenTail- is the name a download had before the product was renamed (2026-11-17), still in
+            // the data folder the rename moved across.
+            foreach (var prefix in (string[])["ScreenTrail-", "ScreenTail-"])
             {
-                var name = System.IO.Path.GetFileName(file);
-                var bare = name.EndsWith(".msi.partial", StringComparison.Ordinal) ? name[..^".msi.partial".Length]
-                    : name.EndsWith(".msi", StringComparison.Ordinal) ? name[..^".msi".Length]
-                    : null;
-                if (bare is not null && ReleaseVersion.TryParse(bare["ScreenTrail-".Length..], out var version) && version <= Installed)
+                foreach (var file in Directory.EnumerateFiles(Folder.Path, prefix + "*.msi*"))
                 {
-                    TryDelete(file);
+                    var name = System.IO.Path.GetFileName(file);
+                    var bare = name.EndsWith(".msi.partial", StringComparison.Ordinal) ? name[..^".msi.partial".Length]
+                        : name.EndsWith(".msi", StringComparison.Ordinal) ? name[..^".msi".Length]
+                        : null;
+                    if (bare is not null && ReleaseVersion.TryParse(bare[prefix.Length..], out var version) && version <= Installed)
+                    {
+                        TryDelete(file);
+                    }
                 }
             }
         }

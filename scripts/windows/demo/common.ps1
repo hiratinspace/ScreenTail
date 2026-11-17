@@ -37,6 +37,28 @@ $script:DemoRunLocal = Join-Path $script:DemoRepo 'scripts\windows\run-local.ps1
 $script:DemoBackendPort = 5001
 $script:DemoBackendUrl = 'https://localhost:5001'
 
+# The product was ScreenTail until 2026-11-17. A laptop set up before then has its demo state (the device
+# token, the drafting choice, state.json) under %LOCALAPPDATA%\ScreenTail.Dev and the product's data under
+# %LOCALAPPDATA%\ScreenTail. Each comes across in one rename, before anything below reads it, when only the
+# old one exists. The product does the same for its own folder at its first start; doing it here too means
+# a script that reads the device credential before the service starts finds it. Nothing is ever deleted:
+# with both present, or with a rename refused (a running old copy holding a file), the old one stays.
+foreach ($pair in @(@('ScreenTail.Dev', 'ScreenTrail.Dev'), @('ScreenTail', 'ScreenTrail'))) {
+    $legacyDir = Join-Path $env:LOCALAPPDATA $pair[0]
+    $currentDir = Join-Path $env:LOCALAPPDATA $pair[1]
+    if ((Test-Path -LiteralPath $legacyDir -PathType Container) -and -not (Test-Path -LiteralPath $currentDir)) {
+        $legacyItem = Get-Item -LiteralPath $legacyDir -Force
+        if (-not ($legacyItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            try {
+                Rename-Item -LiteralPath $legacyDir -NewName $pair[1] -ErrorAction Stop
+            }
+            catch {
+                Write-Warning "Could not move $legacyDir to $currentDir; it is left where it is."
+            }
+        }
+    }
+}
+
 # The demo's own working files. Not inside %LOCALAPPDATA%\ScreenTrail, which is the product's data
 # directory and is emptied by "Delete everything".
 $script:DemoStateDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail.Dev\demo'
@@ -88,7 +110,10 @@ $script:DemoReportDir = Join-Path $script:DemoStateDir 'reports'
 $script:DemoDeviceCredential = Join-Path $env:LOCALAPPDATA 'ScreenTrail\device.cred'
 
 # The Docker container setup.ps1 creates when Docker is the database.
-$script:DemoDbContainer = 'screentrail-db'
+# The container and its volume keep the names they had before the product was renamed (ScreenTail, until
+# 2026-11-17): a laptop set up before the rename keeps its database and reuses its container, instead of
+# a second container starting on the same data while the first still holds the port.
+$script:DemoDbContainer = 'screentail-db'
 $script:DemoDbVolume = 'screentail-pgdata'
 
 # The settings the backend needs, by their configuration names. Summarization:ApiKey holds the key of

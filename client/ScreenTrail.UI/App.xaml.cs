@@ -21,6 +21,11 @@ public partial class App : Application, IDisposable
     {
         base.OnStartup(e);
 
+        // The product was ScreenTail until 2026-11-17: %LOCALAPPDATA%\ScreenTail comes across before
+        // anything here reads shell.json or the pipe token. The service does the same at its start.
+        _ = ScreenTrail.Shared.Settings.LegacyDataFolder.Migrate();
+        Shell.StartAtLogin.MigrateLegacyValue();
+
         // ST-011: a crash leaves a stack-only report in the local queue when the technician opted in,
         // and otherwise nothing. Neither handler marks the exception handled: the process still dies,
         // as it should, but it says where.

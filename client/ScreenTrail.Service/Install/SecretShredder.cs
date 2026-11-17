@@ -34,7 +34,8 @@ internal static class SecretShredder
     internal readonly record struct Result(Outcome Outcome, string? Reason);
 
     /// <summary>One result per name in <see cref="InstalledFootprint.Secrets"/>, in its order.</summary>
-    public static IReadOnlyList<Result> Shred(string profile)
+    /// <param name="folderName">Which of <see cref="InstalledFootprint.DataFolderNames"/>; today's when null.</param>
+    public static IReadOnlyList<Result> Shred(string profile, string? folderName = null)
     {
         var all = InstalledFootprint.Secrets.Count;
         using var root = OpenRoot(profile, out var rootError);
@@ -57,7 +58,7 @@ internal static class SecretShredder
         try
         {
             var parent = root;
-            foreach (var segment in InstalledFootprint.DataSegments)
+            foreach (var segment in InstalledFootprint.DataSegmentsFor(folderName))
             {
                 var status = OpenRelative(parent, segment, directory: true, out var child);
                 if (status is StatusObjectNameNotFound or StatusObjectPathNotFound)

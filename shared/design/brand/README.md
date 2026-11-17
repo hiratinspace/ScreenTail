@@ -41,12 +41,12 @@ and 256.
 ## Lockups
 
 The wordmark is Exo 2 ExtraBold (Natanael Gama, SIL Open Font License 1.1) converted to outlines, tracking
--20/1000, so no font needs installing. On the frame the whole word is white; on white, "Tail" is Iris.
+-20/1000, so no font needs installing. On the frame the whole word is white; on white, "Trail" is Iris. Redrawn on 2026-11-17 when the product was renamed from ScreenTail: "Screen" is unchanged, "Trail" set from the same font (Exo 2 wght 800) and tracking, and each lockup widened by the extra advance (the stacked mark re-centred).
 
 | File | Use |
 |---|---|
 | `lockup-horizontal-on-navy.svg` | Horizontal lockup on the frame; mark at least 24 px tall (about 120 px wide) |
-| `lockup-horizontal-on-white.svg` | Horizontal lockup on white, "Tail" in Iris |
+| `lockup-horizontal-on-white.svg` | Horizontal lockup on white, "Trail" in Iris |
 | `lockup-horizontal-mono-black.svg` | Horizontal lockup, one colour, for print |
 | `lockup-stacked-on-navy.svg` | Stacked lockup on the frame; mark at least 64 px |
 | `lockup-stacked-on-white.svg` | Stacked lockup on white |

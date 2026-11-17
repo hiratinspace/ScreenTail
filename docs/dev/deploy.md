@@ -119,7 +119,7 @@ docker compose run --rm api --offboard-tenant <tenant-id>
 
 ```bash
 (umask 077 && mkdir -p ~/screentrail-backups && docker compose exec -T postgres \
-    pg_dump -U screentail -Fc screentrail > ~/screentrail-backups/backup-$(date +%F).dump)
+    pg_dump -U screentail -Fc screentail > ~/screentrail-backups/backup-$(date +%F).dump)
 git pull
 docker compose build
 docker compose run --rm migrate

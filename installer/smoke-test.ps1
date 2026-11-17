@@ -699,7 +699,7 @@ New-Item -ItemType SymbolicLink -Path (Join-Path $otherData 'device.cred.tmp') -
 Write-Step 'Silent uninstall while the service is running'
 $runningBefore = @(Get-InstalledProcesses | Where-Object { $_.Name -eq 'ScreenTrail.Service' }).Count
 # ScreenTrail's own processes, so the check below can tell another program's hold from theirs.
-$screenTailIds = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
+$screenTrailIds = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI' -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
 Check 'the installed service is running before the uninstall' ($runningBefore -ge 1) "running $runningBefore"
 $since = Get-Date
 $code = Invoke-Msi '/x' $Msi 'uninstall.log'
@@ -720,7 +720,7 @@ $stopped = if ("$stoppedLine" -match 'uninstall: (\d+) running copies stopped') 
 $detected = @(Get-Content (Join-Path $Logs 'uninstall.log') -ErrorAction SilentlyContinue |
     Where-Object { $_ -match 'RESTART MANAGER: Detected that application with id (\d+)' } |
     ForEach-Object { [int]([regex]::Match($_, 'with id (\d+)').Groups[1].Value) })
-$otherHolders = @($detected | Where-Object { $screenTailIds -notcontains $_ } | Select-Object -Unique).Count
+$otherHolders = @($detected | Where-Object { $screenTrailIds -notcontains $_ } | Select-Object -Unique).Count
 Check 'Restart Manager closed the running service before the uninstall step, or another program held a file so nobody was asked' ($stopped -eq 0 -or ($stopped -eq 1 -and $otherHolders -ge 1)) "stopped $stopped, other holders $otherHolders"
 Check "the UI's own Run value is gone" ($null -eq (Get-RunValue $userRun 'ScreenTrail'))
 Check "another program's Run value is untouched" ((Get-RunValue $userRun $decoyName) -eq $decoyCommand)

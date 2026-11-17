@@ -50,6 +50,13 @@ public static class DeploymentAddresses
     /// <summary>The machine-wide key the installer writes, under HKEY_LOCAL_MACHINE (64-bit view).</summary>
     public const string MachineKey = @"SOFTWARE\ScreenTrail";
 
+    /// <summary>
+    /// The key before the product was renamed (ScreenTail, until 2026-11-17). Read only when
+    /// <see cref="MachineKey"/> has no address, for a machine whose MSP tooling wrote the old key itself:
+    /// the installer carries an address from the old key to the new one on upgrade.
+    /// </summary>
+    public const string LegacyMachineKey = @"SOFTWARE\ScreenTail";
+
     /// <summary>The value under <see cref="MachineKey"/> holding the backend address.</summary>
     public const string MachineValue = "BackendUrl";
 

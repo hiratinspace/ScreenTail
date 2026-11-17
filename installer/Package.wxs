@@ -124,7 +124,15 @@
     <Property Id="BACKENDURLKEPT" Secure="yes" Hidden="yes">
       <RegistrySearch Id="BackendUrlKept" Root="HKLM" Key="Software\ScreenTrail" Name="BackendUrl" Type="raw" Bitness="always64" />
     </Property>
+    <!-- Before 2026-11-17 the product was ScreenTail and wrote HKLM\Software\ScreenTail\BackendUrl. AppSearch
+         reads it before the upgrade removes the older version (and its key with it), so an upgrade from a
+         ScreenTail build keeps the address under the new key. Used only when neither the command line nor
+         the new key gives one. -->
+    <Property Id="BACKENDURLLEGACY" Secure="yes" Hidden="yes">
+      <RegistrySearch Id="BackendUrlLegacy" Root="HKLM" Key="Software\ScreenTail" Name="BackendUrl" Type="raw" Bitness="always64" />
+    </Property>
     <SetProperty Id="BACKENDURL" Value="[BACKENDURLKEPT]" After="AppSearch" Sequence="both" Condition="NOT BACKENDURL AND BACKENDURLKEPT" />
+    <SetProperty Id="BACKENDURL" Action="SetBACKENDURLFromLegacy" Value="[BACKENDURLLEGACY]" After="SetBACKENDURL" Sequence="both" Condition="NOT BACKENDURL AND BACKENDURLLEGACY" />
     <Component Id="BackendAddress" Directory="INSTALLFOLDER" Condition="BACKENDURL" Guid="{5B0E3C21-7F44-4C8B-9E2D-3A61C9D47B18}">
       <RegistryValue Root="HKLM" Key="Software\ScreenTrail" Name="BackendUrl" Type="string" Value="[BACKENDURL]" KeyPath="yes" />
     </Component>

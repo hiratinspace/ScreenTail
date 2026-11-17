@@ -263,51 +263,10 @@ internal static class UninstallCleanup
         var owners = SignedInUsers();
         try
         {
-            var plan = InstalledFootprint.PlanDataRemoval(Profiles(), owners.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), Probe);
-            foreach (var decision in plan)
+            // Today's folder and the one from before the rename (ScreenTail), each with the same checks.
+            foreach (var name in InstalledFootprint.DataFolderNames)
             {
-                switch (decision.Action)
-                {
-                    case DataFolderAction.DeleteAsOwner:
-                        var owned = OwnerDelete.Failed;
-                        try
-                        {
-                            owned = WindowsIdentity.RunImpersonated(owners[decision.Sid].AccessToken, () => DeleteAsOwner(decision.Profile!, decision.Folder!));
-                        }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or Win32Exception or InvalidOperationException)
-                        {
-                            owned = OwnerDelete.Failed;
-                        }
-
-                        if (owned == OwnerDelete.Deleted)
-                        {
-                            tally.Deleted++;
-                        }
-                        else if (owned == OwnerDelete.SecretsOnly)
-                        {
-                            tally.PartlyDeleted++;
-                        }
-                        else
-                        {
-                            // The owner's own rights were not enough, or something failed under them: the
-                            // system-side removal of the key and credentials is the fallback.
-                            Shred(decision.Profile!, tally, SecretShredder.Shred);
-                        }
-
-                        break;
-                    case DataFolderAction.ShredSecrets:
-                        Shred(decision.Profile!, tally, SecretShredder.Shred);
-                        break;
-                    case DataFolderAction.LeaveLinked:
-                        tally.Linked++;
-                        break;
-                    case DataFolderAction.LeaveUnreadablePath:
-                        tally.Unreadable++;
-                        break;
-                    case DataFolderAction.Absent:
-                    default:
-                        break;
-                }
+                RemoveData(tally, owners, name, countUnreadable: name == InstalledFootprint.DataFolderNames[0]);
             }
         }
         finally
@@ -315,6 +274,57 @@ internal static class UninstallCleanup
             foreach (var owner in owners.Values)
             {
                 owner.Dispose();
+            }
+        }
+    }
+
+    /// <param name="countUnreadable">An unreadable profile path is the same for both names: counted once.</param>
+    private static void RemoveData(Tally tally, Dictionary<string, WindowsIdentity> owners, string folderName, bool countUnreadable)
+    {
+        var plan = InstalledFootprint.PlanDataRemoval(Profiles(), owners.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase), Probe, folderName);
+        foreach (var decision in plan)
+        {
+            switch (decision.Action)
+            {
+                case DataFolderAction.DeleteAsOwner:
+                    var owned = OwnerDelete.Failed;
+                    try
+                    {
+                        owned = WindowsIdentity.RunImpersonated(owners[decision.Sid].AccessToken, () => DeleteAsOwner(decision.Profile!, decision.Folder!, folderName));
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or Win32Exception or InvalidOperationException)
+                    {
+                        owned = OwnerDelete.Failed;
+                    }
+
+                    if (owned == OwnerDelete.Deleted)
+                    {
+                        tally.Deleted++;
+                    }
+                    else if (owned == OwnerDelete.SecretsOnly)
+                    {
+                        tally.PartlyDeleted++;
+                    }
+                    else
+                    {
+                        // The owner's own rights were not enough, or something failed under them: the
+                        // system-side removal of the key and credentials is the fallback.
+                        Shred(decision.Profile!, tally, profile => SecretShredder.Shred(profile, folderName));
+                    }
+
+                    break;
+                case DataFolderAction.ShredSecrets:
+                    Shred(decision.Profile!, tally, profile => SecretShredder.Shred(profile, folderName));
+                    break;
+                case DataFolderAction.LeaveLinked:
+                    tally.Linked++;
+                    break;
+                case DataFolderAction.LeaveUnreadablePath:
+                    tally.Unreadable += countUnreadable ? 1 : 0;
+                    break;
+                case DataFolderAction.Absent:
+                default:
+                    break;
             }
         }
     }
@@ -394,9 +404,9 @@ internal static class UninstallCleanup
     /// so a folder that cannot be removed in full is at least unreadable; then the folder, with .NET's
     /// recursive delete, which removes a link it meets inside rather than descending into it.
     /// </summary>
-    private static OwnerDelete DeleteAsOwner(string profile, string folder)
+    private static OwnerDelete DeleteAsOwner(string profile, string folder, string folderName)
     {
-        if (InstalledFootprint.BelowProfile(profile).Select(Probe).Contains(PathState.Link))
+        if (InstalledFootprint.BelowProfile(profile, folderName).Select(Probe).Contains(PathState.Link))
         {
             return OwnerDelete.Failed;
         }

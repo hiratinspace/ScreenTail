@@ -59,7 +59,7 @@ Web build (Vite reads `VITE_*` from the environment or from `web/.env.local`, wh
 
 ```bash
 # The backend, as backend/README.md says, plus the admin settings:
-docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentrail-db postgres:17-alpine
+docker run --rm -d -p 5432:5432 -e POSTGRES_PASSWORD=dev -e POSTGRES_DB=screentail --name screentail-db postgres:17-alpine
 cd backend
 export ConnectionStrings__Postgres='Host=localhost;Database=screentail;Username=postgres;Password=dev'
 export Jwt__SigningKey="$(openssl rand -base64 48)"

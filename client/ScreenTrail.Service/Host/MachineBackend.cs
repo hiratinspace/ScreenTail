@@ -22,7 +22,13 @@ internal static class MachineBackend
         {
             using var machine = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
             using var key = machine.OpenSubKey(DeploymentAddresses.MachineKey);
-            return key?.GetValue(DeploymentAddresses.MachineValue) as string;
+            if (key?.GetValue(DeploymentAddresses.MachineValue) is string current)
+            {
+                return current;
+            }
+
+            using var legacy = machine.OpenSubKey(DeploymentAddresses.LegacyMachineKey);
+            return legacy?.GetValue(DeploymentAddresses.MachineValue) as string;
         }
         catch (Exception ex) when (ex is SecurityException or UnauthorizedAccessException or IOException)
         {

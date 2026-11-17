@@ -197,17 +197,31 @@ public sealed class InstallerAuthoringTests
             package.Descendants(Wix + "ComponentRef"),
             r => (string?)r.Attribute("Id") == (string?)value.Parent!.Attribute("Id"));
 
-        var kept = Assert.Single(package.Descendants(Wix + "RegistrySearch"), s => (string?)s.Attribute("Name") == Core.Net.DeploymentAddresses.MachineValue);
+        var kept = Assert.Single(package.Descendants(Wix + "RegistrySearch"), s => (string?)s.Attribute("Name") == Core.Net.DeploymentAddresses.MachineValue && (string?)s.Attribute("Id") == "BackendUrlKept");
         Assert.Equal("BACKENDURLKEPT", (string?)kept.Parent!.Attribute("Id"));
         Assert.Equal(Core.Net.DeploymentAddresses.MachineKey, (string?)kept.Attribute("Key"), ignoreCase: true);
         Assert.Equal("always64", (string?)kept.Attribute("Bitness"));
 
-        var restore = Assert.Single(package.Descendants(Wix + "SetProperty"), p => (string?)p.Attribute("Id") == "BACKENDURL");
+        var restore = Assert.Single(package.Descendants(Wix + "SetProperty"), p => (string?)p.Attribute("Id") == "BACKENDURL" && p.Attribute("Action") is null);
         Assert.Equal("[BACKENDURLKEPT]", (string?)restore.Attribute("Value"));
         Assert.Equal("NOT BACKENDURL AND BACKENDURLKEPT", (string?)restore.Attribute("Condition"));
         Assert.Equal("both", (string?)restore.Attribute("Sequence"));
 
-        foreach (var id in new[] { "BACKENDURL", "BACKENDURLKEPT" })
+        // Renamed 2026-11-17: an upgrade from a ScreenTail build reads the address from the old key before
+        // that version's removal takes the key away, and only when nothing newer gives one.
+        var legacy = Assert.Single(package.Descendants(Wix + "RegistrySearch"), s => (string?)s.Attribute("Id") == "BackendUrlLegacy");
+        Assert.Equal("BACKENDURLLEGACY", (string?)legacy.Parent!.Attribute("Id"));
+        Assert.Equal(Core.Net.DeploymentAddresses.LegacyMachineKey, (string?)legacy.Attribute("Key"), ignoreCase: true);
+        Assert.Equal(Core.Net.DeploymentAddresses.MachineValue, (string?)legacy.Attribute("Name"));
+        Assert.Equal("always64", (string?)legacy.Attribute("Bitness"));
+        var fromLegacy = Assert.Single(package.Descendants(Wix + "SetProperty"), p => (string?)p.Attribute("Action") == "SetBACKENDURLFromLegacy");
+        Assert.Equal("BACKENDURL", (string?)fromLegacy.Attribute("Id"));
+        Assert.Equal("[BACKENDURLLEGACY]", (string?)fromLegacy.Attribute("Value"));
+        Assert.Equal("NOT BACKENDURL AND BACKENDURLLEGACY", (string?)fromLegacy.Attribute("Condition"));
+        Assert.Equal("SetBACKENDURL", (string?)fromLegacy.Attribute("After"));
+        Assert.Equal("both", (string?)fromLegacy.Attribute("Sequence"));
+
+        foreach (var id in new[] { "BACKENDURL", "BACKENDURLKEPT", "BACKENDURLLEGACY" })
         {
             var property = package.Descendants(Wix + "Property").Single(p => (string?)p.Attribute("Id") == id);
             Assert.Equal("yes", (string?)property.Attribute("Secure"));
