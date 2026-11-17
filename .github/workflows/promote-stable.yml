@@ -69,9 +69,9 @@ jobs:
           path: artifacts/installer/pilot
       - name: Sign the same release for stable
         env:
-          SCREENTRAIL_STABLE_RELEASE: ${{ vars.SCREENTRAIL_STABLE_RELEASE || vars.SCREENTAIL_STABLE_RELEASE }}
-          SCREENTRAIL_UPDATE_STABLE_KEY: ${{ vars.SCREENTRAIL_UPDATE_STABLE_KEY || vars.SCREENTAIL_UPDATE_STABLE_KEY }}
-          SCREENTRAIL_UPDATE_STABLE_CLIENT_ID: ${{ vars.SCREENTRAIL_UPDATE_STABLE_CLIENT_ID || vars.SCREENTAIL_UPDATE_STABLE_CLIENT_ID }}
+          SCREENTRAIL_STABLE_RELEASE: ${{ vars.SCREENTRAIL_STABLE_RELEASE }}
+          SCREENTRAIL_UPDATE_STABLE_KEY: ${{ vars.SCREENTRAIL_UPDATE_STABLE_KEY }}
+          SCREENTRAIL_UPDATE_STABLE_CLIENT_ID: ${{ vars.SCREENTRAIL_UPDATE_STABLE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           PROMOTE_VERSION: ${{ inputs.version }}
         run: ./installer/update-manifest.ps1 -Channel stable -Promote artifacts/installer/pilot/pilot/win-x64.json -Out artifacts/installer/stable
