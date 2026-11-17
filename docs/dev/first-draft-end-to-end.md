@@ -266,8 +266,9 @@ If it does, that is M1, and the next thing is the eval corpus rather than more p
   above goes away with a real hostname.
 - **Sign-up and mail** (ST-010's owner half). Invites are issued by the operator with `--invite` and
   handed on; there is no web admin and no mail provider yet.
-- **A real PSA** (ST-091–097 are built against recorded shapes). Publishing goes through Settings →
-  Integrations once a ConnectWise sandbox or a Hudu key is stored; nothing in this runbook exercises it.
+- **A real PSA** (ST-091–097 are built against recorded shapes). Publishing to one works once the owner
+  connects a ConnectWise sandbox or a Hudu key in the web admin, under Integrations; nothing in this
+  runbook exercises it.
   For a demonstration without one, `docs/dev/demo-psa.md` switches on a clearly labelled in-memory demo
   PSA in Development and shows the published note on its ticket.
 - **Signing** (ST-112). Fresh service builds have tripped the laptop's Application Control policy.
