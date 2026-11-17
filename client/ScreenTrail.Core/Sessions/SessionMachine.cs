@@ -1422,6 +1422,21 @@ public sealed class SessionMachine : IAsyncDisposable
             return false;
         }
 
+        // A pass-through, left out of the coverage banner's captured count as a missed visit this brief is
+        // left out of its missed one (ST-079). After the discard, and on its own: the discard stands
+        // whatever this does, and a failure here only counts the session as captured.
+        if (_store is ICoverageStore coverage)
+        {
+            try
+            {
+                _ = await coverage.MarkPassThroughAsync(sessionId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Counted as captured, which only ever errs towards a higher coverage by one session.
+            }
+        }
+
         if (string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
         {
             _session = null;

@@ -238,7 +238,11 @@ public partial class ShellWindow : Window
                 _ => Task.FromResult<IReadOnlyList<SessionRow>?>(_sampleRows),
                 confirm: (_, _) => Task.FromResult(false),
                 discard: (_, _, _) => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)),
-                discardBlocked: _ => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording } ? SessionDiscard.WhileCapturing : null),
+                discardBlocked: _ => state.Snapshot.KnownCapture is { State: Shared.Ipc.CaptureStates.Recording } ? SessionDiscard.WhileCapturing : null,
+                time: new FixedClock(SampleNow),
+                // The coverage banner (ST-079, spec v0.7.3 S4) over sample counts, with misses, so the
+                // renders show its line and its reasons in every theme.
+                coverage: (from, _) => Task.FromResult<Shared.Ipc.CoverageReported?>(SampleCoverage(from))),
             settings: () => new SettingsViewModel(
                 new ActivationViewModel(new ActivationPanel(new SampleDevice(), "TECH-LAPTOP")),
                 new CaptureViewModel(new CapturePanel(new SampleCapture()), _ => Task.CompletedTask, new MicrophoneLevelWatch(new SampleCapture())),
@@ -486,6 +490,22 @@ public partial class ShellWindow : Window
     {
         public override DateTimeOffset GetUtcNow() => now;
     }
+
+    /// <summary>
+    /// The sample's coverage counts: the six sample sessions captured and three remote sessions missed,
+    /// counted from the period's start or, for any time, from a week back (the default retention).
+    /// </summary>
+    internal static Shared.Ipc.CoverageReported SampleCoverage(DateTimeOffset? from) => new()
+    {
+        CountedFrom = from ?? SampleNow.AddDays(-7),
+        RetentionDays = 7,
+        Tools =
+        [
+            new() { Tool = "rdp", Captured = 2, Missed = [] },
+            new() { Tool = "screenconnect", Captured = 3, Missed = [new() { Reason = "auto_start_off", Count = 2 }] },
+            new() { Tool = "splashtop", Captured = 1, Missed = [new() { Reason = "tool_switched_off", Count = 1 }] },
+        ],
+    };
 
     private static IReadOnlyList<SessionRow> SampleRows() =>
     [

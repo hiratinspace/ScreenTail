@@ -76,20 +76,48 @@ public static class HistoryFilters
         ];
     }
 
-    /// <summary>The rows the filter keeps, in the order given.</summary>
-    public static IReadOnlyList<SessionRow> Apply(IEnumerable<SessionRow> rows, TableFilter filter, DateTimeOffset now, TimeZoneInfo zone)
+    /// <summary>The first local day the period keeps, or null for any time.</summary>
+    private static DateTime? FirstDay(HistoryPeriod period, DateTimeOffset now, TimeZoneInfo zone)
     {
-        ArgumentNullException.ThrowIfNull(rows);
-        ArgumentNullException.ThrowIfNull(filter);
-        ArgumentNullException.ThrowIfNull(zone);
         var today = TimeZoneInfo.ConvertTime(now, zone).Date;
-        DateTime? from = filter.Period switch
+        return period switch
         {
             HistoryPeriod.Today => today,
             HistoryPeriod.Last7Days => today.AddDays(-6),
             HistoryPeriod.Last30Days => today.AddDays(-29),
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// The moment the period starts, the start of its first day on the technician's clock, or null for any
+    /// time: what the coverage banner asks the service to count from, so it counts the days the table shows.
+    /// </summary>
+    public static DateTimeOffset? From(HistoryPeriod period, DateTimeOffset now, TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(zone);
+        if (FirstDay(period, now, zone) is not { } day)
+        {
+            return null;
+        }
+
+        // A zone whose clocks go forward at midnight has no midnight that day; its day starts an hour on.
+        var start = DateTime.SpecifyKind(day, DateTimeKind.Unspecified);
+        while (zone.IsInvalidTime(start))
+        {
+            start = start.AddMinutes(30);
+        }
+
+        return new DateTimeOffset(start, zone.GetUtcOffset(start));
+    }
+
+    /// <summary>The rows the filter keeps, in the order given.</summary>
+    public static IReadOnlyList<SessionRow> Apply(IEnumerable<SessionRow> rows, TableFilter filter, DateTimeOffset now, TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentNullException.ThrowIfNull(zone);
+        var from = FirstDay(filter.Period, now, zone);
 
         return
         [

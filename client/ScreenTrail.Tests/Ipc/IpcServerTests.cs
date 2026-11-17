@@ -685,8 +685,48 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 11, Token = IpcToken.Encode(_token), ClientName = "v11-ui" });
 
-        Assert.Equal(12, IpcContract.Version);
         Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
+    public async Task AVersionThirteenUiIsTurnedAwayByAVersionFourteenService()
+    {
+        // Contract v14 (ST-079, spec v0.7.3) adds get_coverage and its coverage reply, for the banner on
+        // All sessions. New messages, but the banner depends on the service answering, so a UI paired
+        // with a service that cannot is refused at the handshake rather than losing the banner unsaid.
+        await StartServerAsync();
+
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 13, Token = IpcToken.Encode(_token), ClientName = "v13-ui" });
+
+        Assert.Equal(14, IpcContract.Version);
+        Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
+    public async Task TheCoverageCountsTravelOverThePipeWithNothingButToolsCountsAndReasons()
+    {
+        // ST-079: what the banner asks and what it is told, through a real pipe. Kinds, counts and
+        // reason words only (INV-10).
+        var from = new DateTimeOffset(2026, 11, 11, 0, 0, 0, TimeSpan.FromHours(1));
+        _controller.AnswersTo = typeof(GetCoverageCommand);
+        _controller.Answer = new CoverageReported
+        {
+            CountedFrom = from,
+            RetentionDays = 7,
+            Tools = [new ToolCoverage { Tool = "rdp", Captured = 4, Missed = [new MissedCount { Reason = "auto_start_off", Count = 2 }] }],
+        };
+        await StartServerAsync();
+        await using var client = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        var reply = await client.RequestAsync<CoverageReported>(id => new GetCoverageCommand { RequestId = id, From = from }, ct);
+
+        Assert.Equal(from, Assert.IsType<GetCoverageCommand>(_controller.Received[^1]).From);
+        Assert.Equal(from, reply.CountedFrom);
+        var tool = Assert.Single(reply.Tools);
+        Assert.Equal(("rdp", 4), (tool.Tool, tool.Captured));
+        Assert.Equal(("auto_start_off", 2), (Assert.Single(tool.Missed).Reason, tool.Missed[0].Count));
+        Assert.DoesNotContain("\"from\"", JsonSerializer.Serialize<IpcCommand>(new GetCoverageCommand { RequestId = 1 }, IpcFraming.Json), StringComparison.Ordinal);
     }
 
     [Fact]

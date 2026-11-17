@@ -69,34 +69,6 @@ public sealed class SessionHistoryTests : IAsyncDisposable
     }
 
     [Fact]
-    public void TheCoverageBannerDescribesWhatIsOnScreen()
-    {
-        // Spec §5 S4 puts it above a filtered table, so it has to describe that table. A banner still
-        // reporting the week while the technician is looking at one day answers a question nobody asked -
-        // and it is the kind of number that ends up in a QBR.
-        var coverage = SessionHistory.CoverageOf([Summary("s1"), Summary("s2")], observed: 4);
-
-        Assert.Equal("Captured 2 of 4 remote sessions (50%)", coverage.Banner);
-    }
-
-    [Fact]
-    public void AnEmptyHistoryHasNoBannerRatherThanZeroOfZero()
-    {
-        Assert.Null(SessionHistory.CoverageOf([]).Banner);
-    }
-
-    [Fact]
-    public void CoverageNeverClaimsMoreSessionsThanWereCaptured()
-    {
-        // The observed count comes from detection (ST-023) and can lag behind what was actually stored.
-        // "Captured 5 of 3" would be read as a bug in the product rather than in the counter.
-        var coverage = SessionHistory.CoverageOf([Summary("s1"), Summary("s2"), Summary("s3")], observed: 1);
-
-        Assert.Equal(3, coverage.Total);
-        Assert.Equal(100, coverage.Percent);
-    }
-
-    [Fact]
     public void BulkDiscardCountsOnlyWhatItWillActuallyDestroy()
     {
         // v0.4.1 Q6 confirms with the number selected. Asking a technician to type "3" when only two

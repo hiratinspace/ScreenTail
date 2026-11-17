@@ -100,6 +100,41 @@
                         Command="{Binding ClearFiltersCommand}"
                         Visibility="{Binding ClearFiltersVisibility}" />
             </WrapPanel>
+
+            <!-- Spec v0.7.3 S4: the coverage banner, under the filters, describing the rows they leave
+                 (ST-079). The line, then why the misses were missed. The info banner, not a new control;
+                 hidden when there is nothing honest to say (no counts, a status filter, nothing seen). -->
+            <Border Margin="0,8,0,0"
+                    Style="{StaticResource Banner.Info}"
+                    Visibility="{Binding CoverageVisibility}"
+                    ToolTip="{Binding CoverageHelp}"
+                    AutomationProperties.Name="{Binding CoverageSpoken}"
+                    AutomationProperties.HelpText="{Binding CoverageHelp}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <controls:Glyph Grid.Column="0"
+                                    Margin="0,0,12,0"
+                                    VerticalAlignment="Top"
+                                    Style="{StaticResource Icon}"
+                                    Foreground="{DynamicResource Brush.accent.primary}"
+                                    Text="&#xE946;" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Style="{StaticResource Text.Body}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding CoverageHeadline}"
+                                   AutomationProperties.Name="{Binding CoverageSpoken}"
+                                   AutomationProperties.HelpText="{Binding CoverageHelp}" />
+                        <TextBlock Margin="0,4,0,0"
+                                   Style="{StaticResource Text.Secondary}"
+                                   TextWrapping="Wrap"
+                                   Text="{Binding CoverageDetail}"
+                                   Visibility="{Binding CoverageDetailVisibility}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
         </StackPanel>
 
         <!-- Extended: click, Shift and Ctrl with the mouse, Shift and Ctrl with the arrows and Space, and

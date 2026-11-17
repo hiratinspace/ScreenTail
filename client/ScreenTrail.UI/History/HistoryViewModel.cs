@@ -84,6 +84,16 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// <summary>The discard's typed confirmation is up or its answer is on its way.</summary>
     private readonly OneAtATime _discarding = new();
 
+    /// <summary>The coverage banner's counts (contract v14), asked for the period the filters chose. Null shows no banner.</summary>
+    private readonly Func<DateTimeOffset?, CancellationToken, Task<CoverageReported?>>? _coverage;
+
+    /// <summary>The last counts, and the period start they were asked for.</summary>
+    private CoverageReported? _reported;
+    private DateTimeOffset? _reportedFrom;
+
+    /// <summary>Which ask is the latest, so an answer for a period no longer chosen is not shown.</summary>
+    private int _asks;
+
     /// <param name="load">The service's rows.</param>
     /// <param name="confirm">The typed-confirmation dialog, with how many sessions it is for. Null with no discard wired.</param>
     /// <param name="discard">
@@ -98,6 +108,10 @@ public sealed partial class HistoryViewModel : ObservableObject
     /// (<see cref="MarkAsPublished.RunAsync"/> with the shell's dialog). Null in a screen with nothing to
     /// ask through, which disables the button.
     /// </param>
+    /// <param name="coverage">
+    /// The coverage banner's counts from a period's start (null for any time), the service's
+    /// <c>get_coverage</c> (ST-079, contract v14). Null in a screen with no service, which shows no banner.
+    /// </param>
     public HistoryViewModel(
         ShellState state,
         Func<CancellationToken, Task<IReadOnlyList<SessionRow>?>> load,
@@ -106,8 +120,10 @@ public sealed partial class HistoryViewModel : ObservableObject
         Func<IReadOnlyCollection<string>, string?>? discardBlocked = null,
         Func<string, string, CancellationToken, Task<ConfirmedResult>>? markPublished = null,
         TimeProvider? time = null,
-        TimeZoneInfo? zone = null)
+        TimeZoneInfo? zone = null,
+        Func<DateTimeOffset?, CancellationToken, Task<CoverageReported?>>? coverage = null)
     {
+        _coverage = coverage;
         _state = state ?? throw new ArgumentNullException(nameof(state));
         _load = load ?? throw new ArgumentNullException(nameof(load));
         _confirm = confirm;
@@ -147,6 +163,31 @@ public sealed partial class HistoryViewModel : ObservableObject
 
     [ObservableProperty]
     public partial string Status { get; set; } = "Asking the capture service…";
+
+    /// <summary>
+    /// The coverage banner's line (ST-079, spec v0.7.3 S4): "Captured 46 of 52 remote sessions in the last
+    /// 7 days (88%).", over the rows the filters leave. Empty when there is nothing honest to say.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CoverageVisibility))]
+    public partial string CoverageHeadline { get; set; } = string.Empty;
+
+    /// <summary>Why the misses were missed: "6 not captured: auto-start off 4, tool switched off 2." Empty for none.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CoverageDetailVisibility))]
+    public partial string CoverageDetail { get; set; } = string.Empty;
+
+    /// <summary>How the banner counts, for its tool tip and a screen reader's help text.</summary>
+    [ObservableProperty]
+    public partial string CoverageHelp { get; set; } = string.Empty;
+
+    /// <summary>The banner's line and reasons together, as a screen reader names it.</summary>
+    [ObservableProperty]
+    public partial string CoverageSpoken { get; set; } = string.Empty;
+
+    public System.Windows.Visibility CoverageVisibility => CoverageHeadline.Length > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public System.Windows.Visibility CoverageDetailVisibility => CoverageDetail.Length > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
     /// <summary>What the last discard or mark as published did, for the line beside the buttons. Empty until there is one.</summary>
     [ObservableProperty]
@@ -195,6 +236,41 @@ public sealed partial class HistoryViewModel : ObservableObject
         OfferTools();
         _quiet = false;
         Show();
+        await LoadCoverageAsync(ct).ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Asks the service for the counts from the chosen period's start, and shows the banner from them. An
+    /// answer for a period no longer chosen is dropped; the latest ask's answer is the one shown.
+    /// </summary>
+    private async Task LoadCoverageAsync(CancellationToken ct)
+    {
+        if (_coverage is null)
+        {
+            return;
+        }
+
+        var from = HistoryFilters.From(Filter.Period, _time.GetUtcNow(), _zone);
+        var ask = ++_asks;
+        var reported = await _coverage(from, ct).ConfigureAwait(true);
+        if (ask != _asks)
+        {
+            return;
+        }
+
+        _reported = reported;
+        _reportedFrom = from;
+        ShowCoverage();
+    }
+
+    /// <summary>The banner for the filters as they stand (<see cref="CoverageBanner.Of"/>), or none.</summary>
+    private void ShowCoverage()
+    {
+        var words = CoverageBanner.Of(_reported, _reportedFrom, Filter, _time.GetUtcNow(), _zone);
+        CoverageDetail = words?.Detail ?? string.Empty;
+        CoverageHelp = words?.Help ?? string.Empty;
+        CoverageSpoken = words?.Spoken ?? string.Empty;
+        CoverageHeadline = words?.Headline ?? string.Empty;
     }
 
     [RelayCommand]
@@ -205,11 +281,25 @@ public sealed partial class HistoryViewModel : ObservableObject
         PeriodChoice = HistoryFilters.PeriodChoices[0];
     }
 
-    partial void OnStatusChoiceChanged(FilterChoice<string?> value) => Show();
+    partial void OnStatusChoiceChanged(FilterChoice<string?> value)
+    {
+        Show();
+        ShowCoverage();
+    }
 
-    partial void OnToolChoiceChanged(FilterChoice<string?>? value) => Show();
+    partial void OnToolChoiceChanged(FilterChoice<string?>? value)
+    {
+        Show();
+        ShowCoverage();
+    }
 
-    partial void OnPeriodChoiceChanged(FilterChoice<HistoryPeriod> value) => Show();
+    /// <summary>Another period counts from another start, so the service is asked again; until it answers there is no banner.</summary>
+    partial void OnPeriodChoiceChanged(FilterChoice<HistoryPeriod> value)
+    {
+        Show();
+        ShowCoverage();
+        _ = LoadCoverageAsync(CancellationToken.None);
+    }
 
     /// <summary>The tool list as the sessions have it, keeping the chosen tool while any session has it.</summary>
     private void OfferTools()

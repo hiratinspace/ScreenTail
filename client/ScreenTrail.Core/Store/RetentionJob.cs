@@ -12,7 +12,8 @@ public sealed class RetentionOptions
 /// <summary>
 /// INV-12: raw data has a retention limit. Runs at service start and hourly. Sessions whose last activity is
 /// older than the retention lose their frames, OCR text, transcript and events; the note text, the session row
-/// and the audit log stay, so Session history and published notes are unaffected. The file is rebuilt
+/// and the audit log stay, so Session history and published notes are unaffected. The remote sessions the
+/// service saw and did not capture (the coverage banner's misses) go once they ended before the cutoff. The file is rebuilt
 /// afterwards when <see cref="ShouldVacuum"/> says so: a third of it free, nobody recording, and not
 /// within a day of the last rebuild.
 /// </summary>
@@ -91,6 +92,13 @@ public sealed class RetentionJob(ISessionStore store, TimeProvider time, Retenti
             {
                 _ = await purged(sessionId, ct).ConfigureAwait(false);
             }
+        }
+
+        // The coverage banner's missed visits age out with the raw data (INV-12, migration 0016). Not
+        // counted in the return: that is sessions purged, and what a rebuild of the file waits for.
+        if (store is ICoverageStore coverage)
+        {
+            _ = await coverage.PurgeMissedVisitsBeforeAsync(cutoff, ct).ConfigureAwait(false);
         }
 
         var now = time.GetUtcNow();

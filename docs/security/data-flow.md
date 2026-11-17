@@ -268,6 +268,16 @@ left to right. Transcripts are scrubbed by the words alone.
 
 **Raw data has a deadline.** Screenshots, transcript and timeline are deleted after a retention period
 (default 7 days, configurable 1–30). The note survives; the material it was made from does not (INV-12).
+
+**Remote sessions that were not captured are counted, not recorded** (ST-079, 2026-11-17). For the
+coverage banner on All sessions ("Captured 46 of 52 remote sessions"), the service keeps one row for each
+remote session it saw and did not capture (auto-start off, the tool switched off, an update installing,
+the app not running): the remote tool's kind, when it was in front, and the reason as one word from a
+fixed list the database enforces. No window title, process, ticket or anything on screen (INV-10). The
+rows are deleted with the raw data at the end of the retention period, and "delete everything" takes them
+with the file. A captured session that ended empty is marked so the banner leaves it out; that mark is
+the session's id and nothing else, and goes with the session.
+
 "Delete everything" exists as a command the service accepts only with a typed confirmation it issued
 moments before, and it removes tokens as well as data: everything under the data directory except the
 downloaded speech models (and the program's own folder, if it was installed there), so the device has to

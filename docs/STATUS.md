@@ -323,13 +323,17 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - **Every HTTP call the service makes goes through the egress allowlist**, by purpose (INV-8):
   `Publish` goes; `Policy` goes; `DeviceAuth` (activation, renewal) goes only on behalf of a publish or
   the policy fetch under local-only, never on the renewal timer (#326); everything else is refused.
+- **The coverage banner on All sessions** (ST-079, spec v0.7.3, awaiting owner review): "Captured 46 of
+  52 remote sessions in the last 7 days (88%).", with the reasons for the misses under it, over the When
+  and Tool filters. The service now counts the remote sessions it saw and did not capture, one per visit
+  within the grace, as tool kind, times and a reason word (store migration 0016, purged with raw data);
+  brief pass-throughs are in neither number.
 - The audit log is hash-chained with a head anchor. Every process logs through one scrubbing sink
   (ST-011). A crash leaves a stack-only report, and only when opted in.
 - Design tokens generate WPF dictionaries and web CSS from one source (v0.6.0, Iris), and the gallery
   and every screen render in CI in dark, light, Night sky and Desert.
 
-**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007); mail for invites; the
-coverage banner on All sessions (placed in the spec; nothing counts the uncaptured sessions yet, #305);
+**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007); mail for invites;
 "Start capture" from the tray when idle (an IPC change, #306). **Built and switched off until the owner
 sets them up:** the installer's signature (ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner
 sign-in to the web admin (ST-099, ADR-0009).
@@ -555,7 +559,7 @@ chose it says so.
 | When | What | Who |
 |---|---|---|
 | **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
-| Then | **The Outbox and Iris leftovers:** the coverage banner (not built), the manual Narrator pass, the tray's "Start capture" when idle, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
+| Then | **The Outbox and Iris leftovers:** the owner's review of the coverage banner (built in spec v0.7.3), the manual Narrator pass, the tray's "Start capture" when idle, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
 | In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |

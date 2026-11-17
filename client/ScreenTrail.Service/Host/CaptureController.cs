@@ -39,6 +39,10 @@ namespace ScreenTrail.Service.Host;
 /// Local-only as it is in force now and the policy's version, for a start over the pipe: the same
 /// function the host gives the automatic start, so the two cannot start sessions under different rules.
 /// </param>
+/// <param name="coverage">
+/// The coverage banner's counts (<c>get_coverage</c>, contract v14, ST-079). Null answers nothing, and the
+/// UI then shows no banner.
+/// </param>
 internal sealed class CaptureController(
     SessionMachine machine,
     ICapabilityProbe capabilities,
@@ -52,7 +56,8 @@ internal sealed class CaptureController(
     Func<CancellationToken, Task<bool>> eraseAll,
     IndicatorReports indicators,
     Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
-    Core.Update.UpdateCommands? updates = null) : IIpcCommandHandler
+    Core.Update.UpdateCommands? updates = null,
+    CoverageCommands? coverage = null) : IIpcCommandHandler
 {
     private readonly ManualStart _start = new(machine, () => indicators.Showing, sessionPolicy);
 
@@ -103,6 +108,9 @@ internal sealed class CaptureController(
         {
             GetDiagnosticsCommand => diagnostics(),
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
+
+            // The coverage banner's counts over the period the filters chose (contract v14).
+            GetCoverageCommand asked when coverage is not null => await coverage.ReplyAsync(asked, ct).ConfigureAwait(false),
 
             // Named sessions are Review's and History's; none named is the tray's or erase's, as before.
             RequestConfirmationCommand { SessionIds: not null } named => _discards.Confirm(named, caller),

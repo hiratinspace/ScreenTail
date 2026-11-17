@@ -19,6 +19,7 @@ namespace ScreenTrail.Shared.Ipc;
 [JsonDerivedType(typeof(GetCapabilitiesCommand), "get_capabilities")]
 [JsonDerivedType(typeof(GetDiagnosticsCommand), "get_diagnostics")]
 [JsonDerivedType(typeof(ListSessionsCommand), "list_sessions")]
+[JsonDerivedType(typeof(GetCoverageCommand), "get_coverage")]
 [JsonDerivedType(typeof(EraseAllLocalDataCommand), "erase_all_local_data")]
 [JsonDerivedType(typeof(RequestConfirmationCommand), "request_confirmation")]
 [JsonDerivedType(typeof(IndicatorShowingCommand), "indicator_showing")]
@@ -177,6 +178,19 @@ public sealed record ListSessionsCommand : IpcCommand
     /// <summary>How many rows at most. The screen pages; the pipe does not stream.</summary>
     [JsonPropertyName("limit")]
     public int Limit { get; init; } = 200;
+}
+
+/// <summary>
+/// Asks for the coverage banner's counts (ST-079, spec v0.7.3 S4, contract v14): the sessions captured and
+/// the remote sessions seen and not captured, by tool, from <see cref="From"/> on. Answered by a
+/// <see cref="CoverageReported"/>.
+/// </summary>
+public sealed record GetCoverageCommand : IpcCommand
+{
+    /// <summary>The start of the period the filters chose; absent for any time. The service counts from no earlier than it can.</summary>
+    [JsonPropertyName("from")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTimeOffset? From { get; init; }
 }
 
 /// <summary>
@@ -885,6 +899,7 @@ public sealed record UpdateReported : IpcEvent
 [JsonDerivedType(typeof(CapabilitiesReported), "capabilities")]
 [JsonDerivedType(typeof(DiagnosticsReported), "diagnostics")]
 [JsonDerivedType(typeof(SessionsListed), "sessions")]
+[JsonDerivedType(typeof(CoverageReported), "coverage")]
 [JsonDerivedType(typeof(ConfirmationIssued), "confirmation")]
 [JsonDerivedType(typeof(SessionLoaded), "session")]
 [JsonDerivedType(typeof(FrameLoaded), "frame")]
@@ -1180,6 +1195,57 @@ public sealed record SessionsListed : IpcEvent
 {
     [JsonPropertyName("sessions")]
     public required IReadOnlyList<SessionRow> Sessions { get; init; }
+}
+
+/// <summary>
+/// The coverage banner's counts (contract v14), by tool kind: how many sessions were captured and how many
+/// remote sessions the service saw and did not capture, with why. Tool kinds, counts and reason words only,
+/// never anything about a window (INV-10).
+/// </summary>
+public sealed record CoverageReported : IpcEvent
+{
+    /// <summary>
+    /// Where the counts start: the period asked for, or later when the device cannot count that far back,
+    /// because it keeps missed sessions only as long as raw data (retention) and began counting when this
+    /// build was installed.
+    /// </summary>
+    [JsonPropertyName("counted_from")]
+    public required DateTimeOffset CountedFrom { get; init; }
+
+    /// <summary>How long missed sessions are kept, in days: the retention in force.</summary>
+    [JsonPropertyName("retention_days")]
+    public required int RetentionDays { get; init; }
+
+    /// <summary>One row per tool with anything to count.</summary>
+    [JsonPropertyName("tools")]
+    public required IReadOnlyList<ToolCoverage> Tools { get; init; }
+}
+
+/// <summary>One tool's counts in a <see cref="CoverageReported"/>.</summary>
+public sealed record ToolCoverage
+{
+    /// <summary>The tool's kind, as a <c>sessions</c> row's <c>tool</c> says it.</summary>
+    [JsonPropertyName("tool")]
+    public required string Tool { get; init; }
+
+    /// <summary>Sessions captured. A brief pass-through, discarded as empty, is not one.</summary>
+    [JsonPropertyName("captured")]
+    public required int Captured { get; init; }
+
+    /// <summary>Remote sessions seen and not captured, by reason; empty for none.</summary>
+    [JsonPropertyName("missed")]
+    public required IReadOnlyList<MissedCount> Missed { get; init; }
+}
+
+/// <summary>How many remote sessions of one tool were not captured for one reason.</summary>
+public sealed record MissedCount
+{
+    /// <summary>One of <c>auto_start_off</c>, <c>tool_switched_off</c>, <c>start_held</c>, <c>no_indicator</c>, <c>busy</c>.</summary>
+    [JsonPropertyName("reason")]
+    public required string Reason { get; init; }
+
+    [JsonPropertyName("count")]
+    public required int Count { get; init; }
 }
 
 /// <summary>
