@@ -554,8 +554,8 @@ public sealed class DemoPsaMeetsTheContract : PsaProviderContract
         public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) =>
             Fail is { } error ? Task.FromResult(ProviderResult.Failure<IReadOnlyList<TicketRef>>(error)) : inner.RecentTicketsAsync(ct);
 
-        public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default) =>
-            Fail is { } error ? Task.FromResult(ProviderResult.Failure<CompanyRef?>(error)) : inner.FindCompanyAsync(nameOrId, ct);
+        public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default) =>
+            Fail is { } error ? Task.FromResult(ProviderResult.Failure<CompanyRef?>(error)) : inner.FindCompanyAsync(name, ct);
 
         public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default) =>
             Fail is { } error ? Task.FromResult(ProviderResult.Failure<PublishedNote>(error)) : inner.AddNoteAsync(note, ct);

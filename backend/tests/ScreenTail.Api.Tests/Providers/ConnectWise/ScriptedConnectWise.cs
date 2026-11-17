@@ -86,6 +86,8 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
         (10, "Nowhere Inc"),
         (11, "Beta Law"),
         (12, "O'Brien & Sons"),
+        (13, "Smith and O'Brien"),
+        (14, "Smith and Sons"),
     ];
 
     public static HttpStatusCode StatusFor(ProviderErrorKind kind) => kind switch
@@ -169,10 +171,6 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
             ("GET", var p) when p.EndsWith("/company/companies", StringComparison.Ordinal) =>
                 ListCompanies(query),
 
-            ("GET", var p) when p.Contains("/company/companies/", StringComparison.Ordinal) =>
-                Companies.Where(c => p.EndsWith("/company/companies/" + c.Id.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)).Select(c => Ok(new { id = c.Id, name = c.Name })).FirstOrDefault()
-                    ?? NotFound("Company not found"),
-
             ("POST", var p) when p.EndsWith("/service/tickets/48213/notes", StringComparison.Ordinal) =>
                 Ok(new { id = 90001, ticketId = 48213, text = "…" }),
 
@@ -190,36 +188,58 @@ internal sealed class ScriptedConnectWise : HttpMessageHandler
     }
 
     /// <summary>
-    /// <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c>, compared without regard
-    /// to case as ConnectWise's database compares them; any other condition is a field error.
+    /// <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c> outside quotes, compared
+    /// without regard to case as ConnectWise's database compares them, one page of <c>pageSize</c> (25
+    /// unless said). Any other condition, or a quote inside a value, is a field error.
     /// </summary>
     private HttpResponseMessage ListCompanies(string query)
     {
-        var conditions = query.TrimStart('?').Split('&')
+        var parameters = query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
             .Select(pair => pair.Split('=', 2))
-            .Where(pair => pair[0] == "conditions")
-            .Select(pair => Uri.UnescapeDataString(pair[1]))
-            .SingleOrDefault() ?? string.Empty;
+            .ToDictionary(pair => pair[0], pair => pair.Length > 1 ? Uri.UnescapeDataString(pair[1]) : string.Empty, StringComparer.Ordinal);
         IEnumerable<(int Id, string Name)> matched = Companies;
-        foreach (var clause in conditions.Split(" and ", StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        foreach (var clause in Clauses(parameters.GetValueOrDefault("conditions") ?? string.Empty))
         {
-            if (clause.StartsWith("name = '", StringComparison.Ordinal) && clause.EndsWith('\''))
-            {
-                var value = clause["name = '".Length..^1];
-                matched = matched.Where(c => string.Equals(c.Name, value, StringComparison.OrdinalIgnoreCase));
-            }
-            else if (clause.StartsWith("name contains '", StringComparison.Ordinal) && clause.EndsWith('\''))
-            {
-                var value = clause["name contains '".Length..^1];
-                matched = matched.Where(c => c.Name.Contains(value, StringComparison.OrdinalIgnoreCase));
-            }
-            else
+            var (op, value) = clause.StartsWith("name = '", StringComparison.Ordinal) ? ("=", clause["name = '".Length..])
+                : clause.StartsWith("name contains '", StringComparison.Ordinal) ? ("contains", clause["name contains '".Length..])
+                : (null, string.Empty);
+            if (op is null || !value.EndsWith('\'') || value[..^1].Contains('\''))
             {
                 return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { code = "InvalidObject", message = $"The condition {clause} could not be parsed." }, options: Json) };
             }
+
+            var wanted = value[..^1];
+            matched = op == "="
+                ? matched.Where(c => string.Equals(c.Name, wanted, StringComparison.OrdinalIgnoreCase))
+                : matched.Where(c => c.Name.Contains(wanted, StringComparison.OrdinalIgnoreCase));
         }
 
-        return Ok(matched.Select(c => new { id = c.Id, name = c.Name }).ToArray());
+        var size = parameters.TryGetValue("pageSize", out var given) ? int.Parse(given, System.Globalization.CultureInfo.InvariantCulture) : 25;
+        return Ok(matched.Take(size).Select(c => new { id = c.Id, name = c.Name }).ToArray());
+    }
+
+    /// <summary>A conditions string split on <c>and</c> where it stands outside a quoted value, as ConnectWise's parser reads it.</summary>
+    internal static List<string> Clauses(string conditions)
+    {
+        var clauses = new List<string>();
+        var quoted = false;
+        var start = 0;
+        for (var i = 0; i < conditions.Length; i++)
+        {
+            if (conditions[i] == '\'')
+            {
+                quoted = !quoted;
+            }
+            else if (!quoted && string.CompareOrdinal(conditions, i, " and ", 0, 5) == 0)
+            {
+                clauses.Add(conditions[start..i].Trim());
+                start = i + 5;
+                i += 4;
+            }
+        }
+
+        clauses.Add(conditions[start..].Trim());
+        return clauses.FindAll(c => c.Length > 0);
     }
 
     private static object Ticket(int id, string summary, string company, string status) => new

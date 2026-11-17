@@ -121,62 +121,44 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
     }
 
     /// <summary>
-    /// ST-097: the tenant's company with exactly this name or, for a number no company is named, with this
-    /// id. Null when ConnectWise has neither. Only <c>id</c> and <c>name</c> are asked for, at most
+    /// ST-097: the tenant's company with exactly this name, or null. A number is a name like any other:
+    /// nothing sends an id, and a ticket number typed where a company belongs must never map whichever
+    /// customer has that id. Only <c>id</c> and <c>name</c> are asked for, one page of at most
     /// <see cref="ConnectWiseOptions.CompanyMatches"/> companies, under the same client limits as every
     /// other call.
     ///
     /// The match is made here, not by ConnectWise. Its conditions language has no quoting a caller can rely
     /// on (as the ticket search says), so a name with a quote, a backslash or a wildcard character in it is
     /// asked for as the longest pieces between them, and only a company whose name is the one asked for is
-    /// taken from the answer: the same spelling first, then the only one that differs just in case. An
-    /// unusual name can find too little, which refuses the mapping; it cannot find the wrong company.
+    /// taken from the answer: the same spelling first, then the only one that differs just in case. A full
+    /// page may have left that one out, so from a full page only the same spelling is taken. An unusual
+    /// name can find too little, which refuses the mapping; it cannot find the wrong company.
     /// </summary>
-    public async Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default)
+    public async Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default)
     {
-        var wanted = (nameOrId ?? string.Empty).Trim();
-        if (wanted.Length == 0 || wanted.Length > MaxCompanyNameLength)
+        var wanted = (name ?? string.Empty).Trim();
+        if (wanted.Length == 0 || wanted.Length > MaxCompanyNameLength || CompanyConditions(wanted) is not { } conditions)
         {
             return ProviderResult.Success<CompanyRef?>(null);
         }
 
-        if (CompanyConditions(wanted) is { } conditions)
+        var size = Math.Max(1, _options.CompanyMatches);
+        var route = $"company/companies?conditions={Uri.EscapeDataString(conditions)}&fields={Uri.EscapeDataString("id,name")}&pageSize={size}&page=1";
+        var page = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Companies, "ConnectWise", written: false);
+        if (!page.Ok)
         {
-            var route = $"company/companies?conditions={Uri.EscapeDataString(conditions)}&fields={Uri.EscapeDataString("id,name")}&pageSize={Math.Max(1, _options.CompanyMatches)}&page=1";
-            var page = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Companies, "ConnectWise", written: false);
-            if (!page.Ok)
-            {
-                return ProviderResult.Failure<CompanyRef?>(page.Error!);
-            }
-
-            if (page.Value!.Find(c => string.Equals(c.Name, wanted, StringComparison.Ordinal)) is { } exact)
-            {
-                return ProviderResult.Success<CompanyRef?>(exact);
-            }
-
-            var folded = page.Value!.FindAll(c => string.Equals(c.Name, wanted, StringComparison.OrdinalIgnoreCase));
-            if (folded.Count == 1)
-            {
-                return ProviderResult.Success<CompanyRef?>(folded[0]);
-            }
+            return ProviderResult.Failure<CompanyRef?>(page.Error!);
         }
 
-        if (int.TryParse(wanted, NumberStyles.None, CultureInfo.InvariantCulture, out var id))
+        var (companies, listed) = page.Value!;
+        if (companies.Find(c => string.Equals(c.Name, wanted, StringComparison.Ordinal)) is { } exact)
         {
-            var route = $"company/companies/{id.ToString(CultureInfo.InvariantCulture)}?fields={Uri.EscapeDataString("id,name")}";
-            var one = ProviderHttp.Read(await SendAsync(() => Get(route), ct).ConfigureAwait(false), Company, "ConnectWise", written: false);
-            if (one.Ok)
-            {
-                return ProviderResult.Success(one.Value);
-            }
-
-            if (one.Error!.Kind != ProviderErrorKind.NotFound)
-            {
-                return ProviderResult.Failure<CompanyRef?>(one.Error);
-            }
+            return ProviderResult.Success<CompanyRef?>(exact);
         }
 
-        return ProviderResult.Success<CompanyRef?>(null);
+        // Another spelling is taken only when it is the only one, and a full page cannot say that.
+        var folded = companies.FindAll(c => string.Equals(c.Name, wanted, StringComparison.OrdinalIgnoreCase));
+        return ProviderResult.Success<CompanyRef?>(folded.Count == 1 && listed < size ? folded[0] : null);
     }
 
     /// <summary>
@@ -368,8 +350,15 @@ public sealed class ConnectWiseProvider(HttpClient http, string credential, Conn
 
     private static List<TicketRef> Tickets(JsonElement page) => [.. page.EnumerateArray().Select(Ticket)];
 
-    /// <summary>A page of companies. One with no name, or an id or name longer than any ConnectWise writes, cannot be the one asked for and is passed over.</summary>
-    private static List<CompanyRef> Companies(JsonElement page) => [.. page.EnumerateArray().Select(Company).OfType<CompanyRef>()];
+    /// <summary>
+    /// A page of companies, and how many ConnectWise listed on it. One with no name, or an id or name
+    /// longer than any ConnectWise writes, cannot be the one asked for and is passed over, but counted.
+    /// </summary>
+    private static (List<CompanyRef> Companies, int Listed) Companies(JsonElement page)
+    {
+        var rows = page.EnumerateArray().ToList();
+        return ([.. rows.Select(Company).OfType<CompanyRef>()], rows.Count);
+    }
 
     private static CompanyRef? Company(JsonElement element)
     {

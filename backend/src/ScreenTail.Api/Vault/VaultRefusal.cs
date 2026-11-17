@@ -84,7 +84,7 @@ public sealed class RefusedPsaProvider(string name) : IPsaProvider
     public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) =>
         Task.FromResult(ProviderResult.Failure<IReadOnlyList<TicketRef>>(VaultRefusal.Error));
 
-    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default) =>
+    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default) =>
         Task.FromResult(ProviderResult.Failure<CompanyRef?>(VaultRefusal.Error));
 
     public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default) =>

@@ -72,17 +72,15 @@ public sealed class FakePsaProvider : IPsaProvider
             ? ProviderResult.Failure<IReadOnlyList<TicketRef>>(error)
             : ProviderResult.Success<IReadOnlyList<TicketRef>>([.. _tickets.Take(10)]));
 
-    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default)
+    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default)
     {
         if (Fail is { } error)
         {
             return Task.FromResult(ProviderResult.Failure<CompanyRef?>(error));
         }
 
-        var wanted = (nameOrId ?? string.Empty).Trim();
-        return Task.FromResult(ProviderResult.Success(
-            _companies.Find(c => string.Equals(c.Name, wanted, StringComparison.Ordinal))
-            ?? _companies.Find(c => string.Equals(c.Id, wanted, StringComparison.Ordinal))));
+        var wanted = (name ?? string.Empty).Trim();
+        return Task.FromResult(ProviderResult.Success(_companies.Find(c => string.Equals(c.Name, wanted, StringComparison.Ordinal))));
     }
 
     public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)

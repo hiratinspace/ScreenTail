@@ -397,7 +397,7 @@ public sealed class PublishConcurrencyTests(ApiFixture api) : IClassFixture<ApiF
 
         public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) => Task.FromResult(ProviderResult.Success<IReadOnlyList<TicketRef>>([]));
 
-        public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default) => Task.FromResult(ProviderResult.Success<CompanyRef?>(null));
+        public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default) => Task.FromResult(ProviderResult.Success<CompanyRef?>(null));
 
         public async Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)
         {

@@ -278,14 +278,12 @@ public sealed class DemoPsaProvider(DemoStore store) : IPsaProvider
     public Task<ProviderResult<IReadOnlyList<TicketRef>>> RecentTicketsAsync(CancellationToken ct = default) =>
         Task.FromResult(ProviderResult.Success(store.Recent(10)));
 
-    /// <summary>From the demo's own companies, by exact name, then by id.</summary>
-    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string nameOrId, CancellationToken ct = default)
+    /// <summary>From the demo's own companies, by exact name.</summary>
+    public Task<ProviderResult<CompanyRef?>> FindCompanyAsync(string name, CancellationToken ct = default)
     {
-        var wanted = (nameOrId ?? string.Empty).Trim();
+        var wanted = (name ?? string.Empty).Trim();
         var companies = store.PsaCompanies();
-        return Task.FromResult(ProviderResult.Success(
-            companies.FirstOrDefault(c => string.Equals(c.Name, wanted, StringComparison.Ordinal))
-            ?? companies.FirstOrDefault(c => string.Equals(c.Id, wanted, StringComparison.Ordinal))));
+        return Task.FromResult(ProviderResult.Success(companies.FirstOrDefault(c => string.Equals(c.Name, wanted, StringComparison.Ordinal))));
     }
 
     public Task<ProviderResult<PublishedNote>> AddNoteAsync(TicketNote note, CancellationToken ct = default)

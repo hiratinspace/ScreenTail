@@ -139,7 +139,7 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
         }
 
         var route = request.Path[ApiRoot.Length..];
-        var family = TicketRoute().IsMatch(route) ? "service/tickets" : CompanyRoute().IsMatch(route) ? "company/companies" : route;
+        var family = TicketRoute().IsMatch(route) ? "service/tickets" : route;
         if (Denied.Contains(route) || Denied.Contains(family))
         {
             return new Reply(403, new { code = "Forbidden", message = "You do not have permission to perform this action." });
@@ -150,7 +150,6 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
             ("GET", "system/info") => new Reply(200, new { version = "v2026.1", isCloud = true, serverTimeZone = "Eastern Standard Time" }),
             ("GET", "service/tickets") => ListTickets(request),
             ("GET", "company/companies") => ListCompanies(request),
-            ("GET", _) when CompanyRoute().Match(route) is { Success: true, Groups: var c } => GetCompany(int.Parse(c["id"].Value, CultureInfo.InvariantCulture), request),
             ("GET", _) when TicketRoute().Match(route) is { Success: true, Groups: var g } && g["notes"].Length == 0 => GetTicket(int.Parse(g["id"].Value, CultureInfo.InvariantCulture), request),
             ("POST", _) when TicketRoute().Match(route) is { Success: true, Groups: var g } && g["notes"].Length > 0 => AddNote(int.Parse(g["id"].Value, CultureInfo.InvariantCulture), request),
             ("POST", "time/entries") => AddTimeEntry(request),
@@ -161,9 +160,6 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
 
     [GeneratedRegex(@"^service/tickets/(?<id>[0-9]+)(?<notes>/notes)?$")]
     private static partial Regex TicketRoute();
-
-    [GeneratedRegex(@"^company/companies/(?<id>[0-9]+)$")]
-    private static partial Regex CompanyRoute();
 
     [GeneratedRegex(@"^name (?<op>=|contains) '(?<value>[^']*)'$", RegexOptions.IgnoreCase)]
     private static partial Regex NameCondition();
@@ -233,7 +229,7 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
     }
 
     /// <summary>
-    /// Companies by <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c>, without
+    /// Companies by <c>name = '…'</c> or <c>name contains '…'</c> clauses joined by <c>and</c> outside quotes, without
     /// regard to case as ConnectWise's database compares, paged and projected as the tickets are. A
     /// condition it cannot read, or a quote inside a value, is a field error, as a real parser's would be.
     /// </summary>
@@ -242,7 +238,7 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
         IEnumerable<CwCompany> matched = _companies;
         if (request.Query.TryGetValue("conditions", out var conditions))
         {
-            foreach (var clause in conditions.Split(" and ", StringSplitOptions.TrimEntries))
+            foreach (var clause in ConnectWise.ScriptedConnectWise.Clauses(conditions))
             {
                 if (NameCondition().Match(clause) is not { Success: true } name)
                 {
@@ -264,12 +260,6 @@ internal sealed partial class ConnectWiseStandIn : StandInHost
         }
 
         return new Reply(200, matched.Skip((page - 1) * size).Take(size).Select(c => Project(CompanyJson(c), request)).ToList());
-    }
-
-    private Reply GetCompany(int id, RecordedRequest request)
-    {
-        var company = _companies.Find(c => c.Id == id);
-        return company is null ? NotFound("Company not found") : new Reply(200, Project(CompanyJson(company), request));
     }
 
     private static JsonObject CompanyJson(CwCompany c) => new()
