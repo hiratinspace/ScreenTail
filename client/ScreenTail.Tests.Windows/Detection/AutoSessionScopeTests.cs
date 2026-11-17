@@ -417,6 +417,36 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Assert.False(_trigger!.SessionRunning);
     }
 
+    [Fact]
+    public async Task ABriefPassThroughTheToolEndsWithNoDraftAndAQuietRowInHistory()
+    {
+        // M1, 2026-11-13: a brief AnyDesk focus started a session, as it should, and it ended as a draft
+        // about nothing. Through the coordinator now, on one clock: three seconds in the tool, Outlook for
+        // the whole grace, nothing clicked in scope, nothing said. The auto-stop ends the session and the
+        // machine discards it rather than drafting it: idle, not draft_failed, and History has a discarded
+        // row for it. The next focus starts a session as before.
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTime(At);
+        var coordinator = await CoordinatorAsync(ct, time: clock, machineTime: clock);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Recording, _machine!.State);
+        var id = _machine.SessionId!;
+
+        clock.Advance(TimeSpan.FromSeconds(3));
+        await coordinator.HandleAsync(Window(handle: 333, process: "outlook", title: "Inbox"), ct);
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(95), ct);
+
+        Assert.Equal(SessionState.Idle, _machine.State);
+        Assert.False(_trigger!.SessionRunning);
+        var row = Assert.Single(await _store!.ListSessionsAsync(ct: ct));
+        Assert.Equal(id, row.Id);
+        Assert.Equal(SessionStateNames.Discarded, row.State);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        Assert.Equal(SessionState.Recording, _machine.State);
+    }
+
     // ---- a retitle the watcher is still holding re-decides the window in front -------------------------
 
     [Fact]
@@ -549,10 +579,11 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         Func<bool>? autoStart = null,
         TimeProvider? time = null,
         ScopeOptions? options = null,
-        Func<ForegroundWindowInfo?>? latest = null)
+        Func<ForegroundWindowInfo?>? latest = null,
+        TimeProvider? machineTime = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)), ct: ct);
-        _machine = new SessionMachine(_store, new NoCaptureSources(), new UnavailableDrafter());
+        _machine = new SessionMachine(_store, new NoCaptureSources(), new UnavailableDrafter(), time: machineTime);
         _policy = new ScopePolicy(Shipped, options);
         _trigger = new SessionTrigger(_policy, time, TimeSpan.FromSeconds(90));
         return new AutoSessionCoordinator(

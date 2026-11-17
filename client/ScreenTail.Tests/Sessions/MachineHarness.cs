@@ -40,7 +40,13 @@ internal sealed class MachineHarness : IAsyncDisposable
     /// <param name="pendingDepth">How many frames may wait. Small only for a test that needs the machine to refuse one.</param>
     /// <param name="redactionGrace">How long finalize waits for frames still being read. Short by default; long only for a test that needs to act while the machine finalizes.</param>
     /// <param name="drafter">What drafts a finished session. Unavailable by default, so a session rests in draft_failed.</param>
-    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null, int pendingDepth = 1000, TimeSpan? redactionGrace = null, IDrafter? drafter = null)
+    /// <param name="emptySessionMinimum">
+    /// The empty-session rule's minimum (<see cref="EmptySession"/>). Zero by default, which keeps every
+    /// session: the tests here start and stop sessions with nothing in them to exercise drafting, discards
+    /// and publishes, and the rule would discard those before any of it ran. <see cref="EmptySessionTests"/>
+    /// runs the machine with the production minimum.
+    /// </param>
+    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null, int pendingDepth = 1000, TimeSpan? redactionGrace = null, IDrafter? drafter = null, TimeSpan? emptySessionMinimum = null)
     {
         var path = Path.Combine(Path.GetTempPath(), "screentail-tests", $"{Guid.NewGuid():N}.db");
         var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
@@ -58,6 +64,7 @@ internal sealed class MachineHarness : IAsyncDisposable
                 RedactionGrace = redactionGrace ?? TimeSpan.FromMilliseconds(100),
                 RedactionPoll = TimeSpan.FromMilliseconds(20),
                 Pending = pending,
+                EmptySessionMinimum = emptySessionMinimum ?? TimeSpan.Zero,
             });
         return new MachineHarness(path, store, machine, pending);
     }

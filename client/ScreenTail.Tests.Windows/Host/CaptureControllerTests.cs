@@ -155,7 +155,10 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             return Task.FromResult(true);
         });
 
+        // A click in the tool, so the session is one worth drafting: one with nothing in it is discarded
+        // at stop rather than drafted (EmptySession), and the machine would go back to Idle.
         Assert.True(await machine.StartAsync(new RemoteTool { Kind = RemoteToolKind.Rdp }, ct: ct));
+        Assert.True(await machine.TryRecordEventAsync(new ClickEvent { TsMs = machine.NowMs, X = 10, Y = 10, Button = MouseButton.Left }, ct));
         Assert.True(await machine.StopAsync(ct));
         Assert.Equal(SessionState.DraftFailed, machine.State);
 

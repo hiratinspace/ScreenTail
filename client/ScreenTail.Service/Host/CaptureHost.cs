@@ -263,6 +263,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // reached the store and the pill and the tray went on saying the draft had failed.
         outbox.Settled = DraftSettling.Listener(machine);
 
+        // A session that ended with nothing in it was discarded rather than drafted (EmptySession). Its
+        // id, its length and counts, nothing that was on screen or said (INV-10).
+        machine.DroppedEmpty += (sessionId, verdict) =>
+            LogDroppedEmpty(logger, sessionId, verdict.DurationMs / 1000, verdict.InScopeMs / 1000, verdict.Events);
+
         var recovered = await machine.RecoverAsync(stoppingToken).ConfigureAwait(false);
         if (recovered > 0)
         {
@@ -822,6 +827,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
 
     [LoggerMessage(Level = LogLevel.Information, Message = "The speech model was still busy at stop; it is freed when its call returns or the process exits")]
     private static partial void LogSpeechLeftRunning(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Session {SessionId} ended with nothing in it and was discarded, not drafted: {Seconds} s long, {InScopeSeconds} s in a captured window, {Events} timeline events")]
+    private static partial void LogDroppedEmpty(ILogger logger, string sessionId, long seconds, long inScopeSeconds, int events);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Retention removed raw data from {Count} session(s)")]
     private static partial void LogRetention(ILogger logger, int count);
