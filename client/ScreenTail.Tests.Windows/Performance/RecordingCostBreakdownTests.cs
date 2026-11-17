@@ -51,12 +51,15 @@ public sealed class RecordingCostBreakdownTests
     /// <summary>
     /// The ceiling on a narrated recording, as the service ships it (full context, the throttle not
     /// acting, so the figure is of a session doing all its work), mean over the window, % of one core net
-    /// of the test host. Set from the laptop after whisper moved to one thread, with a margin; see
-    /// docs/dev/performance.md. It is a regression ceiling, not ST-031's budget of 60%: a narrated session
-    /// is still over that until the sized context is switched on or the throttle's accounting changes, and
+    /// of the test host. Set from the laptop after whisper moved to one thread: 95.9% of one core (12.0%
+    /// of the machine) in run 44027063937, with about a quarter again as margin, so 120% (15% of the
+    /// machine); see docs/dev/performance.md. Two threads read 105.2% in run 44014246194, inside this
+    /// ceiling, so the ceiling catches a stage that grows (four whisper threads, OCR at a larger size), not
+    /// that one step back. It is a regression ceiling, not ST-031's budget of 60%: a narrated session is
+    /// still over that until the sized context is switched on or the throttle's accounting changes, and
     /// that is recorded in ST-031's status rather than hidden by a ceiling set to pass.
     /// </summary>
-    internal const double NarratedCeilingPercentOfOneCore = 160;
+    internal const double NarratedCeilingPercentOfOneCore = 120;
 
     private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
 
