@@ -39,6 +39,13 @@ public sealed class SessionMachineOptions
     /// finalizing a session forgets what is left of it.
     /// </summary>
     public NarrationBacklog Narration { get; init; } = new();
+
+    /// <summary>
+    /// A session that ends with nothing in it and a captured window in front for less than this is not
+    /// drafted (<see cref="EmptySession"/>): it is marked discarded, so History shows a quiet row and
+    /// nothing is notified, queued or sent. Zero keeps every session, as before this rule.
+    /// </summary>
+    public TimeSpan EmptySessionMinimum { get; init; } = EmptySession.Minimum;
 }
 
 /// <summary>
@@ -96,6 +103,13 @@ public sealed class SessionMachine : IAsyncDisposable
 
     /// <summary>Raised after a transition has been persisted. Handlers must not block.</summary>
     public event Action<CaptureStateSnapshot>? StateChanged;
+
+    /// <summary>
+    /// A session ended with nothing in it and was not kept (<see cref="EmptySession"/>), for the host's log:
+    /// the session's id and the verdict's counts and durations, never content (INV-10). Raised after the
+    /// machine has gone idle. Handlers must not block.
+    /// </summary>
+    public event Action<string, EmptySessionVerdict>? DroppedEmpty;
 
     /// <summary>
     /// How many times a <see cref="StateChanged"/> listener threw. Counts only, never the message: an
@@ -522,7 +536,8 @@ public sealed class SessionMachine : IAsyncDisposable
 
     /// <summary>
     /// Stop and draft: finalizing → waits up to the grace period for pending redactions → purges stragglers
-    /// → finalizes the session row → drafts → draft_ready or draft_failed.
+    /// → finalizes the session row → drafts → draft_ready or draft_failed. A session with nothing in it
+    /// is discarded instead of drafted, and the machine goes idle (<see cref="EmptySession"/>).
     /// </summary>
     public async Task<bool> StopAsync(CancellationToken ct = default)
     {
@@ -1313,7 +1328,7 @@ public sealed class SessionMachine : IAsyncDisposable
             closing.CloseNarration();
         }
 
-        _ = _options.Narration.Forget(sessionId);
+        var unheard = _options.Narration.Forget(sessionId);
 
         // Whatever is still queued when the grace runs out. The frames were captured and never read, so
         // they cannot be stored (ADR-0004) -- and there is no row to delete, so what is left to do is
@@ -1325,6 +1340,13 @@ public sealed class SessionMachine : IAsyncDisposable
         // path that meets them.
         await _store.PurgePendingFramesAsync(sessionId, ct).ConfigureAwait(false);
         await _store.FinalizeSessionAsync(sessionId, new FinalizeInfo(durationMs, partial), ct).ConfigureAwait(false);
+
+        // Judged once nothing more can arrive: the frames and narration still owed have landed or been
+        // counted lost above. A session recovered after a crash is never judged; it is drafted as before.
+        if (!partial && await DropIfEmptyAsync(sessionId, unheard, ct).ConfigureAwait(false))
+        {
+            return;
+        }
 
         DraftOutcome outcome;
         try
@@ -1359,6 +1381,68 @@ public sealed class SessionMachine : IAsyncDisposable
             await RefreshDraftCountAsync(ct).ConfigureAwait(false);
             SetState(SessionState.DraftFailed, outcome.Reason);
         }
+    }
+
+    /// <summary>
+    /// A session with nothing in it is not drafted (M1, 2026-11-13; <see cref="EmptySession"/>). It is
+    /// discarded as Review's Discard discards one, in one store transaction: its focus changes and
+    /// transitions go, the row stays and says discarded, so History has a quiet row under Earlier for the
+    /// session the pill showed, and the audit log has its line. No draft, so no "Draft ready" toast, no row
+    /// to check and nothing queued for the backend. The machine goes idle, as after any discard.
+    ///
+    /// Anything that goes wrong here keeps the session: it is drafted exactly as before the rule.
+    /// </summary>
+    /// <returns>Whether the session was dropped; false sends it on to be drafted.</returns>
+    private async Task<bool> DropIfEmptyAsync(string sessionId, int unheard, CancellationToken ct)
+    {
+        if (_options.EmptySessionMinimum <= TimeSpan.Zero || unheard > 0)
+        {
+            return false;
+        }
+
+        EmptySessionVerdict verdict;
+        try
+        {
+            if (await _store.LoadSessionAsync(sessionId, ct).ConfigureAwait(false) is not { } session)
+            {
+                return false;
+            }
+
+            verdict = EmptySession.Judge(session, _options.EmptySessionMinimum, unheard);
+            if (!verdict.Empty)
+            {
+                return false;
+            }
+
+            _ = await _store.DiscardSessionAsync(sessionId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The discard is one transaction, so a failure left the session whole. Kept, and drafted.
+            return false;
+        }
+
+        if (string.Equals(_session?.Id, sessionId, StringComparison.Ordinal))
+        {
+            _session = null;
+        }
+
+        ClearHolds();
+        await RefreshDraftCountAsync(ct).ConfigureAwait(false);
+        SetState(SessionState.Idle, null);
+
+        try
+        {
+            DroppedEmpty?.Invoke(sessionId, verdict);
+        }
+#pragma warning disable CA1031 // A listener's fault is counted, as StateChanged's are; the drop stands.
+        catch (Exception)
+#pragma warning restore CA1031
+        {
+            _ = Interlocked.Increment(ref _listenerFailures);
+        }
+
+        return true;
     }
 
     /// <returns>Whether either count moved, for a caller that changes no state and has to tell it.</returns>

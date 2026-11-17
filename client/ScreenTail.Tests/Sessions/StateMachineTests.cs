@@ -1673,12 +1673,16 @@ public sealed class StateMachineTests : IAsyncDisposable
 
         // Scrubber is only set when a test asks for one: left alone, the machine has to scrub by itself,
         // which is the behaviour under test.
+        //
+        // The empty-session rule is off here. These tests stop sessions with nothing in them to see the
+        // drafting outcomes, and the rule would discard them first; EmptySessionTests runs it.
         var options = scrubber is null
             ? new SessionMachineOptions
             {
                 RedactionGrace = grace ?? TimeSpan.FromSeconds(1),
                 RedactionPoll = TimeSpan.FromMilliseconds(20),
                 Pending = _pending,
+                EmptySessionMinimum = TimeSpan.Zero,
             }
             : new SessionMachineOptions
             {
@@ -1686,6 +1690,7 @@ public sealed class StateMachineTests : IAsyncDisposable
                 RedactionPoll = TimeSpan.FromMilliseconds(20),
                 Scrubber = scrubber,
                 Pending = _pending,
+                EmptySessionMinimum = TimeSpan.Zero,
             };
         _machine = new SessionMachine(store, _sources, _drafter, time: time, options: options);
         _machine.StateChanged += s => _observed.Add(s);
