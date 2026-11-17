@@ -1,10 +1,11 @@
 # ScreenTail: project standing
 
-**Snapshot taken:** 2026-11-16, of `main` at `bfb0d4f8` (#333). It covers every merge since the
-2026-11-10 snapshot (#272, #274 to #316 and #321 to #333, the last of them on 2026-11-16): M1 on the demo
-laptop and the fixes it asked for, the Outbox and Iris redesign, a round of redaction recall, the
-2026-11-15 security review and its fixes, the dependency clean-up, and the CI work that keeps the one
-spare laptop from holding up every pull request.
+**Snapshot taken:** 2026-11-17, of `main` at `480d53f9` (#334). It covers every merge since the
+2026-11-10 snapshot (#272, #274 to #316 and #321 to #336, the last of them on 2026-11-17): M1 on the demo
+laptop and the fixes it asked for, the Outbox and Iris redesign and the design pass after it, a round of
+redaction recall, the 2026-11-15 security review and its fixes, the dependency clean-up, the capture
+service's processor cost measured, and the CI work that keeps the one spare laptop from holding up every
+pull request.
 **Purpose:** one page to come back to: what exists, what's decided, what's open, and what happens next.
 **Source of truth:** the **Status** line on each ticket in `Build Plan/02-Backlog-v0.4.md`. This page summarises; the backlog decides. `docs/README.md` says which document is which.
 
@@ -19,24 +20,39 @@ transcript segments, about 19k tokens, nothing purged unredacted) went to the ba
 and the pill and the tray showed the recording the whole time. Publish was not part of it (the demo PSA
 was off). What it found:
 
-- **The capture service ran at about 25% of the machine** against ST-031's 15% budget, so the throttle
-  gave up scene sampling and most OCR for most of the session. **Open; the next product item** (§7).
+- **The capture service went over its processor budget**, so the throttle gave up scene sampling and
+  most OCR for most of the session. M1 read about 25% of the machine; that was almost certainly one of
+  the throttle's one-second readings while whisper held 2 of the 8 logical processors. The budget is 60%
+  of one core, which is 7.5% of that laptop, not 15%. Speech was about 80% of a narrated session. #334
+  cut it, and it still trips the throttle; a fix that does not is built and off until the owner's ST-027
+  recording (below).
 - **A quick focus on AnyDesk left an empty 18-second session.** Open.
 - The dark theme was hard to read and some screens waste space: #313 (dark layers), with #312
-  (Appearance) and #317 (light mode everywhere, compact density), which is not on `main` (below).
+  (Appearance) and #336 (light mode everywhere, compact density; below).
 - Drafted titles carried em dashes because `note_v1` asked for them: fixed by `note_v2` (#314).
 
 **What is proven now, and what is not.** A real session, the real backend, the real model and a person
 reading the note have run together once, and the note was good. A publish from a real session has not:
 not to the demo PSA, and not to ConnectWise or Hudu, which have still never been called for real.
 
-**#317 is marked merged but is not on `main`.** It was merged at 2026-11-17 00:00 UTC into its stacked
-base, `st-016-no-em-dashes`, more than two days after that branch's own pull request (#316) had been
-squash-merged.
-So the light rail, the light title bar, the Windows 11 style Settings tiles and the compact density
-(spec v0.7.0) are only on that branch. On `main` the light theme still keeps the rail, the title bar and
-the pill indigo navy, which the owner rejected on 2026-11-13. Landing #317's change on `main` needs a new
-pull request.
+**The design pass is on `main` (#336, ST-016).** #317 merged on 2026-11-17 into its stacked base,
+`st-016-no-em-dashes`, instead of `main`; #336 is the same content against `main`. Light mode is now light
+across the whole window, the rail, the title bar and the pill included, as the owner asked on
+2026-11-13, with compact density and Windows 11 style Settings tiles (spec v0.7.0). It also fixes the
+tray icon's teardown from another thread, which now runs on the UI thread. The owner has not looked at it
+on the laptop yet (§5).
+
+**The capture service's processor cost is measured (#334, ST-031).** The 4.7% CI recorded for recording
+(#223) was of one core, 0.6% of the machine, with no speech model loaded and a tiny window, so it never
+said a narrated session would fit. Whisper now runs on one thread: a narrated session went from 105.2% to
+95.9% of one core (13.1% to 12.0% of the machine; the peak one-second reading from 33.8% to 21%). It
+still trips the throttle. The demo now publishes Release, the cost test fills the screen, and a narrated
+recording is held under 120% of one core. A segment-sized encoder context ships off behind
+`SCREENTAIL_SPEECH_SIZED_CONTEXT=1`: with it on, a narrated session is 42% of one core (5.3% of the
+machine) and the throttle never trips. Word error is unchanged on synthetic speech only, so the default
+waits for the owner's ST-027 recording. Known follow-up: on one thread, a stop in the middle of a
+transcription routinely passes its 500 ms bound and the release finishes in the background, so the next
+test's memory reading is unreliable.
 
 **Pull `main` before the next run on the laptop.** The pipe contract is version 12 (v10 for "Not
 confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note), and the service and the UI
@@ -141,11 +157,11 @@ stays private. In short:
 
 The owner's part of it is in §5.
 
-**In progress, not on `main`.** No pull request is open at this snapshot. #317 is on a branch only (above).
+**In progress, not on `main`.** No pull request is open at this snapshot.
 
 **The laptop runner** was online when this snapshot was taken. Its last runs on pull request heads
-passed (#324's in run 43931020687, #317's in 43980716975). The nightly run on `main` passed on 2026-11-15
-and on 2026-11-16 stopped at its first step because the laptop was on battery (#304's rule).
+passed (#317's in 43980716975, #334's final head in 44031237988). The nightly run on `main` passed on
+2026-11-15 and on 2026-11-16 stopped at its first step because the laptop was on battery (#304's rule).
 
 **The loop runs end to end on a Windows VM, unattended** (#230, ST-013). `scripts/windows/e2e/` takes one
 session through to the note on the demo PSA's ticket with a scripted drafting provider (`docs/dev/e2e.md`).
@@ -163,14 +179,16 @@ transcription in flight (#262, #263). A publish that may have landed is held unt
 (#265). Keyboard blur (#257). The web admin's browser tests (#255, #259). A demo PSA stands in for
 ConnectWise in Development (#218), and the backend tests drive the real ConnectWise and Hudu providers
 against stand-in servers (#226). Auto-update is built and switched off (#233, ADR-0008 Proposed). The
-processor limit is built (#232, ST-031 AC2) and, by M1's account, tripped on a real session. The
+processor limit is built (#232, ST-031 AC2) and tripped on M1's real session and on #334's narrated
+laptop runs. The
 2026-10-12 review is worked through (#173 to #216, #220).
 
 **Of 85 tickets, 67 are Done or built, 9 are Partial and 9 are Open** (recounted from the Status lines
 on 2026-11-16). The numbers are the same as on 2026-11-10, and no ticket changed group: this stretch
 redesigned, hardened and measured tickets that were already built. The Status lines that moved say so
 inside their group: ST-009, ST-082 and ST-099 (owner-only credentials), ST-097 (the PSA company check),
-ST-113 (one key per channel), ST-061 (`note_v2`), ST-070 (Appearance), and the redesign's tickets
+ST-113 (one key per channel), ST-061 (`note_v2`), ST-070 (Appearance), ST-031 (#334's measurement), and
+the redesign's tickets
 ST-016, ST-071, ST-074, ST-078, ST-079, ST-081 and ST-083. ST-042, ST-072 and ST-112 were brought up
 to date by #272.
 
@@ -188,17 +206,17 @@ to date by #272.
   the cloud half), ST-013 (a passing laptop run with real clicks, making the loop job required, the
   golden replay, resource figures and the nightly schedule), ST-014 (two technician sessions), ST-027
   (the WER number needs a human recording), ST-031 (the golden replay, the throttle's laptop sighting,
-  the nightly harness, memory with speech and live figures in "What's being captured"; M1's overrun is
-  the open product problem), ST-042 (the recall gate needs ST-030's labelled frames), ST-112 (signing
-  needs the certificate; an elevated installer closing the service is to be seen on the laptop), ST-113
+  the nightly harness, memory with speech and live figures in "What's being captured"; narration still
+  trips the throttle as shipped, and the sized encoder context waits for ST-027's recording), ST-042
+  (the recall gate needs ST-030's labelled frames), ST-112 (signing needs the certificate; an elevated installer closing the service is to be seen on the laptop), ST-113
   (auto-update is switched off until the owner creates the two keys, the hosting and the release
   environment), ST-114 (the security-lead review).
 - **9 are Open:** ST-017 (the usability round), ST-030 (golden sessions), ST-110, ST-111 and ST-116 (the
   pilot), and the four v1.1 and v1.2 tickets ST-120 to ST-123.
 
-Two Status lines lag what merged, and are left for the pull request that next changes those tickets:
+One Status line lags what merged, and is left for the pull request that next changes that ticket:
 ST-042's still says the two fixes of #269 are not merged (they landed in #275) and does not mention #275
-or #278; ST-031's does not record M1's figure.
+or #278. ST-031's records M1's figure since #334.
 
 Phases A and B of the ordered plan (backlog Part C) are complete apart from what needs the owner: ST-030
 (golden sessions; a ScreenConnect trial and a second machine) and ST-062's corpus, which is ST-030's.
@@ -207,10 +225,10 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #333 (`bfb0d4f8`, CI run 43999003447); no pull request open on 2026-11-16. Secret scanning, push protection and Dependabot security updates on; no Dependabot alert open |
-| Build plan | `Build Plan/` | Spec at **v0.6.15** on `main`. v0.4.3 is accepted, and v0.6.0's brand and layout are the owner's choice; the amendment rows from v0.5.0 on mostly say **Awaiting owner review** (v0.7.0 is only on #317's branch). Backlog Part C is the ordered plan, Part D the amendments |
-| Client | `client/` | `.Shared` (schema and IPC, contract version 12), `.Core`, `.Platform` (ADR-0005), `.Service`, `.UI`, and `.Tests.AxeRunner`. **4,356 tests** in the suite that runs anywhere and **588** in the Windows-only suite (CI run 43999003447 on `bfb0d4f8`; ten of the 588 skipped on the hosted runner by design, which is the skip budget). Store migrations to 0015 |
-| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, summarize (which now refuses a tenant that locks local-only) and publish (bounded and gated per device and tenant), the Gemini and Claude providers, the cost ledger, the credential vault (rows bound to tenant, provider and site), ConnectWise and Hudu clients with the PSA company lookup, the demo PSA, the web admin's routes including the owner's integrations and their change record. **1,596 tests** (two skipped; CI run 43999003447). Runs locally on PostgreSQL; not deployed (ST-007) |
+| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #334 (`480d53f9`, CI run 44116130950); no pull request open on 2026-11-17. Secret scanning, push protection and Dependabot security updates on; no Dependabot alert open |
+| Build plan | `Build Plan/` | Spec at **v0.7.0** on `main` (#336). v0.4.3 is accepted, and v0.6.0's brand and layout are the owner's choice; the amendment rows from v0.5.0 on mostly say **Awaiting owner review**. Backlog Part C is the ordered plan, Part D the amendments |
+| Client | `client/` | `.Shared` (schema and IPC, contract version 12), `.Core`, `.Platform` (ADR-0005), `.Service`, `.UI`, and `.Tests.AxeRunner`. **4,375 tests** in the suite that runs anywhere and **592** in the Windows-only suite (CI run 44116130950 on `480d53f9`; ten of the 592 skipped on the hosted runner by design, which is the skip budget). Store migrations to 0015 |
+| Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, summarize (which now refuses a tenant that locks local-only) and publish (bounded and gated per device and tenant), the Gemini and Claude providers, the cost ledger, the credential vault (rows bound to tenant, provider and site), ConnectWise and Hudu clients with the PSA company lookup, the demo PSA, the web admin's routes including the owner's integrations and their change record. **1,596 tests** (two skipped; CI run 44026084042 on `a862b128`, the last `main` run that ran the backend job). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Deployment | `deploy/`, `docs/dev/deploy.md` | Docker Compose for one Linux host: Caddy with automatic HTTPS, the API (memory ceiling `SCREENTAIL_API_MEMORY`, 2 GB by default), PostgreSQL and the web admin from one origin. Checked by `deploy/smoke.sh` in CI's Backend job; no host or name yet |
 | Research | `research/` | Fixtures, note prompts v1 (kept) and **v2** (current) with their hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** (CI run 43930259036 on `3626322f`, #328, the last change to `research/`) |
 | Web admin | `web/`, `docs/dev/web-admin.md` | Google sign-in, first-run tenant, Technicians and seats, Policy, **Integrations** (connect, replace, test, disconnect, mappings, recent changes; #327), Download client. **65 unit tests** and **5 browser tests** (CI run 43999003447). Lighthouse accessibility 100 as measured by hand for #245 and #246; not in CI and not rerun since |
@@ -242,8 +260,9 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   own frame; after publishing, the receipt. Settings is one scrolling page with a section nav and one Save
   bar; it gained Appearance (#312). The pill carries Mark, Pause and Stop and an expanded card with the
   last three events (#289). Every question the client asks goes through one dialog whose buttons say what
-  happens (#307), one at a time (#279), and none is asked while a session is being captured (#280). In
-  light mode the rail, the title bar and the pill stay indigo navy on `main` (#317 is not merged there).
+  happens (#307), one at a time (#279), and none is asked while a session is being captured (#280). Light
+  mode is light across the whole window, the rail, the title bar and the pill included, with compact
+  density and Settings as Windows 11 style tiles (#336, spec v0.7.0).
 - **The UI is connected** (ST-085): tray, pill and diagnostics show live state; the UI tells the service
   every two seconds that the pill is on screen and where, and the service suppresses capture when it has
   not heard for six seconds (INV-4). The recording clock counts in the UI between snapshots (#262), and a
@@ -272,7 +291,7 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   and 4K as captured), and three rules catch what OCR misreads: key prefixes with the underscore or `l`
   read wrong, random-looking runs of 16 or more characters, and "pass" without its colon. Text and pixels
   are masked from the same list of words.
-- **Speech works.** Whisper `base.en` on two threads, loaded when the first session wants it; a
+- **Speech works.** Whisper `base.en` on one thread since #334, loaded when the first session wants it; a
   voice-activity gate and a hallucination filter; what is said while capture is suppressed is dropped.
 - **The drafting path is wired end to end**, and M1 ran it with Claude. Bundle, outbox, sender,
   `POST v1/sessions/summarize`, the model, the validator and the note in the store; one model call per
@@ -296,7 +315,8 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   under a lock on the tenant's row (#248, #260).
 - **A recording session watches its own processor use** (ST-031 AC2, #232) and, over budget for ten
   seconds, samples the screen less, then reads one frame at a time, then stops scene sampling. Every
-  frame it does take is redacted exactly as before (INV-1). M1 saw it throttle a real session.
+  frame it does take is redacted exactly as before (INV-1). M1 saw it throttle a real session, and a
+  narrated session as shipped still trips it (#334).
 - **Updates are built, and off** (ST-113): a signed manifest checked against a compiled-in key that is
   trusted for one channel only (#323). The trust file is empty, so no build checks for updates yet.
 - **Every HTTP call the service makes goes through the egress allowlist**, by purpose (INV-8):
@@ -318,9 +338,9 @@ sign-in to the web admin (ST-099, ADR-0009).
 **Seen:** M1 on the demo laptop (2026-11-13): a real AnyDesk session drafted by Claude and read in
 Review, with the pill and tray showing the recording and the processor limit throttling. The
 Windows-only hardware tests and the input-injection job run on the laptop for pull requests that touch
-them and every night on `main`. #278's OCR timing on the laptop (725 ms at 1x and 1,465 ms at 2x for a
-dense full HD frame). Before this stretch: the idle hooks, the accessibility suite at a scaled display,
-the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (2026-09-19).
+them and every night on `main`. #334's processor cost of a narrated session, stage by stage. #278's OCR
+timing on the laptop (725 ms at 1x and 1,465 ms at 2x for a dense full HD frame). Before this stretch:
+the idle hooks, the accessibility suite at a scaled display, the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (2026-09-19).
 
 **Not seen yet:**
 
@@ -329,7 +349,7 @@ the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (
   documentation.
 - The redesigned screens looked at on Windows by a person beyond M1's Review: the rail, Settings, the
   wizard, the tray menu, dropdowns, tool tips, hover and pressed states, and Narrator on any of them.
-- #317's light window on `main` (it is not there), and the owner's check of it on the laptop.
+- #336's light window: the owner's check of it on the laptop.
 - The 2x OCR read and the new rules on a real display at 125% and 150%, and redaction through a real
   remote viewer's scaler and codec (#275 and #278 used GDI+ bilinear and JPEG).
 - A signed install with the UI and the service connecting from `C:\Program Files\ScreenTail` (#325), and
@@ -360,7 +380,8 @@ the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (
   **Claude** (`claude-opus-5-5`) was added on 2026-10-29 (#225), the demo's setup offers it first, and
   M1 drafted with it.
 - **2026-09-22, four decisions from the efficiency review:** US only for now; Whisper `base.en` on every
-  machine, two threads; the microphone follows the session; Gemini billing gates measurement, not M1.
+  machine, two threads (one since #334, ST-031); the microphone follows the session; Gemini billing
+  gates measurement, not M1.
 - **Draft validator, option A** (2026-10-21, split 2026-10-24, #206).
 - **INV-4 and the hidden pill** (2026-10-25, delegated by the owner).
 - **Owners sign in to the web admin with Google** (2026-10-31; ADR-0009). Decisions 23 and 25 made
@@ -374,8 +395,8 @@ the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (
   2026-11-12). The redesign and security pull requests record the choices they made this way.
 - **No unnecessary em dashes anywhere**, the product, its sample data and its docs included (the owner,
   2026-11-13; #314, #316).
-- **Light mode is the whole window**, the rail too (the owner, 2026-11-13). Built in #317, which is not
-  on `main` (§1).
+- **Light mode is the whole window**, the rail too (the owner, 2026-11-13). Built in #317 and landed on
+  `main` by #336 (§1).
 - **Integration credentials are owner-only, edited in the web admin**; technicians keep the mapping
   prompt, and every change is shown to the owner (the owner, 2026-11-15; #327). ADR-0009 decision 6 is
   superseded.
@@ -392,11 +413,14 @@ the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (
 
 ## 5. Open items for the owner
 
-- [ ] **Look at #317 and say how it should reach `main`** (§1): it merged into a stale branch. Then check
-      the light window on the laptop (the rail, Settings and the title bar buttons).
+- [ ] **Record the ten-minute narration for ST-027** (`research/fixtures/audio/README.md`), then **decide
+      the sized encoder context's default** (#334, ST-031): it keeps a narrated session inside the
+      processor budget, and word error is so far unchanged on synthetic speech only. Only if it fails on
+      real speech, decide whether speech should count against the screenshot budget.
+- [ ] **Check the light window on the laptop** (#336): the rail, Settings and the title bar buttons.
 - [ ] **Pull `main` on the demo laptop before the next run** (contract v12), then
       `scripts\windows\demo\start.cmd` from a plain PowerShell window.
-- [ ] **Review the spec amendments marked "Awaiting owner review"** (v0.5.0 to v0.6.15 in
+- [ ] **Review the spec amendments marked "Awaiting owner review"** (v0.5.0 to v0.7.0 in
       `Build Plan/01-UX-Design-Spec.md` §9), and the Appearance default (§5, decisions below).
 - [ ] **On the first deployment, the vault:** run the vault upgrade (`--upgrade-vault-rows`, or let the
       startup sweep do it), check it prints `upgraded 0` and `legacy rows left: 0` and the log has no
@@ -443,7 +467,6 @@ the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (
 - [ ] **A Hudu API key** for the real check of ST-095 to ST-097 (`docs/integrations/hudu.md`).
 - [ ] **A pilot MSP and technicians:** ST-110, ST-017, ST-014 and ST-116.
 - [ ] **Have an MSP security lead read the privacy pack** (ST-114 AC1). It is unreviewed and says so.
-- [ ] **Record the ten-minute narration** for ST-027's WER number.
 - [ ] **ScreenConnect trial and a second Windows machine** for ST-030's golden sessions and ST-001 AC2.
 
 ### Decisions waiting for the owner
@@ -451,9 +474,11 @@ the stop times, ST-001's spike, and the Gemini drafting call on a heavy bundle (
 Each has a default in place, fail-closed where it matters, and the pull request, ADR or document that
 chose it says so.
 
-- **The light window** (#317): soft grey rail, compact density, Windows 11 style Settings tiles, the KB
-  reason as a tooltip, and whether simple on/off settings should become switches (not done). Not on
-  `main` yet.
+- **The light window** (#336, built in #317): soft grey rail, compact density, Windows 11 style Settings
+  tiles, the KB reason as a tooltip, and whether simple on/off settings should become switches (not
+  done).
+- **The sized encoder context** (#334): off by default until ST-027's real recording shows its word
+  error; with it on, a narrated session stays inside the processor budget.
 - **Appearance's default** (#312): it now follows Windows' app mode, where the project scope said dark
   by default. A one-line change if dark should stay the default.
 - **The tray** (#306, spec v0.6.10): "Start capture" when idle (needs a start that reads the tool in
@@ -528,23 +553,23 @@ chose it says so.
 
 | When | What | Who |
 |---|---|---|
-| **Now** | **The capture service over its processor budget** (ST-031): M1 measured about 25% of the machine against 15%, so the throttle dropped scene sampling and most OCR. Find what costs it; #278's reading at twice the size is one thing to measure, not yet shown to be the cause | Agent |
+| **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
 | Next | **The empty 18-second session** a quick focus on a remote tool leaves | Agent |
-| Alongside | **Land #317 on `main`** in a new pull request, once the owner has said how | Owner decides; agent opens it |
 | Then | **The Outbox and Iris leftovers:** the coverage banner (not built), the manual Narrator pass, the tray's "Start capture" when idle, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
-| Small, no owner | Make the loop harness a required check (51 passing `main` runs behind it); refresh the ST-042 and ST-031 Status lines | Agent |
+| Small, no owner | Make the loop harness a required check (51 passing `main` runs behind it); refresh the ST-042 Status line; a stop mid-transcription on one thread passing its 500 ms bound (#334) | Agent |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
-| In parallel, when the inputs exist | ST-027's WER number, ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |
+| In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |
 | Phase D | The web admin's first real sign-in (ST-099), auto-update (ST-113), the Narrator pass (ST-084), the security-lead review (ST-114), the legal read, the usability round, the pilot | Both |
 
 **Why this order.** M1 answered the question the last snapshot asked: a real session gives a good note.
 What it also showed is that on the demo laptop the capture service spends most of a session throttled,
 taking fewer screenshots and reading fewer of them. Every frame it takes is still redacted, so this is
 not a privacy gap, but it is fewer screenshots in the note, and it is the first thing a pilot technician
-would meet. The empty session is the second. The security run is merged and leaves only owner steps;
-the redesign is merged apart from #317, which needs the owner's word before it can land. Everything after
-that needs the owner's accounts, a PSA or people.
+would meet. #334 found the cost (speech) and built the fix; what it waits for now is the owner's ST-027
+recording, so the agent's first item is the empty session. The security run is merged and leaves only
+owner steps; the redesign is merged, #317's part through #336. Everything after that needs the owner's
+accounts, a PSA or people.
 
 ### Needs a decision or an account
 
