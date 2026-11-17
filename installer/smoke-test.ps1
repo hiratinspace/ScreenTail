@@ -23,7 +23,9 @@
 
 .PARAMETER Bundle
     ScreenTail-Setup.exe. Installed and uninstalled after the package, with a link planted where the
-    data folder would be, to check the uninstall leaves what a link points at untouched.
+    data folder would be, to check the uninstall leaves what a link points at untouched. Installed with
+    BACKENDURL, to check it reaches the machine-wide value, and upgraded without it, to check the value
+    is kept.
 
 .PARAMETER Logs
     Where the installer logs are written.
@@ -48,6 +50,9 @@ $machineRun = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
 $userRun = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $shortcut = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\ScreenTail.lnk'
 $uninstallKeys = @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall')
+# The backend address the packages are given. Under .invalid, which never resolves (RFC 6761), so a service
+# started with it in place reaches nobody.
+$smokeBackend = 'https://screentail-smoke.invalid'
 $decoyName = 'ScreenTail.SmokeDecoy'
 $decoyCommand = '"C:\Elsewhere\ScreenTail.Dev\ScreenTail.UI.exe"'
 
@@ -280,6 +285,39 @@ function Test-SetupLog([string]$What, [string]$LogName, [int]$Code) {
     $end = @($lines | Where-Object { $_ -match 'i007: Exit code: ' }) | Select-Object -Last 1
     $said = $(if ("$end" -match '(Exit code: .*)$') { $Matches[1] } else { 'the log has no exit line' })
     Check "${What}: the setup program did not restart the machine, and its log has the exit code it returned" ("$end" -match ('Exit code: 0x{0:x}, restarting: No\s*$' -f $Code)) $said
+}
+
+function Get-BackendUrl {
+    # The machine-wide backend address the package writes from BACKENDURL, in the 64-bit view the service
+    # reads (a 32-bit PowerShell would see the WOW6432Node copy instead).
+    $view = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    try {
+        $key = $view.OpenSubKey('SOFTWARE\ScreenTail')
+        if (-not $key) {
+            return $null
+        }
+        try {
+            return $key.GetValue('BackendUrl')
+        } finally {
+            $key.Dispose()
+        }
+    } finally {
+        $view.Dispose()
+    }
+}
+
+function Test-AddressNotLogged([string]$What, [string]$Prefix) {
+    # The setup program's log and the package's log it writes beside it (and msiexec's own) name BACKENDURL
+    # but show the value as asterisks: the variable and the package's properties are hidden. One line is
+    # beyond that: a verbose Windows Installer log records each registry write it makes, value included
+    # ("Executing op: RegAddValue(Name=BackendUrl,Value=..."), whatever MsiHiddenProperties says. Only that
+    # line may show it (seen on the hosted runner, 2026-11-17).
+    $write = '^MSI \(s\) \([0-9A-F]+:[0-9A-F]+\) \[[0-9:]+\]: Executing op: RegAddValue\(Name=BackendUrl,Value='
+    $found = @(Get-ChildItem $Logs -Filter "$Prefix*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+            $name = $_.Name
+            Get-Content -LiteralPath $_.FullName | Where-Object { $_.Contains($smokeBackend) -and $_ -notmatch $write } | ForEach-Object { $name }
+        } | Select-Object -Unique)
+    Check "${What}: no log shows the backend address, but for Windows Installer's record of the registry write" ($found.Count -eq 0) ($found -join ', ')
 }
 
 function Test-UpgradeHeld($Holder, [string[]]$Report) {
@@ -516,6 +554,8 @@ if ($OlderMsi) {
 }
 
 Test-InstalledLayout $version
+$address = Get-BackendUrl
+Check 'no backend address is written when none was given' ($null -eq $address) $(if ($null -ne $address) { 'a BackendUrl value is there' } else { '' })
 
 Write-Step 'The installed executables run'
 $capabilities = Join-Path $Logs 'capabilities.json'
@@ -713,13 +753,17 @@ Remove-Item $outside -Recurse -Force -ErrorAction SilentlyContinue
 # --- The setup program, and a link where the data folder would be --------------------------------------
 if ($Bundle) {
     $Bundle = (Resolve-Path $Bundle).Path
-    Write-Step 'Silent install with the setup program'
+    Write-Step 'Silent install with the setup program, given the backend address'
     Write-PendingRestartState 'before the setup program'
-    $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-install.log')`""
-    Check 'ScreenTail-Setup.exe /quiet exits 0' ($code -eq 0) "exit $code"
+    $code = Invoke-Process $Bundle "/quiet /norestart /log `"$(Join-Path $Logs 'setup-install.log')`" BACKENDURL=$smokeBackend"
+    Check 'ScreenTail-Setup.exe /quiet BACKENDURL=... exits 0' ($code -eq 0) "exit $code"
     Test-SetupLog 'setup program install' 'setup-install.log' $code
     Write-PendingRestartState 'after the setup program'
     Test-InstalledLayout $version
+    # The address is the smoke test's own made-up one, so printing it here leaks nothing.
+    $address = Get-BackendUrl
+    Check 'the setup program passed BACKENDURL on: HKLM\SOFTWARE\ScreenTail\BackendUrl holds it' ($address -eq $smokeBackend) "value: $address"
+    Test-AddressNotLogged 'setup program install' 'setup-install'
     $bundles = @(Get-ArpEntries | Where-Object { $_.PSObject.Properties['BundleVersion'] })
     Check 'the setup program is listed in Programs and Features' ($bundles.Count -eq 1) "found $($bundles.Count)"
 
@@ -777,8 +821,12 @@ if ($OlderMsi) {
         Check 'msiexec /x /qn exits 0, with no restart needed (before the setup program''s upgrade)' ($code -eq 0) "exit $code"
         Test-Removed
         Test-ReleaseWait (Get-UninstallReport $Logs $since)
-        $code = Invoke-Msi '/i' (Resolve-Path $OlderMsi).Path 'install-older-3.log'
-        Check 'msiexec /i older /qn exits 0 (for the setup program''s upgrade)' ($code -eq 0) "exit $code"
+        # Given the address by msiexec, so the setup program's upgrade, given none, has one to keep.
+        $code = Invoke-Msi '/i' (Resolve-Path $OlderMsi).Path 'install-older-3.log' "BACKENDURL=$smokeBackend"
+        Check 'msiexec /i older BACKENDURL=... /qn exits 0 (for the setup program''s upgrade)' ($code -eq 0) "exit $code"
+        $address = Get-BackendUrl
+        Check 'msiexec wrote BACKENDURL to HKLM\SOFTWARE\ScreenTail\BackendUrl' ($address -eq $smokeBackend) "value: $address"
+        Test-AddressNotLogged 'msiexec install with BACKENDURL' 'install-older-3'
         Check 'the installed service starts and writes its pipe token' (Start-InstalledService)
         $since = Get-Date
         $holder = Start-ForeignHolder 'setup program upgrade'
@@ -789,6 +837,8 @@ if ($OlderMsi) {
         $upgradeReport | ForEach-Object { Write-Host "  $_" }
         Test-UpgradeHeld $holder $upgradeReport
         Test-InstalledLayout $version
+        $address = Get-BackendUrl
+        Check 'the setup program''s upgrade, given no BACKENDURL, kept the address already on the machine' ($address -eq $smokeBackend) "value: $address"
 
         Write-Step 'Silent uninstall with the setup program, after its upgrade'
         $since = Get-Date

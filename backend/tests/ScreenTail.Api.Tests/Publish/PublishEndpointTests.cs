@@ -223,7 +223,7 @@ public sealed class PublishEndpointTests(ApiFixture api) : IClassFixture<ApiFixt
         {
             Assert.False(r.Ok);
             Assert.False(r.Retryable);
-            Assert.Contains("Ask your owner to connect it again in the web admin.", r.Error, StringComparison.Ordinal);
+            Assert.Contains("Ask your ScreenTail owner to connect it again in the web admin.", r.Error, StringComparison.Ordinal);
         });
     }
 

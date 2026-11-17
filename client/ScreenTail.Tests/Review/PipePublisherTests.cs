@@ -386,7 +386,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         // pane already uses; the service answers both from the same commands class.
         _ = await PublisherAsync();
         var settings = new PipeIntegrations(_connection!);
-        _backend.Details = [new IntegrationDetailRow("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "Hudu rejected the API key. Update it in Settings → Integrations.")];
+        _backend.Details = [new IntegrationDetailRow("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "Hudu rejected the API key. Ask your ScreenTail owner to update the Hudu connection in the web admin.")];
         _backend.Companies = [new CompanyChoiceRow("7", "Acme Dental")];
 
         var rows = await settings.ListAsync(TestContext.Current.CancellationToken);

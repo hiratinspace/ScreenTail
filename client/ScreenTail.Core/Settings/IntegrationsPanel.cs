@@ -64,15 +64,15 @@ public static class IntegrationNames
 
     private const string Pointer = " in Settings → Integrations";
 
-    private const string AskOwner = "Ask your owner to ";
+    private const string AskOwner = "Ask your ScreenTail owner to ";
 
     /// <summary>
-    /// The backend's words, as they read on the Integrations page itself (Spec v0.6.8, v0.6.15). Its errors
-    /// end by sending the technician to "Settings → Integrations" to fix something there, which is right on
-    /// the publish pane and wrong here, where they already are and where nothing can be changed: integration
-    /// credentials can only be changed by the tenant owner, in the web admin. So the sentence that points
-    /// here asks the owner instead: "Update it in Settings → Integrations." reads "Ask your owner to update
-    /// it in the web admin."
+    /// The backend's words, as they read on the Integrations page itself (Spec v0.6.8, v0.6.15). The
+    /// backend asks the technician to ask the ScreenTail owner, in the web admin, and those words are kept.
+    /// A check stored before integration credentials became the owner's can still end by sending the
+    /// technician to "Settings → Integrations" to fix the credential, where nothing can be changed. So that
+    /// sentence asks the owner instead: "Update it in Settings → Integrations." reads "Ask your ScreenTail
+    /// owner to update it in the web admin."
     /// </summary>
     [return: System.Diagnostics.CodeAnalysis.NotNullIfNotNull(nameof(message))]
     public static string? OnThisPage(string? message)
@@ -91,7 +91,7 @@ public static class IntegrationNames
             start = start < 0 ? 0 : start + 2;
             var instruction = message[start..at];
             var asked = instruction.Length == 0
-                ? "Ask your owner in the web admin"
+                ? "Ask your ScreenTail owner to fix it in the web admin"
                 : AskOwner + char.ToLowerInvariant(instruction[0]) + instruction[1..] + " in the web admin";
             message = string.Concat(message.AsSpan(0, start), asked, message.AsSpan(at + Pointer.Length));
             at = message.IndexOf(Pointer, start + asked.Length, StringComparison.Ordinal);

@@ -69,7 +69,7 @@ public sealed class IntegrationsPanelTests
         // support it, and keeps the backend's last error.
         var gateway = new FakeIntegrations
         {
-            Rows = [new IntegrationDetail("halopsa", "https://acme.halopsa.com", "••••4321", DateTimeOffset.UnixEpoch, null, "HaloPSA rejected the key. Update it in Settings.")],
+            Rows = [new IntegrationDetail("halopsa", "https://acme.halopsa.com", "••••4321", DateTimeOffset.UnixEpoch, null, "HaloPSA did not answer. Try again in a minute.")],
         };
         var panel = new IntegrationsPanel(gateway);
 
@@ -79,7 +79,7 @@ public sealed class IntegrationsPanelTests
         Assert.Equal(("halopsa", "halopsa", "https://acme.halopsa.com"), (other.Provider, other.Title, other.SiteUrl));
         Assert.False(other.Connected);
         Assert.Equal("Not supported by this version", other.Status);
-        Assert.Equal("HaloPSA rejected the key. Update it in Settings.", other.LastError);
+        Assert.Equal("HaloPSA did not answer. Try again in a minute.", other.LastError);
     }
 
     [Fact]
@@ -229,7 +229,7 @@ public sealed class IntegrationsPanelTests
         var gateway = new FakeIntegrations
         {
             Rows = [new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)],
-            Check = new CheckOutcome(false, "ConnectWise rejected the key. Update it in Settings → Integrations."),
+            Check = new CheckOutcome(false, "ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin."),
         };
         var panel = new IntegrationsPanel(gateway);
         await panel.LoadAsync();
@@ -238,25 +238,40 @@ public sealed class IntegrationsPanelTests
 
         Assert.False(outcome.Ok);
 
-        // Spec v0.6.8, v0.6.15: the backend's words point at "Settings → Integrations", which is this page,
-        // where nothing can be changed, so the card asks the owner. (Was: "Press Change and enter a new key.")
-        Assert.Equal("ConnectWise rejected the key. Ask your owner to update it in the web admin.", panel.ConnectWise.CheckResult);
+        // Spec v0.6.15: the backend already asks the technician to ask the ScreenTail owner, in the web
+        // admin, so the card says just that. (Was: "Press Change and enter a new key.")
+        Assert.Equal("ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin.", panel.ConnectWise.CheckResult);
         Assert.False(panel.ConnectWise.CheckOk);
         Assert.Equal(["connectwise"], gateway.Checked);
     }
 
     [Theory]
-    [InlineData("Hudu rejected the API key. Update it in Settings → Integrations.", "Hudu rejected the API key. Ask your owner to update it in the web admin.")]
-    [InlineData("The site did not answer. Check the site address in Settings → Integrations.", "The site did not answer. Ask your owner to check the site address in the web admin.")]
-    [InlineData("The stored credential could not be opened. Enter it again in Settings → Integrations.", "The stored credential could not be opened. Ask your owner to enter it again in the web admin.")]
-    [InlineData("Enter the provider's public address in Settings → Integrations.", "Ask your owner to enter the provider's public address in the web admin.")]
-    [InlineData("HaloPSA rejected the key. Update it in Settings.", "HaloPSA rejected the key. Update it in Settings.")]
+    [InlineData("Hudu rejected the API key. Update it in Settings → Integrations.", "Hudu rejected the API key. Ask your ScreenTail owner to update it in the web admin.")]
+    [InlineData("The site did not answer. Check the site address in Settings → Integrations.", "The site did not answer. Ask your ScreenTail owner to check the site address in the web admin.")]
+    [InlineData("The stored credential could not be opened. Enter it again in Settings → Integrations.", "The stored credential could not be opened. Ask your ScreenTail owner to enter it again in the web admin.")]
+    [InlineData("Enter the provider's public address in Settings → Integrations.", "Ask your ScreenTail owner to enter the provider's public address in the web admin.")]
+    [InlineData(" in Settings → Integrations.", "Ask your ScreenTail owner to fix it in the web admin.")]
+    [InlineData("HaloPSA did not answer. Try again in a minute.", "HaloPSA did not answer. Try again in a minute.")]
     [InlineData("Connected to https://na.myconnectwise.net.", "Connected to https://na.myconnectwise.net.")]
     public void OnTheIntegrationsPageNothingSendsTheTechnicianToTheIntegrationsPage(string fromTheBackend, string onThePage)
     {
         Assert.Equal(onThePage, IntegrationNames.OnThisPage(fromTheBackend));
         Assert.DoesNotContain("Settings → Integrations", IntegrationNames.OnThisPage(fromTheBackend), StringComparison.Ordinal);
         Assert.DoesNotContain("Press Change", IntegrationNames.OnThisPage(fromTheBackend), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin.")]
+    [InlineData("Hudu rejected the API key. Ask your ScreenTail owner to update the Hudu connection in the web admin.")]
+    [InlineData("The stored credential could not be opened, so it was not used. Ask your ScreenTail owner to connect it again in the web admin.")]
+    [InlineData("The Hudu site answered with a redirect, and ScreenTail does not follow redirects. Ask your ScreenTail owner to check the site address in the web admin.")]
+    [InlineData("The ConnectWise site is on a private network, and ScreenTail only calls public addresses. Ask your ScreenTail owner to enter the provider's public address in the web admin.")]
+    public void TheBackendsCredentialWordsAlreadyAskTheOwnerAndAreKept(string fromTheBackend)
+    {
+        // Integration credentials are the owner's (2026-11-15): the backend's words for a credential that
+        // needs fixing ask the technician to ask the ScreenTail owner, in the web admin, and never send them
+        // to Settings, where nothing can be changed. The page keeps those words as they are.
+        Assert.Equal(fromTheBackend, IntegrationNames.OnThisPage(fromTheBackend));
     }
 
     [Fact]
@@ -280,9 +295,9 @@ public sealed class IntegrationsPanelTests
         var panel = new IntegrationsPanel(gateway);
         await panel.LoadAsync();
 
-        Assert.Equal("Hudu rejected the API key. Ask your owner to update it in the web admin.", panel.Hudu.LastError);
+        Assert.Equal("Hudu rejected the API key. Ask your ScreenTail owner to update it in the web admin.", panel.Hudu.LastError);
         Assert.Equal("Connected · the last check failed", panel.Hudu.Status);
-        Assert.Equal("The site did not answer. Ask your owner to check the site address in the web admin.", Assert.Single(panel.Others).LastError);
+        Assert.Equal("The site did not answer. Ask your ScreenTail owner to check the site address in the web admin.", Assert.Single(panel.Others).LastError);
     }
 
     [Fact]

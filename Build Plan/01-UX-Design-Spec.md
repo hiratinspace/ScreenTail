@@ -218,7 +218,7 @@ Focus ring: 2 px `accent.primary` outside the control (`shell.accent` on the fra
 - **Keyboard first.** Every action reachable without mouse; shortcuts listed per screen; `?` opens a shortcut sheet.
 - **Never interrupt recording.** No modals, no focus-stealing while a session is recording. Warnings go to the HUD.
 - **Undo over confirm** for reversible actions (exclude frame, reorder step). Typed confirmation only for irreversible deletes.
-- **Errors say what happened and what to do.** Pattern: `<What happened>. <What to do>.` Example: "ConnectWise rejected the request: clientId header missing. Add your clientId in Settings → Integrations."
+- **Errors say what happened and what to do.** Pattern: `<What happened>. <What to do>.` Example: "ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin."
 - **Time** shown relative in lists ("14 min ago") with absolute on hover.
 - **Empty states** always contain one primary action.
 - **Copy voice:** plain, present tense, no exclamation marks, no "Oops". Use "note" not "documentation", "session" not "recording" in tech-facing copy, "capture" for the act. The publish action is always "Publish", never "Send": a published note cannot be recalled.
@@ -525,7 +525,7 @@ Cards per integration, read only: **ConnectWise Manage** and **Hudu**. Each show
 
 **As built (v0.6.11).** *(Superseded v0.6.15: there is no Remove.)* Remove asks first, on the card (§3, as built v0.6.11).
 
-**As built (v0.6.8, reworded v0.6.15).** A message on this page never sends the technician to this page. Where the backend's sentence ends by pointing to Settings → Integrations, the instruction is the owner's, since nothing can be changed here: "Update it in Settings → Integrations." reads "Ask your owner to update it in the web admin.", "Check the site address in Settings → Integrations." reads "Ask your owner to check the site address in the web admin." (v0.6.8 had "Press Change and enter a new key." and "on this page"). The same sentence keeps its ending anywhere else it is shown, such as the receipt.
+**As built (v0.6.8, reworded v0.6.15).** A message on this page never sends the technician to this page. Where the backend's sentence ends by pointing to Settings → Integrations, the instruction is the owner's, since nothing can be changed here: "Update it in Settings → Integrations." reads "Ask your ScreenTail owner to update it in the web admin.", "Check the site address in Settings → Integrations." reads "Ask your ScreenTail owner to check the site address in the web admin." (2026-11-16: the backend now says it that way itself for every credential, so this only rewords a check stored before; the owner reads the same sentence on the provider's card in the web admin as "Update the Hudu connection with Replace on this card.") (v0.6.8 had "Press Change and enter a new key." and "on this page"). The same sentence keeps its ending anywhere else it is shown, such as the receipt.
 
 ### S8: Onboarding wizard (first run)
 

@@ -246,7 +246,7 @@ public sealed class ProviderHttpTests : IDisposable
         Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
         Assert.False(result.Error.Retryable);
         Assert.Equal("The Site site answered with something that is not its API.", result.Error.What);
-        Assert.Equal("Ask your owner to check the site address in the web admin.", result.Error.Todo);
+        Assert.Equal("Ask your ScreenTail owner to check the site address in the web admin.", result.Error.Todo);
         Assert.DoesNotContain("Sign in", result.Error.ToString(), StringComparison.Ordinal);
     }
 
