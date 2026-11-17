@@ -106,8 +106,9 @@ from "not published".
 (ST-009), with the tenant's own site as the base address and the deployment's `ConnectWise:ClientId`
 on every request. `docs/integrations/connectwise.md` has the routes, what a tenant supplies, and the
 sandbox check that has not been run yet. `FindCompanyAsync` is how the company mapping route checks the
-PSA company before saving a mapping (ST-097): an exact name, or an id, read live with `id` and `name`
-only, never cached, and refused rather than guessed at when ConnectWise cannot answer. Its tests run against `ScriptedConnectWise`, recorded shapes
+PSA company before saving a mapping (ST-097), and a publish checks an exact match before remembering
+it: an exact name (a number is a name too, never an id), one page read live with `id` and `name` only,
+never cached, and nothing saved on it when ConnectWise cannot answer. Its tests run against `ScriptedConnectWise`, recorded shapes
 of the API's answers, and it passes the contract harness like the fake does.
 
 ## Hudu (ST-095)

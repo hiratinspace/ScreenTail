@@ -5,8 +5,10 @@ namespace ScreenTail.Api.Vault;
 /// <summary>
 /// How much one device may change company mappings (2026-11-15 review), so a broken or hostile device
 /// cannot bury earlier changes under new ones: <see cref="PerDevice"/> map or unmap requests in any
-/// <see cref="Window"/>. Which companies can be mapped is bounded elsewhere: the PSA company and the
-/// documentation company are each checked against the tenant's own provider before a mapping is saved.
+/// <see cref="Window"/>. Which companies can be mapped is bounded elsewhere: a mapping chosen by hand is
+/// saved only when the PSA and the documentation platform each have the company, and one a publish makes
+/// from an exact name match only under the spelling of a company the PSA confirms (otherwise it files that
+/// article and saves nothing).
 ///
 /// Each check and take is one step under the device's own lock, so requests arriving together cannot
 /// all pass a count none of them has added to yet. A call expires only its own device's old entries, so

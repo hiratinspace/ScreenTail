@@ -94,7 +94,7 @@ public static partial class Publisher
                 // still go whatever the knowledge base thinks.
                 Destinations.KbArticle => docs is null || mappings is null
                     ? new PublishResultJson(destination, false, Error: "No documentation platform is connected, so no article was written. The note and the time entry are unaffected.", Kind: "not_configured")
-                    : await ArticleAsync(destination, docs, mappings, bundle, attachments, sent, deadline).ConfigureAwait(false),
+                    : await ArticleAsync(destination, psa, docs, mappings, bundle, attachments, sent, deadline).ConfigureAwait(false),
 
                 _ => new PublishResultJson(destination, false, Error: "That is not a destination.", Kind: "invalid"),
             };
@@ -189,8 +189,13 @@ public static partial class Publisher
     /// still reading the old site while the tenant moved, or one left from before mappings were cleared
     /// on a move, would otherwise file the article under whoever holds that number on the new site. The
     /// list is the one the platform checks the article against anyway, so this asks it for nothing more.
+    ///
+    /// An exact match is remembered only under the PSA's own spelling of a company the PSA has (ST-097),
+    /// as a mapping chosen by hand is: the ticket's company is a name the device sends, and a variant of
+    /// it is not a second company. When the PSA has no such company or cannot say, the article is still
+    /// filed under the exact match, and nothing is remembered.
     /// </summary>
-    private static async Task<PublishResultJson> ArticleAsync(string destination, IDocProvider docs, ICompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, Sending sent, CancellationToken ct)
+    private static async Task<PublishResultJson> ArticleAsync(string destination, IPsaProvider psa, IDocProvider docs, ICompanyMappings mappings, PublishBundle bundle, IReadOnlyList<NoteAttachment> attachments, Sending sent, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(bundle.Company))
         {
@@ -220,7 +225,7 @@ public static partial class Publisher
                 return NeedsMapping(destination, bundle.Company, match, string.Empty);
             }
 
-            mapped = await mappings.RememberAsync(bundle.Company, match.Company, "exact", ct).ConfigureAwait(false);
+            mapped = await ExactMatchAsync(psa, mappings, bundle.Company, match.Company, companies.Value!, ct).ConfigureAwait(false);
         }
 
         var article = new KbArticle(
@@ -244,6 +249,30 @@ public static partial class Publisher
         return result.Ok
             ? Landed(destination, result.Value!.Id, result.Value.Url, result.Value.Incomplete)
             : Failed(destination, result.Error!);
+    }
+
+    /// <summary>
+    /// The mapping an exact match files this article under. Remembered under the PSA's spelling when the
+    /// PSA confirms the company; when a mapping is already kept under that spelling and still names one of
+    /// the platform's companies, that one is used and left as it is, since a person may have chosen it.
+    /// Otherwise a mapping for this article only, which is not saved.
+    /// </summary>
+    private static async Task<CompanyMapping> ExactMatchAsync(IPsaProvider psa, ICompanyMappings mappings, string company, CompanyRef match, IReadOnlyList<CompanyRef> companies, CancellationToken ct)
+    {
+        var found = await psa.FindCompanyAsync(company.Trim(), ct).ConfigureAwait(false);
+        if (found is not { Ok: true, Value: { } psaCompany })
+        {
+            return new CompanyMapping { Id = Guid.Empty, PsaCompany = company.Trim(), DocCompanyId = match.Id, DocCompanyName = match.Name, Confidence = "exact" };
+        }
+
+        if (!string.Equals(psaCompany.Name, company.Trim(), StringComparison.Ordinal)
+            && await mappings.FindAsync(psaCompany.Name, ct).ConfigureAwait(false) is { } kept
+            && companies.Any(c => c.Id == kept.DocCompanyId && string.Equals(c.Name, kept.DocCompanyName, StringComparison.Ordinal)))
+        {
+            return kept;
+        }
+
+        return await mappings.RememberAsync(psaCompany.Name, match, "exact", ct).ConfigureAwait(false);
     }
 
     private static PublishResultJson NeedsMapping(string destination, string company, CompanyMatch? match, string why)

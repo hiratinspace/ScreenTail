@@ -57,7 +57,9 @@ public sealed class HuduOverHttpTests(ApiFixture api) : IClassFixture<ApiFixture
             Assert.Contains("application/json", r.Header("Accept"), StringComparison.Ordinal);
             Assert.Equal(200, r.Status);
         });
-        Assert.Empty(cw.Requests);
+        // ConnectWise is asked one thing: whether it has the company, before the match is remembered.
+        var lookup = Assert.Single(cw.Requests);
+        Assert.Equal(("GET", $"{ConnectWiseStandIn.ApiRoot}company/companies", "name = 'Acme Dental'"), (lookup.Method, lookup.Path, lookup.Query["conditions"]));
 
         var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == backend.TenantId, TestContext.Current.CancellationToken));
         Assert.Equal(("Acme Dental", "7", "exact"), (mapping.PsaCompany, mapping.DocCompanyId, mapping.Confidence));

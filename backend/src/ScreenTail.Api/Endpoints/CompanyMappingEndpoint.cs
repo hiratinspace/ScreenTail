@@ -115,7 +115,18 @@ public static class CompanyMappingEndpoint
             // each one on the Integrations page (2026-11-15 review). Recorded in the same transaction.
             await using (var transaction = await db.Database.BeginTransactionAsync(ct).ConfigureAwait(false))
             {
-                var mapped = await new CompanyMappings(db, who.TenantId, time).RememberAsync(psaCompany.Name, company, "manual", ct).ConfigureAwait(false);
+                var mappings = new CompanyMappings(db, who.TenantId, time);
+
+                // A row kept under the name as sent, when the PSA spells it otherwise, is the same company
+                // under a name no ticket carries: it goes, and the owner is told, so Settings does not list
+                // the company twice.
+                var sent = request.PsaCompany.Trim();
+                if (!string.Equals(sent, psaCompany.Name, StringComparison.Ordinal) && await mappings.ForgetAsync(sent, ct).ConfigureAwait(false))
+                {
+                    await IntegrationChanges.RecordMappingAsync(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Unmapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), sent, ct: ct).ConfigureAwait(false);
+                }
+
+                var mapped = await mappings.RememberAsync(psaCompany.Name, company, "manual", ct).ConfigureAwait(false);
                 await IntegrationChanges.RecordMappingAsync(db, who.TenantId, IntegrationsEndpoint.Hudu, IntegrationChanges.Mapped, ChangeActor.Technician(who.UserId, who.DeviceId), time.GetUtcNow(), mapped.PsaCompany, mapped.DocCompanyId, mapped.DocCompanyName, ct).ConfigureAwait(false);
                 _ = await db.SaveChangesAsync(ct).ConfigureAwait(false);
                 await transaction.CommitAsync(ct).ConfigureAwait(false);
