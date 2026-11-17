@@ -32,7 +32,7 @@ otherwise:
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
 | Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 70 KB a stored frame, 5.8 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.5 MB per session-minute, about 30 MB per 20 minutes; that figure is reported, not enforced |
 | Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 145 µs typing 860 keys, 0.9 µs per click |
-| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB. Run 44027063937 read 947 MB before loading and so no sensible difference, most likely the test before it (a ten-minute transcription abandoned at the stop's bound) still releasing; see "Narrated recording" |
+| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB. Run 44027063937 read 947 MB before loading and so no sensible difference: the test before it (a ten-minute transcription abandoned at the stop's bound) was still releasing. It now measures from no model held in the process; see "What a stop waits for" |
 | Memory under 600 MB with speech, whole process | `scripts/windows/measure-idle.ps1`, run by hand | No | Not run yet; ADR-0001 measured 505 MB with continuous transcription |
 
 Idle CPU is held against one core rather than the machine, which is stricter than the budget: 1% of
@@ -307,10 +307,45 @@ OCR one at a time at 51 s, and kept no scene frames in its window. With the size
 have moved. The ceiling the test enforces is 120% of one core (15% of the machine): the as-shipped figure
 with about a quarter again as margin. It catches a stage that grows, not a return to two threads (105).
 
-One thread has a cost at the stop: an encoder pass on one thread is slower to answer whisper's abort, so
-`SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measured the disposal at its 500 ms bound
-and the native call ending 508 ms after the stop (221 to 234 ms on two threads), left running past the
-bound and reported. The stop itself is still bounded (ST-112).
+### What a stop waits for
+
+One thread has a cost at the stop: `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight`
+measured the disposal at its 500 ms bound (501 and 508 ms, against 221 to 234 ms on two threads), the call
+left running past the bound and reported. The stop itself is still bounded (ST-112). Why, and why it
+cannot be fixed inside Whisper.net 1.9.1 (2026-11-17):
+
+- **The token already reaches whisper.cpp.** Whisper.net 1.9.1 passes the token given to `ProcessAsync`
+  to whisper.cpp's `abort_callback` and `encoder_begin_callback` (decompiled: `OnWhisperAbortStatic` and
+  `OnEncoderBegin` read `IsCancellationRequested`), and `WhisperRecogniser` links the stop's token into
+  it. Its enumerator throws at once; the native call runs on to whisper.cpp's next check, and the
+  processor's disposal waits for that.
+- **whisper.cpp reads the abort only between steps.** In the commit Whisper.net 1.9.1 pins (f24588a), and
+  in master on 2026-11-17: before each 30-second window (`encoder_begin_callback`), after each whole
+  encoder pass (the end of `whisper_encode_internal`) and after each decoder step. Not inside the mel
+  spectrogram, which is computed for all of the audio before the first window, and not inside an encoder
+  pass: its three graphs (conv, encoder, cross) run through `ggml_backend_sched`, and whisper.cpp installs
+  the abort on no backend of it (the sched form of `ggml_graph_compute_helper` sets the thread count
+  only). Whisper.net's `WithEncoderBeginHandler` and `WhisperAbortEventHandler` are read at the same
+  points. Nothing in the package interrupts an encoder pass.
+- **An encoder pass is most of a segment.** At the full context on one thread, 5 s of noise (nothing
+  decoded) takes 4.87 s on the laptop, 1.22 s at the sized context (run 44027063937). A stop that lands in a
+  pass waits for the rest of it, on one thread or two: two threads took 3.35 s a segment.
+- **The 221 to 234 ms on two threads never measured a pass.** Half a second into ten minutes of audio the
+  call is still computing the mel spectrogram of all ten minutes, which whisper.cpp splits across its
+  threads; one thread doubled that, which is what moved the figure past the bound. The service never hands
+  over more than 20 s (`SpeechGateOptions.MaximumSegment`), so its stops land in a pass or a decoder
+  step, not there.
+
+`SpeechUnloadTests.AStopInsideAnEncoderPassWaitsForTheRestOfIt` measures both on the laptop, reported, not
+enforced. The memory figure in the table above was the stop's release finishing under the memory test:
+it now waits, up to 30 s, until no recogniser in the process holds a model before it reads "before", and
+the stop test waits for its own release (`WhisperRecogniser.Released`) before it returns.
+
+What would let a stop go inside the bound, none of it done here: whisper.cpp installing the abort on its
+sched backends (the CPU backend reads one after every graph node), upstream and then in a Whisper.net
+release, or in a runtime built for ScreenTail; the sized context, which shortens the pass about four
+times for a short segment (the owner's decision after ST-027's recorded speech); or transcription in a
+process of its own that the stop ends. Thread count and context size are the owner's, from ST-031.
 
 ### The sized encoder context, off until real speech says otherwise
 

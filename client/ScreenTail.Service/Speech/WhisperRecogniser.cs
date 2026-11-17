@@ -44,8 +44,17 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// processor, 12.5% of the machine, for about 5.3 s (laptop run 44014246194). Four threads cost
     /// 9.9 s. A segment is transcribed after the fact either way, and a technician waiting a moment
     /// longer for a note is better than a technician whose screen share stutters.
+    ///
+    /// Internal so the laptop's measurement of what a stop waits for builds its processor the same way.
     /// </summary>
-    private const int Threads = 1;
+    internal const int Threads = 1;
+
+    /// <summary>
+    /// How many recognisers in this process hold a model in memory right now, across all of them. Up when
+    /// a factory is loaded, down once it is freed, which for a stop that outlived its bound is when the
+    /// native call returns.
+    /// </summary>
+    private static int _modelsInMemory;
 
     /// <summary>
     /// How long the model stays loaded with nothing to transcribe before it is released.
@@ -73,7 +82,18 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// Cancelled when the service stops, so a transcription in flight is told to give up. Whisper.net 1.9.1
     /// hands the token given to <c>ProcessAsync</c> to whisper.cpp as its abort and encoder-begin callbacks
     /// (<c>OnWhisperAbortStatic</c> reads <c>IsCancellationRequested</c>), so the native call stops at its
-    /// next check rather than finishing the segment (ST-112).
+    /// next check rather than finishing the segment (ST-112). Its enumerator throws at once; the native
+    /// call runs on to that check, and the processor's disposal waits for it.
+    ///
+    /// <b>The next check can be seconds away.</b> whisper.cpp (f24588a, the commit Whisper.net 1.9.1
+    /// pins, and master on 2026-11-17) reads the abort only between steps: before each 30-second window,
+    /// after each whole encoder pass and after each decoder step. It never reads it inside the mel
+    /// spectrogram or inside an encoder pass, because the encoder's graphs run through
+    /// <c>ggml_backend_sched</c> and whisper.cpp installs the abort on no backend of it. Whisper.net adds
+    /// nothing finer: its encoder-begin and abort handlers are read at the same points. At the full context
+    /// on one thread an encoder pass is most of a segment's 4.9 s on the laptop (run 44027063937), so a
+    /// stop that lands in one is left running past <see cref="StopBound.Default"/>, and nothing in the
+    /// package shortens it. The release below still waits for it, so the context is never freed under it.
     /// </summary>
     private readonly CancellationTokenSource _stopping = new();
     private readonly TimeSpan _stopWait;
@@ -99,6 +119,9 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
     /// <summary>Done when the first disposal has finished (or stopped waiting at its bound); later callers wait for it.</summary>
     private readonly TaskCompletionSource _disposal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Done when the release has run to its end, however long after the stop stopped waiting for it.</summary>
+    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     private bool Disposed => Volatile.Read(ref _disposing) != 0;
 
@@ -156,6 +179,20 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// lock is asked for, so a test can put a stop's release exactly there. The service never sets it.
     /// </summary>
     internal Action? BeforeTheLock { get; init; }
+
+    /// <summary>
+    /// For a test only: done once disposal's release has finished, so any native call has returned and the
+    /// context and model are freed. That is when a stop really let go, which the transcription's own task
+    /// cannot say: Whisper.net ends it at once on the abort while whisper.cpp runs on. Never done before
+    /// <see cref="DisposeAsync"/>. The service never waits on it.
+    /// </summary>
+    internal Task Released => _released.Task;
+
+    /// <summary>
+    /// For a test only: how many recognisers in this process hold a model in memory now, so a measurement
+    /// of memory can start from none rather than from a release still finishing. The service never reads it.
+    /// </summary>
+    internal static int ModelsInMemory => Volatile.Read(ref _modelsInMemory);
 
     /// <summary>Whether whisper.cpp's context is in memory right now. A fact about this machine, for the diagnostics panel.</summary>
     public bool Loaded => _processor is not null || Volatile.Read(ref _sizedCount) > 0;
@@ -356,9 +393,20 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// </summary>
     private WhisperProcessor Load()
     {
-        _factory ??= WhisperFactory.FromPath(_path);
-        _processor = _factory.CreateBuilder().WithLanguage("en").WithThreads(Threads).WithProbabilities().Build();
+        _processor = Factory().CreateBuilder().WithLanguage("en").WithThreads(Threads).WithProbabilities().Build();
         return _processor;
+    }
+
+    /// <summary>The model, loaded if it is not, and counted while it is (<see cref="ModelsInMemory"/>). Under <see cref="_one"/>.</summary>
+    private WhisperFactory Factory()
+    {
+        if (_factory is null)
+        {
+            _factory = WhisperFactory.FromPath(_path);
+            _ = Interlocked.Increment(ref _modelsInMemory);
+        }
+
+        return _factory;
     }
 
     /// <summary>
@@ -375,8 +423,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
         if (!_sized.TryGetValue(context, out var processor))
         {
-            _factory ??= WhisperFactory.FromPath(_path);
-            processor = _factory.CreateBuilder()
+            processor = Factory().CreateBuilder()
                 .WithLanguage("en")
                 .WithThreads(Threads)
                 .WithProbabilities()
@@ -405,8 +452,12 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
         _sized.Clear();
         Volatile.Write(ref _sizedCount, 0);
-        _factory?.Dispose();
-        _factory = null;
+        if (_factory is { } factory)
+        {
+            _factory = null;
+            factory.Dispose();
+            _ = Interlocked.Decrement(ref _modelsInMemory);
+        }
     }
 
     /// <summary>
@@ -458,8 +509,10 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// context is never freed under a segment or an idle release, but the stop waits for the release only
     /// for <see cref="StopBound.Default"/>. If the native call is still running after that, the release
     /// carries on by itself and frees the context and the model when the call returns, or the process
-    /// exiting frees them; either way they are freed once, and only after nothing is using them. The
-    /// segment is dropped by the recorder, not half-kept (owner's decision, 2026-11-05).
+    /// exiting frees them; either way they are freed once, and only after nothing is using them. A call in
+    /// the middle of an encoder pass is such a call: whisper.cpp does not read the abort until the pass is
+    /// done (<see cref="_stopping"/>). The segment is dropped by the recorder, not half-kept (owner's
+    /// decision, 2026-11-05).
     ///
     /// Idle, the release finishes at once and frees everything here, as it always did.
     ///
@@ -508,6 +561,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
             _one.Release();
             _one.Dispose();
             _stopping.Dispose();
+            _ = _released.TrySetResult();
         }
     }
 }

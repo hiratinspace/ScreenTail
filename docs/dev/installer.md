@@ -488,14 +488,16 @@ and the recogniser's disposal waits at most 500 ms (`StopBound.Default`); after 
 end by itself and free the model, or to go with the process. The service logs a count when it does this,
 nothing else. `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measures it on the laptop with
 ten minutes of audio certainly in flight, since the microphone cannot be made to speak on cue in this
-test. It enforces two things (2026-11-08, owner proxy): **the stop does not wait past `StopBound.Default`**
-(the disposal returns within 500 ms plus 150 ms for the scheduler), and **the abort is answered within
-3 s** (the native call ends within 3 s of the stop, where ten minutes of audio unaborted would take far
-longer). Whether the call let go inside the 500 ms bound (the recogniser's "abandoned" count, logged as
-"The speech model was still busy at stop") and when it ended are reported, not enforced: whisper.cpp
-reads its abort only between compute steps, so the abort's latency is one step, 510 ms for base.en on the
-laptop (run 42524815671), and it varies with the CPU and the model. The 500 ms bound itself is unchanged;
-past it the release finishes by itself. The narration segment is still dropped and counted
+test. It enforces two things (2026-11-08, owner proxy; the second amended 2026-11-17): **the stop does not
+wait past `StopBound.Default`** (the disposal returns within 500 ms plus 150 ms for the scheduler), and
+**the abort is answered within 8 s** (the native call lets go of the model within 8 s of the stop, where ten minutes of audio unaborted
+would take about 100 s; until 2026-11-17 this was 3 s timed on the transcription's own task, which
+Whisper.net ends at once on the abort whatever whisper.cpp is doing, so it held nothing). Whether the call
+let go inside the 500 ms bound (the recogniser's "abandoned" count, logged as "The speech model was still
+busy at stop") and when it did are reported, not enforced: whisper.cpp reads its abort only before each
+window, after each whole encoder pass and after each decoder step, never inside the mel spectrogram or an
+encoder pass, and Whisper.net 1.9.1 offers nothing finer (see `docs/dev/performance.md`, "What a stop
+waits for"). The 500 ms bound itself is unchanged; past it the release finishes by itself. The narration segment is still dropped and counted
 (`NarrationRecorder.AbandonedAtStop`, one per segment that was with the model; a stop that lands once the
 model has answered is not counted). `StopTimeTests` reports, in the real host, whether a segment was with
 the model at the ask and whether the "still busy" line appeared, with the stop held to the 4 s budget,
