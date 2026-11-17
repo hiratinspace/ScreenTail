@@ -48,7 +48,11 @@ public static class Transcribe
 
         // The service's own egress shape, with no backend: only the model hosts may be reached. This used
         // to build a bare policy that allowed no host at all, so the tool could never fetch a model.
-        await using var recogniser = new WhisperRecogniser(new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(backend: null))))), model);
+        // ST-031: SCREENTAIL_SPEECH_SIZED_CONTEXT=1 transcribes with the encoder context sized to each
+        // segment, as the service would with it set, so the word error with and without is one run each.
+        var sized = AudioContext.Enabled(Environment.GetEnvironmentVariable);
+        await Console.Error.WriteLineAsync($"Encoder context: {(sized ? "sized to each segment" : "full")}").ConfigureAwait(false);
+        await using var recogniser = new WhisperRecogniser(new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(backend: null))))), model, sizeContext: sized);
         if (!await recogniser.PrepareAsync(ct).ConfigureAwait(false))
         {
             await Console.Error.WriteLineAsync($"Could not prepare the {model.Name} model.").ConfigureAwait(false);
