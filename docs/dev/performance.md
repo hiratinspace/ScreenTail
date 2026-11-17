@@ -32,7 +32,7 @@ otherwise:
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
 | Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 70 KB a stored frame, 5.8 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.5 MB per session-minute, about 30 MB per 20 minutes; that figure is reported, not enforced |
 | Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 145 µs typing 860 keys, 0.9 µs per click |
-| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB. Run 44027063937 read 947 MB before loading and so no sensible difference: the test before it (a ten-minute transcription abandoned at the stop's bound) was still releasing. It now measures from no model held in the process; see "What a stop waits for" |
+| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB. Run 44027063937 read 947 MB before loading and so no sensible difference: the test before it (a ten-minute transcription abandoned at the stop's bound) was still releasing. Measured from no model held in the process since 2026-11-17: 94.1 MB before, +108.9 MB loaded and used once, 152.2 MB given back (run 44139012468); see "What a stop waits for" |
 | Memory under 600 MB with speech, whole process | `scripts/windows/measure-idle.ps1`, run by hand | No | Not run yet; ADR-0001 measured 505 MB with continuous transcription |
 
 Idle CPU is held against one core rather than the machine, which is stricter than the budget: 1% of
@@ -340,6 +340,21 @@ cannot be fixed inside Whisper.net 1.9.1 (2026-11-17):
 enforced. The memory figure in the table above was the stop's release finishing under the memory test:
 it now waits, up to 30 s, until no recogniser in the process holds a model before it reads "before", and
 the stop test waits for its own release (`WhisperRecogniser.Released`) before it returns.
+
+Laptop run 44139012468 (one thread, full context, base.en):
+
+| What | Figure |
+|---|---|
+| A 20 s segment: its encoder pass begins | 60 ms into the call |
+| The same segment, whole call | 4939 ms |
+| Stopped 100 ms into its encoder pass, whisper.cpp lets go | **4677 ms** after the stop (reported) |
+| The mel spectrogram of ten minutes, before the first window | 1370 ms |
+| Ten minutes in flight, stopped 500 ms in: the disposal returns | **509 ms** (enforced under 650 ms) |
+| The same: the native call lets go and the model is freed | **890 ms** after the stop (enforced under 8 s), so left past the bound |
+| The idle unload, measured from no model held | 94.1 MB before, +108.9 MB loaded, 152.2 MB given back |
+
+890 ms is the rest of the ten-minute mel (1370 ms less the 500 ms already spent), as predicted. A stop in a
+service-sized segment's pass waits nearly the whole pass.
 
 What would let a stop go inside the bound, none of it done here: whisper.cpp installing the abort on its
 sched backends (the CPU backend reads one after every graph node), upstream and then in a Whisper.net
