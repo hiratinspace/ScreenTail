@@ -39,8 +39,8 @@ public enum ProviderErrorKind
 /// "something went wrong" costs a support call; one that quotes a header back costs nothing and answers
 /// the question.
 /// </summary>
-/// <param name="What">What happened, in a sentence. "ConnectWise rejected the request: clientId header missing."</param>
-/// <param name="Todo">What to do about it. "Add your clientId in Settings → Integrations."</param>
+/// <param name="What">What happened, in a sentence. "ConnectWise rejected the API key."</param>
+/// <param name="Todo">What to do about it. "Ask your ScreenTail owner to update the ConnectWise connection in the web admin."</param>
 /// <param name="RetryAfter">When the provider said to come back, if it did.</param>
 public sealed record ProviderError(ProviderErrorKind Kind, string What, string Todo, TimeSpan? RetryAfter = null)
 {

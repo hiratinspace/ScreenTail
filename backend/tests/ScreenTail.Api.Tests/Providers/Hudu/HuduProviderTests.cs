@@ -41,6 +41,7 @@ public sealed class HuduProviderTests : IDisposable
 
         Assert.Equal(ProviderErrorKind.Unauthenticated, result.Error!.Kind);
         Assert.Equal("Hudu rejected the API key.", result.Error.What);
+        Assert.Equal("Ask your ScreenTail owner to update the Hudu connection in the web admin.", result.Error.Todo);
         Assert.Single(_api.Requests);
     }
 
@@ -60,7 +61,7 @@ public sealed class HuduProviderTests : IDisposable
         Assert.Single(_api.Requests);
         Assert.Equal(ProviderErrorKind.Invalid, result.Error!.Kind);
         Assert.Equal("The Hudu site answered with a redirect, and ScreenTail does not follow redirects.", result.Error.What);
-        Assert.Equal("Ask your owner to check the site address in the web admin.", result.Error.Todo);
+        Assert.Equal("Ask your ScreenTail owner to check the site address in the web admin.", result.Error.Todo);
     }
 
     [Fact]

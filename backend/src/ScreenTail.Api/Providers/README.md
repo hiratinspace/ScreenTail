@@ -42,7 +42,7 @@ are the cases where the next step genuinely differs.
 
 | Kind | Means | The technician should |
 |---|---|---|
-| `Unauthenticated` | Credentials wrong, missing or expired | Fix them in Settings |
+| `Unauthenticated` | Credentials wrong, missing or expired | Ask the ScreenTail owner to fix them in the web admin |
 | `Forbidden` | Credentials fine, this account may not | Ask an administrator |
 | `NotFound` | Ticket, company or article is not there | Pick a different one |
 | `Invalid` | The provider refused what we sent | Nothing; it is our bug |
@@ -64,7 +64,7 @@ request body: a write is tried again only when none of it left, or when the prov
 
 > `<What happened>. <What to do>.`
 >
-> "ConnectWise rejected the request: clientId header missing. Add your clientId in Settings → Integrations."
+> "ConnectWise rejected the API key. Ask your ScreenTail owner to update the ConnectWise connection in the web admin."
 
 The first half is a support call on its own. The contract tests assert both are present and that both end
 in a full stop, so the pattern is enforced rather than reviewed.
@@ -138,7 +138,7 @@ time: it resolves the name once, refuses unless every address is public, and con
 addresses it checked, so a name that answers differently a moment later (DNS rebinding) cannot swap in
 a private one. The handler has no proxy, follows no redirects and keeps no cookies. A refusal is an
 `Invalid` error that names the site as the problem, not an outage, and is not retried. A redirect
-answer is the same kind of error, and asks for the site address to be checked in Settings.
+answer is the same kind of error, and asks the ScreenTail owner to check the site address in the web admin.
 `ProviderNetwork:AllowPrivateAddresses` lifts the rule for local development and tests; the service
 refuses to start with it outside Development.
 

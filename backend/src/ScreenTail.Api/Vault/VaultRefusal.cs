@@ -15,16 +15,30 @@ public static class VaultRefusal
     public const string What = "The stored credential could not be opened, so it was not used.";
 
     /// <summary>For a technician's device. Only the owner connects a credential.</summary>
-    public const string Todo = "Ask your owner to connect it again in the web admin.";
+    public const string Todo = "Ask your ScreenTail owner to connect it again in the web admin.";
 
-    private const string AskTheOwner = "Ask your owner to ";
+    /// <summary>How a technician's sentence asks the owner, as the backend says it now and as rows stored before 2026-11-16 said it.</summary>
+    private static readonly string[] AskTheOwner = ["Ask your ScreenTail owner to ", "Ask your owner to "];
+
+    /// <summary>Where a technician's sentence sends the owner.</summary>
+    private const string InTheWebAdmin = " in the web admin";
+
+    /// <summary>Where a check stored before 2026-11-15 sent the technician to fix the credential.</summary>
+    private const string InSettings = " in Settings → Integrations";
+
+    /// <summary>
+    /// Where the owner reads these sentences: on the provider's card on the web admin's Integrations
+    /// page, whose Replace button takes a new site and key.
+    /// </summary>
+    private const string OnTheCard = " with Replace on this card";
 
     public static ProviderError Error { get; } = new(ProviderErrorKind.Unauthenticated, What, Todo);
 
     /// <summary>
-    /// A sentence written for a technician, as the owner should read it: "Ask your owner to check the
-    /// site address in the web admin." becomes "Check the site address in the web admin." Anything else
-    /// is returned as it is.
+    /// A sentence written for a technician, as the owner should read it on the provider's card: "Ask your
+    /// ScreenTail owner to check the site address in the web admin." becomes "Check the site address with
+    /// Replace on this card." A row stored before credentials became the owner's ("Update it in Settings →
+    /// Integrations.") is pointed at the card too. Anything else is returned as it is.
     /// </summary>
     public static string? ForOwner(string? message)
     {
@@ -33,16 +47,26 @@ public static class VaultRefusal
             return null;
         }
 
-        var at = message.IndexOf(AskTheOwner, StringComparison.Ordinal);
-        if (at < 0)
+        // Only the credential check's words are stored and shown to the owner, so a pointer to Settings
+        // in a stored row is about the credential, never about a company mapping.
+        message = message.Replace(InSettings, OnTheCard, StringComparison.Ordinal);
+        foreach (var ask in AskTheOwner)
         {
-            return message;
+            var at = message.IndexOf(ask, StringComparison.Ordinal);
+            if (at >= 0 && message.Length > at + ask.Length)
+            {
+                var rest = message[(at + ask.Length)..];
+                var where = rest.IndexOf(InTheWebAdmin, StringComparison.Ordinal);
+                if (where >= 0)
+                {
+                    rest = string.Concat(rest.AsSpan(0, where), OnTheCard, rest.AsSpan(where + InTheWebAdmin.Length));
+                }
+
+                return string.Concat(message.AsSpan(0, at), char.ToUpper(rest[0], CultureInfo.InvariantCulture).ToString(), rest.AsSpan(1));
+            }
         }
 
-        var rest = message[(at + AskTheOwner.Length)..];
-        return rest.Length == 0
-            ? message
-            : string.Concat(message.AsSpan(0, at), char.ToUpper(rest[0], CultureInfo.InvariantCulture).ToString(), rest.AsSpan(1));
+        return message;
     }
 }
 

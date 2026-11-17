@@ -64,6 +64,36 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
         Assert.Equal(check.Message, Assert.Single(list!.Integrations).LastError);
     }
 
+    [Theory]
+    [InlineData("connectwise", "ConnectWise")]
+    [InlineData("hudu", "Hudu")]
+    public async Task AWrongKeyAsksTheTechnicianToAskTheOwnerAndTellsTheOwnerWhereToFixIt(string provider, string name)
+    {
+        // Integration credentials are the owner's (2026-11-15): a technician is never sent to Settings
+        // to fix a key, and the owner, reading the same check on the web admin's card, is not told to ask
+        // the owner but where to fix it.
+        var cw = new ScriptedConnectWise { Failing = HttpStatusCode.Unauthorized };
+        var hudu = new ScriptedHudu { Failing = HttpStatusCode.Unauthorized };
+        using var host = HostWith(cw, hudu);
+        var (tenantId, userId, deviceId) = await SeedAsync();
+        using var client = Client(host, api.Issuer.ForDevice(tenantId, userId, deviceId).Token);
+        using var put = provider == "connectwise"
+            ? await client.StoreIntegrationAsOwnerAsync(api, provider, new StoreIntegrationRequest("https://na.myconnectwise.net", "acme+PUB:WRONG-0000"))
+            : await client.StoreIntegrationAsOwnerAsync(api, provider, new StoreIntegrationRequest("https://acme.huducloud.com", "hudu-wrong-0000"));
+        using var owner = await host.Factory.OwnerClientAsync(api, tenantId);
+
+        using var deviceCheck = await client.PostAsync(new Uri($"/v1/integrations/{provider}/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        var asDevice = await deviceCheck.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
+        using var ownerCheck = await owner.PostAsync(new Uri($"/v1/admin/integrations/{provider}/check", UriKind.Relative), null, TestContext.Current.CancellationToken);
+        var asOwner = await ownerCheck.Content.ReadFromJsonAsync<IntegrationCheckResponse>(TestContext.Current.CancellationToken);
+        var ownerList = await owner.GetFromJsonAsync<AdminIntegrationsResponse>(new Uri("/v1/admin/integrations", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.Equal($"{name} rejected the API key. Ask your ScreenTail owner to update the {name} connection in the web admin.", asDevice!.Message);
+        Assert.Equal($"{name} rejected the API key. Update the {name} connection with Replace on this card.", asOwner!.Message);
+        Assert.Equal(asOwner.Message, ownerList!.Integrations.Single(i => i.Provider == provider).LastError);
+        Assert.All([asDevice.Message, asOwner.Message], m => Assert.DoesNotContain("Settings", m, StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ACredentialTheVaultRefusesIsAnsweredInWordsOnBothCheckRoutesAndWhileMapping()
     {
@@ -91,19 +121,19 @@ public sealed class IntegrationCheckTests(ApiFixture api) : IClassFixture<ApiFix
 
         Assert.Equal(HttpStatusCode.OK, deviceCheck.StatusCode);
         Assert.False(asDevice!.Ok);
-        Assert.Contains("Ask your owner to connect it again in the web admin.", asDevice.Message, StringComparison.Ordinal);
+        Assert.Contains("Ask your ScreenTail owner to connect it again in the web admin.", asDevice.Message, StringComparison.Ordinal);
         Assert.Equal(HttpStatusCode.OK, ownerCheck.StatusCode);
         Assert.False(asOwner!.Ok);
-        Assert.Contains("Connect it again in the web admin.", asOwner.Message, StringComparison.Ordinal);
-        Assert.DoesNotContain("Ask your owner", asOwner.Message, StringComparison.Ordinal);
+        Assert.Contains("Connect it again with Replace on this card.", asOwner.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ask your", asOwner.Message, StringComparison.Ordinal);
         Assert.NotEqual(HttpStatusCode.InternalServerError, companies.StatusCode);
-        Assert.Contains("Ask your owner", await companies.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Contains("Ask your ScreenTail owner", await companies.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.NotEqual(HttpStatusCode.InternalServerError, tickets.StatusCode);
-        Assert.Contains("Ask your owner", await tickets.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.Contains("Ask your ScreenTail owner", await tickets.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.Empty(cw.Requests);
         Assert.Empty(hudu.Requests);
-        Assert.All(list!.Integrations, row => Assert.Contains("Ask your owner to connect it again", row.LastError, StringComparison.Ordinal));
-        Assert.All(ownerList!.Integrations, row => Assert.DoesNotContain("Ask your owner", row.LastError ?? string.Empty, StringComparison.Ordinal));
+        Assert.All(list!.Integrations, row => Assert.Contains("Ask your ScreenTail owner to connect it again", row.LastError, StringComparison.Ordinal));
+        Assert.All(ownerList!.Integrations, row => Assert.DoesNotContain("Ask your", row.LastError ?? string.Empty, StringComparison.Ordinal));
     }
 
     [Fact]
