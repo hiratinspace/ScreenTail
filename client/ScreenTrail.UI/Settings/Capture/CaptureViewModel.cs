@@ -148,8 +148,12 @@ public sealed partial class CaptureViewModel : ObservableObject
         {
             Field(() => _panel.SelectedModel = value);
             OnPropertyChanged();
+            OnPropertyChanged(nameof(ModelHint));
         }
     }
+
+    /// <summary>The helper line under the speech model dropdown: what the chosen line is (v0.7.1), so the closed box needs only its name.</summary>
+    public string ModelHint => _panel.SelectedModel.Hint;
 
     [ObservableProperty]
     public partial bool RemoteToolsOnly { get; set; } = true;
@@ -159,6 +163,12 @@ public sealed partial class CaptureViewModel : ObservableObject
 
     [ObservableProperty]
     public partial bool ScopeEditable { get; set; } = true;
+
+    /// <summary>The policy line under a scope the tenant's policy set (INV-11, v0.7.1), as Privacy and Updates show theirs.</summary>
+    [ObservableProperty]
+    public partial Visibility ScopeLockVisibility { get; set; } = Visibility.Collapsed;
+
+    public string ScopeLockedNote { get; } = PolicyLock.Line;
 
     [ObservableProperty]
     public partial string ScopeWarning { get; set; } = string.Empty;
@@ -318,6 +328,7 @@ public sealed partial class CaptureViewModel : ObservableObject
         AllWindows = _panel.CaptureAllWindows;
         RemoteToolsOnly = !_panel.CaptureAllWindows;
         ScopeEditable = !_panel.ScopeLocked;
+        ScopeLockVisibility = _panel.ScopeLocked ? Visibility.Visible : Visibility.Collapsed;
         AutoStart = _panel.AutoStart;
         GraceSeconds = _panel.GraceSeconds;
         Sensitivity = _panel.Sensitivity;
@@ -338,6 +349,7 @@ public sealed partial class CaptureViewModel : ObservableObject
         ShowMicrophoneNote();
         OnPropertyChanged(nameof(SelectedSensitivity));
         OnPropertyChanged(nameof(SelectedModel));
+        OnPropertyChanged(nameof(ModelHint));
         AppliesAtNextStart = _panel.AppliesAtNextStart;
         StartUiAtLogin = _panel.StartUiAtLogin;
         Field(() => { });

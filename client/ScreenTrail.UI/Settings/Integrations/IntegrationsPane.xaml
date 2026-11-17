@@ -18,6 +18,13 @@
                                         Style="{StaticResource Badge.Published}"
                                         Content="Connected"
                                         Visibility="{Binding ConnectedBadgeVisibility}" />
+                        <!-- In Connected's place when the last check failed (v0.7.1): the warning tint, so
+                             the badge never says Connected over a credential that did not work. -->
+                        <ContentControl Margin="8,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource Badge.Unconfirmed}"
+                                        Content="Check failed"
+                                        Visibility="{Binding CheckFailedBadgeVisibility}" />
                     </StackPanel>
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding Status}" Visibility="{Binding StatusVisibility}" />
                     <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding OwnerLine}" />

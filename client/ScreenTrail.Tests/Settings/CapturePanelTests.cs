@@ -36,6 +36,10 @@ public sealed class CapturePanelTests
         // The three models and, first, the default that picks one (Spec v0.6.8; was three, with no entry for the default).
         Assert.Equal(4, panel.Models.Count);
         Assert.Equal(SpeechModels.All.Select(m => m.Name), panel.Models.Skip(1).Select(m => m.Name));
+
+        // Spec v0.7.1: no line shows a model's file name; each says what it is like.
+        Assert.Equal(["Automatic (Recommended)", "Fastest: less accurate", "Balanced", "Most accurate: slower"], panel.Models.Select(m => m.Label));
+        Assert.All(panel.Models, m => Assert.DoesNotContain(".en", m.Label + m.Hint, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -85,11 +89,11 @@ public sealed class CapturePanelTests
         await panel.LoadAsync();
 
         panel.Model = "small.en";
-        Assert.Contains("next start", panel.AppliesAtNextStart, StringComparison.Ordinal);
+        Assert.Equal("A new speech model is used from your next sign-in to Windows.", panel.AppliesAtNextStart);
         Assert.True(await panel.SaveAsync());
 
         Assert.Equal("small.en", gateway.Saved!.SpeechModel);
-        Assert.Contains("accuracy", panel.Models.Single(m => m.Name == "small.en").Hint, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Most accurate: slower", panel.Models.Single(m => m.Name == "small.en").Label);
     }
 
     [Fact]
@@ -104,15 +108,17 @@ public sealed class CapturePanelTests
         Assert.Null(panel.Model);
         Assert.Same(panel.Models[0], panel.SelectedModel);
         Assert.Null(panel.SelectedModel.Name);
-        Assert.Equal("Automatic", panel.SelectedModel.Label);
-        Assert.Contains(SpeechModels.For(Environment.ProcessorCount).Name, panel.SelectedModel.Hint, StringComparison.Ordinal);
+        // Spec v0.7.1: "Automatic (Recommended)" like every recommended choice in Settings; which model it
+        // runs is the helper line, in plain words, never the model's file name.
+        Assert.Equal("Automatic (Recommended)", panel.SelectedModel.Label);
+        Assert.Equal("Automatic uses Balanced on this computer.", panel.SelectedModel.Hint);
         Assert.False(panel.HasUnsavedEdits);
 
         // A model named in the settings is the one shown, however it is cased, and showing it changes nothing.
         gateway.Snapshot = gateway.Snapshot! with { Settings = new CaptureSettings { SpeechModel = "SMALL.EN" } };
         await panel.LoadAsync();
         Assert.Equal("small.en", panel.SelectedModel.Name);
-        Assert.Equal("small.en", panel.SelectedModel.Label);
+        Assert.Equal("Most accurate: slower", panel.SelectedModel.Label);
         panel.SelectedModel = panel.SelectedModel;
         Assert.False(panel.HasUnsavedEdits);
 

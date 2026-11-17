@@ -8,13 +8,10 @@ namespace ScreenTrail.Core.Settings;
 
 public sealed record ToolChoice(string Id, string DisplayName);
 
-/// <param name="Name">What is saved: the model's name, or null for the default, which names no model.</param>
-/// <param name="Hint">Size and accuracy in a phrase, for the model picker (Spec §5 S5).</param>
-public sealed record ModelChoice(string? Name, string Hint)
-{
-    /// <summary>What the picker calls it: the model's name, or "Automatic" for the default.</summary>
-    public string Label => Name ?? "Automatic";
-}
+/// <param name="Name">What is saved: the model's name, or null for the default, which names no model. Never shown.</param>
+/// <param name="Label">What the picker calls it, in plain words (Spec v0.7.1): "Automatic (Recommended)", "Balanced".</param>
+/// <param name="Hint">The helper line under the picker while it is chosen: what it costs and what it gives.</param>
+public sealed record ModelChoice(string? Name, string Label, string Hint);
 
 /// <summary>One line of the scene-change sensitivity picker.</summary>
 /// <param name="Value">What is saved: "low", "medium" or "high" (<see cref="CaptureSettingsRules.Sensitivities"/>).</param>
@@ -136,7 +133,7 @@ public sealed class CapturePanel(ICaptureGateway gateway)
     /// session it opens again after every pause and every moment capture stopped (a password field, an
     /// excluded app), so it can be sooner than the next session.
     /// </summary>
-    public const string MicrophoneApplies = "A new choice is used the next time the microphone opens: at the next session, or sooner if a session pauses or stops capturing for a moment, as it does at a password field.";
+    public const string MicrophoneApplies = "A new microphone is used from the next session, or sooner if capture pauses and starts again.";
 
     /// <summary>The capture devices the service found connected when the card loaded.</summary>
     public IReadOnlyList<MicrophoneDevice> Microphones { get; private set; } = [];
@@ -194,19 +191,29 @@ public sealed class CapturePanel(ICaptureGateway gateway)
     }
 
     /// <summary>
-    /// The model picker's lines: the default first, naming the model it uses now, then each model. With no
-    /// model chosen, which is how every installation starts, the picker used to show nothing (Spec v0.6.8).
+    /// The model picker's lines: the default first, then each model. With no model chosen, which is how
+    /// every installation starts, the picker used to show nothing (Spec v0.6.8). Each is named in plain
+    /// words, "Automatic (Recommended)" as every recommended choice in Settings is, and never by its file
+    /// name (Spec v0.7.1); which model Automatic runs is said in the helper line under the picker.
     /// </summary>
     public IReadOnlyList<ModelChoice> Models { get; } =
     [
-        new ModelChoice(null, $"recommended, uses {SpeechModels.For(Environment.ProcessorCount).Name}"),
-        .. SpeechModels.All.Select(m => new ModelChoice(m.Name, m.Name switch
+        new ModelChoice(null, "Automatic (Recommended)", $"Automatic uses {PlainName(SpeechModels.For(Environment.ProcessorCount).Name)} on this computer."),
+        .. SpeechModels.All.Select(m => new ModelChoice(m.Name, PlainName(m.Name), m.Name switch
         {
-            "tiny.en" => "smallest download, fastest, least accurate",
-            "small.en" => "largest download, slowest, best accuracy",
-            _ => "the middle: what most laptops run well",
+            "tiny.en" => "The smallest download and the quickest, but it gets the most words wrong.",
+            "small.en" => "Best with product names, but the largest download, the slowest, and it needs more memory.",
+            _ => "What most laptops run well.",
         })),
     ];
+
+    /// <summary>What a model is called on screen: by what it is like, never by its file name.</summary>
+    private static string PlainName(string model) => model switch
+    {
+        "tiny.en" => "Fastest: less accurate",
+        "small.en" => "Most accurate: slower",
+        _ => "Balanced",
+    };
 
     /// <summary>Null is the model chosen for this machine's cores.</summary>
     public string? Model { get; set; }
@@ -233,7 +240,11 @@ public sealed class CapturePanel(ICaptureGateway gateway)
 
     public bool StartUiAtLogin { get; set; }
 
-    public string AppliesAtNextStart { get; } = "The speech model applies at the next start of the capture service.";
+    /// <summary>
+    /// When a new model takes effect: the capture service reads it when it starts, and it starts at every
+    /// sign-in (ADR-0003). Said as the technician sees it, rather than as the service's next start.
+    /// </summary>
+    public string AppliesAtNextStart { get; } = "A new speech model is used from your next sign-in to Windows.";
 
     public string HotkeyText(HotkeyAction action) => _hotkeys.TryGetValue(action, out var text) ? text : HotkeyBindings.Defaults[action].ToString();
 

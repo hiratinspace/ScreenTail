@@ -33,7 +33,10 @@ public sealed class PrivacyPanelTests
         Assert.True(panel.LocalOnlyLocked);
         Assert.Equal(3, panel.RetentionDays);
         Assert.True(panel.RetentionLocked);
-        Assert.Equal("Set by your admin (policy p20260925)", panel.LockedBecause);
+        // Spec v0.7.1: one wording for every locked setting, and the policy's id only in the tool tip.
+        Assert.Equal("Set by your ScreenTrail owner", panel.LockedBecause);
+        Assert.DoesNotContain("p20260925", panel.LockedBecause, StringComparison.Ordinal);
+        Assert.Equal("Set in the web admin. Policy p20260925, if support asks.", panel.LockedDetail);
         Assert.False(panel.Telemetry);
     }
 
@@ -116,7 +119,8 @@ public sealed class PrivacyPanelTests
         panel.RetentionDays = ClientSettings.MaxRetentionDays; // what a shrinking slider would push back
         Assert.Equal(3, panel.RetentionDays);
         Assert.Equal(ClientSettings.MaxRetentionDays, panel.RetentionMaximum);
-        Assert.Equal("Set by your admin (policy p2)", panel.LockedBecause);
+        Assert.Equal(PolicyLock.Line, panel.LockedBecause);
+        Assert.Contains("p2", panel.LockedDetail, StringComparison.Ordinal);
 
         gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 7);
         await panel.LoadAsync();

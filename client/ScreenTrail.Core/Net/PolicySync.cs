@@ -75,7 +75,7 @@ public sealed class FilePolicyCache(string path) : IPolicyCache
     }
 }
 
-/// <param name="Enforced">The admin locked local-only, so Settings shows it read-only with "Set by your admin".</param>
+/// <param name="Enforced">The admin locked local-only, so Settings shows it read-only with "Set by your ScreenTrail owner".</param>
 /// <param name="RetentionEnforced">An admin policy is in force, so retention is the admin's and Settings shows it read-only.</param>
 public sealed record AppliedPolicy(string Version, TimeSpan Retention, bool LocalOnly, bool Enforced, bool CaptureAllWindows, bool RetentionEnforced);
 

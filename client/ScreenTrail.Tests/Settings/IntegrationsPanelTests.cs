@@ -106,7 +106,9 @@ public sealed class IntegrationsPanelTests
 
         await panel.LoadAsync();
 
-        Assert.Equal("Connected", panel.ConnectWise.Status);
+        // The badge says Connected; the line under it does not say it again (Spec v0.7.1).
+        Assert.Equal("Connected", panel.ConnectWise.Badge);
+        Assert.Equal("Not checked yet", panel.ConnectWise.Status);
         Assert.Equal("Your ScreenTrail owner manages this connection in the web admin.", panel.ConnectWise.OwnerLine);
         Assert.Equal(IntegrationCard.OwnerManages, panel.ConnectWise.OwnerLine);
     }
@@ -121,6 +123,8 @@ public sealed class IntegrationsPanelTests
         Assert.All(panel.Cards, card =>
         {
             Assert.Equal("Not connected", card.Status);
+            Assert.Null(card.Badge);
+            Assert.False(card.CheckFailed);
             Assert.Equal("Not connected. Your ScreenTrail owner connects it in the web admin.", card.OwnerLine);
         });
     }
@@ -296,8 +300,71 @@ public sealed class IntegrationsPanelTests
         await panel.LoadAsync();
 
         Assert.Equal("Hudu rejected the API key. Ask your ScreenTrail owner to update it in the web admin.", panel.Hudu.LastError);
-        Assert.Equal("Connected · the last check failed", panel.Hudu.Status);
+        Assert.True(panel.Hudu.CheckFailed);
+        Assert.Equal(IntegrationCard.CheckFailedBadge, panel.Hudu.Badge);
+        Assert.DoesNotContain("Connected", panel.Hudu.Status, StringComparison.Ordinal);
         Assert.Equal("The site did not answer. Ask your ScreenTrail owner to check the site address in the web admin.", Assert.Single(panel.Others).LastError);
+    }
+
+    [Fact]
+    public async Task TheBadgeSaysCheckFailedWhenTheLastCheckFailedAndTheLineNeverRepeatsConnected()
+    {
+        // Spec v0.7.1: Hudu showed a green "Connected" badge over "Connected · the last check failed", and
+        // ConnectWise "Connected" twice. The badge carries the state, the line only when it was checked.
+        var checkedAt = new DateTimeOffset(2026, 11, 17, 8, 30, 0, TimeSpan.Zero);
+        var gateway = new FakeIntegrations
+        {
+            Rows =
+            [
+                new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, checkedAt, null),
+                new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, checkedAt, "Hudu rejected the API key. Ask your ScreenTrail owner to update the Hudu connection in the web admin."),
+            ],
+        };
+        var panel = new IntegrationsPanel(gateway);
+        await panel.LoadAsync();
+
+        var shown = $"Last checked {checkedAt.ToLocalTime():HH:mm}";
+        Assert.Equal("Connected", panel.ConnectWise.Badge);
+        Assert.False(panel.ConnectWise.CheckFailed);
+        Assert.Equal(shown, panel.ConnectWise.Status);
+        Assert.Equal("Check failed", panel.Hudu.Badge);
+        Assert.True(panel.Hudu.CheckFailed);
+        Assert.Equal(shown, panel.Hudu.Status);
+
+        // Failed with no time on record: the badge and the reason say it, and the line is empty.
+        gateway.Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, null, "Hudu did not answer.")];
+        await panel.LoadAsync();
+        Assert.Equal("Check failed", panel.Hudu.Badge);
+        Assert.Equal(string.Empty, panel.Hudu.Status);
+    }
+
+    [Fact]
+    public async Task TestConnectionMovesTheBadgeAndTheTimeEitherWay()
+    {
+        var older = new DateTimeOffset(2026, 11, 17, 8, 30, 0, TimeSpan.Zero);
+        var now = new FixedClock(new DateTimeOffset(2026, 11, 17, 9, 45, 0, TimeSpan.Zero));
+        var gateway = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("hudu", "https://acme.huducloud.com", "••••5678", DateTimeOffset.UnixEpoch, older, null)],
+            Check = new CheckOutcome(false, "Hudu rejected the API key. Ask your ScreenTrail owner to update the Hudu connection in the web admin."),
+        };
+        var panel = new IntegrationsPanel(gateway, now);
+        await panel.LoadAsync();
+        Assert.Equal("Connected", panel.Hudu.Badge);
+
+        _ = await panel.Hudu.CheckAsync();
+        Assert.Equal("Check failed", panel.Hudu.Badge);
+        Assert.Equal($"Last checked {now.GetUtcNow().ToLocalTime():HH:mm}", panel.Hudu.Status);
+
+        gateway.Check = new CheckOutcome(true, "Hudu answered.");
+        _ = await panel.Hudu.CheckAsync();
+        Assert.Equal("Connected", panel.Hudu.Badge);
+        Assert.False(panel.Hudu.CheckFailed);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     [Fact]
