@@ -455,7 +455,7 @@ public partial class ShellWindow : Window
             Task.FromResult<IReadOnlyList<IntegrationDetail>?>(
             [
                 new("connectwise", "https://na.myconnectwise.net", "••••7Qa2", new DateTimeOffset(2026, 9, 20, 9, 0, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 30, 0, TimeSpan.Zero), null),
-                new("hudu", "https://docs.contosomsp.com", "••••c09d", new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 31, 0, TimeSpan.Zero), "Hudu rejected the API key. Update it in Settings → Integrations."),
+                new("hudu", "https://docs.contosomsp.com", "••••c09d", new DateTimeOffset(2026, 9, 20, 9, 5, 0, TimeSpan.Zero), new DateTimeOffset(2026, 9, 25, 8, 31, 0, TimeSpan.Zero), "Hudu rejected the API key. Ask your ScreenTail owner to update the Hudu connection in the web admin."),
             ]);
 
         public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) =>

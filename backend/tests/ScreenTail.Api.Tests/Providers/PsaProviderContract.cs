@@ -86,7 +86,7 @@ public abstract class PsaProviderContract
     {
         // Spec §4's pattern, enforced rather than reviewed. A message that stops at "what happened" is a
         // support call; the second half is the whole value of the first.
-        Break(new ProviderError(ProviderErrorKind.Unauthenticated, "The PSA rejected the key.", "Update it in Settings."));
+        Break(new ProviderError(ProviderErrorKind.Unauthenticated, "The PSA rejected the key.", "Ask your ScreenTail owner to update it in the web admin."));
 
         var result = await Provider.CheckAsync(TestContext.Current.CancellationToken);
 

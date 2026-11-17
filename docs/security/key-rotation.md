@@ -17,7 +17,8 @@ the provider and the site's scheme, host and port as AES-GCM associated data, an
 tenant's row, another provider or another host, or with its site changed to plain http, it is refused
 with a message naming the row, and is never tried any other way. A read also refuses any site that is
 not an absolute https address. A refused row is not a server error: publish, ticket search, company
-mappings and Test connection each answer "Ask your owner to connect it again in the web admin."
+mappings and Test connection each answer "Ask your ScreenTail owner to connect it again in the web admin."
+The owner, on that provider's card in the web admin, reads "Connect it again with Replace on this card."
 
 **Legacy rows, and what to do after the first start.** Legacy rows exist only from before this change:
 the migration marks every row stored until then `0` (legacy), and nothing in the service writes one
