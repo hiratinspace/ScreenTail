@@ -59,7 +59,7 @@ public sealed class MappingChangeLimitTests
     public void TenThousandIdleDevicesDoNotSlowOneDeviceAndAreDroppedOnceIdlePastTheWindow()
     {
         // A call expires its own device's entries only, so its cost does not grow with other devices;
-        // a sweep at most once a minute drops the ones idle past the longest window.
+        // a sweep at most once a minute drops the ones idle past the window.
         var clock = new Clock();
         var limit = new MappingChangeLimit(clock);
         for (var i = 0; i < 10_000; i++)
@@ -73,7 +73,6 @@ public sealed class MappingChangeLimitTests
         for (var i = 0; i < 20_000; i++)
         {
             taken += limit.TryTake(device) is null ? 1 : 0;
-            _ = limit.TryTakeNewCompany(device, "Acme Dental");
         }
 
         timer.Stop();
@@ -81,7 +80,7 @@ public sealed class MappingChangeLimitTests
         Assert.True(timer.ElapsedMilliseconds < 2000, $"20,000 calls beside 10,000 idle devices took {timer.ElapsedMilliseconds} ms");
         Assert.Equal(10_001, limit.DevicesHeld);
 
-        clock.Now += MappingChangeLimit.NewCompanyWindow + MappingChangeLimit.SweepEvery;
+        clock.Now += MappingChangeLimit.Window + MappingChangeLimit.SweepEvery;
         Assert.Null(limit.TryTake(device));
 
         Assert.Equal(1, limit.DevicesHeld);
@@ -111,28 +110,5 @@ public sealed class MappingChangeLimitTests
         Assert.True(first);
         Assert.False(second);
         Assert.True(nextWindow);
-    }
-
-    [Fact]
-    public void ADeviceNamesFiveHundredNewCompaniesADayAndNamingOneAgainTakesNothing()
-    {
-        var clock = new Clock();
-        var limit = new MappingChangeLimit(clock);
-        var device = Guid.NewGuid();
-        for (var i = 0; i < MappingChangeLimit.NewCompaniesPerDevice; i++)
-        {
-            Assert.True(limit.TryTakeNewCompany(device, $"Company {i}"));
-        }
-
-        var past = limit.TryTakeNewCompany(device, "One more");
-        var again = limit.TryTakeNewCompany(device, "Company 3");
-        var other = limit.TryTakeNewCompany(Guid.NewGuid(), "One more");
-        clock.Now += MappingChangeLimit.NewCompanyWindow;
-        var tomorrow = limit.TryTakeNewCompany(device, "One more");
-
-        Assert.False(past);
-        Assert.True(again);
-        Assert.True(other);
-        Assert.True(tomorrow);
     }
 }

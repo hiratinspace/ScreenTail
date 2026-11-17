@@ -93,6 +93,40 @@ public sealed class HuduOverHttpTests(ApiFixture api) : IClassFixture<ApiFixture
     }
 
     [Fact]
+    public async Task AMappingIsCheckedAgainstConnectWiseAndRefusedForACompanyItDoesNotHaveOrMayNotRead()
+    {
+        // ST-097: the PSA company is looked up by name over the socket, asking for id and name only, and
+        // only a company ConnectWise has is mapped. A member that may not read companies refuses in words.
+        await using var cw = await ConnectWiseOverHttpTests.StartAsync();
+        await using var hudu = await StartAsync();
+        await using var backend = new StandInBackend(api, cw, hudu);
+        await backend.SignInAsync();
+        backend.Remember("Harbour Physio Ltd", "Harbour Physio Limited");
+
+        using var unknown = await backend.Client.PutAsJsonAsync(CompanyMappings, new MapCompanyRequest("Harbour Physio Limited", "27"), TestContext.Current.CancellationToken);
+        var unknownBody = await unknown.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        _ = cw.Denied.Add("company/companies");
+        using var denied = await backend.Client.PutAsJsonAsync(CompanyMappings, new MapCompanyRequest("Harbour Physio Ltd", "27"), TestContext.Current.CancellationToken);
+        var deniedBody = await denied.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        _ = cw.Denied.Remove("company/companies");
+        using var mapped = await backend.Client.PutAsJsonAsync(CompanyMappings, new MapCompanyRequest("Harbour Physio Ltd", "27"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+        Assert.Contains("no_such_psa_company", unknownBody, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.BadGateway, denied.StatusCode);
+        Assert.Contains("psa_forbidden", deniedBody, StringComparison.Ordinal);
+        Assert.Contains("ConnectWise says this API member may not do that.", deniedBody, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        var lookups = cw.Requests.Where(r => r.Path.EndsWith("/company/companies", StringComparison.Ordinal)).ToList();
+        Assert.Equal(3, lookups.Count);
+        Assert.Equal("name = 'Harbour Physio Ltd'", lookups[^1].Query["conditions"]);
+        Assert.Equal("id,name", lookups[^1].Query["fields"]);
+        var mapping = await api.UseAsync(db => db.CompanyMappings.SingleAsync(m => m.TenantId == backend.TenantId, TestContext.Current.CancellationToken));
+        Assert.Equal(("Harbour Physio Ltd", "27"), (mapping.PsaCompany, mapping.DocCompanyId));
+        backend.AssertTheLogHoldsNothingThatWasSent();
+    }
+
+    [Fact]
     public async Task AWrongHuduKeyIsRefusedInWordsAndNeverSentAgain()
     {
         await using var cw = await ConnectWiseOverHttpTests.StartAsync();

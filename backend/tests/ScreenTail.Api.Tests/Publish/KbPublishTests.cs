@@ -908,30 +908,101 @@ public sealed class KbPublishTests(ApiFixture api) : IClassFixture<ApiFixture>
     }
 
     [Fact]
-    public async Task ADevicePastItsNewCompaniesForTheDayIsRefusedInWordsAndMayStillRemapAKnownOne()
+    public async Task APsaCompanyThePsaDoesNotHaveIsRefusedInWordsAndNothingIsSavedOrRecorded()
     {
-        // The PSA company is a name the device sends and the PSA has no company lookup, so a device may
-        // name only so many companies with no mapping each day. Remapping one already mapped is not limited.
-        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        // The PSA company is checked against the PSA, as the documentation company is against Hudu, so
+        // only a company the tenant's PSA has can be mapped.
+        var cw = new ScriptedConnectWise();
+        using var host = Host(cw, new ScriptedHudu());
         var (client, tenantId) = await ConnectedClientAsync(host);
-        using var known = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
-        var deviceId = await api.UseAsync(db => db.Devices.Where(d => d.TenantId == tenantId).Select(d => d.Id).SingleAsync());
-        var limit = host.Services.GetRequiredService<MappingChangeLimit>();
-        for (var i = 1; i < MappingChangeLimit.NewCompaniesPerDevice; i++)
-        {
-            Assert.True(limit.TryTakeNewCompany(deviceId, $"Company {i}"));
-        }
 
         using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Brand New Co", "7"), TestContext.Current.CancellationToken);
-        using var again = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "8"), TestContext.Current.CancellationToken);
         var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.NoContent, known.StatusCode);
-        Assert.Equal((HttpStatusCode)429, refused.StatusCode);
-        Assert.Contains("too_many_new_companies", body, StringComparison.Ordinal);
-        Assert.Contains("500 new PSA companies today", body, StringComparison.Ordinal);
-        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
-        Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId && m.PsaCompany == "Brand New Co")));
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("no_such_psa_company", body, StringComparison.Ordinal);
+        Assert.Contains("The PSA has no company with that name.", body, StringComparison.Ordinal);
+        Assert.Contains(cw.Requests, r => r.RequestUri!.AbsolutePath.EndsWith("/company/companies", StringComparison.Ordinal));
+        Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId)));
+        Assert.False(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, "psa_unavailable")]
+    [InlineData(HttpStatusCode.Unauthorized, "psa_unauthenticated")]
+    [InlineData(HttpStatusCode.Forbidden, "psa_forbidden")]
+    public async Task APsaThatCannotAnswerRefusesTheMappingInWordsAndNothingIsSaved(HttpStatusCode status, string error)
+    {
+        // Never saved on a name nobody could check: an outage, a wrong key or a missing permission each
+        // refuse the mapping with the provider's two sentences.
+        var cw = new ScriptedConnectWise { FailingRoute = ("/company/companies", status) };
+        using var host = Host(cw, new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+
+        using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadGateway, refused.StatusCode);
+        Assert.Contains(error, body, StringComparison.Ordinal);
+        Assert.Contains("ConnectWise", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("The script said no", body, StringComparison.Ordinal);
+        Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId)));
+        Assert.False(await api.UseAsync(db => db.IntegrationChanges.AnyAsync(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped)));
+    }
+
+    [Fact]
+    public async Task WithNoPsaConnectedAMappingIsRefusedInWords()
+    {
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        using var removed = await client.RemoveIntegrationAsOwnerAsync(api, "connectwise");
+
+        using var refused = await client.PutAsJsonAsync(Companies, new MapCompanyRequest("Acme Dental", "7"), TestContext.Current.CancellationToken);
+        var body = await refused.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotImplemented, refused.StatusCode);
+        Assert.Contains("no_psa", body, StringComparison.Ordinal);
+        Assert.False(await api.UseAsync(db => db.CompanyMappings.AnyAsync(m => m.TenantId == tenantId)));
+    }
+
+    [Theory]
+    [InlineData("acme dental", "Acme Dental")]
+    [InlineData("  Acme Dental  ", "Acme Dental")]
+    [InlineData("O'Brien & Sons", "O'Brien & Sons")]
+    [InlineData("12", "O'Brien & Sons")]
+    public async Task AMappingIsSavedUnderTheNameThePsaGivesTheCompany(string sent, string saved)
+    {
+        // The PSA's own spelling is the name its tickets carry, so that is what a publish looks up. A
+        // name with a quote in it is still found, and a company's id finds its name.
+        using var host = Host(new ScriptedConnectWise(), new ScriptedHudu());
+        var (client, tenantId) = await ConnectedClientAsync(host);
+
+        using var mapped = await client.PutAsJsonAsync(Companies, new MapCompanyRequest(sent, "7"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.NoContent, mapped.StatusCode);
+        Assert.Equal(saved, await api.UseAsync(db => db.CompanyMappings.Where(m => m.TenantId == tenantId).Select(m => m.PsaCompany).SingleAsync()));
+        Assert.Equal(saved, await api.UseAsync(db => db.IntegrationChanges.Where(c => c.TenantId == tenantId && c.Action == IntegrationChanges.Mapped).Select(c => c.PsaCompany).SingleAsync()));
+    }
+
+    [Fact]
+    public async Task AMappingSavedBeforeIsUsedAndCanBeForgottenWhileThePsaIsDown()
+    {
+        // Existing mappings keep working: a publish reads them without asking the PSA about the company,
+        // and forgetting one asks the PSA nothing.
+        var cw = new ScriptedConnectWise();
+        var hudu = new ScriptedHudu();
+        using var host = Host(cw, hudu);
+        var (client, tenantId) = await ConnectedClientAsync(host);
+        _ = await RememberDirectlyAsync(tenantId, "Nowhere Inc", "9", "Bright Smiles");
+        cw.FailingRoute = ("/company/companies", HttpStatusCode.ServiceUnavailable);
+
+        using var response = await client.PostAsJsonAsync(new Uri("/v1/sessions/publish", UriKind.Relative), Bundle("Nowhere Inc"), TestContext.Current.CancellationToken);
+        var published = await response.Content.ReadFromJsonAsync<PublishResponse>(TestContext.Current.CancellationToken);
+        using var forgotten = await client.DeleteAsync(new Uri("/v1/integrations/hudu/companies/Nowhere%20Inc", UriKind.Relative), TestContext.Current.CancellationToken);
+
+        Assert.True(Assert.Single(published!.Results).Ok);
+        Assert.Equal(HttpStatusCode.NoContent, forgotten.StatusCode);
+        Assert.DoesNotContain(cw.Requests, r => r.RequestUri!.AbsolutePath.Contains("/company/companies", StringComparison.Ordinal));
     }
 
     [Fact]

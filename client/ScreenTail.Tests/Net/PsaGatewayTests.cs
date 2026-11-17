@@ -278,6 +278,25 @@ public sealed class PsaGatewayTests
         Assert.Equal(words, answer.Refusal);
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest, "no_such_psa_company", "The PSA has no company with that name. Choose the company as the PSA names it on the ticket.")]
+    [InlineData(HttpStatusCode.BadGateway, "psa_unavailable", "ConnectWise did not answer. Try again in a minute.")]
+    [InlineData(HttpStatusCode.NotImplemented, "no_psa", "No PSA is connected, so its companies cannot be mapped. Your owner connects one in the web admin.")]
+    public async Task AMappingThePsaCouldNotConfirmIsTheBackendsSentence(HttpStatusCode status, string error, string words)
+    {
+        // ST-097: the backend checks the PSA company against the PSA before saving a mapping, and refuses
+        // in words when the PSA has no such company or could not be asked. The prompt shows that sentence.
+        using var handler = new RecordingHandler(new HttpResponseMessage(status)
+        {
+            Content = JsonContent.Create(new { error, message = words }),
+        });
+
+        var answer = await Gateway(handler).MapCompanyAsync("Brand New Co", "7", TestContext.Current.CancellationToken);
+
+        Assert.False(answer.Ok);
+        Assert.Equal(words, answer.Refusal);
+    }
+
     [Fact]
     public async Task ANoPsaRefusalWithoutWordsSaysWhoConnectsOne()
     {
