@@ -106,7 +106,9 @@ finished; put the previous key back and repeat step 4.
   CSRF header). A technician's device lists what is connected, tests the stored credential and chooses
   company mappings while publishing; asked to store or remove a credential it is refused with
   `403 owner_only`. Every credential and mapping change is recorded (who, when, which provider, which
-  companies, never a secret) and shown on the owner's Integrations page.
+  companies, never a secret) and shown on the owner's Integrations page. A mapping is saved only for a
+  company the tenant's PSA and documentation platform each have, both checked with the provider before
+  it is saved, and a device past 30 mapping changes in ten minutes is slowed and shown to the owner.
 
 Exercised by `backend/tests/ScreenTail.Api.Tests/Vault/KeyRotationTests.cs`, which does steps 2 to 5 in
 memory: a row under the previous key opens before the rewrap and a new one goes under the current key
