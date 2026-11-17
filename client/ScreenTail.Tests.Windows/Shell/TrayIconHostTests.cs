@@ -41,6 +41,36 @@ public sealed class TrayIconHostTests
     }
 
     /// <summary>
+    /// Quit from another thread takes the menu down on the UI thread, after the repaint already queued
+    /// there, never in the middle of it: disposing it on the caller's thread raced that repaint, and
+    /// Windows Forms' layout threw on the UI thread (the shell's quit test, hosted run of 2026-11-14).
+    /// </summary>
+    [Fact]
+    public void QuitFromAnotherThreadIsDoneOnTheUiThread()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        StaThread.Run(async () =>
+        {
+            var tray = new TrayIconHost();
+            tray.Show(Snapshot("idle"));
+            var ui = Environment.CurrentManagedThreadId;
+            int? disposedOn = null;
+            tray.Menu.Disposed += (_, _) => disposedOn = Environment.CurrentManagedThreadId;
+
+            await Task.Run(
+                () =>
+                {
+                    tray.Update(Snapshot("recording"));
+                    tray.Dispose();
+                },
+                TestContext.Current.CancellationToken);
+
+            Assert.True(tray.Disposed);
+            Assert.Equal(ui, disposedOn);
+        });
+    }
+
+    /// <summary>
     /// ST-016: each tray state is its own brand icon on each taskbar, at the size asked for. INV-4 rests on
     /// recording, paused, offline and the rest never coming out as the same picture.
     /// </summary>
