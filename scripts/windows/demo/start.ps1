@@ -478,17 +478,24 @@ function Get-NewestSourceTicks {
     return $newest
 }
 
+# The demo runs a Release build (ST-031): the laptop's tests measure Release, and M1 ran a Debug publish,
+# whose unoptimised code the processor budget then paid for. The stamp names the configuration, so a
+# folder published before this (a bare number) or in Debug is published again.
+$publishConfiguration = 'Release'
 $sourceTicks = Get-NewestSourceTicks
 [long]$stampTicks = 0
 if (Test-Path -LiteralPath $script:DemoBuildStamp) {
-    [long]::TryParse(([IO.File]::ReadAllText($script:DemoBuildStamp)).Trim(), [ref]$stampTicks) | Out-Null
+    $stamp = ([IO.File]::ReadAllText($script:DemoBuildStamp)).Trim()
+    if ($stamp.StartsWith("$publishConfiguration ", [StringComparison]::Ordinal)) {
+        [long]::TryParse($stamp.Substring($publishConfiguration.Length + 1), [ref]$stampTicks) | Out-Null
+    }
 }
 $publish = $Rebuild -or -not (Test-Path -LiteralPath $serviceExe) -or -not (Test-Path -LiteralPath $uiExe) -or $sourceTicks -gt $stampTicks
 
 if ($publish) {
     Write-Note 'Publishing the capture service and the UI into one folder (a few minutes the first time)...'
     try {
-        & $script:DemoRunLocal -Output $script:DemoAppDir -NoLaunch
+        & $script:DemoRunLocal -Output $script:DemoAppDir -Configuration $publishConfiguration -NoLaunch
     }
     catch {
         Fail -Problem 'Publishing the capture service and the UI failed.' -Detail @(Protect-Text $_.Exception.Message) -Fix @(
@@ -497,8 +504,8 @@ if ($publish) {
     if (-not (Test-Path -LiteralPath $serviceExe) -or -not (Test-Path -LiteralPath $uiExe)) {
         Fail -Problem "Publishing finished, but the two programs are not in $script:DemoAppDir." -Fix @('Read the publishing output above, and send it to the developer.')
     }
-    [IO.File]::WriteAllText($script:DemoBuildStamp, [string]$sourceTicks)
-    Write-Ok "Published into $script:DemoAppDir."
+    [IO.File]::WriteAllText($script:DemoBuildStamp, "$publishConfiguration $sourceTicks")
+    Write-Ok "Published ($publishConfiguration) into $script:DemoAppDir."
 }
 else {
     Write-Ok 'The published client is up to date (start with -Rebuild to publish it again anyway).'

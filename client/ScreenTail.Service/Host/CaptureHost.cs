@@ -667,7 +667,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             paths.ModelDirectory,
 
             // ST-112: the stop does not wait on a native call past StopBound.Default. Said, content-free.
-            abandoned: () => LogSpeechLeftRunning(logger));
+            abandoned: () => LogSpeechLeftRunning(logger),
+
+            // ST-031: off unless the service is started with SCREENTAIL_SPEECH_SIZED_CONTEXT=1, until
+            // recorded speech shows the smaller context keeps the transcript as good (AudioContext).
+            sizeContext: AudioContext.Enabled(Environment.GetEnvironmentVariable));
         var narration = new NarrationRecorder(
             microphone,
             whisper,
@@ -704,7 +708,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
         // Which way the choice went, never the device's name: a name can be personal ("Sam's headset").
         var choiceAtStart = MicrophoneChoice.Resolve(microphone.Devices(), chosenMicrophone).ForLog;
-        LogMicrophone(logger, choiceAtStart, whisper.ModelName);
+        LogMicrophone(logger, choiceAtStart, whisper.ModelName, whisper.SizesContext ? "sized to each segment" : "full");
 
         // Nothing awaits this task, so anything it throws goes unobserved until shutdown. That is how an
         // egress refusal became a service with no narration and no explanation: PrepareAsync did not
@@ -937,8 +941,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
     private static partial void LogUpdate(ILogger logger, UpdateState state);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Microphone}; speech model {Model}")]
-    private static partial void LogMicrophone(ILogger logger, string microphone, string model);
+    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Microphone}; speech model {Model}, encoder window {Encoder}")]
+    private static partial void LogMicrophone(ILogger logger, string microphone, string model, string encoder);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Speech model {Model} could not be prepared ({Reason}); sessions will have no narration")]
     private static partial void LogNoModel(ILogger logger, string model, string reason);

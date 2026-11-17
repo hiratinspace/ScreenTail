@@ -478,6 +478,18 @@ internal sealed class DesktopWindow : IDisposable
     /// <summary>Fills the screen, so a capture measurement has a realistically large window to work on.</summary>
     public void Maximize() => _ = ShowWindow(Handle, SW_MAXIMIZE);
 
+    /// <summary>
+    /// Covers the whole primary screen, as a remote tool shown full screen does (ST-031). <see cref="Maximize"/>
+    /// leaves a window made by <see cref="Create"/> at its first size (the laptop captured 420x220 from one),
+    /// so a test that needs full-screen frames sizes the window itself. Takes the foreground again after.
+    /// </summary>
+    public void FillScreen()
+    {
+        var screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
+        MoveTo(screen.Left, screen.Top, screen.Width, screen.Height);
+        RequireForeground();
+    }
+
     public void Dispose()
     {
         _closing = true;

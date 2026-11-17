@@ -203,9 +203,12 @@ public sealed class ServiceCostTests
         // measured it on this laptop and SpeechUnloadTests measures what it holds.
         Hardware.RequireScreenCapture();
         var ct = TestContext.Current.CancellationToken;
+        // The whole screen, as AnyDesk full screen is in M1. Until ST-031's M1 follow-up this called
+        // Maximize, which left the window at 420x220, so every scene frame was a small crop and the
+        // recording figure was of far less OCR than a real session's.
         using var window = DesktopWindow.Create("ScreenTail recording cost target");
-        window.Maximize();
         window.RequireForeground();
+        window.FillScreen();
         window.ShowContrast(ContrastLayout.SideBySide);
 
         // Drawn before anything is measured, so the test's own drawing is not counted as the service's.

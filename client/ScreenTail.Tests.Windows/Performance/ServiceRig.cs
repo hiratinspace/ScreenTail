@@ -113,14 +113,24 @@ internal sealed class ServiceRig : IAsyncDisposable
     /// whatever the runner has in front and almost never in scope. A recording measurement passes a
     /// decision for a window the test owns, so frames are taken of nothing but that.
     /// </param>
-    public static async Task<ServiceRig> StartAsync(Func<ScopeDecision?>? scope, CancellationToken ct)
+    public static Task<ServiceRig> StartAsync(Func<ScopeDecision?>? scope, CancellationToken ct) =>
+        StartAsync(scope, new ServiceRigOptions(), ct);
+
+    /// <param name="options">What differs from the service as composed for the idle and recording budgets.</param>
+    public static async Task<ServiceRig> StartAsync(Func<ScopeDecision?>? scope, ServiceRigOptions options, CancellationToken ct)
     {
         var rig = new ServiceRig();
-        await rig.ComposeAsync(scope, ct);
+        await rig.ComposeAsync(scope, options, ct);
         return rig;
     }
 
-    private async Task ComposeAsync(Func<ScopeDecision?>? scopeOverride, CancellationToken ct)
+    /// <summary>The narration recorder, for its counts.</summary>
+    public NarrationRecorder Narration { get; private set; } = null!;
+
+    /// <summary>The recogniser the recorder calls, timed; null unless the rig was asked to load the model.</summary>
+    public TimedRecogniser? Speech { get; private set; }
+
+    private async Task ComposeAsync(Func<ScopeDecision?>? scopeOverride, ServiceRigOptions options, CancellationToken ct)
     {
         Directory.CreateDirectory(_dir);
         var stopping = _stopping.Token;
@@ -181,10 +191,14 @@ internal sealed class ServiceRig : IAsyncDisposable
             }
         };
         _running.Add(Throttle.RunAsync(Machine, null, stopping));
-        Scenes = new SceneSampleLoop(Machine, capturer, scope, NullLogger.Instance, new SceneSampler(), throttle: Throttle);
+
+        // The throttle always reads the process, so a measurement can say where it would have gone; it acts
+        // on sampling and OCR only when asked, so a breakdown measures the work a full session does.
+        var acting = options.ApplyThrottle ? Throttle : null;
+        Scenes = new SceneSampleLoop(Machine, capturer, scope, NullLogger.Instance, new SceneSampler(), throttle: acting);
         _running.Add(Scenes.RunAsync(stopping));
 
-        Redaction = new RedactionWorker(Store, new WindowsOcrRecogniser(), new WindowsFrameMasker(), engine, pending, throttle: Throttle);
+        Redaction = new RedactionWorker(Store, new WindowsOcrRecogniser(), new WindowsFrameMasker(), engine, pending, throttle: acting);
         Redaction.BacklogChanged += Machine.ReportPendingRedactions;
         var sensitive = new SensitiveContextGuard(Machine);
         Redaction.SensitiveContextSeen += sensitive.Seen;
@@ -207,23 +221,44 @@ internal sealed class ServiceRig : IAsyncDisposable
 
         _running.Add(Redaction.RunAsync(stopping));
 
-        // The real microphone, opened only while a session records, as in the service. The model is
-        // pointed at an empty folder and never prepared, so speech heard is dropped and counted.
-        var microphone = new WindowsMicrophone();
+        // The real microphone, opened only while a session records, as in the service, unless a test brings
+        // its own. Without speech the model is pointed at an empty folder and never prepared, so speech
+        // heard is dropped and counted; with it, the tests' own copy of the model is loaded as the service
+        // loads its own at the first session.
+        var microphone = options.Microphone ?? new WindowsMicrophone();
         _owned.Add(microphone);
-        var whisper = new WhisperRecogniser(
-            new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy()))),
-            SpeechModels.BaseEnglish,
-            Path.Combine(_dir, "models"));
+        var whisper = options.Speech
+            ? new WhisperRecogniser(
+                new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy(ClientEgress.Settings(null))))),
+                SpeechModels.BaseEnglish,
+                SpeechUnloadTests.ModelCache(),
+                sizeContext: options.SizeContext)
+            : new WhisperRecogniser(
+                new ModelDownload(new HttpClient(new EgressGuard(new EgressPolicy()))),
+                SpeechModels.BaseEnglish,
+                Path.Combine(_dir, "models"));
         _owned.Add(whisper);
+        ISpeechRecogniser recogniser = whisper;
+        if (options.Speech)
+        {
+            if (!await whisper.PrepareAsync(ct))
+            {
+                throw new InvalidOperationException($"The speech model could not be had: {whisper.Unavailable}");
+            }
+
+            Speech = new TimedRecogniser(whisper);
+            recogniser = Speech;
+        }
+
         var narration = new NarrationRecorder(
             microphone,
-            whisper,
+            recogniser,
             (heardIn, segment, token) => Machine.TryAppendTranscriptAsync(heardIn, segment, token),
             recording: () => Machine.Hearing,
             hearing: () => scope()?.MayHearNarration == true,
             backlog: Machine.Narration);
         _ownedSync.Add(narration);
+        Narration = narration;
         Machine.StateChanged += _ => narration.Nudge();
         _running.Add(narration.RunAsync(stopping));
     }
@@ -272,4 +307,57 @@ internal sealed class ServiceRig : IAsyncDisposable
             // A file still held a moment after its owner closed it is the temp folder's to clean.
         }
     }
+}
+
+/// <param name="Microphone">The microphone the narration recorder listens to; the real one when null.</param>
+/// <param name="Speech">Whether the speech model is loaded, so what the microphone hears is transcribed.</param>
+/// <param name="ApplyThrottle">
+/// Whether the processor throttle acts on scene sampling and OCR, as in the service. It reads the process
+/// either way, so its moves are reported; a breakdown turns it off to measure a full session's work.
+/// </param>
+/// <param name="SizeContext">Whether the model encodes only as much context as each segment fills (AudioContext); off, as in the service.</param>
+internal sealed record ServiceRigOptions(IMicrophone? Microphone = null, bool Speech = false, bool ApplyThrottle = true, bool SizeContext = false);
+
+/// <summary>
+/// The recogniser the narration recorder calls, with the time each call took. Counts and durations only:
+/// what was said is passed through and never kept here (INV-10).
+/// </summary>
+[SupportedOSPlatform("windows")]
+internal sealed class TimedRecogniser(ISpeechRecogniser inner) : ISpeechRecogniser
+{
+    private readonly Lock _gate = new();
+    private readonly List<(double AudioSeconds, double WallSeconds)> _calls = [];
+
+    public bool Ready => inner.Ready;
+
+    /// <summary>Every call so far: the audio it was given and the time it took, oldest first.</summary>
+    public IReadOnlyList<(double AudioSeconds, double WallSeconds)> Calls
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return [.. _calls];
+            }
+        }
+    }
+
+    public async Task<Transcribed?> TranscribeAsync(SpeechSegment segment, ReadOnlyMemory<short> audio, CancellationToken ct = default)
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            return await inner.TranscribeAsync(segment, audio, ct);
+        }
+        finally
+        {
+            var took = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalSeconds;
+            lock (_gate)
+            {
+                _calls.Add((audio.Length / 16_000.0, took));
+            }
+        }
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 }

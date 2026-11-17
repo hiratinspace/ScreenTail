@@ -7,20 +7,32 @@ Windows 11, 8 logical processors).
 
 ## The budgets
 
-The latest figures are from laptop run 40626688381 (2026-10-28, commit 9f4113d, the branch's last code
-change).
+**Two units, side by side.** The tests measure processor time as a percentage of **one core**, and the
+throttle and Task Manager read it as a percentage of **the machine**. The laptop has 8 logical
+processors (4 cores, 8 threads), so 8% of one core is 1% of the machine. ST-031's recording budget, 15% of
+a four-core machine, is 60% of one core: **7.5% of this laptop**. Until 2026-11-17 this table gave the
+recording figure in one unit only (4.7% of one core, 0.6% of the machine), and M1's "25%" was read off the
+machine. Every processor figure below gives both.
+
+| Processor budget | Measured by | Enforced | % of one core | % of the machine (8 logical processors) |
+|---|---|---|---|---|
+| Idle, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** (0.125% of the machine) | 0.41 net (run 40626688381) | 0.05 |
+| Idle, UI, under 1% | `ShellCostTests.WithNoSessionTheShellIsAlmostSilent` | Yes, on the laptop, against 1% of one core | 0.0 net (0.22 gross, the test host included) | 0.0 |
+| Recording without speech, under 60% of one core | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 12.9 (run 44027063937, the window filling the screen; it read 4.7 on a 420x220 window before) | 1.6 |
+| Recording, technician narrating (synthetic voice), as shipped | `RecordingCostBreakdownTests.ANarratedRecordingStaysUnderItsCeiling` | Yes, on the laptop, against a ceiling of **120% of one core** (15% of the machine), not the budget: see "Narrated recording" below | 95.9 (run 44027063937); 105.2 before whisper moved to one thread | 12.0; one-second readings peak 20.9 (33.8 before) |
+| The same with the sized encoder context (switched off) | the same test | Reported only | 42.1 | 5.3; peak 20.6 |
+
+The other budgets, from laptop run 40626688381 (2026-10-28, commit 9f4113d) unless the row says
+otherwise:
 
 | Budget | Measured by | Enforced | Latest on the laptop |
 |---|---|---|---|
-| Idle CPU, service, under 1% | `ServiceCostTests.WithNoSessionTheServiceIsAlmostSilent` | Yes, on the laptop, against 1% of **one core** | 0.41% of one core net (0.05% of the machine) |
-| Idle CPU, UI, under 1% | `ShellCostTests.WithNoSessionTheShellIsAlmostSilent` | Yes, on the laptop, against 1% of one core | 0.0% net (0.22% of one core gross, the test host included) |
 | Idle wakeups, service | the same test | Yes, on the laptop, a ceiling of 40 a second (set from the laptop, not named by ST-031) | 17 a second net (14 to 17 across four runs), down from 129 |
 | Idle wakeups, service, on a busy desktop | `ServiceCostTests.WithNoSessionABusyDesktopDoesNotWakeTheService`, `IdleHookTests` | Each watcher's pump thread under 10 a second, everywhere (hosted runner included); the whole service under the same ceiling of 40, on the laptop | Hosted: 0.0 a second for each pump with 68 renames a second behind the window in front. Laptop (41349604369): pumps 2.3 and 0.0, the service 25.0 net |
 | Idle wakeups, UI | the shell test | Reported only | 1.4 a second net (the pill reports every 2 s) |
-| Recording CPU under 15% of four cores (60% of one core) | `ServiceCostTests.ARecordingSessionStaysInsideItsProcessorAndDiskBudgets` | Yes, on the laptop | 4.7% of one core without speech (4.4 to 4.9% across four runs); conservative, since the test's own repainting and staging are counted with it |
 | Disk under 40 MB per 20 minutes | the same test | Yes, on the laptop: the measured frame size times the 85-frame session `SessionStoreTests` assumes | 70 KB a stored frame, 5.8 MB for 85 frames. At the test's own rate of one text frame every 6 s it is 1.5 MB per session-minute, about 30 MB per 20 minutes; that figure is reported, not enforced |
 | Per-key and per-click hook cost under 1 ms | `InputHookTests` (laptop input job) | Yes, since ST-024 | Worst callback 145 µs typing 860 keys, 0.9 µs per click |
-| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB |
+| Memory after the speech model's idle unload | `SpeechUnloadTests` | Reported only (first measurement) | base.en adds 150 MB loaded; the unload gives back 158 MB. Run 44027063937 read 947 MB before loading and so no sensible difference, most likely the test before it (a ten-minute transcription abandoned at the stop's bound) still releasing; see "Narrated recording" |
 | Memory under 600 MB with speech, whole process | `scripts/windows/measure-idle.ps1`, run by hand | No | Not run yet; ADR-0001 measured 505 MB with continuous transcription |
 
 Idle CPU is held against one core rather than the machine, which is stricter than the budget: 1% of
@@ -213,14 +225,18 @@ The Mac suite proves the rules on a fake processor clock and a hand-moved clock 
 `ThrottledSamplingTests`, `ThrottledRedactionTests`). The laptop rig composes the throttle as the host
 does. The recording measurement reports how often the throttle moved and the level it ended at, and on
 the laptop it fails if the throttle moved at all: a throttled service records less, and its figure would
-hide the regression that throttled it. At 4.7% of one core it should never move.
+hide the regression that throttled it. At 12.9% of one core (1.6% of the machine) without speech it does
+not move. With a technician narrating it does: see "Narrated recording" below.
 
 ### Owner step on the laptop
 
-Not yet seen on real hardware. During a demo rehearsal, with the service's console log in view:
+Seen on the laptop in the test rig, not yet in the real service. With synthetic narration and the
+throttle acting (run 44027063937) it stepped Full to FewerSamples at 24 s, FewestSamples at 39 s and OCR
+one at a time at 51 s. During a demo rehearsal, with the service's console log in view:
 
-1. Record a five-minute session while narrating throughout. Expect no `Capture throttle` line. If one
-   appears, note the level and percentage it gives and paste them here.
+1. Record a five-minute session while narrating throughout. Expect `Capture throttle` lines unless the
+   sized encoder context is on. Note the levels and percentages they give and paste them here. Each
+   percentage is one one-second reading of the machine, not the session's mean.
 2. Run `scripts\windows\measure-idle.ps1 -Label "recording, speaking"` alongside, so the throttle's
    reading can be compared with what `Get-Process` sees.
 3. If the narrated session trips the throttle, check how many scene frames it kept. The count is in
@@ -230,9 +246,101 @@ Not yet seen on real hardware. During a demo rehearsal, with the service's conso
    frames; paste both counts here, since that is a reason to revisit the budget or the order in which
    things give.
 
-A session that never trips the throttle is the expected result, since recording measures far under the
-budget. Forcing a trip on real hardware would need a deliberate overload inside the service and is not
-part of this step.
+Without narration a session should not trip the throttle. With it, the rig says it will, until the
+sized context is switched on or the throttle's accounting changes (ST-031's status).
+
+## Narrated recording (M1, 2026-11-17)
+
+M1 (2026-11-13) saw the capture service at about 25% of the laptop during a six-minute narrated AnyDesk
+session, against a budget of 7.5% of the machine (60% of one core). 25% of the machine is about 200% of
+one core. It was most likely one of the throttle's one-second readings, which it logs as `at N% of the
+machine`: two whisper threads busy are 25% of eight processors. CI had never measured a narrated session:
+the recording test has no speech, and its window was 420x220, so its scene frames were small crops.
+
+`RecordingCostBreakdownTests` measures it on the laptop with the composed service (`ServiceRig`), a window
+filling the screen, and narration from Windows' synthetic voices through a scripted microphone. It writes
+numbers, thread descriptions and module names only, never an image, a title or the words. Its first run
+was 44014246194 (main 074d4cfb plus the measurement); after the fixes, 44027063937.
+
+### Where the processor goes, per unit of work
+
+Processor milliseconds, net of the idle test process, run 44027063937 (run 44014246194 within a few
+percent):
+
+| Stage | Processor ms |
+|---|---|
+| Scene look (sampler, a 1920x1080 frame) | 12.7 |
+| Frame capture at 1920x1080 | 16.8 |
+| OCR, a dense 9 pt list, at up to 2x (ST-042) | 615 (438 as captured) |
+| OCR, a settings dialog, at up to 2x | 200 (35 as captured) |
+| Pattern search | 10.2 |
+| Mask | 34.9 |
+
+OCR at twice the size (#275, #278) is about 90% of a frame's redaction and runs on one thread. It is not
+changed here: redaction stays complete, and a frame that cannot be read in time is dropped.
+
+Speech dominates a narrated session. whisper.cpp encodes a full 30-second window (1500 audio context
+positions) for every segment, so a segment costs nearly the same processor time whatever its length:
+
+| Speech, base.en, per segment | Processor s | Wall s |
+|---|---|---|
+| Two threads, full context (before), 10-second clip | 6.7 | 3.4 |
+| One thread, full context (as shipped) | 4.9 to 5.4 | about the same as the processor time (5.3 on the 10-second clip, first run) |
+| One thread, context sized to the segment (switched off) | 1.2 to 3.3 | |
+| Four threads, full context (first run) | 9.9 | |
+
+### The composed service, narrating
+
+| Session (45 s, the throttle reading but not acting unless said) | % of one core | % of the machine | One-second readings, % of the machine | Readings over 7.5% |
+|---|---|---|---|---|
+| Capture, the room quiet (30 s) | 21.6 | 2.7 | median 1.7, peak 9.2 | 4 of 30 |
+| Capture and narration, two threads (before, run 44014246194) | 105.2 | 13.1 | median 13.6, peak 33.8 | 24 of 45 |
+| Capture and narration, one thread (as shipped) | 95.9 | 12.0 | median 12.8, peak 20.9 | 37 of 45 |
+| The same, sized context | 42.1 | 5.3 | median 4.0, peak 20.6 | 13 of 45 |
+| As shipped, the throttle acting (75 s) | 90.8 | 11.3 | median 12.7, peak 21.0 | 60 of 75 |
+
+Speech was 84 of the 105 points before (whisper's OpenMP threads 43.6, the transcription task 29.4,
+short-lived threads about 10), OCR 14 to 18. One thread costs about a quarter less processor for a
+segment and takes about twice as long; the throttle still trips, because 96% of one core is over the 60%
+budget for most of a session. Acting, it stepped Full to FewerSamples at 24 s, FewestSamples at 39 s and
+OCR one at a time at 51 s, and kept no scene frames in its window. With the sized context it would never
+have moved. The ceiling the test enforces is 120% of one core (15% of the machine): the as-shipped figure
+with about a quarter again as margin. It catches a stage that grows, not a return to two threads (105).
+
+One thread has a cost at the stop: an encoder pass on one thread is slower to answer whisper's abort, so
+`SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` measured the disposal at its 500 ms bound
+and the native call ending 508 ms after the stop (221 to 234 ms on two threads), left running past the
+bound and reported. The stop itself is still bounded (ST-112).
+
+### The sized encoder context, off until real speech says otherwise
+
+`AudioContext` (Core) picks the smallest of 512 or 1024 positions that holds the segment plus a second,
+and the full 1500 for anything longer than 19.4 s. `WhisperRecogniser` builds one processor per size from
+the same model, so the extra states cost no measurable memory: loaded and used on 2.2 s, 10.3 s and
+20.7 s, the full recogniser took 149.2 MB private and the sized one (three states) 147.3 MB. It is off by
+default; set `SCREENTAIL_SPEECH_SIZED_CONTEXT=1` (or `true`, `on`) for the service, or for
+`ScreenTail.Service transcribe`, to turn it on. The service logs `encoder window sized to each segment`
+or `full` at start.
+
+Word error on synthetic speech, three voices, run 44027063937:
+
+| Clip | Length | Sized context | Word error, full | Word error, sized |
+|---|---|---|---|---|
+| Short phrase | 2.1 to 2.2 s | 512 | 0% | 0% |
+| One sentence | 3.9 to 4.2 s | 512 | 8% | 8% (the same word, both ways) |
+| Two sentences | 9.6 to 10.3 s | 1024 | 0% | 0% |
+| Three sentences | 14.4 to 15.9 s | 1024 | 0% | 0% |
+| All, 270 words | | | 1.1% | 1.1% |
+
+Five seconds of noise invented no words either way. There is no recorded speech in the repository yet
+(`research/fixtures/audio/` holds only its README), so word error on a real technician's voice is
+unmeasured. The owner decides the default once ST-027's recorded narration exists.
+
+### The demo build
+
+`scripts/windows/demo/start.ps1` published Debug (`run-local.ps1`'s default) while CI measures Release;
+the pattern search alone ran about 1.6 times slower in Debug, measured on a Mac. It now publishes Release, and
+`client-build.txt` says which.
 
 ## How the measurements work
 
@@ -258,7 +366,9 @@ part of this step.
   148 MB. The laptop keeps its model copy in `%LOCALAPPDATA%\ScreenTail.Tests\models`. Measurements are
   text in the job summary and `measurements.txt`; nothing here writes an image or a window title.
 - **Cost.** The laptop capabilities job grew from about 2 to 5.4 minutes, and the hosted Windows tests
-  by about half a minute.
+  by about half a minute. With the breakdown and the narrated sessions (ST-031, 2026-11-17) the
+  capabilities job is 24.7 minutes against its 30-minute limit (tests 23.3 minutes, run 44027063937).
+  If it nears the limit, the breakdown's voices (three) and session lengths are what to trim first.
 
 ## Whole-process numbers, by hand
 
@@ -276,13 +386,16 @@ Paste the tables here.
 ## What only the laptop, or a person, can tell us
 
 - Whole-process memory of the service and the UI, and the 600 MB budget with speech: the script above.
-- Speech CPU while somebody talks. CI has nobody talking, so the recording figure has no transcription.
+- Speech CPU and word error with a real person talking. CI narrates with Windows' synthetic voices, which
+  are cleaner than a technician on a headset; ST-027's recorded fixture is still owed.
 - ST-031's 30-minute golden replay (ST-030's sessions) and the nightly harness that asserts the budgets.
 - Battery: the wakeup counts are the proxy, not a power measurement.
 - Whether the throttle ever trips in a real session with speech (the owner step above).
 
 ## Not done yet in ST-031
 
-- The laptop sighting of the throttle (built and proved on the Mac suite; see above).
+- The sighting of the throttle in the real service (seen in the laptop rig; see above).
+- A narrated session inside the budget: the sized encoder context does it in the rig and waits on real
+  speech; otherwise the throttle's accounting.
 - The nightly harness and the golden replay.
 - Live CPU and memory in "What's being captured" (it shows the working set only).

@@ -35,15 +35,17 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// Unset, it takes every hardware thread the machine has: eight on the reference laptop, which is
     /// the whole processor. ADR-0001 measured base.en that way at 49-62% of the CPU, against ST-031's
     /// 15% for all of ScreenTail, on a machine whose real job is the remote-desktop session the
-    /// technician is running. Two threads is roughly a quarter of that, which lands near the budget
-    /// once voice-activity detection has already cut the work down to the parts where somebody is
-    /// actually speaking (2026-09-20 review).
+    /// technician is running.
     ///
-    /// Not zero-cost: a segment takes longer to transcribe. It is transcribed after the fact either way,
-    /// and a technician waiting a moment longer for a note is better than a technician whose screen
-    /// share stutters.
+    /// One, not two (ST-031, after M1). At two the laptop held both processors for the whole of every
+    /// segment, 2.6 to 3.6 s, which is 25% of its eight logical processors for as long as the technician
+    /// talks and the reading M1's throttle logged; a segment cost 6.9 s of processor. At one it costs
+    /// 5.3 s, because the second thread was mostly the pair waiting on each other, and holds one
+    /// processor, 12.5% of the machine, for about 5.3 s (laptop run 44014246194). Four threads cost
+    /// 9.9 s. A segment is transcribed after the fact either way, and a technician waiting a moment
+    /// longer for a note is better than a technician whose screen share stutters.
     /// </summary>
-    private const int Threads = 2;
+    private const int Threads = 1;
 
     /// <summary>
     /// How long the model stays loaded with nothing to transcribe before it is released.
@@ -80,6 +82,13 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
     private WhisperFactory? _factory;
     private WhisperProcessor? _processor;
+
+    /// <summary>
+    /// Processors with a reduced encoder context, by size (<see cref="AudioContext"/>). Built when a
+    /// segment first needs one and released with the model. Empty unless <see cref="SizesContext"/>.
+    /// Under <see cref="_one"/>.
+    /// </summary>
+    private readonly Dictionary<int, WhisperProcessor> _sized = [];
     private volatile bool _loadable;
 
     /// <summary>
@@ -97,6 +106,10 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     /// <param name="time">The clock the idle period and the stop's wait are measured on. The system's when null.</param>
     /// <param name="stopWait">How long disposal waits for the model to let go. <see cref="StopBound.Default"/> when null.</param>
     /// <param name="abandoned">Told, once, when disposal stopped waiting for a native call still running. Content-free.</param>
+    /// <param name="sizeContext">
+    /// Encode only as much of whisper.cpp's window as each segment fills (<see cref="AudioContext"/>).
+    /// Off by default: checked so far on synthetic speech only (ST-031).
+    /// </param>
     public WhisperRecogniser(
         ModelDownload download,
         SpeechModel? model = null,
@@ -104,8 +117,10 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         TimeSpan? unloadAfter = null,
         TimeProvider? time = null,
         TimeSpan? stopWait = null,
-        Action? abandoned = null)
+        Action? abandoned = null,
+        bool sizeContext = false)
     {
+        SizesContext = sizeContext;
         _time = time ?? TimeProvider.System;
         _stopWait = stopWait ?? StopBound.Default;
         _abandoned = abandoned;
@@ -143,7 +158,12 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
     internal Action? BeforeTheLock { get; init; }
 
     /// <summary>Whether whisper.cpp's context is in memory right now. A fact about this machine, for the diagnostics panel.</summary>
-    public bool Loaded => _processor is not null;
+    public bool Loaded => _processor is not null || Volatile.Read(ref _sizedCount) > 0;
+
+    private int _sizedCount;
+
+    /// <summary>Whether each segment is encoded with only as much context as it fills (<see cref="AudioContext"/>).</summary>
+    public bool SizesContext { get; }
 
     /// <summary>How long with nothing to transcribe before the model is released.</summary>
     public TimeSpan UnloadAfter { get; }
@@ -281,7 +301,7 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
 
             // Released after an idle stretch. The file is on disk and was verified when it landed, so
             // this is a reload, not a download.
-            var processor = _processor ?? Load();
+            var processor = ProcessorFor(TimeSpan.FromSeconds(samples.Length / (double)AudioConversion.TargetRate));
 
             var text = new System.Text.StringBuilder();
             double probability = 0;
@@ -341,6 +361,34 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
         return _processor;
     }
 
+    /// <summary>
+    /// The processor for a segment of this length: the full window unless sizing is on and a smaller
+    /// context holds the segment and its margin. Under <see cref="_one"/>.
+    /// </summary>
+    private WhisperProcessor ProcessorFor(TimeSpan audio)
+    {
+        var context = SizesContext ? AudioContext.For(audio) : AudioContext.Full;
+        if (context == AudioContext.Full)
+        {
+            return _processor ?? Load();
+        }
+
+        if (!_sized.TryGetValue(context, out var processor))
+        {
+            _factory ??= WhisperFactory.FromPath(_path);
+            processor = _factory.CreateBuilder()
+                .WithLanguage("en")
+                .WithThreads(Threads)
+                .WithProbabilities()
+                .WithAudioContextSize(context)
+                .Build();
+            _sized[context] = processor;
+            Volatile.Write(ref _sizedCount, _sized.Count);
+        }
+
+        return processor;
+    }
+
     /// <summary>Lets the context and the model go. Under <see cref="_one"/>.</summary>
     private async ValueTask UnloadAsync()
     {
@@ -350,6 +398,13 @@ public sealed class WhisperRecogniser : ISpeechRecogniser
             await processor.DisposeAsync().ConfigureAwait(false);
         }
 
+        foreach (var sized in _sized.Values)
+        {
+            await sized.DisposeAsync().ConfigureAwait(false);
+        }
+
+        _sized.Clear();
+        Volatile.Write(ref _sizedCount, 0);
         _factory?.Dispose();
         _factory = null;
     }
