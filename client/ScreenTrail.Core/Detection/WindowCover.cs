@@ -1,0 +1,162 @@
+namespace ScreenTrail.Core.Detection;
+
+/// <summary>A rectangle on the virtual screen, in the same pixels the capturer copies. Right and bottom are exclusive.</summary>
+public readonly record struct ScreenRect(int Left, int Top, int Right, int Bottom)
+{
+    public bool IsEmpty => Right <= Left || Bottom <= Top;
+
+    /// <summary>Whether the two share at least one pixel. Touching edges share none.</summary>
+    public bool Intersects(ScreenRect other) =>
+        !IsEmpty && !other.IsEmpty
+        && Left < other.Right && other.Left < Right
+        && Top < other.Bottom && other.Top < Bottom;
+}
+
+/// <summary>
+/// What the capturer knows about one window above the one in front, in z-order. Window properties only:
+/// nothing here is read from the window's content.
+/// </summary>
+/// <param name="Bounds">Where it is drawn, without the invisible resize border Windows adds around it.</param>
+/// <param name="Visible">Shown, and not minimized.</param>
+/// <param name="Cloaked">Hidden by the compositor (a suspended app, another virtual desktop), so not on screen.</param>
+/// <param name="Topmost">
+/// Kept above every ordinary window, as toasts, popups and always-on-top tools are. Not part of the rule: a
+/// window that is not topmost covers just as well once it lies above the one in front.
+/// </param>
+/// <param name="SameProcess">Owned by the process of the window in front: its own menu or toolbar.</param>
+/// <param name="ExcludedFromCapture">Set to stay out of screen capture, as the HUD is, so absent from the frame anyway.</param>
+/// <param name="Taskbar">The shell's taskbar on one of the monitors.</param>
+public readonly record struct WindowAbove(
+    ScreenRect Bounds,
+    bool Visible,
+    bool Cloaked,
+    bool Topmost,
+    bool SameProcess,
+    bool ExcludedFromCapture,
+    bool Taskbar);
+
+/// <summary>
+/// How the window in front is itself composed with what is behind it. Window properties only.
+/// </summary>
+/// <param name="Layered">The window is a layered window (<c>WS_EX_LAYERED</c>), the only kind Windows blends with what lies below it.</param>
+/// <param name="AttributesKnown">
+/// Its blend could be read (<c>GetLayeredWindowAttributes</c>). False for a window that draws itself with
+/// per-pixel alpha (<c>UpdateLayeredWindow</c>), whose transparency cannot be asked about.
+/// </param>
+/// <param name="ColorKey">One colour of the window is drawn as a hole (<c>LWA_COLORKEY</c>).</param>
+/// <param name="Alpha">The whole window is drawn at <paramref name="Opacity"/> (<c>LWA_ALPHA</c>).</param>
+/// <param name="Opacity">0 is invisible, 255 is opaque. Read only when <paramref name="Alpha"/> is set.</param>
+public readonly record struct TargetLayering(bool Layered, bool AttributesKnown, bool ColorKey, bool Alpha, byte Opacity)
+{
+    /// <summary>An ordinary window: drawn opaque, so nothing behind it is in its rectangle.</summary>
+    public static TargetLayering Opaque => default;
+}
+
+/// <summary>
+/// Whether something lies over the window in front, so that a frame copied off the screen over its rectangle
+/// would hold another application's pixels (ST-025).
+///
+/// The capturer copies the screen, not the window, so a toast, a call notification or an always-on-top tool
+/// over an in-scope window is in the frame with it, and so is any other application's window that lies
+/// above it in z-order, topmost or not: one shown without taking the foreground, or raised by its own app.
+/// Until the grab is of the window itself (PrintWindow or Windows.Graphics.Capture), a sample with another
+/// application's window over it is skipped rather than stored. Kept apart from the Windows plumbing so the rule is testable without a desktop.
+/// </summary>
+public static class WindowCover
+{
+    /// <summary>
+    /// How many windows above the one in front are looked at before giving up. A desktop has a few dozen;
+    /// a walk that has not reached the top by this many is treated as covered rather than trusted.
+    /// </summary>
+    public const int MaxWindowsAbove = 512;
+
+    /// <summary>Whether this window, lying above the target in z-order, puts foreign pixels into the target's frame.</summary>
+    public static bool Covers(ScreenRect target, WindowAbove above)
+    {
+        if (!above.Visible || above.Cloaked)
+        {
+            return false;
+        }
+
+        // The window in front's own menus and toolbars are part of what is being photographed, and a
+        // window the compositor already leaves out of the frame cannot be in it.
+        if (above.SameProcess || above.ExcludedFromCapture)
+        {
+            return false;
+        }
+
+        // The taskbar sits along a screen edge for the whole day. It is the shell's own strip, not another
+        // application's window, and refusing every frame of a window that touches it would turn this
+        // interim measure into no frames at all for an ordinary layout.
+        if (above.Taskbar)
+        {
+            return false;
+        }
+
+        return target.Intersects(above.Bounds);
+    }
+
+    /// <summary>
+    /// Whether the window in front lets what lies behind it show through, so that a frame copied off the
+    /// screen over its rectangle would hold whatever is underneath: an excluded password manager behind a
+    /// remote-tool window the technician made translucent, for instance (INV-6). Such a sample is skipped,
+    /// as a covered one is.
+    ///
+    /// A window drawn at less than full opacity shows what is behind it everywhere, and that is refused,
+    /// whatever the window is.
+    ///
+    /// A colour key makes every pixel of one colour a hole, and a copy of the screen shows what is behind
+    /// the hole rather than the key colour, so the holes cannot be masked afterwards. It is refused too,
+    /// except for a window of a remote tool in the shipped registry (the list that drives the default
+    /// scope): WinForms (<c>TransparencyKey</c>) and skinned applications cut their rounded corners and
+    /// shaped edges this way, ScreenConnect's client is WinForms, and refusing it would risk losing every
+    /// frame of the tool a session is about. So under the default scope nothing changes for the tools,
+    /// and under "all windows" an arbitrary colour-keyed application is refused. The cost, a known limit:
+    /// the shaped corners of a remote tool's window can show a few pixels of what is behind it.
+    ///
+    /// A layered window whose blend cannot be read draws itself with per-pixel alpha, usually for the same
+    /// corners and shadows, and there is nothing to read that would tell a shadow from a hole; it is not
+    /// refused, the same limit. Both limits go once the grab is of the window itself rather than the screen.
+    /// </summary>
+    /// <param name="target">How the window in front is blended with what is behind it.</param>
+    /// <param name="remoteTool">
+    /// The window belongs to a remote tool the shipped registry names (<see cref="Registry.RemoteToolRegistry.MatchTool(string?, string)"/>).
+    /// </param>
+    public static bool ShowsWhatIsBehind(TargetLayering target, bool remoteTool = false)
+    {
+        if (!target.Layered || !target.AttributesKnown)
+        {
+            return false;
+        }
+
+        if (target.Alpha && target.Opacity < byte.MaxValue)
+        {
+            return true;
+        }
+
+        return target.ColorKey && !remoteTool;
+    }
+
+    /// <summary>
+    /// Whether any of the windows above the target covers it. A walk that was cut short says covered:
+    /// what was not looked at may be on top.
+    /// </summary>
+    public static bool AnyCovers(ScreenRect target, IEnumerable<WindowAbove> above, bool walkComplete)
+    {
+        ArgumentNullException.ThrowIfNull(above);
+        if (!walkComplete)
+        {
+            return true;
+        }
+
+        foreach (var window in above)
+        {
+            if (Covers(target, window))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

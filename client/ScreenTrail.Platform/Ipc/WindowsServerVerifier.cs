@@ -1,0 +1,104 @@
+using System.IO.Pipes;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.Cryptography;
+using ScreenTrail.Core.Ipc;
+
+namespace ScreenTrail.Platform.Ipc;
+
+/// <summary>
+/// ST-012's third acceptance criterion: a modified service binary means the UI refuses to connect.
+///
+/// The mirror of <see cref="WindowsClientVerifier"/>, and the half that did not exist. The service has
+/// always checked who was calling it; nothing checked who was answering, so the UI connected to whatever
+/// held the pipe name and wrote the session token to it. A per-user pipe needs no privilege to squat, and
+/// the payoff is complete: the impostor gets the token, and then decides what the technician is told about
+/// capture state. INV-4 says capture is always visibly indicated, and this is how that guarantee is
+/// defeated without touching capture at all.
+///
+/// The rule is the same one ADR-0003 already states, read the other way round: the process on the far end
+/// must live in the same directory as this executable and, in a signed build, be Authenticode-signed by
+/// our publisher as well.
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class WindowsServerVerifier : IServerVerifier
+{
+    private readonly string _uiExecutable;
+    private readonly string? _publisherThumbprint;
+
+    /// <param name="uiExecutable">This process's own image. The dev-build fallback compares against it.</param>
+    public WindowsServerVerifier(string uiExecutable)
+    {
+        _uiExecutable = PeerDirectory.Anchor(uiExecutable);
+        _publisherThumbprint = Authenticode.VerifiedSignerThumbprint(_uiExecutable);
+    }
+
+    public bool UiIsSigned => _publisherThumbprint is not null;
+
+    /// <summary>The path servers are compared against, for the Windows tests.</summary>
+    internal string Anchor => _uiExecutable;
+
+    public ValueTask<string?> VerifyAsync(PipeStream connection, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        if (connection is not NamedPipeClientStream client)
+        {
+            return ValueTask.FromResult<string?>("not_a_client_pipe");
+        }
+
+        if (!GetNamedPipeServerProcessId(client.SafePipeHandle, out var pid))
+        {
+            // Windows will not say who is listening. Refusing is the only safe reading: the question was
+            // "is this the service", and "cannot tell" is not "yes".
+            return ValueTask.FromResult<string?>("server_pid_unknown");
+        }
+
+        // Asked of the kernel, and held open while the answer is used. Process.MainModule reads the
+        // target's own loader data, which a same-user process can rewrite to name the real signed
+        // executable, so the check would go and verify a genuine file on disk while talking to an
+        // impostor. And a process id is reused the moment its process exits, so the handle is what makes
+        // the file we verify and the peer we are talking to the same thing (2026-09-19 review).
+        using var image = ProcessImage.Of(pid);
+        return ValueTask.FromResult(image is null ? "server_process_unreadable" : Verify(image.Path));
+    }
+
+    /// <summary>The rule itself, separated from the pipe so it can be tested with plain paths.</summary>
+    public string? Verify(string serverExecutable)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverExecutable);
+        var server = Path.GetFullPath(serverExecutable);
+
+        if (_publisherThumbprint is not null)
+        {
+            var serverThumbprint = Authenticode.VerifiedSignerThumbprint(server);
+            if (serverThumbprint is null || !CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(serverThumbprint),
+                Convert.FromHexString(_publisherThumbprint)))
+            {
+                return "unsigned_or_other_publisher";
+            }
+
+            // Signed by us is not enough on its own: the signature covers the executable and not the
+            // libraries it loads from its folder, so a genuine copy of the service run from a folder the
+            // user can write to is not our service. The installer puts both executables in one folder
+            // under Program Files (2026-11-15 review).
+            return PeerDirectory.Same(serverExecutable, _uiExecutable) ? null : "signed_outside_ui_directory";
+        }
+
+        // Only a build that carries no signature at all may fall back to the directory rule. Our own
+        // signature failing to verify (an untrusted certificate, a chain that will not build, a
+        // tampered binary) used to arrive here as the same null thumbprint, so a release quietly
+        // applied the rule meant for builds nobody signed (2026-09-19 review). A release that cannot
+        // vouch for itself vouches for nothing.
+        if (!Authenticode.IsUnsigned(_uiExecutable))
+        {
+            return "own_signature_unverifiable";
+        }
+
+        return PeerDirectory.Same(serverExecutable, _uiExecutable) ? null : "dev_build_outside_ui_directory";
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint serverProcessId);
+}

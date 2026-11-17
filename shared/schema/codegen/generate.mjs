@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '../../..');
 const schemaFile = resolve(here, '../session.v1.json');
 const targets = {
-  csharp: resolve(repoRoot, 'client/ScreenTail.Shared/Generated/SessionV1.g.cs'),
+  csharp: resolve(repoRoot, 'client/ScreenTrail.Shared/Generated/SessionV1.g.cs'),
   typescript: resolve(repoRoot, 'web/src/generated/session.v1.ts'),
 };
 const banner =
@@ -69,7 +69,7 @@ function csharp(root) {
   w('');
   w('using System.Text.Json.Serialization;');
   w('');
-  w('namespace ScreenTail.Shared.Schema;');
+  w('namespace ScreenTrail.Shared.Schema;');
 
   record(w, root.title ?? 'Session', root, null, new Set());
   for (const [name, def] of Object.entries(defs)) {

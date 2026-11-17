@@ -67,11 +67,11 @@ function Case {
     }
 }
 
-$proof = 'ScreenTail.Tests.Windows.Input.InputHookTests.TypingAPasswordRecordsOnlyHowManyKeys'
-$other = 'ScreenTail.Tests.Windows.Input.InputHookTests.EnterIsItsOwnCategory'
-$third = 'ScreenTail.Tests.Windows.Capture.SomethingElse'
+$proof = 'ScreenTrail.Tests.Windows.Input.InputHookTests.TypingAPasswordRecordsOnlyHowManyKeys'
+$other = 'ScreenTrail.Tests.Windows.Input.InputHookTests.EnterIsItsOwnCategory'
+$third = 'ScreenTrail.Tests.Windows.Capture.SomethingElse'
 # A class whose name ends like the required one. Its passing must not count as the proof having run.
-$lookalike = 'ScreenTail.Tests.Windows.Input.XInputHookTests.TypingAPasswordRecordsOnlyHowManyKeys'
+$lookalike = 'ScreenTrail.Tests.Windows.Input.XInputHookTests.TypingAPasswordRecordsOnlyHowManyKeys'
 
 Case -Name 'a run within its budget passes' -ExpectExit 0 -MaxSkipped 1 `
     -Reports @(, @((Passed $proof), (Passed $other), (Skipped $third))) -MustSay 'Skip gate passed: 1 of 3 skipped'

@@ -59,7 +59,7 @@ describe('the production build under that policy', () => {
   let server: PreviewServer;
 
   beforeAll(async () => {
-    outDir = mkdtempSync(join(tmpdir(), 'screentail-web-csp-'));
+    outDir = mkdtempSync(join(tmpdir(), 'screentrail-web-csp-'));
     await build({ root: web, configFile, logLevel: 'silent', build: { outDir, emptyOutDir: true } });
     server = await preview({ root: web, configFile, logLevel: 'silent', build: { outDir }, preview: { port: 0, strictPort: false, open: false } });
   }, 60_000);

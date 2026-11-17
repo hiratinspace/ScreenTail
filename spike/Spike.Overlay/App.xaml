@@ -1,4 +1,4 @@
-<Application x:Class="ScreenTail.Spike.Overlay.App"
+<Application x:Class="ScreenTrail.Spike.Overlay.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown"

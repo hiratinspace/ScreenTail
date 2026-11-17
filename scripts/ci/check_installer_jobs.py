@@ -73,9 +73,9 @@ def expr(inner):
 BUILD, SIGN, CHECK = 'installer', 'installer-sign', 'installer-signed-check'
 HOSTED = 'windows-latest'
 ENVIRONMENT = 'signing'
-CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTAIL_SIGNING == 'true'"
-SIGNING_ENV = ('AZURE_', 'SCREENTAIL_SIGNING', 'SCREENTAIL_UPDATE')
-SIGNING_VARS = re.compile(r'\bvars\.(AZURE_\w+|SCREENTAIL_SIGNING_\w+|SCREENTAIL_UPDATE_\w+)', re.IGNORECASE)
+CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.SCREENTRAIL_SIGNING == 'true'"
+SIGNING_ENV = ('AZURE_', 'SCREENTRAIL_SIGNING', 'SCREENTRAIL_UPDATE')
+SIGNING_VARS = re.compile(r'\bvars\.(AZURE_\w+|SCREENTRAIL_SIGNING_\w+|SCREENTRAIL_UPDATE_\w+)', re.IGNORECASE)
 
 CHECKOUT = 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
 UPLOAD = 'actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9'
@@ -87,7 +87,7 @@ INPUTS = {
     DOWNLOAD: {'artifact-ids', 'path'},
     UPLOAD: {'name', 'path', 'retention-days', 'if-no-files-found'},
 }
-PAYLOAD_ARTIFACT, SIGNED_ARTIFACT, MANIFEST_ARTIFACT = 'screentail-installer-payload', 'screentail-installer', 'screentail-update-manifests'
+PAYLOAD_ARTIFACT, SIGNED_ARTIFACT, MANIFEST_ARTIFACT = 'screentrail-installer-payload', 'screentrail-installer', 'screentrail-update-manifests'
 BUILD_OUTPUTS = {
     'payload-artifact-id': expr('steps.payload.outputs.artifact-id'),
     'payload-artifact-digest': expr('steps.payload.outputs.artifact-digest'),
@@ -103,20 +103,20 @@ RISKY_ENV = re.compile(r'(PATH|PATHEXT|COMSPEC|PSModulePath|PSExecutionPolicyPre
 
 VERSION = '"0.1.' + expr('github.run_number') + '"'
 SIGN_SETTINGS = {
-    'SCREENTAIL_REQUIRE_SIGNING': '1',
-    'SCREENTAIL_SIGNING_ENDPOINT': expr('vars.SCREENTAIL_SIGNING_ENDPOINT'),
-    'SCREENTAIL_SIGNING_ACCOUNT': expr('vars.SCREENTAIL_SIGNING_ACCOUNT'),
-    'SCREENTAIL_SIGNING_PROFILE': expr('vars.SCREENTAIL_SIGNING_PROFILE'),
+    'SCREENTRAIL_REQUIRE_SIGNING': '1',
+    'SCREENTRAIL_SIGNING_ENDPOINT': expr('vars.SCREENTRAIL_SIGNING_ENDPOINT'),
+    'SCREENTRAIL_SIGNING_ACCOUNT': expr('vars.SCREENTRAIL_SIGNING_ACCOUNT'),
+    'SCREENTRAIL_SIGNING_PROFILE': expr('vars.SCREENTRAIL_SIGNING_PROFILE'),
     'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
     'AZURE_CLIENT_ID': expr('vars.AZURE_CLIENT_ID'),
 }
 # The verification also gets the Artifact Signing names (no credential), so it knows which mode signed
 # the build and can require the identity-validation usage installed builds compare updates by.
 VERIFY_SETTINGS = {
-    'SCREENTAIL_REQUIRE_SIGNING': '1',
-    'SCREENTAIL_SIGNING_ENDPOINT': expr('vars.SCREENTAIL_SIGNING_ENDPOINT'),
-    'SCREENTAIL_SIGNING_ACCOUNT': expr('vars.SCREENTAIL_SIGNING_ACCOUNT'),
-    'SCREENTAIL_SIGNING_PROFILE': expr('vars.SCREENTAIL_SIGNING_PROFILE'),
+    'SCREENTRAIL_REQUIRE_SIGNING': '1',
+    'SCREENTRAIL_SIGNING_ENDPOINT': expr('vars.SCREENTRAIL_SIGNING_ENDPOINT'),
+    'SCREENTRAIL_SIGNING_ACCOUNT': expr('vars.SCREENTRAIL_SIGNING_ACCOUNT'),
+    'SCREENTRAIL_SIGNING_PROFILE': expr('vars.SCREENTRAIL_SIGNING_PROFILE'),
 }
 HANDOFF_SETTINGS = {
     'GH_TOKEN': expr('github.token'),
@@ -125,20 +125,20 @@ HANDOFF_SETTINGS = {
     'PAYLOAD_MANIFEST': expr('needs.installer.outputs.payload-manifest'),
 }
 PAYLOAD = 'artifacts/installer/payload'
-MSI = 'artifacts/installer/packages/ScreenTail.msi'
+MSI = 'artifacts/installer/packages/ScreenTrail.msi'
 ENGINE = 'artifacts/installer/work/engine.exe'
-SETUP = 'artifacts/installer/packages/ScreenTail-Setup.exe'
+SETUP = 'artifacts/installer/packages/ScreenTrail-Setup.exe'
 # ST-113: the update manifests, signed in this job by the Key Vault key, after every signature checks.
 MANIFESTS = 'artifacts/installer/manifests'
 # Each channel has its own key and its own Azure identity (2026-11-15 review): the signing job holds the
 # pilot pair only, and the promotion the stable pair only. Neither workflow names the other's.
 UPDATE_SETTINGS = {
-    'SCREENTAIL_UPDATE_PILOT_KEY': expr('vars.SCREENTAIL_UPDATE_PILOT_KEY'),
-    'SCREENTAIL_UPDATE_PILOT_CLIENT_ID': expr('vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID'),
-    'SCREENTAIL_UPDATE_BASE': expr('vars.SCREENTAIL_UPDATE_BASE'),
+    'SCREENTRAIL_UPDATE_PILOT_KEY': expr('vars.SCREENTRAIL_UPDATE_PILOT_KEY'),
+    'SCREENTRAIL_UPDATE_PILOT_CLIENT_ID': expr('vars.SCREENTRAIL_UPDATE_PILOT_CLIENT_ID'),
+    'SCREENTRAIL_UPDATE_BASE': expr('vars.SCREENTRAIL_UPDATE_BASE'),
     'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
 }
-PILOT_ONLY, STABLE_ONLY = 'SCREENTAIL_UPDATE_PILOT_', 'SCREENTAIL_UPDATE_STABLE_'
+PILOT_ONLY, STABLE_ONLY = 'SCREENTRAIL_UPDATE_PILOT_', 'SCREENTRAIL_UPDATE_STABLE_'
 
 # installer-sign, step by step. ('uses', action, inputs) or ('run', command, env); an optional fourth
 # item is the step's id, the only place a step may have one.
@@ -163,15 +163,15 @@ SEQUENCE = [
 # of its own that the owner protects with required reviewers and a main-only branch rule. Its own
 # workflow file, so ci.yml's triggers are untouched.
 PROMOTE_FILE = '.github/workflows/promote-stable.yml'
-PROMOTE_JOB, PROMOTE_ENVIRONMENT, STABLE_ARTIFACT = 'promote', 'release-stable', 'screentail-stable-manifest'
+PROMOTE_JOB, PROMOTE_ENVIRONMENT, STABLE_ARTIFACT = 'promote', 'release-stable', 'screentrail-stable-manifest'
 PROMOTE_CONDITION = "github.ref == 'refs/heads/main'"
 PROMOTE_INPUTS = {'pilot-run', 'version'}
 PROMOTE_PERMISSIONS = {'contents': 'read', 'actions': 'read', IDT: 'write'}
 PROMOTE_JOB_KEYS = {'name', 'if', 'runs-on', 'environment', 'permissions', 'timeout-minutes', 'defaults', 'steps'}
 PROMOTE_SETTINGS = {
-    'SCREENTAIL_STABLE_RELEASE': expr('vars.SCREENTAIL_STABLE_RELEASE'),
-    'SCREENTAIL_UPDATE_STABLE_KEY': expr('vars.SCREENTAIL_UPDATE_STABLE_KEY'),
-    'SCREENTAIL_UPDATE_STABLE_CLIENT_ID': expr('vars.SCREENTAIL_UPDATE_STABLE_CLIENT_ID'),
+    'SCREENTRAIL_STABLE_RELEASE': expr('vars.SCREENTRAIL_STABLE_RELEASE'),
+    'SCREENTRAIL_UPDATE_STABLE_KEY': expr('vars.SCREENTRAIL_UPDATE_STABLE_KEY'),
+    'SCREENTRAIL_UPDATE_STABLE_CLIENT_ID': expr('vars.SCREENTRAIL_UPDATE_STABLE_CLIENT_ID'),
     'AZURE_TENANT_ID': expr('vars.AZURE_TENANT_ID'),
     'PROMOTE_VERSION': expr('inputs.version'),
 }
@@ -183,7 +183,7 @@ PROMOTE_SEQUENCE = [
     ('uses', CHECKOUT, {'ref': expr('github.sha'), 'persist-credentials': False}),
     # 2026-10-29 review: the run promoted is a successful ci.yml run of a push to main, asked of GitHub.
     ('run', './installer/check-pilot-run.ps1', {'GH_TOKEN': expr('github.token'), 'PILOT_RUN': expr('inputs.pilot-run')}),
-    ('uses', DOWNLOAD, {'name': 'screentail-update-manifests', 'run-id': expr('inputs.pilot-run'), 'github-token': expr('github.token'), 'path': PILOT_DOWNLOAD}),
+    ('uses', DOWNLOAD, {'name': 'screentrail-update-manifests', 'run-id': expr('inputs.pilot-run'), 'github-token': expr('github.token'), 'path': PILOT_DOWNLOAD}),
     ('run', './installer/update-manifest.ps1 -Channel stable -Promote ' + PILOT_DOWNLOAD + '/pilot/win-x64.json -Out ' + STABLE_OUT, PROMOTE_SETTINGS),
     ('uses', UPLOAD, {'name': STABLE_ARTIFACT, 'path': STABLE_OUT, 'retention-days': 1, 'if-no-files-found': 'error'}),
 ]
@@ -235,14 +235,14 @@ MUST_CONTAIN = {
         "if (-not (Find-Key $pilotKeys $pilotBytes",
         "if ($signedChannel -cne [string]$key.channel) {",
         "if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {",
-        "if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {",
+        "if ($foreign -or $env:SCREENTRAIL_UPDATE_KEY) {",
         "if (@($trusted.packageHosts) -notcontains $packageHost) {",
         "$KeyPattern = '^https://[a-z0-9-]+\\.vault\\.azure\\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'",
         "return $ecdsa.VerifyData($SignedBytes, $Signature)",
         # The channel is required, one of two, and stable only through the gated promotion.
         "if ($Channel -notin @('pilot', 'stable')) {",
         "throw 'Stable is signed only by promotion",
-        "if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {",
+        "if ($env:SCREENTRAIL_STABLE_RELEASE -cne 'true') {",
         "if ($pilot.channel -cne 'pilot'",
     ],
     # The promotion's first check: the run is this repository's ci.yml, run by a push to main, and green.
@@ -278,7 +278,7 @@ CALL_TARGETS = {'$dotnet', '$signtool'}
 EXTENSIONS = {'$util': "Get-Extension 'WixToolset.Util.wixext'", '$bal': "Get-Extension 'WixToolset.Bal.wixext'"}
 PAYLOAD_LINES = {
     "$payload = Join-Path $Output 'payload'",
-    "if (-not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {",
+    "if (-not (Test-Path (Join-Path $payload 'ScreenTrail.Service.exe'))) {",
     'throw "There is no payload in $payload. Run build.ps1 -Stage Payload first."',
     "'-d', \"Payload=$payload\",",
 }
@@ -766,7 +766,7 @@ def sample_workflow():
                     {'run': './installer/build.ps1 -Stage Payload'},
                     {'id': 'manifest', 'run': MANIFEST_WRITE},
                     {'id': 'payload', 'if': CONDITION, 'uses': UPLOAD, 'with': {'name': PAYLOAD_ARTIFACT, 'path': PAYLOAD}},
-                    {'uses': UPLOAD, 'with': {'name': 'screentail-installer-unsigned', 'path': 'x'}},
+                    {'uses': UPLOAD, 'with': {'name': 'screentrail-installer-unsigned', 'path': 'x'}},
                 ],
             },
             SIGN: {
@@ -814,7 +814,7 @@ SAMPLE_FILES = {
         "$util = Get-Extension 'WixToolset.Util.wixext' 'wixext5\\WixToolset.Util.wixext.dll'",
         "$bal = Get-Extension 'WixToolset.Bal.wixext' 'wixext5\\WixToolset.BootstrapperApplications.wixext.dll'",
         "$payload = Join-Path $Output 'payload'",
-        "if (-not (Test-Path (Join-Path $payload 'ScreenTail.Service.exe'))) {",
+        "if (-not (Test-Path (Join-Path $payload 'ScreenTrail.Service.exe'))) {",
         "    throw \"There is no payload in $payload. Run build.ps1 -Stage Payload first.\"",
         "}",
         "Invoke-Wix 'x' @('build', '-ext', $util,",
@@ -866,10 +866,10 @@ SAMPLE_FILES = {
         "    if (-not (Find-Key $pilotKeys $pilotBytes $signature)) {",
         "    if ($signedChannel -cne [string]$key.channel) {",
         "        if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {",
-        "if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {",
+        "if ($foreign -or $env:SCREENTRAIL_UPDATE_KEY) {",
         "if ($Channel -notin @('pilot', 'stable')) {",
         "    throw 'Stable is signed only by promotion (promote-stable.yml), never by a build.'",
-        "    if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {",
+        "    if ($env:SCREENTRAIL_STABLE_RELEASE -cne 'true') {",
         "    if ($pilot.channel -cne 'pilot' -or $pilot.version -cne $env:PROMOTE_VERSION) {",
     ]),
     'installer/tools.json': json.dumps({'packages': [
@@ -883,7 +883,7 @@ SAMPLE_FILES = {
     ]}),
     'installer/Package.wxs': """<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
-  <Package Name="ScreenTail" Version="$(var.Version)">
+  <Package Name="ScreenTrail" Version="$(var.Version)">
     <CustomAction Id="Refuse" Error="No." />
     <CustomAction Id="Clean" BinaryRef="Wix4UtilCA_X64" DllEntry="WixQuietExec" Execute="deferred" Impersonate="no" Return="ignore" />
     <Files Include="$(var.Payload)\\**" />
@@ -893,7 +893,7 @@ SAMPLE_FILES = {
 """,
     'installer/Bundle.wxs': """<?xml version="1.0" encoding="utf-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
-  <Bundle Name="ScreenTail" Version="$(var.Version)">
+  <Bundle Name="ScreenTrail" Version="$(var.Version)">
     <BootstrapperApplication><bal:WixInternalUIBootstrapperApplication /></BootstrapperApplication>
     <Chain><MsiPackage SourceFile="$(var.Msi)" /></Chain>
   </Bundle>
@@ -1022,22 +1022,22 @@ MUST_FAIL = {
     'the manifests signed before the signatures are checked': on_workflow(lambda w: sign_steps(w).insert(11, sign_steps(w).pop(12))),
     'the manifest step dropped': on_workflow(lambda w: sign_steps(w).pop(12)),
     'the manifest step with another flag': on_workflow(lambda w: sign_steps(w)[12].update(run=sign_steps(w)[12]['run'] + ' -MinimumVersion 9.9.9')),
-    'the verification without the signing mode': on_workflow(lambda w: sign_steps(w)[11]['env'].pop('SCREENTAIL_SIGNING_ENDPOINT')),
+    'the verification without the signing mode': on_workflow(lambda w: sign_steps(w)[11]['env'].pop('SCREENTRAIL_SIGNING_ENDPOINT')),
     'the verification with a signing credential': on_workflow(lambda w: sign_steps(w)[11]['env'].update(AZURE_CLIENT_ID=expr('vars.AZURE_CLIENT_ID'))),
     'the verification without the validation usage check': edit_file('installer/sign.ps1', lambda t: t.replace("if ($mode -eq 'artifact-signing' -and -not (Test-ValidationUsage", "if ($false -and -not (Test-ValidationUsage")),
-    'the manifest step without its key': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_PILOT_KEY')),
-    'the manifest step without its identity': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTAIL_UPDATE_PILOT_CLIENT_ID')),
-    'the manifest step with the stable key': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTAIL_UPDATE_STABLE_KEY'))),
+    'the manifest step without its key': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTRAIL_UPDATE_PILOT_KEY')),
+    'the manifest step without its identity': on_workflow(lambda w: sign_steps(w)[12]['env'].pop('SCREENTRAIL_UPDATE_PILOT_CLIENT_ID')),
+    'the manifest step with the stable key': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTRAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTRAIL_UPDATE_STABLE_KEY'))),
     'the manifest step with the code-signing identity': on_workflow(lambda w: sign_steps(w)[12]['env'].update(AZURE_CLIENT_ID=expr('vars.AZURE_CLIENT_ID'))),
-    'the stable identity named anywhere in ci': on_workflow(lambda w: w['jobs']['other']['steps'].append({'run': 'echo ' + expr('vars.SCREENTAIL_UPDATE_STABLE_CLIENT_ID')})),
+    'the stable identity named anywhere in ci': on_workflow(lambda w: w['jobs']['other']['steps'].append({'run': 'echo ' + expr('vars.SCREENTRAIL_UPDATE_STABLE_CLIENT_ID')})),
     'the script signing with a key of either channel': edit_file('installer/update-manifest.ps1', lambda t: t.replace('foreach ($key in $channelKeys) {', 'foreach ($key in $keys) {')),
     'the script promoting what any key signed': edit_file('installer/update-manifest.ps1', lambda t: t.replace('Find-Key $pilotKeys', 'Find-Key $keys')),
     'the script verifying without the key channel': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if ($signedChannel -cne [string]$key.channel) {', 'if ($false) {')),
     'the script reading keys without a channel': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if (@('pilot', 'stable') -cnotcontains [string]$key.channel) {", 'if ($false) {')),
-    'the script ignoring the other channel settings': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {', 'if ($false) {')),
-    'the manifest step with the code-signing settings': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTAIL_SIGNING_ENDPOINT='x')),
-    'the update key read by a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr('vars.SCREENTAIL_UPDATE_PILOT_KEY'))),
-    'the update key in a build step env': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(env={'SCREENTAIL_UPDATE_PILOT_KEY': 'x'})),
+    'the script ignoring the other channel settings': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if ($foreign -or $env:SCREENTRAIL_UPDATE_KEY) {', 'if ($false) {')),
+    'the manifest step with the code-signing settings': on_workflow(lambda w: sign_steps(w)[12]['env'].update(SCREENTRAIL_SIGNING_ENDPOINT='x')),
+    'the update key read by a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr('vars.SCREENTRAIL_UPDATE_PILOT_KEY'))),
+    'the update key in a build step env': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(env={'SCREENTRAIL_UPDATE_PILOT_KEY': 'x'})),
     'another job uploading the manifests name': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': MANIFEST_ARTIFACT, 'path': 'x'}})),
     'the manifests uploaded from another folder': on_workflow(lambda w: sign_steps(w)[-1]['with'].update(path='artifacts')),
     'no local check of the vault signature': edit_file('installer/update-manifest.ps1', lambda t: t.replace('if (Test-Signature $signedBytes $signature $key.spki) {', 'if ($true) {')),
@@ -1053,7 +1053,7 @@ MUST_FAIL = {
     'a stable manifest uploaded by ci': on_workflow(lambda w: w['jobs']['other']['steps'].append({'uses': UPLOAD, 'with': {'name': STABLE_ARTIFACT, 'path': 'x'}})),
     'the script without its channel check': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($Channel -notin @('pilot', 'stable')) {", 'if ($false) {')),
     'the script signing stable without promotion': edit_file('installer/update-manifest.ps1', lambda t: t.replace("throw 'Stable is signed only by promotion", "Write-Host 'Stable")),
-    'the script without the release gate': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {", 'if ($false) {')),
+    'the script without the release gate': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($env:SCREENTRAIL_STABLE_RELEASE -cne 'true') {", 'if ($false) {')),
     'the script promoting what was not a pilot release': edit_file('installer/update-manifest.ps1', lambda t: t.replace("if ($pilot.channel -cne 'pilot'", "if ($false")),
     # The promotion workflow.
     'the promotion workflow missing': lambda w, f: f.pop(PROMOTE_FILE),
@@ -1067,8 +1067,8 @@ MUST_FAIL = {
     'promotion on a push': on_promote(lambda p: p['on'].update(push={'branches': ['main']})),
     'promotion with another input': on_promote(lambda p: p['on']['workflow_dispatch']['inputs'].update(extra={'required': False})),
     'promotion with an input in the command': on_promote(lambda p: promote_steps(p)[3].update(run=promote_steps(p)[3]['run'] + ' -Version ' + expr('inputs.version'))),
-    'promotion without its gate variable': on_promote(lambda p: promote_steps(p)[3]['env'].pop('SCREENTAIL_STABLE_RELEASE')),
-    'promotion with a gate set in the file': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTAIL_STABLE_RELEASE='true')),
+    'promotion without its gate variable': on_promote(lambda p: promote_steps(p)[3]['env'].pop('SCREENTRAIL_STABLE_RELEASE')),
+    'promotion with a gate set in the file': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTRAIL_STABLE_RELEASE='true')),
     'promotion signing something it built': on_promote(lambda p: promote_steps(p).insert(2, {'run': './installer/build.ps1 -Stage Payload'})),
     'promotion downloading from another repository': on_promote(lambda p: promote_steps(p)[2]['with'].update(repository='someone/else')),
     'promotion keeping the stable manifest longer': on_promote(lambda p: promote_steps(p)[4]['with'].update(**{'retention-days': 90})),
@@ -1076,9 +1076,9 @@ MUST_FAIL = {
     'promotion with an unpinned action': on_promote(lambda p: promote_steps(p)[0].update(uses='actions/checkout@v7')),
     'promotion with a second job': on_promote(lambda p: p['jobs'].update(other={'runs-on': HOSTED, 'steps': [{'run': 'x'}]})),
     'promotion naming the credential context': on_promote(lambda p: promote_steps(p)[3]['env'].update(AZURE_CLIENT_ID=expr(CTX + '.X'))),
-    'promotion with the pilot key': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTAIL_UPDATE_PILOT_KEY'))),
-    'promotion with the pilot identity': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTAIL_UPDATE_STABLE_CLIENT_ID=expr('vars.SCREENTAIL_UPDATE_PILOT_CLIENT_ID'))),
-    'promotion without its identity': on_promote(lambda p: promote_steps(p)[3]['env'].pop('SCREENTAIL_UPDATE_STABLE_CLIENT_ID')),
+    'promotion with the pilot key': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTRAIL_UPDATE_STABLE_KEY=expr('vars.SCREENTRAIL_UPDATE_PILOT_KEY'))),
+    'promotion with the pilot identity': on_promote(lambda p: promote_steps(p)[3]['env'].update(SCREENTRAIL_UPDATE_STABLE_CLIENT_ID=expr('vars.SCREENTRAIL_UPDATE_PILOT_CLIENT_ID'))),
+    'promotion without its identity': on_promote(lambda p: promote_steps(p)[3]['env'].pop('SCREENTRAIL_UPDATE_STABLE_CLIENT_ID')),
     'another workflow asking for a token': lambda w, f: f[OTHERS]['.github/workflows/other.yml'].update(permissions={IDT: 'write'}),
     'another workflow asking for a token in a job': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x'].update(permissions='write-all'),
     'another workflow uploading the stable manifest': lambda w, f: f[OTHERS]['.github/workflows/other.yml']['jobs']['x']['steps'].append({'uses': UPLOAD, 'with': {'name': STABLE_ARTIFACT, 'path': 'x'}}),
@@ -1104,9 +1104,9 @@ MUST_FAIL = {
     'a module path on a sign step': on_workflow(lambda w: first_sign(w)['env'].update(PSModulePath='C:\\x')),
     'a CoreCLR profiler on the verify step': on_workflow(lambda w: sign_steps(w)[-4]['env'].update(CORECLR_PROFILER_PATH='C:\\x')),
     'a startup hook on the payload check': on_workflow(lambda w: handoff_check(w)['env'].update(DOTNET_STARTUP_HOOKS='C:\\x')),
-    'signing settings on a package step': on_workflow(lambda w: first_build(w).update(env={'SCREENTAIL_SIGNING_ENDPOINT': 'x'})),
+    'signing settings on a package step': on_workflow(lambda w: first_build(w).update(env={'SCREENTRAIL_SIGNING_ENDPOINT': 'x'})),
     'an extra variable on a sign step': on_workflow(lambda w: first_sign(w)['env'].update(PSModulePath='x')),
-    'a sign step without the require switch': on_workflow(lambda w: first_sign(w)['env'].pop('SCREENTAIL_REQUIRE_SIGNING')),
+    'a sign step without the require switch': on_workflow(lambda w: first_sign(w)['env'].pop('SCREENTRAIL_REQUIRE_SIGNING')),
     # How a step runs.
     'a custom shell on a step': on_workflow(lambda w: first_sign(w).update(shell='bash')),
     'a working folder on a step': on_workflow(lambda w: first_build(w).update(**{'working-directory': 'elsewhere'})),
@@ -1154,7 +1154,7 @@ MUST_FAIL = {
     'every permission for another job': on_workflow(lambda w: w['jobs']['other'].update(permissions='write-all')),
     'an OIDC token for the whole workflow': on_workflow(lambda w: w['permissions'].update(**{IDT: 'write'})),
     'a signing setting in a job env': on_workflow(lambda w: w['jobs'][BUILD].update(env={'AZURE_TENANT_ID': 'x'})),
-    'a signing setting in the workflow env': on_workflow(lambda w: w['env'].update(SCREENTAIL_SIGNING_PROFILE='x')),
+    'a signing setting in the workflow env': on_workflow(lambda w: w['env'].update(SCREENTRAIL_SIGNING_PROFILE='x')),
     'a signing setting on a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(env={'AZURE_CLIENT_ID': 'x'})),
     'a signing variable read by a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr('vars.AZURE_CLIENT_ID'))),
     'the context in a build step': on_workflow(lambda w: w['jobs'][BUILD]['steps'][1].update(run='echo ' + expr(CTX + '.X'))),

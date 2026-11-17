@@ -165,7 +165,7 @@ describe('IntegrationsPage', () => {
           { at: checked, provider: 'hudu', action: 'mappings_cleared', by: { kind: 'owner', name: 'Pat Owner', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
           { at: checked, provider: 'connectwise', action: 'replaced', by: { kind: 'owner', name: null, device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
           { at: checked, provider: 'hudu', action: 'disconnected', by: { kind: 'owner', name: 'Pat Owner', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null },
-          { at: checked, provider: 'hudu', action: 'mappings_pruned', by: { kind: 'screentail', name: 'ScreenTail', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null, removed: 12 },
+          { at: checked, provider: 'hudu', action: 'mappings_pruned', by: { kind: 'screentail', name: 'ScreenTrail', device: null }, psaCompany: null, docCompanyId: null, docCompanyName: null, removed: 12 },
           { at: checked, provider: 'hudu', action: 'device_slowed', by: { kind: 'technician', name: 'Tomas Ortiz', device: 'TECH-LAPTOP' }, psaCompany: null, docCompanyId: null, docCompanyName: null },
         ],
       }),
@@ -181,14 +181,14 @@ describe('IntegrationsPage', () => {
       ['Hudu', 'Company mappings cleared', 'Pat Owner'],
       ['ConnectWise Manage', 'Credential replaced', 'The owner'],
       ['Hudu', 'Disconnected', 'Pat Owner'],
-      ['Hudu', '12 older mapping changes removed', 'ScreenTail'],
+      ['Hudu', '12 older mapping changes removed', 'ScreenTrail'],
       ['Hudu', 'TECH-LAPTOP was slowed down after 30 mapping changes in 10 minutes', 'Tomas Ortiz (TECH-LAPTOP)'],
     ]);
   });
 
   it('connects ConnectWise from three fields, tests it, reads the list again, and keeps no key on the page', async () => {
     const api = fakeApi({ integrations: async () => nothingConnected });
-    api.checkIntegration.mockImplementation(async () => ({ ok: false, message: 'ScreenTail could not reach the site.', checkedAt: checked }));
+    api.checkIntegration.mockImplementation(async () => ({ ok: false, message: 'ScreenTrail could not reach the site.', checkedAt: checked }));
     render(<IntegrationsPage api={api} />);
 
     const cw = await screen.findByRole('region', { name: 'ConnectWise Manage' });
@@ -208,7 +208,7 @@ describe('IntegrationsPage', () => {
       expect(api.connectIntegration).toHaveBeenCalledWith('connectwise', 'https://na.myconnectwise.example', 'acmeit+pubKEY123:privKEY456zq'),
     );
     await waitFor(() => expect(api.checkIntegration).toHaveBeenCalledWith('connectwise'));
-    expect(await within(cw).findByText('Test failed: ScreenTail could not reach the site.')).toBeDefined();
+    expect(await within(cw).findByText('Test failed: ScreenTrail could not reach the site.')).toBeDefined();
     await waitFor(() => expect(api.integrations).toHaveBeenCalledTimes(2));
 
     expect(within(cw).queryByLabelText('Private key')).toBeNull();
@@ -233,7 +233,7 @@ describe('IntegrationsPage', () => {
     fireEvent.click(within(hudu).getByRole('button', { name: 'Save and test' }));
 
     await waitFor(() => expect(api.connectIntegration).toHaveBeenCalledWith('hudu', 'https://new.huducloud.example', 'hudu-key-9876'));
-    expect(await within(hudu).findByText('Test worked: ScreenTail reached the site and the key works.')).toBeDefined();
+    expect(await within(hudu).findByText('Test worked: ScreenTrail reached the site and the key works.')).toBeDefined();
     expect(document.body.innerHTML).not.toContain('hudu-key-9876');
   });
 
@@ -331,7 +331,7 @@ describe('IntegrationsPage', () => {
 
   it.each([
     [404, 'There is nothing connected to remove.'],
-    [0, 'ScreenTail could not reach the server. Check your connection and try again.'],
+    [0, 'ScreenTrail could not reach the server. Check your connection and try again.'],
   ])('closes the question when a disconnect answers %i', async (status, message) => {
     const api = fakeApi();
     api.disconnectIntegration.mockImplementation(async () => {

@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 using NAudio.Wave;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 using Whisper.net;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>
 /// Real STT load for AC1: default microphone (technician only, INV-9) → 5 s chunks → Whisper base.

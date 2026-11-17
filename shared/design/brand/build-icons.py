@@ -3,7 +3,7 @@
 
     python3 shared/design/brand/build-icons.py [--chrome PATH]
 
-Writes, under client/ScreenTail.UI/Assets/:
+Writes, under client/ScreenTrail.UI/Assets/:
 
 - app.ico: the window, taskbar and executable icon. 16, 20 and 24 from app-icon-small.svg (small glyph),
   32, 40 and 48 from glyph-mid-on-navy.svg (mid glyph), 64, 128 and 256 from app-icon-256.svg (full mark).
@@ -41,7 +41,7 @@ from PIL import Image
 
 BRAND = Path(__file__).resolve().parent
 REPO = BRAND.parents[2]
-ASSETS = REPO / "client" / "ScreenTail.UI" / "Assets"
+ASSETS = REPO / "client" / "ScreenTrail.UI" / "Assets"
 
 APP_SIZES = {
     16: "app-icon-small.svg",

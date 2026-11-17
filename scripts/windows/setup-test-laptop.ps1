@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Turns a spare Windows laptop into ScreenTail's real-hardware test machine: a self-hosted GitHub
+    Turns a spare Windows laptop into ScreenTrail's real-hardware test machine: a self-hosted GitHub
     Actions runner that runs inside the signed-in desktop session, so hooks, UI Automation and screen
     capture all work.
 
@@ -9,7 +9,7 @@
     (non-admin) account is fine; winget may show UAC prompts. The script:
       1. installs Git, the .NET 8 and .NET 10 SDKs and the VC++ x64 runtime with winget;
       2. downloads the latest GitHub Actions runner into -RunnerDir and registers it for the repo with
-         the label 'screentail-win'. It does NOT install it as a Windows service: services run in
+         the label 'screentrail-win'. It does NOT install it as a Windows service: services run in
          session 0, where there is no desktop to hook or capture;
       3. allows this user to run PowerShell scripts, which the runner needs to execute a workflow step;
       4. adds a Startup-folder shortcut so the runner starts at sign-in, and starts it now;
@@ -26,9 +26,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Token,
-    [string]$RepoUrl = 'https://github.com/hiratinspace/ScreenTail',
+    [string]$RepoUrl = 'https://github.com/hiratinspace/ScreenTrail',
     [string]$RunnerDir = 'C:\actions-runner',
-    [string]$Labels = 'screentail-win'
+    [string]$Labels = 'screentrail-win'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,7 +74,7 @@ else {
     $architecture = (Get-CimInstance Win32_Processor | Select-Object -First 1).Architecture
     if ($architecture -eq 12) { $runnerArch = 'arm64' } else { $runnerArch = 'x64' }
 
-    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/actions/runner/releases/latest' -Headers @{ 'User-Agent' = 'screentail-setup' }
+    $release = Invoke-RestMethod -Uri 'https://api.github.com/repos/actions/runner/releases/latest' -Headers @{ 'User-Agent' = 'screentrail-setup' }
     $version = $release.tag_name.TrimStart('v')
     $asset = $release.assets | Where-Object { $_.name -eq "actions-runner-win-$runnerArch-$version.zip" } | Select-Object -First 1
     if (-not $asset) { throw "No runner package for win-$runnerArch in release $($release.tag_name)." }
@@ -117,7 +117,7 @@ if ($policy -in @('Restricted', 'Undefined')) {
 # --- 3. Start at sign-in, in the desktop session ---------------------------------------------
 
 Write-Step 'Start the runner at sign-in'
-$shortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'ScreenTail Actions Runner.lnk'
+$shortcutPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'ScreenTrail Actions Runner.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $RunnerDir 'run.cmd'

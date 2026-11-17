@@ -2,7 +2,7 @@
   "_comment": [
     "The rules both draft validators are built from (ST-061).",
     "",
-    "research/prompts/checks.py reads this file. backend/src/ScreenTail.Api/Summarize/DraftRules.cs keeps",
+    "research/prompts/checks.py reads this file. backend/src/ScreenTrail.Api/Summarize/DraftRules.cs keeps",
     "the same values as constants, so the service has no extra file of rules to ship, and SharedRulesTests",
     "fails when the two differ. hardening-cases.json says what the rules must answer; this file says what",
     "they are. The two validators each claimed to mirror the other, and neither did (reviews of 2026-09-19",

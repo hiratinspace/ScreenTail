@@ -35,7 +35,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
-$ArtifactName = 'screentail-installer-payload'
+$ArtifactName = 'screentrail-installer-payload'
 
 function Get-Manifest([string]$Root) {
     $root = (Resolve-Path $Root).Path

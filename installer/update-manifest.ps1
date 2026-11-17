@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Writes and signs an update manifest for a signed ScreenTail.msi (ST-113, ADR-0008).
+    Writes and signs an update manifest for a signed ScreenTrail.msi (ST-113, ADR-0008).
 
 .DESCRIPTION
     A manifest the client believes only when its signature verifies with a key compiled into it
     (shared/release/update-trust.json):
 
-      { "format": "screentail-update-manifest-v1", "key": "<key id>",
+      { "format": "screentrail-update-manifest-v1", "key": "<key id>",
         "payload": "<base64 of the signed bytes>", "signature": "<base64 of r then s, 64 bytes>" }
 
     The signed bytes are UTF-8 JSON: the format, the channel, the architecture, the version, the oldest
@@ -23,7 +23,7 @@
       -Channel stable, with -Promote and -Out: the promotion (promote-stable.yml), and the only way a
       stable manifest is ever signed. It signs, for stable, exactly the release an earlier build signed
       for pilot: the pilot manifest must verify with a trusted key, say pilot, and carry the version the
-      person promoting typed (PROMOTE_VERSION). It refuses to run unless SCREENTAIL_STABLE_RELEASE is
+      person promoting typed (PROMOTE_VERSION). It refuses to run unless SCREENTRAIL_STABLE_RELEASE is
       'true', a variable only the owner's protected release-stable environment holds, so it fails closed
       anywhere else. A build is refused -Channel stable.
 
@@ -40,18 +40,18 @@
 
     Configured from the environment of the job that runs it, never from a file. A run reads only its own
     channel's two settings and refuses to start while the other channel's are in its environment:
-      SCREENTAIL_UPDATE_PILOT_KEY, SCREENTAIL_UPDATE_STABLE_KEY
+      SCREENTRAIL_UPDATE_PILOT_KEY, SCREENTRAIL_UPDATE_STABLE_KEY
                                that channel's Key Vault key identifier, with its version:
                                https://<vault>.vault.azure.net/keys/<name>/<version>
-      SCREENTAIL_UPDATE_PILOT_CLIENT_ID, SCREENTAIL_UPDATE_STABLE_CLIENT_ID
+      SCREENTRAIL_UPDATE_PILOT_CLIENT_ID, SCREENTRAIL_UPDATE_STABLE_CLIENT_ID
                                that channel's Azure app registration (its client id)
-      SCREENTAIL_UPDATE_BASE   (a build) the HTTPS folder the packages are served from, ending in a
-                               slash; the package's URL is <base><version>/ScreenTail.msi
-      SCREENTAIL_STABLE_RELEASE, PROMOTE_VERSION (a promotion), as above
+      SCREENTRAIL_UPDATE_BASE   (a build) the HTTPS folder the packages are served from, ending in a
+                               slash; the package's URL is <base><version>/ScreenTrail.msi
+      SCREENTRAIL_STABLE_RELEASE, PROMOTE_VERSION (a promotion), as above
       AZURE_TENANT_ID and the job's GitHub OIDC token (workload identity federation; no client secret
       exists).
 
-    A build with neither SCREENTAIL_UPDATE_PILOT_KEY nor SCREENTAIL_UPDATE_BASE signs nothing, writes
+    A build with neither SCREENTRAIL_UPDATE_PILOT_KEY nor SCREENTRAIL_UPDATE_BASE signs nothing, writes
     nothing, says so, and exits successfully: the same rule as sign.ps1 before the certificate exists.
     With one and not the other it fails, because that is a configuration half done.
 
@@ -61,7 +61,7 @@
     pilot (a build) or stable (a promotion). Required.
 
 .PARAMETER Msi
-    A build: the signed ScreenTail.msi.
+    A build: the signed ScreenTrail.msi.
 
 .PARAMETER Version
     A build: the release's version, three whole numbers.
@@ -104,8 +104,8 @@ $TokenRequestToken = $env:ACTIONS_ID_TOKEN_REQUEST_TOKEN
 Remove-Item Env:ACTIONS_ID_TOKEN_REQUEST_URL, Env:ACTIONS_ID_TOKEN_REQUEST_TOKEN -ErrorAction SilentlyContinue
 
 $TrustFile = Join-Path $PSScriptRoot '..\shared\release\update-trust.json'
-$EnvelopeFormat = 'screentail-update-manifest-v1'
-$SignedFormat = 'screentail-update-v1'
+$EnvelopeFormat = 'screentrail-update-manifest-v1'
+$SignedFormat = 'screentrail-update-v1'
 $KeyPattern = '^https://[a-z0-9-]+\.vault\.azure\.net/keys/[A-Za-z0-9-]+/[0-9a-f]{32}$'
 $VersionPattern = '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$'
 $UrlPattern = '^https://[A-Za-z0-9.-]+/[A-Za-z0-9._~/-]*$'
@@ -213,16 +213,16 @@ if (-not $Out) {
 # Each channel's own key and identity, and only those. The other channel's settings in this run's
 # environment mean the two environments are not separate, so nothing is signed.
 if ($Channel -ceq 'stable') {
-    $vaultKey = $env:SCREENTAIL_UPDATE_STABLE_KEY
-    $clientId = $env:SCREENTAIL_UPDATE_STABLE_CLIENT_ID
-    $foreign = $env:SCREENTAIL_UPDATE_PILOT_KEY -or $env:SCREENTAIL_UPDATE_PILOT_CLIENT_ID
+    $vaultKey = $env:SCREENTRAIL_UPDATE_STABLE_KEY
+    $clientId = $env:SCREENTRAIL_UPDATE_STABLE_CLIENT_ID
+    $foreign = $env:SCREENTRAIL_UPDATE_PILOT_KEY -or $env:SCREENTRAIL_UPDATE_PILOT_CLIENT_ID
 } else {
-    $vaultKey = $env:SCREENTAIL_UPDATE_PILOT_KEY
-    $clientId = $env:SCREENTAIL_UPDATE_PILOT_CLIENT_ID
-    $foreign = $env:SCREENTAIL_UPDATE_STABLE_KEY -or $env:SCREENTAIL_UPDATE_STABLE_CLIENT_ID
+    $vaultKey = $env:SCREENTRAIL_UPDATE_PILOT_KEY
+    $clientId = $env:SCREENTRAIL_UPDATE_PILOT_CLIENT_ID
+    $foreign = $env:SCREENTRAIL_UPDATE_STABLE_KEY -or $env:SCREENTRAIL_UPDATE_STABLE_CLIENT_ID
 }
-if ($foreign -or $env:SCREENTAIL_UPDATE_KEY) {
-    throw "This $Channel run can see another channel's update signing settings (or the old shared SCREENTAIL_UPDATE_KEY). Each channel signs only with its own key and identity, set on its own environment. Nothing was signed."
+if ($foreign -or $env:SCREENTRAIL_UPDATE_KEY) {
+    throw "This $Channel run can see another channel's update signing settings (or the old shared SCREENTRAIL_UPDATE_KEY). Each channel signs only with its own key and identity, set on its own environment. Nothing was signed."
 }
 
 $trusted = Get-Content -Raw -Path $TrustFile | ConvertFrom-Json
@@ -233,8 +233,8 @@ $pilotKeys = @($keys | Where-Object { $_.channel -ceq 'pilot' })
 
 if ($Promote) {
     # The gate first: outside the owner's release-stable environment nothing is read and nothing signed.
-    if ($env:SCREENTAIL_STABLE_RELEASE -cne 'true') {
-        throw 'Promotion to stable runs only in the release-stable environment, whose SCREENTAIL_STABLE_RELEASE is true. Nothing was signed.'
+    if ($env:SCREENTRAIL_STABLE_RELEASE -cne 'true') {
+        throw 'Promotion to stable runs only in the release-stable environment, whose SCREENTRAIL_STABLE_RELEASE is true. Nothing was signed.'
     }
     if ($env:PROMOTE_VERSION -notmatch $VersionPattern) {
         throw 'PROMOTE_VERSION must be the version being promoted, three whole numbers.'
@@ -265,21 +265,21 @@ if ($Promote) {
     }
     $size = (Get-Item $Msi).Length
     $sha256 = (Get-FileHash -Algorithm SHA256 -Path $Msi).Hash.ToLowerInvariant()
-    $base = $env:SCREENTAIL_UPDATE_BASE
+    $base = $env:SCREENTRAIL_UPDATE_BASE
     if (-not $vaultKey -and -not $base) {
-        Write-Host "  NOT SIGNED (update signing is not configured; docs/dev/installer.md says how): ScreenTail $Version, $size bytes, SHA-256 $sha256"
+        Write-Host "  NOT SIGNED (update signing is not configured; docs/dev/installer.md says how): ScreenTrail $Version, $size bytes, SHA-256 $sha256"
         if ($env:GITHUB_ACTIONS -eq 'true') {
             Write-Host '::notice title=No update manifest::Update signing is not configured, so no update manifest was written.'
         }
         return
     }
     if (-not ($vaultKey -and $base)) {
-        throw 'Update signing is partly configured: SCREENTAIL_UPDATE_PILOT_KEY and SCREENTAIL_UPDATE_BASE are needed together.'
+        throw 'Update signing is partly configured: SCREENTRAIL_UPDATE_PILOT_KEY and SCREENTRAIL_UPDATE_BASE are needed together.'
     }
     if ($base -notmatch '^https://[A-Za-z0-9.-]+/([A-Za-z0-9._~/-]*/)?$') {
-        throw 'SCREENTAIL_UPDATE_BASE must be an https folder URL ending in a slash, with no query.'
+        throw 'SCREENTRAIL_UPDATE_BASE must be an https folder URL ending in a slash, with no query.'
     }
-    $packageUrl = "$base$Version/ScreenTail.msi"
+    $packageUrl = "$base$Version/ScreenTrail.msi"
 }
 
 # What is signed, held to what the client accepts before the vault is asked for anything.
@@ -297,13 +297,13 @@ if (@($trusted.packageHosts) -notcontains $packageHost) {
     throw "$packageHost is not one of the trust file's package hosts, so the client would refuse the package's URL."
 }
 if ($vaultKey -notmatch $KeyPattern) {
-    throw "SCREENTAIL_UPDATE_$($Channel.ToUpperInvariant())_KEY must be a Key Vault key identifier with its version: https://<vault>.vault.azure.net/keys/<name>/<version>."
+    throw "SCREENTRAIL_UPDATE_$($Channel.ToUpperInvariant())_KEY must be a Key Vault key identifier with its version: https://<vault>.vault.azure.net/keys/<name>/<version>."
 }
 
 # A token for the vault, from this job's OIDC token, for this channel's identity. Masked before anything
 # could print it.
 if (-not ($env:AZURE_TENANT_ID -and $clientId -and $TokenRequestUrl -and $TokenRequestToken)) {
-    throw "Signing a $Channel manifest needs AZURE_TENANT_ID, SCREENTAIL_UPDATE_$($Channel.ToUpperInvariant())_CLIENT_ID and the job's id-token permission."
+    throw "Signing a $Channel manifest needs AZURE_TENANT_ID, SCREENTRAIL_UPDATE_$($Channel.ToUpperInvariant())_CLIENT_ID and the job's id-token permission."
 }
 $oidc = Invoke-RestMethod -UseBasicParsing -Uri "$($TokenRequestUrl)&audience=api://AzureADTokenExchange" -Headers @{ Authorization = "Bearer $($TokenRequestToken)" }
 Write-Host "::add-mask::$($oidc.value)"
@@ -348,4 +348,4 @@ $envelope = '{"format":"' + $EnvelopeFormat + '","key":"' + $keyId + '","payload
 $folder = Join-Path $Out $Channel
 New-Item -ItemType Directory -Force -Path $folder | Out-Null
 [IO.File]::WriteAllText((Join-Path $folder 'win-x64.json'), $envelope, (New-Object System.Text.UTF8Encoding($false)))
-Write-Host "  signed $Channel manifest: ScreenTail $Version, $size bytes, SHA-256 $sha256, key $keyId"
+Write-Host "  signed $Channel manifest: ScreenTrail $Version, $size bytes, SHA-256 $sha256, key $keyId"

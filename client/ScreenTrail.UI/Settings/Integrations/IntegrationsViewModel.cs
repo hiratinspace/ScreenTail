@@ -1,0 +1,178 @@
+using System.Collections.ObjectModel;
+using System.Windows;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using ScreenTrail.Core.Review.Publish;
+using ScreenTrail.Core.Settings;
+using ScreenTrail.Core.Shell;
+
+namespace ScreenTrail.UI.Settings.Integrations;
+
+/// <summary>A provider without a card of its own, bound: the badge only for the demo, the backend's last error when there is one.</summary>
+public sealed record OtherIntegrationRow(OtherIntegration Integration)
+{
+    public string Title => Integration.Title;
+
+    public string SiteUrl => Integration.SiteUrl;
+
+    public string Status => Integration.Status;
+
+    public string LastError => Integration.LastError ?? string.Empty;
+
+    public Visibility BadgeVisibility => Integration.Connected ? Visibility.Visible : Visibility.Collapsed;
+
+    public Visibility StatusVisibility => Integration.Connected ? Visibility.Collapsed : Visibility.Visible;
+
+    public Visibility ErrorVisibility => string.IsNullOrEmpty(Integration.LastError) ? Visibility.Collapsed : Visibility.Visible;
+}
+
+/// <summary>One row of the company mapping table, worded.</summary>
+public sealed record MappingRow(string PsaCompany, string DocCompanyName, string Confidence)
+{
+    public string ConfidenceLabel => Confidence switch
+    {
+        "exact" => "Exact",
+        "likely" => "Likely",
+        "manual" => "Chosen by you",
+        _ => Confidence,
+    };
+}
+
+/// <summary>
+/// Settings → Integrations (ST-082, Spec §5 S7): the two cards, read only, and the company mapping
+/// table, bound over <see cref="IntegrationsPanel"/>. Loaded when the screen opens. Nothing here is on
+/// the Settings page's Save bar: integration credentials can only be changed by the tenant owner, in the
+/// web admin, and Test connection and the company mapping act at once.
+/// </summary>
+public sealed partial class IntegrationsViewModel : ObservableObject
+{
+    private readonly IntegrationsPanel _panel;
+    private readonly OneAtATime _unmapping = new();
+
+    public IntegrationsViewModel(IntegrationsPanel panel)
+    {
+        _panel = panel ?? throw new ArgumentNullException(nameof(panel));
+        ConnectWise = new IntegrationCardViewModel(panel.ConnectWise);
+        Hudu = new IntegrationCardViewModel(panel.Hudu);
+    }
+
+    public IntegrationCardViewModel ConnectWise { get; }
+
+    public IntegrationCardViewModel Hudu { get; }
+
+    /// <summary>Providers the backend lists beyond the two cards, by name: the Development demo (ST-090), or one this version does not know.</summary>
+    public ObservableCollection<OtherIntegrationRow> Others { get; } = [];
+
+    [ObservableProperty]
+    public partial Visibility OthersVisibility { get; set; } = Visibility.Collapsed;
+
+    public ObservableCollection<MappingRow> Mappings { get; } = [];
+
+    public ObservableCollection<CompanyChoice> Companies { get; } = [];
+
+    [ObservableProperty]
+    public partial string Notice { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Visibility NoticeVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial Visibility MappingsVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial Visibility NoMappingsVisibility { get; set; } = Visibility.Collapsed;
+
+    [ObservableProperty]
+    public partial string NewPsaCompany { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial CompanyChoice? NewDocCompany { get; set; }
+
+    [ObservableProperty]
+    public partial bool CanAddMapping { get; set; }
+
+    [ObservableProperty]
+    public partial string MappingProblem { get; set; } = string.Empty;
+
+    [ObservableProperty]
+    public partial Visibility MappingProblemVisibility { get; set; } = Visibility.Collapsed;
+
+    public async Task LoadAsync(CancellationToken ct = default)
+    {
+        await _panel.LoadAsync(ct).ConfigureAwait(true);
+        ConnectWise.Refresh();
+        Hudu.Refresh();
+        Others.Clear();
+        foreach (var other in _panel.Others)
+        {
+            Others.Add(new OtherIntegrationRow(other));
+        }
+
+        OthersVisibility = Others.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ShowMappings();
+    }
+
+    [RelayCommand]
+    private async Task AddMappingAsync()
+    {
+        if (!CanAddMapping || NewDocCompany is not { } choice)
+        {
+            return;
+        }
+
+        var refusal = await _panel.MapAsync(NewPsaCompany.Trim(), choice.Id).ConfigureAwait(true);
+        MappingProblem = refusal ?? string.Empty;
+        MappingProblemVisibility = refusal is null ? Visibility.Collapsed : Visibility.Visible;
+        if (refusal is null)
+        {
+            NewPsaCompany = string.Empty;
+            NewDocCompany = null;
+        }
+
+        ShowMappings();
+    }
+
+    /// <summary>One unmapping at a time (<see cref="OneAtATime"/>): a second invoke under the first sent it again and showed its refusal.</summary>
+    [RelayCommand(CanExecute = nameof(CanUnmap))]
+    private Task UnmapAsync(MappingRow? row) => _unmapping.RunAsync(() => UnmapOnceAsync(row), UnmapCommand.NotifyCanExecuteChanged);
+
+    private bool CanUnmap() => !_unmapping.Busy;
+
+    private async Task UnmapOnceAsync(MappingRow? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        var refusal = await _panel.UnmapAsync(row.PsaCompany).ConfigureAwait(true);
+        MappingProblem = refusal ?? string.Empty;
+        MappingProblemVisibility = refusal is null ? Visibility.Collapsed : Visibility.Visible;
+        ShowMappings();
+    }
+
+    partial void OnNewPsaCompanyChanged(string value) => CanAddMapping = value.Trim().Length > 0 && NewDocCompany is not null;
+
+    partial void OnNewDocCompanyChanged(CompanyChoice? value) => CanAddMapping = NewPsaCompany.Trim().Length > 0 && value is not null;
+
+    private void ShowMappings()
+    {
+        Notice = _panel.Notice ?? string.Empty;
+        NoticeVisibility = Notice.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        MappingsVisibility = _panel.CanMapCompanies ? Visibility.Visible : Visibility.Collapsed;
+        Mappings.Clear();
+        foreach (var mapping in _panel.Mappings)
+        {
+            Mappings.Add(new MappingRow(mapping.PsaCompany, mapping.DocCompanyName, mapping.Confidence));
+        }
+
+        Companies.Clear();
+        foreach (var company in _panel.Companies)
+        {
+            Companies.Add(company);
+        }
+
+        NoMappingsVisibility = _panel.CanMapCompanies && Mappings.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        CanAddMapping = NewPsaCompany.Trim().Length > 0 && NewDocCompany is not null;
+    }
+}

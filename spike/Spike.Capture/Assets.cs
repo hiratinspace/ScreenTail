@@ -1,15 +1,15 @@
 using Whisper.net.Ggml;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
-/// <summary>Downloads models on first use into %LOCALAPPDATA%\ScreenTail.Spike (never into the repo).</summary>
+/// <summary>Downloads models on first use into %LOCALAPPDATA%\ScreenTrail.Spike (never into the repo).</summary>
 internal static class Assets
 {
     private static readonly Uri TessdataUrl = new("https://github.com/tesseract-ocr/tessdata_fast/raw/main/eng.traineddata");
 
     public static string Root { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "ScreenTail.Spike");
+        "ScreenTrail.Spike");
 
     public static string TessdataDir { get; } = Path.Combine(Root, "tessdata");
 

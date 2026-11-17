@@ -7,7 +7,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <!-- WPF and WinForms implicit usings collide (Application, MessageBox, ...). -->
     <ImplicitUsings>disable</ImplicitUsings>
-    <RootNamespace>ScreenTail.Spike.Overlay</RootNamespace>
+    <RootNamespace>ScreenTrail.Spike.Overlay</RootNamespace>
     <AssemblyName>Spike.Overlay</AssemblyName>
   </PropertyGroup>
 </Project>

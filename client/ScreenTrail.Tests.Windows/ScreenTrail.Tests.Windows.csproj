@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Windows-bound tests (ADR-0002): adapters that need real Windows APIs. They run in CI's Windows jobs and
+       are skipped elsewhere via [Fact(SkipUnless = ...)]. Compiles on any OS thanks to EnableWindowsTargeting. -->
+  <PropertyGroup>
+    <!-- Windows SDK projections, for Windows.Media.Ocr (ST-041): built into Windows, hardware
+         accelerated, no native binaries or language data to ship, and it works on ARM where Tesseract
+         does not. Fewer third-party binaries is also a smaller attack surface. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- The Review pane's view models live in the UI project and need WPF's imaging to decode a
+         thumbnail; the one test that measures what the filmstrip holds in memory needs both. -->
+    <UseWPF>true</UseWPF>
+    <!-- The tray's quick menu is a Windows Forms menu (ScreenTrail.UI says why); the accessibility suite
+         reads its items (ST-084). Its implicit usings are removed below, as the UI project removes them. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>ScreenTrail.Tests.Windows</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <!-- UseWPF drops System.IO from the implicit usings (Path would be ambiguous with WPF's Shapes.Path
+         in XAML-heavy code); these tests are not that, and they read files. -->
+    <Using Include="System.IO" />
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ST-031: the counting clock the Mac suite uses to say a loop does not poll, shared rather than copied. -->
+    <Compile Include="..\ScreenTrail.Tests\CountingTime.cs" Link="CountingTime.cs" />
+    <!-- ST-072: the clock whose timers fire as the test moves it, so the pill's clock is watched without waiting real seconds. -->
+    <Compile Include="..\ScreenTrail.Tests\TickingTime.cs" Link="TickingTime.cs" />
+    <!-- ST-112: the rule the stop-time test refuses to run by while a real remote session is on screen; held by the Mac suite. -->
+    <Compile Include="..\ScreenTrail.Tests\Detection\RealRemoteSessions.cs" Link="Host\RealRemoteSessions.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Review views' XAML, so a test can pin which routed event a handler is attached to. The views
+         themselves cannot be built here: their styles need the one WPF Application a process may have, and
+         PrivacyViewModelTests is the test that makes it. -->
+    <None Include="..\ScreenTrail.UI\Review\FilmstripView.xaml" Link="Review\Xaml\FilmstripView.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\ScreenTrail.UI\Review\NoteEditorView.xaml" Link="Review\Xaml\NoteEditorView.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- System.Drawing.Common comes with the Windows Desktop framework now that UseWPF is on; an explicit
+         package reference is a restore error (NU1510) on Windows. -->
+    <ProjectReference Include="..\ScreenTrail.Core\ScreenTrail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTrail.Service\ScreenTrail.Service.csproj" />
+    <ProjectReference Include="..\ScreenTrail.UI\ScreenTrail.UI.csproj" />
+    <!-- ST-084: built first, and run as its own process by Accessibility/AxeScan.cs; not referenced as code. -->
+    <ProjectReference Include="..\ScreenTrail.Tests.AxeRunner\ScreenTrail.Tests.AxeRunner.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 public enum InputKind : byte
 {

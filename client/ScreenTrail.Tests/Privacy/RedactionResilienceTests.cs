@@ -1,0 +1,397 @@
+using System.Security.Cryptography;
+using ScreenTrail.Core.Capture;
+using ScreenTrail.Core.Privacy;
+using ScreenTrail.Core.Store;
+using ScreenTrail.Shared.Schema;
+
+namespace ScreenTrail.Tests.Privacy;
+
+/// <summary>
+/// The redaction worker under things going wrong, found by an adversarial review of ST-041.
+///
+/// The bug these exist for was not a redaction bug: a frame whose store write threw took the worker's
+/// whole loop with it, both workers went the same way, and from then on every staged frame stayed pending
+/// until finalize purged it. A service that produced no screenshots at all for the rest of the day, with
+/// nothing in the log to say why. It failed safe for INV-1 and destroyed the product.
+/// </summary>
+public sealed class RedactionResilienceTests : IAsyncDisposable
+{
+    private static readonly DateTimeOffset At = new(2026, 9, 13, 16, 0, 0, TimeSpan.Zero);
+    private readonly string _path = Path.Combine(Path.GetTempPath(), "screentrail-tests", $"{Guid.NewGuid():N}.db");
+    private readonly FixedKey _key = new(RandomNumberGenerator.GetBytes(32));
+    private SqliteSessionStore? _store;
+
+    [Fact]
+    public async Task TwoWorkersNeverTakeTheSameFrame()
+    {
+        // A frame stays redaction_pending until its redaction finishes, so the query cannot tell "waiting"
+        // from "being worked on". Both workers would take the same row, both would run OCR on it, and the
+        // slower one's write would find nothing to update.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        var worker = Worker(store);
+
+        var taken = await Task.WhenAll(
+            worker.ProcessOneAsync(TestContext.Current.CancellationToken),
+            worker.ProcessOneAsync(TestContext.Current.CancellationToken));
+
+        // One of the two did the work; the other found nothing to do and said so.
+        Assert.Contains(false, taken);
+        Assert.Equal(1, worker.Progress.Frames);
+        Assert.Equal(0, worker.Progress.Failed);
+    }
+
+    [Fact]
+    public async Task AFrameThatCannotBeWrittenDoesNotStopTheQueue()
+    {
+        // The failure that killed redaction for the rest of the service run. The next frame has to be
+        // tried, and the failure has to be counted rather than swallowed.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        await StageAsync(store, "s1", "f3");
+        var worker = new RedactionWorker(
+            new RefusesOneWrite(store, "f2"), Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(() => worker.Progress.Frames >= 2 && worker.Progress.Failed >= 1);
+        await stopping.CancelAsync();
+        await running;
+
+        // The two good frames went through, and the bad one was given up on rather than retried for ever.
+        //
+        // It is discarded now rather than left pending for finalize (2026-09-20). Same answer, sooner:
+        // a frame nobody could make readable must not be kept, and leaving it pending meant the worker
+        // had to remember it to avoid picking it up again: a list that grew for the life of the service
+        // and a backlog count that never reached zero.
+        Assert.Equal(2, worker.Progress.Frames);
+        Assert.Equal(1, worker.Progress.Failed);
+        // Nothing is left owed: the failed frame was let go of rather than retried for ever, and there
+        // was never a row to leave behind (ADR-0006).
+        Assert.Equal(0, _pending.Depth);
+    }
+
+    [Fact]
+    public async Task AFrameNobodyCanMakeReadableIsRemovedRatherThanRemembered()
+    {
+        // 2026-09-19 review, and the September one before it (P1-9). A frame whose redaction threw was
+        // added to an in-memory set that nothing ever emptied. Three things followed: the set grew for
+        // the life of the service, every poll of the queue expanded it into a NOT IN list that grew with
+        // it, and the backlog the pill shows counts pending frames, so it never reached zero again, and
+        // a technician watching it saw work that was never going to finish.
+        //
+        // The frame is discarded instead. That is what INV-1 wants anyway: nobody has read it, so nobody
+        // can say what is on it, and ADR-0004 says such a frame goes. Leaving it pending for finalize was
+        // the same answer arrived at later and more expensively.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        var worker = new RedactionWorker(
+            new RefusesOneWrite(store, "f1"), Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(async () => await store.CountAllPendingFramesAsync() == 0);
+        await stopping.CancelAsync();
+        await running;
+
+        // Nothing is left owed: the failed frame was let go of rather than retried for ever, and there
+        // was never a row to leave behind (ADR-0006).
+        Assert.Equal(0, _pending.Depth);
+        Assert.Equal(1, worker.Progress.Failed);
+        Assert.Equal(1, worker.Progress.Frames);
+    }
+
+    [Fact]
+    public async Task AFrameThatCannotEvenBeCountedIsStillLetGoOf()
+    {
+        // The other half, and its answer changed with ADR-0006. A full disk refuses both the write and
+        // the record of the loss, so there is nowhere to say what happened to the frame.
+        //
+        // It used to stay pending, and finalize purged it later. There is no row now, so there is
+        // nothing to leave behind: the frame is let go of, because a worker that retried it would
+        // retry it for ever on a disk that is not going to empty itself.
+        //
+        // <b>What is lost is the count.</b> `frames_purged_unredacted` under-reports on a store that
+        // refuses everything, so a session recorded against a full disk can have a hole the draft does
+        // not know to hedge about. The worker's own Failed count is where that shows instead, and it
+        // reaches the diagnostics panel. Said plainly rather than left for somebody to find: it is the
+        // price of not remembering a frame for ever, and a full disk is a session in trouble anyway.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        var worker = new RedactionWorker(
+            new RefusesOneWrite(store, "f1", alsoDiscard: true), Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(() => worker.Progress.Frames >= 1);
+        await stopping.CancelAsync();
+        await running;
+
+        // The good frame still went through, the bad one was counted as a failure, and nothing is owed.
+        Assert.Equal(1, worker.Progress.Frames);
+        Assert.True(worker.Progress.Failed >= 1);
+        Assert.Equal(0, _pending.Depth);
+    }
+
+    [Fact]
+    public async Task TheQueueStillDrainsWithBothWorkersRunning()
+    {
+        // The real configuration: concurrency 2 against a backlog. Before the claim, this produced a
+        // double take on almost every frame and killed both loops within a few frames.
+        var store = await OpenAsync();
+        for (var i = 0; i < 25; i++)
+        {
+            await StageAsync(store, "s1", $"f{i:D2}");
+        }
+
+        var worker = Worker(store);
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(async () => await store.CountAllPendingFramesAsync() == 0);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.Equal(25, worker.Progress.Frames);
+        Assert.Equal(0, worker.Progress.Failed);
+    }
+
+    [Fact]
+    public async Task ACancellationNobodyAskedForCostsOneFrameAndNotTheWorker()
+    {
+        // A call that times out throws OperationCanceledException with nobody having cancelled anything.
+        // The worker read every one of those as "stop" and ended for the life of the service: one worker
+        // here, so no screenshot was redacted again until a restart (2026-10-27 review). It costs the frame
+        // it happened on, which is let go of unread and never written (INV-1), and the next is redacted.
+        var store = await OpenAsync();
+        await StageAsync(store, "s1", "f1");
+        await StageAsync(store, "s1", "f2");
+        var worker = new RedactionWorker(
+            store, new TimesOutOnce(), new PassThroughMasker(), new RedactionEngine(), _pending, new RedactionOptions { Concurrency = 1 });
+
+        using var stopping = new CancellationTokenSource();
+        var running = worker.RunAsync(stopping.Token);
+        await WaitUntilAsync(() => worker.Progress.Frames >= 1);
+        await stopping.CancelAsync();
+        await running;
+
+        Assert.Equal(1, worker.Progress.Frames);
+        Assert.Equal(1, worker.Progress.Failed);
+        Assert.Equal(0, _pending.Depth);
+        var session = (await store.LoadSessionAsync("s1"))!;
+        Assert.Equal(["f2"], session.Frames.Select(f => f.Id));
+    }
+
+    private sealed class TimesOutOnce : IFrameTextRecogniser
+    {
+        private int _calls;
+
+        public Task<RecognisedText> ReadAsync(ReadOnlyMemory<byte> image, CancellationToken ct = default) =>
+            Interlocked.Increment(ref _calls) == 1
+                ? throw new OperationCanceledException("the recogniser timed out")
+                : Task.FromResult(new RecognisedText([new OcrWord("Services", 0, 0, 60, 12)], 0.9));
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+    }
+
+    private static async Task WaitUntilAsync(Func<Task<bool>> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (!await condition() && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+    }
+
+    private async Task<SqliteSessionStore> OpenAsync() => _store ??= await SqliteSessionStore.OpenAsync(_path, _key);
+
+    /// <summary>A captured frame waiting to be read. Deep, so the depth is not what these tests measure.</summary>
+    private readonly PendingFrames _pending = new(depth: 1000);
+
+    private RedactionWorker Worker(ISessionStore store) =>
+        new(store, Reads(), new PassThroughMasker(), new RedactionEngine(), _pending);
+
+    private static FixedText Reads() => new();
+
+    private async Task StageAsync(SqliteSessionStore store, string sessionId, string frameId)
+    {
+        if (await store.LoadSessionAsync(sessionId) is null)
+        {
+            await store.CreateSessionAsync(new NewSession(sessionId, At, new RemoteTool { Kind = RemoteToolKind.Rdp }, false, null));
+        }
+
+        // Into the queue, not the store: an unredacted frame does not reach disk (ADR-0006).
+        Assert.True(_pending.TryEnqueue(sessionId, new StagedFrame(frameId, 1_000, FrameTrigger.Click, 80, 60, null, new byte[] { 1, 2, 3 })));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_store is not null)
+        {
+            await _store.DisposeAsync();
+        }
+
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+        {
+            File.Delete(_path + suffix);
+        }
+    }
+
+    private sealed class FixedText : IFrameTextRecogniser
+    {
+        public Task<RecognisedText> ReadAsync(ReadOnlyMemory<byte> image, CancellationToken ct = default) =>
+            Task.FromResult(new RecognisedText([new OcrWord("Services", 0, 0, 60, 12)], 0.9));
+    }
+
+    private sealed class PassThroughMasker : IFrameMasker
+    {
+        public MaskedImage Mask(ReadOnlyMemory<byte> image, IReadOnlyList<MaskedRegion> regions, int maxEdge) =>
+            new(image.ToArray(), 80, 60);
+    }
+
+    /// <summary>
+    /// Stands in for the store refusing one frame's write, the way a double take used to.
+    ///
+    /// <paramref name="alsoDiscard"/> refuses to discard it as well, which is what a full disk does:
+    /// there is then nowhere at all to record what was decided about the frame.
+    /// </summary>
+    private sealed class RefusesOneWrite(SqliteSessionStore inner, string frameId, bool alsoDiscard = false) : ISessionStore
+    {
+        /// <summary>
+        /// Refuses to record the loss as well, when <c>alsoDiscard</c> is set: what a full disk does,
+        /// where there is nowhere at all to write down what was decided about the frame.
+        /// </summary>
+        public Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default) =>
+            alsoDiscard
+                ? throw new InvalidOperationException("The store is full.")
+                : inner.RecordPurgedFramesAsync(sessionId, count, ct);
+
+        /// <summary>
+        /// The write that now happens for every frame (ADR-0006). It used to be an update over a staged
+        /// row, and refusing that was how this test reproduced the failure; the refusal moves with it.
+        /// </summary>
+        public Task<bool> SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default) =>
+            string.Equals(frame.Id, frameId, StringComparison.Ordinal)
+                ? throw new InvalidOperationException($"Frame '{frame.Id}' could not be written.")
+                : inner.SaveRedactedFrameAsync(sessionId, frame, outcome, ct);
+
+        public Task MarkFrameRedactedAsync(string id, RedactionOutcome outcome, CancellationToken ct = default) =>
+            id == frameId
+                ? throw new InvalidOperationException($"Frame '{id}' is not pending redaction.")
+                : inner.MarkFrameRedactedAsync(id, outcome, ct);
+
+        public Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default) =>
+            inner.TakeNextPendingFrameAsync(ct);
+
+        public Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default) =>
+            inner.TakeNextPendingFrameAsync(except, ct);
+
+        public Task DiscardPendingFrameAsync(string id, CancellationToken ct = default) =>
+            alsoDiscard && id == frameId
+                ? throw new IOException("There is no space left on the device.")
+                : inner.DiscardPendingFrameAsync(id, ct);
+
+        public Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default) =>
+            inner.GetFrameImageSizesAsync(sessionId, ct);
+
+        public Task<int> CountAllPendingFramesAsync(CancellationToken ct = default) => inner.CountAllPendingFramesAsync(ct);
+
+        public Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default) => inner.CountPendingFramesAsync(sessionId, ct);
+
+        public Task CreateSessionAsync(NewSession session, CancellationToken ct = default) => inner.CreateSessionAsync(session, ct);
+
+        public Task<bool> AppendEventAsync(string sessionId, SessionEvent e, CancellationToken ct = default) => inner.AppendEventAsync(sessionId, e, ct);
+
+        public Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default) => inner.AppendTranscriptAsync(sessionId, segment, ct);
+
+        public Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default) => inner.StageFrameAsync(sessionId, frame, ct);
+
+        public Task<int> PurgePendingFramesAsync(string sessionId, CancellationToken ct = default) => inner.PurgePendingFramesAsync(sessionId, ct);
+
+        public Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default) => inner.ListSessionsAsync(limit, ct);
+
+        public Task<SessionSummary?> GetSessionSummaryAsync(string sessionId, CancellationToken ct = default) => inner.GetSessionSummaryAsync(sessionId, ct);
+
+        public Task<LastQueuedDraft?> GetLastDraftPendingAsync(CancellationToken ct = default) => inner.GetLastDraftPendingAsync(ct);
+
+        public Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default) => inner.GetAuditAsync(sessionId, ct);
+
+        public Task SetFrameExcludedAsync(string id, bool excluded, CancellationToken ct = default) => inner.SetFrameExcludedAsync(id, excluded, ct);
+
+        public Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) => inner.SaveDraftAsync(sessionId, draft, ct);
+
+        public Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default) => inner.LoadOriginalDraftAsync(sessionId, ct);
+
+        public Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default) => inner.FinalizeSessionAsync(sessionId, info, ct);
+
+        public Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateAsync(sessionId, state, reason, ct);
+
+        public Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateUnlessSettledAsync(sessionId, state, reason, ct);
+
+        public Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default) => inner.SaveReadyDraftAsync(sessionId, draft, ct);
+
+        public Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default) => inner.SetSessionStateIfAsync(sessionId, expected, state, reason, ct);
+
+        public Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default) => inner.ListSessionsInStatesAsync(states, ct);
+
+        public Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default) => inner.GetLastTimestampAsync(sessionId, ct);
+
+        public Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, string? activeSessionId = null, CancellationToken ct = default) => inner.ListSessionsWithRawDataOlderThanAsync(cutoff, activeSessionId, ct);
+
+        public Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default) => inner.PurgeRawDataAsync(sessionId, ct);
+
+        public Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default) => inner.DiscardSessionAsync(sessionId, ct);
+
+        public Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default) => inner.DiscardSessionsAsync(sessionIds, ct);
+
+        public Task<IReadOnlyList<string>> ListUnfinishedDiscardsAsync(CancellationToken ct = default) => inner.ListUnfinishedDiscardsAsync(ct);
+
+        public Task<bool> PurgeDiscardedContentAsync(string sessionId, int chunk, CancellationToken ct = default) => inner.PurgeDiscardedContentAsync(sessionId, chunk, ct);
+
+        public Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default) => inner.MarkPublishedAsync(sessionId, ct);
+
+        public Task<PublishRecord?> GetPublishRecordAsync(string sessionId, CancellationToken ct = default) => inner.GetPublishRecordAsync(sessionId, ct);
+
+        public Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default) => inner.SavePublishRecordAsync(sessionId, outcomes, ct);
+
+        public Task<bool> SavePublishedTicketAsync(string sessionId, string ticketId, string? company, CancellationToken ct = default) => inner.SavePublishedTicketAsync(sessionId, ticketId, company, ct);
+
+        public Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default) => inner.CountUnconfirmedPublishesAsync(ct);
+
+        public Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default) => inner.DeleteFrameAsync(frameId, ct);
+
+        public Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default) => inner.ApplyUserBlurAsync(frameId, image, region, ct);
+
+        public Task<double> FreeSpaceFractionAsync(CancellationToken ct = default) => inner.FreeSpaceFractionAsync(ct);
+
+        public Task VacuumAsync(CancellationToken ct = default) => inner.VacuumAsync(ct);
+
+        public Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default) => inner.LoadSessionAsync(sessionId, ct);
+
+        public Task<byte[]?> GetRedactedFrameImageAsync(string frameId, CancellationToken ct = default) => inner.GetRedactedFrameImageAsync(frameId, ct);
+
+        public Task<StoredFrameImage?> GetRedactedFrameForBlurAsync(string frameId, CancellationToken ct = default) => inner.GetRedactedFrameForBlurAsync(frameId, ct);
+
+        public Task<FrameText?> GetRedactedFrameTextAsync(string frameId, CancellationToken ct = default) => inner.GetRedactedFrameTextAsync(frameId, ct);
+
+        public Task DeleteSessionAsync(string sessionId, CancellationToken ct = default) => inner.DeleteSessionAsync(sessionId, ct);
+
+        public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) => inner.GetSchemaVersionAsync(ct);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class FixedKey(byte[] key) : IStoreKeyProvider
+    {
+        public byte[] GetKey() => (byte[])key.Clone();
+    }
+}

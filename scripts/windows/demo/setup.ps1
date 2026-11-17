@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-time setup for the ScreenTail demo on this laptop. Safe to run again: whatever is already done is
+    One-time setup for the ScreenTrail demo on this laptop. Safe to run again: whatever is already done is
     checked and kept.
 
 .DESCRIPTION
@@ -201,7 +201,7 @@ function New-RandomPassword {
     return (-join $characters)
 }
 
-Write-Host 'ScreenTail demo setup. Safe to run again: it keeps whatever is already done.'
+Write-Host 'ScreenTrail demo setup. Safe to run again: it keeps whatever is already done.'
 
 # --- 1. This machine ---------------------------------------------------------------------------------
 
@@ -209,7 +209,7 @@ Write-Step 'This machine'
 Assert-Windows
 # Setup only warns. Everything it does lands where an elevated window of the same user writes too: the
 # user-secrets file in this profile, the current user's certificate store, the per-user dotnet tools and
-# the clone's build output, and it starts no ScreenTail process. Only start cannot work from an elevated
+# the clone's build output, and it starts no ScreenTrail process. Only start cannot work from an elevated
 # window (the capture service refuses to run), so start refuses, and setup says so before its last line
 # points there.
 $elevation = Get-TokenElevationType
@@ -287,7 +287,7 @@ if ($savedModel) {
     if (-not $savedModel.StartsWith($family)) {
         Stop-Demo -Problem "The user secret $script:KeyModel is '$savedModel', which is not a $label model. Every draft would be refused." -Fix @(
             'Remove it so the backend uses its default model:',
-            "  dotnet user-secrets remove $script:KeyModel --project backend\src\ScreenTail.Api",
+            "  dotnet user-secrets remove $script:KeyModel --project backend\src\ScreenTrail.Api",
             'Then run setup again.')
     }
 }
@@ -365,7 +365,7 @@ if ((Read-UserSecrets)[$script:KeyProvider] -ne $chosen) {
 if ($verdict -eq 'model') {
     Stop-Demo -Problem "The key is saved, but the backend asks for the model '$model', which is not offered to it. Every draft would fail." -Fix @(
         'Ask the developer for a model name the account can use, then run (with that name in place of NAME):',
-        "  dotnet user-secrets set $script:KeyModel NAME --project backend\src\ScreenTail.Api",
+        "  dotnet user-secrets set $script:KeyModel NAME --project backend\src\ScreenTrail.Api",
         'and run setup again.')
 }
 

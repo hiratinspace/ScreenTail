@@ -102,8 +102,8 @@ drafted note survives. *(INV-12)*
 **2.8 Is there a delete-everything option?**
 Yes: Settings → Privacy & Redaction → Your data → "Delete everything on this device…" (ST-081). The
 service accepts the command only with a typed confirmation it issued moments before ("DELETE
-EVERYTHING"), and it removes the device's tokens as well as its data: everything ScreenTail keeps under
-`%LOCALAPPDATA%\ScreenTail`, which is the encrypted store and its key, the device's refresh token, the
+EVERYTHING"), and it removes the device's tokens as well as its data: everything ScreenTrail keeps under
+`%LOCALAPPDATA%\ScreenTrail`, which is the encrypted store and its key, the device's refresh token, the
 settings, the cached policy and the crash reports. Only the downloaded speech models stay, since they
 hold nothing about anybody, and the program's own files if it was installed inside that folder. The
 device has to be activated again afterwards; its seat stays counted on the backend until an admin revokes
@@ -253,7 +253,7 @@ record that data existed and was destroyed. *(INV-12)*
 **5.5 Can the audit log be exported?**
 Yes, JSON or CSV, with the verification result included. The service writes the JSON export to a file in
 the same pass that verifies the chain, and the technician chooses where to keep it, anywhere outside
-ScreenTail's own folder. A copy the UI did not collect is removed by the next export, and by "Delete
+ScreenTrail's own folder. A copy the UI did not collect is removed by the next export, and by "Delete
 everything".
 
 ---
@@ -293,7 +293,7 @@ and session, so a service with no desktop is reported as unable to capture rathe
 No. Not yet pursued.
 
 **7.2 ⚠ Do you carry cyber liability insurance?**
-To be answered by the MSP deploying ScreenTail.
+To be answered by the MSP deploying ScreenTrail.
 
 **7.3 Is there a documented threat model?**
 Yes: [threat-model.md](threat-model.md), STRIDE, with each threat mapped to the invariant it protects and
@@ -308,4 +308,4 @@ this pack as reviewed until it has.
 taken to counsel.
 
 **7.6 Who do we contact about a vulnerability?**
-⚠ To be filled in by the MSP deploying ScreenTail. A disclosure contact is not yet published.
+⚠ To be filled in by the MSP deploying ScreenTrail. A disclosure contact is not yet published.

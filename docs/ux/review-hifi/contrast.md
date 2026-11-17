@@ -17,25 +17,25 @@ glyph, the word "Inferred", and a left rule.
 
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|
-| dark | `text.primary` | `bg.base` | 14.67:1 | ✅ |
-| light | `text.primary` | `bg.base` | 16.42:1 | ✅ |
-| dark | `text.primary` | `bg.surface` | 13.72:1 | ✅ |
+| dark | `text.primary` | `bg.base` | 15.85:1 | ✅ |
+| light | `text.primary` | `bg.base` | 16.72:1 | ✅ |
+| dark | `text.primary` | `bg.surface` | 13.70:1 | ✅ |
 | light | `text.primary` | `bg.surface` | 17.73:1 | ✅ |
-| dark | `text.primary` | `bg.raised` | 12.38:1 | ✅ |
+| dark | `text.primary` | `bg.raised` | 11.96:1 | ✅ |
 | light | `text.primary` | `bg.raised` | 16.52:1 | ✅ |
-| dark | `text.secondary` | `bg.base` | 9.74:1 | ✅ |
-| light | `text.secondary` | `bg.base` | 9.63:1 | ✅ |
-| dark | `text.secondary` | `bg.surface` | 9.10:1 | ✅ |
+| dark | `text.secondary` | `bg.base` | 11.59:1 | ✅ |
+| light | `text.secondary` | `bg.base` | 9.80:1 | ✅ |
+| dark | `text.secondary` | `bg.surface` | 10.02:1 | ✅ |
 | light | `text.secondary` | `bg.surface` | 10.39:1 | ✅ |
-| dark | `text.secondary` | `bg.raised` | 8.21:1 | ✅ |
+| dark | `text.secondary` | `bg.raised` | 8.74:1 | ✅ |
 | light | `text.secondary` | `bg.raised` | 9.69:1 | ✅ |
-| dark | `text.muted` | `bg.base` | 6.35:1 | ✅ |
-| light | `text.muted` | `bg.base` | 6.31:1 | ✅ |
-| dark | `text.muted` | `bg.surface` | 5.94:1 | ✅ |
+| dark | `text.muted` | `bg.base` | 7.98:1 | ✅ |
+| light | `text.muted` | `bg.base` | 6.42:1 | ✅ |
+| dark | `text.muted` | `bg.surface` | 6.90:1 | ✅ |
 | light | `text.muted` | `bg.surface` | 6.81:1 | ✅ |
-| dark | `text.muted` | `bg.raised` | 5.36:1 | ✅ |
+| dark | `text.muted` | `bg.raised` | 6.02:1 | ✅ |
 | light | `text.muted` | `bg.raised` | 6.35:1 | ✅ |
-| dark | `accent.primary` | `bg.surface` | 7.24:1 | ✅ |
+| dark | `accent.primary` | `bg.surface` | 6.98:1 | ✅ |
 | light | `accent.primary` | `bg.surface` | 6.54:1 | ✅ |
 | dark | `text.on-accent` | `accent.primary` | 9.00:1 | ✅ |
 | light | `text.on-accent` | `accent.primary` | 6.54:1 | ✅ |
@@ -44,13 +44,13 @@ glyph, the word "Inferred", and a left rule.
 
 | Theme | Foreground | Background | Ratio | Verdict |
 |---|---|---|---|---|
-| dark | `confidence.low` | `bg.surface` | 9.53:1 | ✅ |
+| dark | `confidence.low` | `bg.surface` | 9.18:1 | ✅ |
 | light | `confidence.low` | `bg.surface` | 4.83:1 | ✅ |
-| dark | `state.published` | `bg.surface` | 8.62:1 | ✅ |
+| dark | `state.published` | `bg.surface` | 8.30:1 | ✅ |
 | light | `state.published` | `bg.surface` | 5.41:1 | ✅ |
-| dark | `state.danger` | `bg.surface` | 7.26:1 | ✅ |
+| dark | `state.danger` | `bg.surface` | 6.99:1 | ✅ |
 | light | `state.danger` | `bg.surface` | 5.66:1 | ✅ |
-| dark | `state.scope` | `bg.surface` | 8.76:1 | ✅ |
+| dark | `state.scope` | `bg.surface` | 8.44:1 | ✅ |
 | light | `state.scope` | `bg.surface` | 5.65:1 | ✅ |
-| dark | `state.paused` | `bg.surface` | 7.80:1 | ✅ |
+| dark | `state.paused` | `bg.surface` | 7.51:1 | ✅ |
 | light | `state.paused` | `bg.surface` | 4.83:1 | ✅ |

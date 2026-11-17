@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { allowed } from './env.ts';
 import { expect, expectAccessible, expectApiHeaders, sessionCookie, test, world } from './fixtures.ts';
 
-const csrfHeader = 'X-ScreenTail-CSRF';
+const csrfHeader = 'X-ScreenTrail-CSRF';
 
 test('an owner signs up, invites a technician, sees the device, revokes it, sets the policy, and signs out', async ({ page, google, context }) => {
   const run = world.run;
@@ -257,7 +257,7 @@ test('an owner signs up, invites a technician, sees the device, revokes it, sets
 
   await test.step('download: the deployment link', async () => {
     await page.getByRole('link', { name: 'Download client' }).click();
-    const link = page.getByRole('link', { name: 'Download ScreenTail for Windows' });
+    const link = page.getByRole('link', { name: 'Download ScreenTrail for Windows' });
     await expect(link).toHaveAttribute('href', world.downloadUrl);
     await expectAccessible(page, 'download client');
   });
@@ -270,7 +270,7 @@ test('an owner signs up, invites a technician, sees the device, revokes it, sets
       expect((await copy.get('/v1/admin/session')).status()).toBe(200);
 
       await page.getByRole('button', { name: 'Sign out' }).click();
-      await expect(page.getByRole('heading', { level: 1, name: 'Sign in to ScreenTail admin' })).toBeVisible();
+      await expect(page.getByRole('heading', { level: 1, name: 'Sign in to ScreenTrail admin' })).toBeVisible();
       expect((await context.cookies()).some((c) => c.name === sessionCookie), 'the cookie still in this browser').toBe(false);
 
       expect((await copy.get('/v1/admin/session')).status()).toBe(401);

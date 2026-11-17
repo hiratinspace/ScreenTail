@@ -28,8 +28,8 @@ $ErrorActionPreference = 'Stop'
 
 $script:DemoRepo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $script:DemoBackendDir = Join-Path $script:DemoRepo 'backend'
-$script:DemoApiDir = Join-Path $script:DemoRepo 'backend\src\ScreenTail.Api'
-$script:DemoApiProject = Join-Path $script:DemoApiDir 'ScreenTail.Api.csproj'
+$script:DemoApiDir = Join-Path $script:DemoRepo 'backend\src\ScreenTrail.Api'
+$script:DemoApiProject = Join-Path $script:DemoApiDir 'ScreenTrail.Api.csproj'
 $script:DemoRunLocal = Join-Path $script:DemoRepo 'scripts\windows\run-local.ps1'
 
 # The backend address. It has to be https and it has to be localhost: the development certificate is
@@ -37,9 +37,31 @@ $script:DemoRunLocal = Join-Path $script:DemoRepo 'scripts\windows\run-local.ps1
 $script:DemoBackendPort = 5001
 $script:DemoBackendUrl = 'https://localhost:5001'
 
-# The demo's own working files. Not inside %LOCALAPPDATA%\ScreenTail, which is the product's data
+# The product was ScreenTail until 2026-11-17. A laptop set up before then has its demo state (the device
+# token, the drafting choice, state.json) under %LOCALAPPDATA%\ScreenTail.Dev and the product's data under
+# %LOCALAPPDATA%\ScreenTail. Each comes across in one rename, before anything below reads it, when only the
+# old one exists. The product does the same for its own folder at its first start; doing it here too means
+# a script that reads the device credential before the service starts finds it. Nothing is ever deleted:
+# with both present, or with a rename refused (a running old copy holding a file), the old one stays.
+foreach ($pair in @(@('ScreenTail.Dev', 'ScreenTrail.Dev'), @('ScreenTail', 'ScreenTrail'))) {
+    $legacyDir = Join-Path $env:LOCALAPPDATA $pair[0]
+    $currentDir = Join-Path $env:LOCALAPPDATA $pair[1]
+    if ((Test-Path -LiteralPath $legacyDir -PathType Container) -and -not (Test-Path -LiteralPath $currentDir)) {
+        $legacyItem = Get-Item -LiteralPath $legacyDir -Force
+        if (-not ($legacyItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            try {
+                Rename-Item -LiteralPath $legacyDir -NewName $pair[1] -ErrorAction Stop
+            }
+            catch {
+                Write-Warning "Could not move $legacyDir to $currentDir; it is left where it is."
+            }
+        }
+    }
+}
+
+# The demo's own working files. Not inside %LOCALAPPDATA%\ScreenTrail, which is the product's data
 # directory and is emptied by "Delete everything".
-$script:DemoStateDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\demo'
+$script:DemoStateDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail.Dev\demo'
 $script:DemoAppDir = Join-Path $script:DemoStateDir 'app'
 $script:DemoStateFile = Join-Path $script:DemoStateDir 'state.json'
 $script:DemoBuildStamp = Join-Path $script:DemoStateDir 'client-build.txt'
@@ -60,7 +82,7 @@ $script:DemoLogWriterFile = Join-Path $script:DemoLogDir 'log-writer.txt'
 # Where scripts\windows\e2e\run-e2e.ps1 writes its logs when it is not on a CI runner (a runner's job uses
 # RUNNER_TEMP): e2e.log and <role>.out.log and <role>.err.log for each process it starts. Nothing filters
 # them as they are written, so report.ps1 reads them through the same filter as the demo logs.
-$script:DemoE2eDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\e2e'
+$script:DemoE2eDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail.Dev\e2e'
 
 # The words run-e2e.ps1 makes each run's fake secret from: a first word, four digits and a second word.
 # The secret itself is never saved, so report.ps1 removes anything made of these words by its shape.
@@ -85,9 +107,12 @@ $script:DemoDraftingFile = Join-Path $script:DemoStateDir 'drafting.txt'
 $script:DemoReportDir = Join-Path $script:DemoStateDir 'reports'
 
 # Where the capture service keeps an invite-activated device's credential (DpapiDeviceCredentials).
-$script:DemoDeviceCredential = Join-Path $env:LOCALAPPDATA 'ScreenTail\device.cred'
+$script:DemoDeviceCredential = Join-Path $env:LOCALAPPDATA 'ScreenTrail\device.cred'
 
 # The Docker container setup.ps1 creates when Docker is the database.
+# The container and its volume keep the names they had before the product was renamed (ScreenTail, until
+# 2026-11-17): a laptop set up before the rename keeps its database and reuses its container, instead of
+# a second container starting on the same data while the first still holds the port.
 $script:DemoDbContainer = 'screentail-db'
 $script:DemoDbVolume = 'screentail-pgdata'
 
@@ -184,7 +209,7 @@ function Protect-Text {
         }
     }
     $clean = [regex]::Replace($clean, '(?i)(password|pwd)\s*=\s*("[^"]*"|''[^'']*''|[^;"\s]*)', '$1=***')
-    $clean = [regex]::Replace($clean, 'SCREENTAIL_DEVICE_TOKEN=\S+', 'SCREENTAIL_DEVICE_TOKEN=***')
+    $clean = [regex]::Replace($clean, 'SCREENTRAIL_DEVICE_TOKEN=\S+', 'SCREENTRAIL_DEVICE_TOKEN=***')
     $clean = [regex]::Replace($clean, 'eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+', '<token>')
     $clean = [regex]::Replace($clean, 'AIza[0-9A-Za-z_\-]{20,}', '<key>')
     return $clean
@@ -244,8 +269,8 @@ function Move-DemoLogAside([string]$Path) {
 # again over what it reads. Kept as text because a window is a separate PowerShell, given its script as
 # an encoded command. Windows PowerShell 5.1.
 #
-# A line is kept only if the scrubbing log sink wrote it. Both sinks (client/ScreenTail.Shared/Logging/
-# ScrubbingLogger.cs and backend/src/ScreenTail.Api/Logging/ScrubbingLoggerProvider.cs) write
+# A line is kept only if the scrubbing log sink wrote it. Both sinks (client/ScreenTrail.Shared/Logging/
+# ScrubbingLogger.cs and backend/src/ScreenTrail.Api/Logging/ScrubbingLoggerProvider.cs) write
 # "HH:mm:ss.fff LEVEL category: message", LEVEL being TRACE, DEBUG, "INFO ", "WARN ", ERROR or FATAL, and
 # then an exception's lines indented by four spaces: "<Type>: <message>", "at <frame>" and "--- End of
 # ...". Anything else a process prints went round the sink: the .NET runtime's "Unhandled exception."
@@ -275,9 +300,9 @@ function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
     if ($Line.Length -eq 0) { return '' }
 
     # Three fixed sentences the capture service prints itself before its logger exists (Program.cs).
-    if ([string]::Equals($Line, 'Another ScreenTail capture service is already running for this user, or something is holding its name. Exiting with code 3.', [StringComparison]::Ordinal)) { return $Line }
+    if ([string]::Equals($Line, 'Another ScreenTrail capture service is already running for this user, or something is holding its name. Exiting with code 3.', [StringComparison]::Ordinal)) { return $Line }
     if ([string]::Equals($Line, 'The capture service runs on Windows only.', [StringComparison]::Ordinal)) { return $Line }
-    if ($Line -cmatch '^Warning: [A-Z0-9_]+ is set, so this process may be running code that is not ScreenTail''s\.$') { return $Line }
+    if ($Line -cmatch '^Warning: [A-Z0-9_]+ is set, so this process may be running code that is not ScreenTrail''s\.$') { return $Line }
 
     # What this code itself writes. Read back from a file only: a process printing the same is withheld.
     # start.ps1's own lines say why a window's program stopped, and when it could not run at all that is
@@ -285,7 +310,7 @@ function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
     # only that there was a message (a line from an older start, with no type, keeps only that there was
     # a reason). Any other [start.ps1] line is withheld like a process's.
     if ($State.Reading) {
-        if ($Line -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$') { return $Line }
+        if ($Line -cmatch '^\[line not from ScreenTrail''s logger withheld, [0-9]+ chars\]$') { return $Line }
         if ($Line -cmatch '^\[[0-9]+ log line\(s\) could not be written here\]$') { return $Line }
         if ($Line -cmatch '^\[The log filter could not be checked, so nothing from this window is logged\.\]$') { return $Line }
         if ($Line -cmatch '^\[start\.ps1\] The (backend|capture service) has stopped \((exit code -?[0-9]{1,11}|unknown|still running; close this window to end it)\)\.$') { return $Line }
@@ -303,7 +328,7 @@ function ConvertTo-DemoLogLine([string]$Line, [hashtable]$State) {
     if ($Line -cmatch '^Unhandled exception\. ([A-Za-z_][A-Za-z0-9_.`+]*)') {
         return 'Unhandled exception. ' + $Matches[1] + ' [message and stack withheld]'
     }
-    return "[line not from ScreenTail's logger withheld, $($Line.Length) chars]"
+    return "[line not from ScreenTrail's logger withheld, $($Line.Length) chars]"
 }
 
 # One writer per window, kept open: FileShare ReadWrite and Delete, so report.ps1 can read it and it can
@@ -462,7 +487,7 @@ function Assert-Windows {
         Stop-Demo -Problem "This PowerShell is version $($PSVersionTable.PSVersion); the demo scripts need 5.1 or later." -Fix @('Use the Windows PowerShell that comes with Windows 10 or 11.')
     }
     if (-not (Test-Path -LiteralPath $script:DemoApiProject)) {
-        Stop-Demo -Problem "Cannot find the backend project under $script:DemoRepo." -Fix @('Run the script from inside a ScreenTail clone, for example C:\src\ScreenTail.')
+        Stop-Demo -Problem "Cannot find the backend project under $script:DemoRepo." -Fix @('Run the script from inside a ScreenTrail clone, for example C:\src\ScreenTrail.')
     }
 }
 
@@ -473,7 +498,7 @@ function Assert-Windows {
 $script:TokenElevationSource = @'
 using System;
 using System.Runtime.InteropServices;
-public static class ScreenTailDemoTokenElevation {
+public static class ScreenTrailDemoTokenElevation {
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool GetTokenInformation(IntPtr token, int informationClass, out int information, int length, out int returnLength);
     public static int Read(IntPtr token) {
@@ -490,11 +515,11 @@ public static class ScreenTailDemoTokenElevation {
 # call failed). Never throws.
 function Get-TokenElevationType {
     try {
-        if (-not ('ScreenTailDemoTokenElevation' -as [type])) {
+        if (-not ('ScreenTrailDemoTokenElevation' -as [type])) {
             Add-Type -TypeDefinition $script:TokenElevationSource -Language CSharp -ErrorAction Stop
         }
         $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-        try { $value = [ScreenTailDemoTokenElevation]::Read($identity.Token) } finally { $identity.Dispose() }
+        try { $value = [ScreenTrailDemoTokenElevation]::Read($identity.Token) } finally { $identity.Dispose() }
         switch ([int]$value) {
             1 { return 'Default' }
             2 { return 'Full' }
@@ -506,7 +531,7 @@ function Get-TokenElevationType {
 }
 
 # What start does about an elevation type: 'refuse', 'warn' or 'ok'. Mirrors StartGuard.Decide
-# (client/ScreenTail.Core/Lifecycle/StartGuard.cs) in what it refuses: Full only. Default is fine, because the
+# (client/ScreenTrail.Core/Lifecycle/StartGuard.cs) in what it refuses: Full only. Default is fine, because the
 # service runs there too (a standard user, or UAC off, where every window runs at one level).
 #
 # Unknown is where this differs on purpose: StartGuard refuses a token it cannot read, this only warns.
@@ -523,12 +548,12 @@ function Get-ElevationVerdict([string]$Type) {
 }
 
 # The words start (and setup's warning) use for a window that runs as administrator.
-$script:ElevatedProblem = 'This PowerShell window runs as administrator (''Administrator:'' in its title). ScreenTail''s capture service refuses to run elevated, so the demo cannot start from here.'
+$script:ElevatedProblem = 'This PowerShell window runs as administrator (''Administrator:'' in its title). ScreenTrail''s capture service refuses to run elevated, so the demo cannot start from here.'
 $script:ElevatedFix = @(
     'Close this window.',
     'Open PowerShell from the Start menu with plain Enter: not "Run as administrator", not Ctrl+Shift+Enter.',
     'In Windows Terminal, also turn off "Run this profile as Administrator" (Settings > the PowerShell profile).',
-    'Then cd to the repository (for example  cd C:\src\ScreenTail ) and run  scripts\windows\demo\start.cmd')
+    'Then cd to the repository (for example  cd C:\src\ScreenTrail ) and run  scripts\windows\demo\start.cmd')
 
 # Ends the script when this window runs as administrator, before anything is built or started: the
 # capture service would refuse to run (StartGuard), and the UI would never open. -Type is for the tests.
@@ -844,7 +869,7 @@ function Invoke-DatabaseUpdate {
     param([Parameter(Mandatory)][string]$ConnectionString, [switch]$NoBuild)
 
     Add-DotNetToolsToPath
-    $arguments = @('ef', 'database', 'update', '--project', 'src\ScreenTail.Api', '--startup-project', 'src\ScreenTail.Api')
+    $arguments = @('ef', 'database', 'update', '--project', 'src\ScreenTrail.Api', '--startup-project', 'src\ScreenTrail.Api')
     if ($NoBuild) {
         # --configuration in full: 'dotnet ef' reads -c as --context.
         $arguments += @('--no-build', '--configuration', 'Debug')

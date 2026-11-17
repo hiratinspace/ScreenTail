@@ -17,7 +17,7 @@ the provider and the site's scheme, host and port as AES-GCM associated data, an
 tenant's row, another provider or another host, or with its site changed to plain http, it is refused
 with a message naming the row, and is never tried any other way. A read also refuses any site that is
 not an absolute https address. A refused row is not a server error: publish, ticket search, company
-mappings and Test connection each answer "Ask your ScreenTail owner to connect it again in the web admin."
+mappings and Test connection each answer "Ask your ScreenTrail owner to connect it again in the web admin."
 The owner, on that provider's card in the web admin, reads "Connect it again with Replace on this card."
 
 **Legacy rows, and what to do after the first start.** Legacy rows exist only from before this change:
@@ -30,7 +30,7 @@ since. They still open without a binding, and are sealed again in the bound form
   while any is left; a second run prints `upgraded 0`) and by
   `--rotate-vault-keys`, for an operator who prefers to run it by hand:
   ```bash
-  dotnet run --project src/ScreenTail.Api -- --upgrade-vault-rows
+  dotnet run --project src/ScreenTrail.Api -- --upgrade-vault-rows
   ```
 
 Once a sweep has found none left, a row marked legacy was written by something other than the service.
@@ -84,7 +84,7 @@ Every step is reversible until step 5, and a second run of step 4 is the check t
    and rows still under the previous key open as before. Nothing is unreadable at any point.
 4. **Rewrap.** Once, from a shell with the same configuration:
    ```bash
-   dotnet run --project src/ScreenTail.Api -- --rotate-vault-keys
+   dotnet run --project src/ScreenTrail.Api -- --rotate-vault-keys
    ```
    It prints how many rows changed hands and exits without listening. "The same configuration" includes
    `Jwt:SigningKey`: the host checks it before any command runs, so without it the rewrap stops with a
@@ -114,7 +114,7 @@ finished; put the previous key back and repeat step 4.
   PSA confirms; when the PSA has no such company or cannot answer, the article is filed and nothing is
   saved.
 
-Exercised by `backend/tests/ScreenTail.Api.Tests/Vault/KeyRotationTests.cs`, which does steps 2 to 5 in
+Exercised by `backend/tests/ScreenTrail.Api.Tests/Vault/KeyRotationTests.cs`, which does steps 2 to 5 in
 memory: a row under the previous key opens before the rewrap and a new one goes under the current key
 (step 3), every row opens under the current key alone after it (steps 4 and 5), a row under a key the
 deployment no longer holds is refused with that key's id, and legacy rows are sealed again bound. The

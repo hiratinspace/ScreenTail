@@ -1,9 +1,9 @@
 # Hudu
 
-How ScreenTail talks to Hudu (ST-095, ST-096), what a tenant supplies, and what to check against a real
+How ScreenTrail talks to Hudu (ST-095, ST-096), what a tenant supplies, and what to check against a real
 Hudu before a pilot. Written from Hudu's API documentation; the real check has not been run.
 
-## What ScreenTail does with it
+## What ScreenTrail does with it
 
 | Call | Route | When |
 |---|---|---|
@@ -18,7 +18,7 @@ long as a Retry-After of up to five seconds; a longer one is answered at once, s
 asked to wait. A wrong key is not retried. An article or upload is sent
 again only when none of it left or Hudu answered 429; otherwise it comes back `unknown` and the
 technician is asked to check Hudu first. The company list stops at 10,000 companies. Every refusal reaches the technician as a kind and two sentences: "Hudu rejected the API key.
-Ask your ScreenTail owner to update the Hudu connection in the web admin." A 422 carries Hudu's own words about the field it refused,
+Ask your ScreenTrail owner to update the Hudu connection in the web admin." A 422 carries Hudu's own words about the field it refused,
 except that the company must exist: that is a company deleted in Hudu while the backend's ten-minute
 list still held it, so the list is dropped, the mapping to it is forgotten, and the article comes back
 `needs_mapping` for the technician to choose another company. Only that answer does this. A plain 404
@@ -75,11 +75,11 @@ Needs a Hudu instance with an API key, on the owner's list. When there is one:
 
 ## The recorded shapes
 
-`backend/tests/ScreenTail.Api.Tests/Providers/Hudu/ScriptedHudu.cs` answers the routes above with the
+`backend/tests/ScreenTrail.Api.Tests/Providers/Hudu/ScriptedHudu.cs` answers the routes above with the
 fields the provider reads, written from the API documentation. `DocProviderContract` and the provider's
 own tests run against it.
 
-`backend/tests/ScreenTail.Api.Tests/Providers/StandIns/HuduStandIn.cs` is the same shapes as a real
+`backend/tests/ScreenTrail.Api.Tests/Providers/StandIns/HuduStandIn.cs` is the same shapes as a real
 HTTPS server the provider reaches over a socket: the key header, paged companies, the article wrapper,
 uploads, and Hudu's field errors. Correct it along with the recorded shapes after the real check. The
 providers README says what its tests prove and what they cannot.

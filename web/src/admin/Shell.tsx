@@ -53,7 +53,7 @@ export function Shell({ api, session, notice, onSignOut }: ShellProps) {
   return (
     <div className="shell">
       <header className="topbar">
-        <span className="wordmark">ScreenTail admin</span>
+        <span className="wordmark">ScreenTrail admin</span>
         <span className="tenant">
           {session.tenant.name}
         </span>

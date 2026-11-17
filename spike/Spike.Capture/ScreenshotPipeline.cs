@@ -3,9 +3,9 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>Click → debounce 400 ms → capture foreground window → overlay probe → downscale → JPEG → OCR.</summary>
 internal sealed class ScreenshotPipeline

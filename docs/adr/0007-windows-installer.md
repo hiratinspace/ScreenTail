@@ -57,14 +57,14 @@ later version. Moving up is a decision for the owner once there is revenue.
 
 ### What is built (`installer/`, `client/Packaging.props`)
 
-- **`ScreenTail.msi`**: per machine, x64, into `C:\Program Files\ScreenTail`, both executables side by
+- **`ScreenTrail.msi`**: per machine, x64, into `C:\Program Files\ScreenTrail`, both executables side by
   side with the native libraries and the registry files the service reads. A fixed UpgradeCode, so a
   newer version replaces the old one; a downgrade is refused. **The folder cannot be changed**: the
   package works out the machine's own Program Files from the environment and refuses any
   `INSTALLFOLDER` that differs, on an install, a repair and an uninstall alike, because the uninstall
   runs the installed service as the system account and that file must sit where only administrators
   can change it.
-- **`ScreenTail-Setup.exe`**: Microsoft's Visual C++ runtime installer (downloaded at build time and
+- **`ScreenTrail-Setup.exe`**: Microsoft's Visual C++ runtime installer (downloaded at build time and
   checked to be Microsoft-signed), skipped when the same or a newer runtime is there and never removed
   on uninstall because other software shares it, then the MSI. The MSI on its own refuses to install
   without the runtime, with a message naming it, rather than install a service whose speech fails; an
@@ -77,7 +77,7 @@ later version. Moving up is a decision for the owner once there is revenue.
 
 ### How the processes are published
 
-- **Self-contained and single-file, for the installer build only** (`-p:ScreenTailInstaller=true`).
+- **Self-contained and single-file, for the installer build only** (`-p:ScreenTrailInstaller=true`).
   The runtime configuration, including `StartupHookSupport=false`, and every managed assembly sit inside
   each executable, so the executable's signature covers them. Both gaps ADR-0003 left to packaging for
   managed code are closed. Development builds, tests and the demo are unchanged.
@@ -98,7 +98,7 @@ later version. Moving up is a decision for the owner once there is revenue.
 
 ### Start at sign-in (amends ADR-0003)
 
-The MSI writes `HKLM\Software\Microsoft\Windows\CurrentVersion\Run\ScreenTail.Service`, the quoted
+The MSI writes `HKLM\Software\Microsoft\Windows\CurrentVersion\Run\ScreenTrail.Service`, the quoted
 path of the installed service, so it starts for whoever signs in. Same value name as the development
 helper `LoginStartup`, and the single-instance mutex means a developer's own entry cannot start a
 second copy. The UI is not started by the installer: it has a Start menu shortcut, and "Start UI at
@@ -122,7 +122,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   step reports `0 running copies stopped`. The package sets `MSIRMSHUTDOWN=2`: Windows Installer asks
   only programs registered for restart, which the service is, and asks nobody if anything else holds an
   installed file, so a scanner, an endpoint agent or the CI runner's monitor reading the executable is
-  never asked to close by ScreenTail's installer. (Suspected cause of the CI runs of 2026-11-01 that
+  never asked to close by ScreenTrail's installer. (Suspected cause of the CI runs of 2026-11-01 that
   never ended and left no log once the service could be closed: a runner process asked to close.) The terminating steps stay, for what Restart Manager does not
   reach: other sessions when the installer runs as the system account, and an upgrade whose files carry
   the same version (Windows Installer registers only files it will replace). A session that was
@@ -137,7 +137,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   (`RESTART_NO_CRASH | RESTART_NO_HANG | RESTART_NO_REBOOT`) and with no arguments: the restart is the
   ordinary start, watching, not recording. **A recording in progress is split**: the part before the
   close is recovered as partial at the restart, and a new session begins only the way any session
-  begins. The smoke test checks that Restart Manager restarts it. **ScreenTail's own package turns that
+  begins. The smoke test checks that Restart Manager restarts it. **ScreenTrail's own package turns that
   restart off** (`MSIDISABLERMRESTART=1`): without it, Restart Manager closing the old service in an
   upgrade's removal made Windows Installer start the new one when it finished (CI, 2026-11-01), against
   "down until the next sign-in" above, and from the installer's own elevated process. **For the owner:**
@@ -169,7 +169,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   asks LSA, which for a domain account away from its controller or an Entra ID account can fail or hang
   and would refuse the service at every sign-in. The shell is looked for six times, half a second apart,
   in case it is still starting; a comparison that cannot be made runs, and only a definite mismatch
-  refuses. **A refusal is recorded** in the Application log (source `ScreenTail`, event 1100 and up for
+  refuses. **A refusal is recorded** in the Application log (source `ScreenTrail`, event 1100 and up for
   the service, 1200 and up for the UI, the fixed sentence as its only text), written with
   `RegisterEventSource`, which needs no administrator rights and no registered source; standard error
   goes nowhere in an installed build. Not yet seen: the laptop check, an elevated third-party installer
@@ -177,7 +177,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
 - **Windows Installer removes what it installed**: the files, the machine Run value, the shortcut.
 - **On uninstall, and never during an upgrade**, the installed service runs once in an uninstall mode,
   as the system account. It stops any running copy, removes the Run values the UI wrote in signed-in
-  users' registries, and then, for each profile's data folder (`%LOCALAPPDATA%\ScreenTail`):
+  users' registries, and then, for each profile's data folder (`%LOCALAPPDATA%\ScreenTrail`):
   - **A technician who is signed in:** the whole folder is deleted **with that technician's own token**,
     the store's key and the device's credentials first (Delete everything's order), so the delete has
     no more rights than the folder's owner. If that fails, the next rule applies.
@@ -198,7 +198,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   restart (3010). The wait gets at most 15 seconds, and only what is left of a 45-second deadline from
   the step's start, because WixQuietExec gives the whole step a minute and then lets Windows Installer
   carry on with the step's executable still mapped. Found on CI on 2026-11-01, where the hosted runner's
-  own monitor kept ScreenTail.Service.exe open for about four seconds as the step ended; virus scanners
+  own monitor kept ScreenTrail.Service.exe open for about four seconds as the step ended; virus scanners
   and endpoint agents on MSP machines read running programs the same way.
 - **When an upgrade removes a version**, that version's removal first runs its installed service once in
   an upgrade mode (`--upgrade-release`), as the system account, straight before its files are removed:
@@ -213,7 +213,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   would otherwise have done after the files were gone. Since the session-end window above, it answers
   wherever Restart Manager reaches it, and the step stays for every case Restart Manager does not reach.
   With the step's wait switched off, all three upgrades in the smoke test ended
-  in 3010 with `ScreenTail.Service.exe` queued for deletion at the next restart. It lives in the version being
+  in 3010 with `ScreenTrail.Service.exe` queued for deletion at the next restart. It lives in the version being
   removed because nothing else can run it in time: before RemoveExistingProducts the new files are not on
   the machine, and a version without this mode, given a flag it does not know, would start the capture
   service as the system account. **So upgrades are covered from the first version that has the mode**;
@@ -255,7 +255,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   code (NuGet packages' build targets, the repository's own code) run where the signing token can be
   asked for, and it could change the files the signing steps run. So the unsigned job (`installer`),
   which runs everywhere, has no token and no signing setting. On a push to main with the repository
-  variable `SCREENTAIL_SIGNING` set to `true`, it hands the checked payload, and nothing else, to
+  variable `SCREENTRAIL_SIGNING` set to `true`, it hands the checked payload, and nothing else, to
   `installer-sign`. The handoff is bound: the build job reports the artifact's id, its digest and the
   SHA-256 of every payload file, and the signing job downloads by that id, reads the artifact's digest
   back from GitHub (its only extra permission is `actions: read`) and refuses to sign anything missing,
@@ -290,7 +290,7 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
 ### The seam for ST-113 (auto-update)
 
 - The UpgradeCode is fixed and every package is a major upgrade, so applying an update is
-  `msiexec /i ScreenTail.msi /qn`, and user data survives it (CI checks that).
+  `msiexec /i ScreenTrail.msi /qn`, and user data survives it (CI checks that).
 - One version flows into both executables and the package, so the running service knows what it is.
 - **Per machine means an update needs administrator rights**, which neither process has. ST-113 needs
   one of: the MSP's own tool pushing updates (the usual MSP answer); a scheduled task the installer
@@ -311,18 +311,18 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
 - A technician who is not signed in when an MSP uninstalls keeps an unreadable store and the files
   listed above in their profile, until they or an administrator delete the folder; a value they wrote
   for "Start UI at login" stays in their registry, naming a program that no longer exists, which
-  Windows passes over. "Delete everything" in Settings remains the full erase while ScreenTail is
+  Windows passes over. "Delete everything" in Settings remains the full erase while ScreenTrail is
   installed.
-- The backend address is still read from `SCREENTAIL_BACKEND` only. How an installed client learns it
+- The backend address is still read from `SCREENTRAIL_BACKEND` only. How an installed client learns it
   (a built-in default, an MSI property, the invite code) is not decided here.
   *(Amended 2026-11-15, security review: an installed client, signed or running from Program Files,
-  reads it only from `HKLM\SOFTWARE\ScreenTail\BackendUrl`, which the package's `BACKENDURL` property
-  writes, and ignores `SCREENTAIL_BACKEND` and `SCREENTAIL_DEVICE_TOKEN`. The address decides where the
+  reads it only from `HKLM\SOFTWARE\ScreenTrail\BackendUrl`, which the package's `BACKENDURL` property
+  writes, and ignores `SCREENTRAIL_BACKEND` and `SCREENTRAIL_DEVICE_TOKEN`. The address decides where the
   egress allowlist points and where policy comes from, so a per-user setting could have pointed a
   locked local-only device elsewhere. The variables remain for development builds.)*
-  *(Amended 2026-11-16, follow-up: `ScreenTail-Setup.exe` passes `BACKENDURL` on to the package, so
-  either installer sets it: `ScreenTail-Setup.exe BACKENDURL=https://... /quiet /norestart` or
-  `msiexec /i ScreenTail.msi BACKENDURL=https://... /qn /norestart`. The setup program's variable is
+  *(Amended 2026-11-16, follow-up: `ScreenTrail-Setup.exe` passes `BACKENDURL` on to the package, so
+  either installer sets it: `ScreenTrail-Setup.exe BACKENDURL=https://... /quiet /norestart` or
+  `msiexec /i ScreenTrail.msi BACKENDURL=https://... /qn /norestart`. The setup program's variable is
   overridable from its command line, not persisted, and passed only when given, so the package's own rule
   holds: read on install or upgrade, kept when not given. Both installers hide the value in their logs,
   except Windows Installer's verbose record of the registry write, which `MsiHiddenProperties` does not

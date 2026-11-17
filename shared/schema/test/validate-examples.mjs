@@ -1,5 +1,5 @@
 // Every file in examples/valid must pass session.v1.json; every file in examples/invalid must fail.
-// Run with `npm test` in shared/schema. The C# side runs the same examples (ScreenTail.Tests/Schema).
+// Run with `npm test` in shared/schema. The C# side runs the same examples (ScreenTrail.Tests/Schema).
 
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';

@@ -1,16 +1,16 @@
 <#
 .SYNOPSIS
-    Measures the running ScreenTail service and UI: processor time and memory, whole process (ST-031).
+    Measures the running ScreenTrail service and UI: processor time and memory, whole process (ST-031).
 
 .DESCRIPTION
-    The laptop's CI tests (client/ScreenTail.Tests.Windows/Performance) measure what ScreenTail's own
+    The laptop's CI tests (client/ScreenTrail.Tests.Windows/Performance) measure what ScreenTrail's own
     code adds to a process, inside the test process, because starting the real service on the laptop
     would open the demo's store, key and pipe. What they cannot see is the whole of each process: the
     .NET runtime, the loaded assemblies, SQLCipher, the OCR engine, and the speech model once a session
     has loaded it. This reads those from the two real processes while they run, for example during a
     demo rehearsal (docs/dev/demo.md).
 
-    Run it twice: once with no session (the pill says "Not recording") after ScreenTail has been up for
+    Run it twice: once with no session (the pill says "Not recording") after ScreenTrail has been up for
     a minute, and once while a session records. Say which in the -Label.
 
     Read-only. It reads processor time and memory counters through Get-Process and nothing else: no
@@ -41,7 +41,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$names = @('ScreenTail.Service', 'ScreenTail.UI')
+$names = @('ScreenTrail.Service', 'ScreenTrail.UI')
 $cores = [Environment]::ProcessorCount
 $sliceSeconds = [Math]::Max(1, [int][Math]::Round($Seconds / $Slices))
 $frequency = [double][Diagnostics.Stopwatch]::Frequency
@@ -81,7 +81,7 @@ $samples = @{}
 foreach ($name in $names) {
     $first = Read-Sample -Name $name
     if (-not $first) {
-        Write-Host "$name is not running. Start ScreenTail first (docs/dev/demo.md)."
+        Write-Host "$name is not running. Start ScreenTrail first (docs/dev/demo.md)."
         exit 1
     }
 

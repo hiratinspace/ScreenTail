@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 internal sealed record SpikeOptions(
     string Command,
@@ -23,7 +23,7 @@ internal sealed record SpikeOptions(
 
         Options
           --minutes <n>   Run length for 'run' (default 5)
-          --out <dir>     Output directory (default %LOCALAPPDATA%\ScreenTail.Spike\runs\<timestamp>)
+          --out <dir>     Output directory (default %LOCALAPPDATA%\ScreenTrail.Spike\runs\<timestamp>)
           --no-whisper    Skip speech-to-text load
           --no-uia        Skip UI Automation polling
           --no-ocr        Skip OCR

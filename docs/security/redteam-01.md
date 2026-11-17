@@ -4,7 +4,7 @@
 default policy, at the level OCR reads off a screen and the transcriber hears: the same text path
 every frame and every transcript segment take. Round two, real screenshots through the VM harness
 (ST-013), waits for that harness. Every row is a test in
-`client/ScreenTail.Tests/Privacy/RedTeamTests.cs`; a finding that was fixed has its regression there.
+`client/ScreenTrail.Tests/Privacy/RedTeamTests.cs`; a finding that was fixed has its regression there.
 
 ## What was tried, and what happened
 

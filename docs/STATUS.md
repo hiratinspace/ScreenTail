@@ -1,4 +1,4 @@
-# ScreenTail: project standing
+# ScreenTrail: project standing
 
 **Snapshot taken:** 2026-11-17, of `main` at `480d53f9` (#334). It covers every merge since the
 2026-11-10 snapshot (#272, #274 to #316 and #321 to #336, the last of them on 2026-11-17): M1 on the demo
@@ -48,7 +48,7 @@ said a narrated session would fit. Whisper now runs on one thread: a narrated se
 95.9% of one core (13.1% to 12.0% of the machine; the peak one-second reading from 33.8% to 21%). It
 still trips the throttle. The demo now publishes Release, the cost test fills the screen, and a narrated
 recording is held under 120% of one core. A segment-sized encoder context ships off behind
-`SCREENTAIL_SPEECH_SIZED_CONTEXT=1`: with it on, a narrated session is 42% of one core (5.3% of the
+`SCREENTRAIL_SPEECH_SIZED_CONTEXT=1`: with it on, a narrated session is 42% of one core (5.3% of the
 machine) and the throttle never trips. Word error is unchanged on synthetic speech only, so the default
 waits for the owner's ST-027 recording. Known follow-up: on one thread, a stop in the middle of a
 transcription routinely passes its 500 ms bound and the release finishes in the background, so the next
@@ -57,7 +57,7 @@ test's memory reading is unreliable.
 **Pull `main` before the next run on the laptop.** The pipe contract is version 12 (v10 for "Not
 confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note), and the service and the UI
 must match it exactly. The demo scripts are unaffected by #326's machine-wide backend address: they run a
-development build from the clone, which still reads `SCREENTAIL_BACKEND`.
+development build from the clone, which still reads `SCREENTRAIL_BACKEND`.
 
 **What landed since 2026-11-10:**
 
@@ -101,8 +101,8 @@ development build from the clone, which still reads `SCREENTAIL_BACKEND`.
   not open in Review, publish or export; events are now read in time order (#297). The window-rename hook
   could be left on a window no longer in front; it now follows the window in front (#299, ST-031).
 - **The installer** (ST-112). A newer Visual C++ runtime that wanted a restart made a silent setup exit
-  1641 without installing ScreenTail, and could restart the machine when `/norestart` was left off; the
-  runtime's restart now counts as success and ScreenTail installs (#276). The runtime is pinned to
+  1641 without installing ScreenTrail, and could restart the machine when `/norestart` was left off; the
+  runtime's restart now counts as success and ScreenTrail installs (#276). The runtime is pinned to
   14.52.37029.0 by URL, hash and version (#277). The setup program passes `BACKENDURL` on to the package
   (#330).
 - **CI and the laptop** (ST-018). The laptop runs only for pull requests that touch hardware tests, and
@@ -128,16 +128,16 @@ stays private. In short:
   every company mapping and the last credential and mapping changes with who made them. A technician's
   Settings, Integrations is read-only and keeps Test connection and the mapping card. A sealed secret is
   bound to its tenant, provider and site; legacy rows are upgraded at startup. Every text a technician
-  reads now says "your ScreenTail owner", and none sends them to Settings to fix a credential or names a
+  reads now says "your ScreenTrail owner", and none sends them to Settings to fix a credential or names a
   server setting (#331, #333).
 - **Publish and provider inputs are bounded** (#322): two publishes in flight per device and ten per
   tenant, refused with a 429 before the body is read; size limits on every part of a note; Hudu's company
   list capped; the device token exchange limited to 16 KB and to tokens of the issued shape; the
   "Reviewed by" line from the signed-in technician; ConnectWise ticket ids as numbers; a memory ceiling on
-  the API container (`SCREENTAIL_API_MEMORY`, 2 GB by default).
+  the API container (`SCREENTRAIL_API_MEMORY`, 2 GB by default).
 - **A locked local-only holds without the device's say-so** (#326, contract v12): the backend refuses to
   draft for such a tenant (`403 local_only`) and the client drafts on the device; an installed build reads
-  its backend address only from `HKLM\SOFTWARE\ScreenTail\BackendUrl`, written by `BACKENDURL`; device
+  its backend address only from `HKLM\SOFTWARE\ScreenTrail\BackendUrl`, written by `BACKENDURL`; device
   sign-in has its own egress purpose, and under local-only the background renewal sends nothing.
 - **The pipe** (#325, ST-012): in a signed build each end requires the other to run from its own folder,
   and the service claims the pipe name with its first instance.
@@ -225,18 +225,18 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 
 | Piece | Where | State |
 |---|---|---|
-| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTail | `main` green at #334 (`480d53f9`, CI run 44116130950); no pull request open on 2026-11-17. Secret scanning, push protection and Dependabot security updates on; no Dependabot alert open |
+| GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTrail | `main` green at #334 (`480d53f9`, CI run 44116130950); no pull request open on 2026-11-17. Secret scanning, push protection and Dependabot security updates on; no Dependabot alert open |
 | Build plan | `Build Plan/` | Spec at **v0.7.0** on `main` (#336). v0.4.3 is accepted, and v0.6.0's brand and layout are the owner's choice; the amendment rows from v0.5.0 on mostly say **Awaiting owner review**. Backlog Part C is the ordered plan, Part D the amendments |
 | Client | `client/` | `.Shared` (schema and IPC, contract version 12), `.Core`, `.Platform` (ADR-0005), `.Service`, `.UI`, and `.Tests.AxeRunner`. **4,375 tests** in the suite that runs anywhere and **592** in the Windows-only suite (CI run 44116130950 on `480d53f9`; ten of the 592 skipped on the hosted runner by design, which is the skip budget). Store migrations to 0015 |
 | Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, summarize (which now refuses a tenant that locks local-only) and publish (bounded and gated per device and tenant), the Gemini and Claude providers, the cost ledger, the credential vault (rows bound to tenant, provider and site), ConnectWise and Hudu clients with the PSA company lookup, the demo PSA, the web admin's routes including the owner's integrations and their change record. **1,596 tests** (two skipped; CI run 44026084042 on `a862b128`, the last `main` run that ran the backend job). Runs locally on PostgreSQL; not deployed (ST-007) |
-| Deployment | `deploy/`, `docs/dev/deploy.md` | Docker Compose for one Linux host: Caddy with automatic HTTPS, the API (memory ceiling `SCREENTAIL_API_MEMORY`, 2 GB by default), PostgreSQL and the web admin from one origin. Checked by `deploy/smoke.sh` in CI's Backend job; no host or name yet |
+| Deployment | `deploy/`, `docs/dev/deploy.md` | Docker Compose for one Linux host: Caddy with automatic HTTPS, the API (memory ceiling `SCREENTRAIL_API_MEMORY`, 2 GB by default), PostgreSQL and the web admin from one origin. Checked by `deploy/smoke.sh` in CI's Backend job; no host or name yet |
 | Research | `research/` | Fixtures, note prompts v1 (kept) and **v2** (current) with their hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** (CI run 43930259036 on `3626322f`, #328, the last change to `research/`) |
 | Web admin | `web/`, `docs/dev/web-admin.md` | Google sign-in, first-run tenant, Technicians and seats, Policy, **Integrations** (connect, replace, test, disconnect, mappings, recent changes; #327), Download client. **65 unit tests** and **5 browser tests** (CI run 43999003447). Lighthouse accessibility 100 as measured by hand for #245 and #246; not in CI and not rerun since |
 | Shared contracts | `shared/` | The session schema (a click's `x` and `y` optional since #324), the design tokens (v0.6.0 Iris), the brand files (`shared/design/brand/`), the release trust file (each key with its channel, still empty), and the wire contracts (summarize, now with `local_only`; publish; session metric; tenant policy; invite code) |
 | Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop. M1 ran on it on 2026-11-13 |
 | Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider. 51 of 51 `main` runs since 2026-11-10 passed (20 of 20 steps in run 43999003447); report-only in CI |
 | Installer and updates | `installer/`, `docs/dev/installer.md` | The MSI and setup program, smoke-tested unsigned in CI: install, upgrades with a held file, Restart Manager, uninstall, `BACKENDURL` through both, an uninstall naming another folder; **220 of 220 checks** (one note) in CI run 43999003447. The Visual C++ runtime pinned (#277). The signed update channel with one key per channel (#323). Signing and updates stay off until the owner sets them up |
-| Accessibility suite | `client/ScreenTail.Tests.Windows/Accessibility`, `docs/ux/a11y-audit.md` | Every technician-facing screen, on the hosted runner and the laptop: 43 Accessibility Insights scans in CI run 43999003447. The Narrator pass is the part left for a person |
+| Accessibility suite | `client/ScreenTrail.Tests.Windows/Accessibility`, `docs/ux/a11y-audit.md` | Every technician-facing screen, on the hosted runner and the laptop: 43 Accessibility Insights scans in CI run 43999003447. The Narrator pass is the part left for a person |
 | Windows test loop | Hosted Windows VM and the spare laptop `SCREENTRAIL` | The hosted VM runs on every PR that touches the client. The laptop runs only for PRs that touch hardware tests, and nightly on `main` (#298); its jobs stop at once on battery (#304), and the gate waits up to five hours for a queued laptop (#294). Online on 2026-11-16 (`docs/dev/windows-test-loop.md`) |
 | Branch protection | Ruleset "main" | **On.** PR required, `ci-ok` must be green, no force-push, no deletion. Three GitHub settings keep strangers' code off the laptop (`docs/dev/windows-test-loop.md`, Security) |
 
@@ -308,8 +308,8 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
   refuses an older UI's attempt itself, so a secret never leaves the machine. A technician sees status,
   site, the last four characters and Test connection.
 - **An installed build learns its backend from the machine** (#326, #330): only from
-  `HKLM\SOFTWARE\ScreenTail\BackendUrl`, written by `BACKENDURL` on the setup program's or the MSI's
-  command line and kept across upgrades. A development build still reads `SCREENTAIL_BACKEND` first.
+  `HKLM\SOFTWARE\ScreenTrail\BackendUrl`, written by `BACKENDURL` on the setup program's or the MSI's
+  command line and kept across upgrades. A development build still reads `SCREENTRAIL_BACKEND` first.
   Without an address the device card, activation and diagnostics say an administrator sets it.
 - **Device activation** takes a twenty-character invite code only and claims the invite and the seat
   under a lock on the tenant's row (#248, #260).
@@ -352,7 +352,7 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
 - #336's light window: the owner's check of it on the laptop.
 - The 2x OCR read and the new rules on a real display at 125% and 150%, and redaction through a real
   remote viewer's scaler and codec (#275 and #278 used GDI+ bilinear and JPEG).
-- A signed install with the UI and the service connecting from `C:\Program Files\ScreenTail` (#325), and
+- A signed install with the UI and the service connecting from `C:\Program Files\ScreenTrail` (#325), and
   an installed build reading `BackendUrl` on a real machine (#326; the hosted smoke test checks the
   value is written and kept).
 - `scripts\windows\probe-layered-windows.ps1` on the laptop with the real remote tools open (#324).
@@ -402,7 +402,7 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
   superseded.
 - **A refused publish is a 429, not a 503** (#322): the client reads a 5xx as "may have landed", which
   would hold the technician up for nothing.
-- **"Your ScreenTail owner"** in every text a technician reads, and no server setting named to a
+- **"Your ScreenTrail owner"** in every text a technician reads, and no server setting named to a
   technician (#331, #333).
 - **A laptop job on battery stops at once** with one sentence that says what to do (#304).
 - **Six ADRs Accepted:** 0001 to 0006. **Three Proposed**, waiting for the owner: 0007 (the installer,
@@ -429,8 +429,8 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
 - [ ] **Connect ConnectWise and Hudu in the web admin's Integrations page.** Credentials are owner-only
       now; technicians' Settings show them read-only.
 - [ ] **Install with `BACKENDURL=`** on the setup program's or `msiexec`'s command line, or write
-      `HKLM\SOFTWARE\ScreenTail\BackendUrl` with RMM or Group Policy (`docs/dev/installer.md`). A machine
-      upgraded from a build that relied on `SCREENTAIL_BACKEND` has no backend until it is set. Keep
+      `HKLM\SOFTWARE\ScreenTrail\BackendUrl` with RMM or Group Policy (`docs/dev/installer.md`). A machine
+      upgraded from a build that relied on `SCREENTRAIL_BACKEND` has no backend until it is set. Keep
       credentials out of the address: a verbose MSI log records it (#330).
 - [ ] **Harden the laptop runner** (#321, `docs/dev/windows-test-loop.md`): a drafting key with its own
       spend cap rather than the demo's, a database credential that reaches only the test databases, and,
@@ -448,7 +448,7 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
       `docs/ux/a11y-audit.md`, "Needs a person".
 - [ ] **A Google OAuth client id, and one sign-in with a real Google account under the CSP** (ST-099).
 - [ ] **Choose a host and a domain name** (ST-007). `docs/dev/deploy.md` takes any Linux host with
-      Docker from there to HTTPS; set `SCREENTAIL_API_MEMORY` if the host has more than 2 GB.
+      Docker from there to HTTPS; set `SCREENTRAIL_API_MEMORY` if the host has more than 2 GB.
 - [ ] **Choose a mail provider** (ST-007, ST-010) for invites and the offboarding receipt.
 - [ ] **Get a code-signing certificate** for the installer (ST-112): Azure Artifact Signing is
       recommended (`docs/dev/installer.md`; ADR-0007 first).
@@ -460,7 +460,7 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
       pilot agreement (ST-111).
 - [ ] **Billing for drafting:** credits on the Anthropic account for Claude, and billing on the Gemini
       key for ST-063's two measurements (the free tier is 20 requests a day). Measure Claude's cost once
-      with `SCREENTAIL_LIVE_LLM=1` (ST-063).
+      with `SCREENTRAIL_LIVE_LLM=1` (ST-063).
 - [ ] **A ConnectWise sandbox or API member** for the real check of ST-091 to ST-094, which now also has
       to confirm the company lookup's condition syntax from #332 (`docs/integrations/connectwise.md`).
       Optionally, confirm in the developer portal that the vendor clientId is a public identifier (#322).
@@ -584,15 +584,15 @@ technicians, a pilot MSP and a security lead.
 
 | Want to... | Do |
 |---|---|
-| Run client tests | `dotnet test client/ScreenTail.sln` |
-| Run backend tests | `dotnet test backend/ScreenTail.Backend.sln` (SQLite; never calls a model) |
+| Run client tests | `dotnet test client/ScreenTrail.sln` |
+| Run backend tests | `dotnet test backend/ScreenTrail.Backend.sln` (SQLite; never calls a model) |
 | Run web tests | `cd web && npm ci && npm test` |
 | Run the web admin's browser tests | `cd web && npm run e2e` (needs the backend's PostgreSQL; `docs/dev/web-admin.md`) |
 | Run research tests | `cd research && pytest` |
 | Check the deployment stack on a machine with Docker | `./deploy/smoke.sh` (what CI's Backend job runs; `docs/dev/deploy.md`, "How this is checked") |
 | Deploy to a Linux host | `docs/dev/deploy.md`, from section 1 |
-| Upgrade the vault's legacy rows by hand | `dotnet run --project src/ScreenTail.Api -- --upgrade-vault-rows` in `backend/` (`docs/security/key-rotation.md`) |
-| Install for a tenant with its backend address | `ScreenTail-Setup.exe BACKENDURL=https://<backend> /quiet /norestart` (`docs/dev/installer.md`) |
+| Upgrade the vault's legacy rows by hand | `dotnet run --project src/ScreenTrail.Api -- --upgrade-vault-rows` in `backend/` (`docs/security/key-rotation.md`) |
+| Install for a tenant with its backend address | `ScreenTrail-Setup.exe BACKENDURL=https://<backend> /quiet /norestart` (`docs/dev/installer.md`) |
 | Set up the demo on the laptop | `scripts\windows\demo\setup.cmd` |
 | Start and stop the demo | `scripts\windows\demo\start.cmd`, then `scripts\windows\demo\stop.cmd` |
 | Make one file to send when the demo is not working | `scripts\windows\demo\report.cmd`, before `stop.cmd` |
@@ -600,9 +600,9 @@ technicians, a pilot MSP and a security lead.
 | See which windows the capturer will not photograph | `powershell -ExecutionPolicy Bypass -File scripts\windows\probe-layered-windows.ps1` |
 | Get the first real note by hand | `docs/dev/first-draft-end-to-end.md` |
 | Run the product on the laptop without the demo scripts | `powershell -ExecutionPolicy Bypass -File .\scripts\windows\run-local.ps1` |
-| See which secrets the backend has, without retyping them | `dotnet user-secrets list --project backend/src/ScreenTail.Api` (prints values: mind the shoulder) |
-| Render the component gallery | on Windows: `dotnet run --project client/ScreenTail.UI -- --gallery` |
-| Render the note pane or the HUD | on Windows: `dotnet run --project client/ScreenTail.UI -- --note --screenshot <dir>` or `-- --hud --screenshot <dir>` |
+| See which secrets the backend has, without retyping them | `dotnet user-secrets list --project backend/src/ScreenTrail.Api` (prints values: mind the shoulder) |
+| Render the component gallery | on Windows: `dotnet run --project client/ScreenTrail.UI -- --gallery` |
+| Render the note pane or the HUD | on Windows: `dotnet run --project client/ScreenTrail.UI -- --note --screenshot <dir>` or `-- --hud --screenshot <dir>` |
 | Read the security run's public summary | `docs/security/2026-11-hardening.md` |
 | Read the closed weakness review | `docs/review/weaknesses.md`; the status block at the top says what is left |
 | See the market and the idea list | `docs/product/2026-09-15-market-scan-and-ideas.md`: §2.4 for the wedge, §4 for ideas |

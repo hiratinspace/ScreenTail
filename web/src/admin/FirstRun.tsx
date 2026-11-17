@@ -55,7 +55,7 @@ export function FirstRun({ email, busy, error, onCreate, onCancel }: FirstRunPro
               </p>
             ) : (
               <p id="tenant-name-hint" className="hint">
-                The name technicians see when they activate ScreenTail.
+                The name technicians see when they activate ScreenTrail.
               </p>
             )}
           </div>

@@ -2,7 +2,7 @@
 """Regenerates contrast.md for the Review hi-fi (ST-015).
 
 Reads shared/design/tokens.json (the same file the WPF dictionaries and the web CSS are generated from,
-and the same file client/ScreenTail.Tests/Theme/ContrastTests.cs checks), so this report can never be
+and the same file client/ScreenTrail.Tests/Theme/ContrastTests.cs checks), so this report can never be
 about different colours from the ones that ship.
 
 Text is held to AA (4.5:1). State colours are held to the non-text 3:1, because Spec v0.4.2 restricts

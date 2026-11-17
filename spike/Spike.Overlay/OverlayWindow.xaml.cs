@@ -5,7 +5,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 
-namespace ScreenTail.Spike.Overlay;
+namespace ScreenTrail.Spike.Overlay;
 
 public partial class OverlayWindow : Window
 {

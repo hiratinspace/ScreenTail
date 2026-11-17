@@ -1,6 +1,6 @@
-# ScreenTail's one origin (ST-007): the web admin's page and the API, over HTTPS, from one name. The
+# ScreenTrail's one origin (ST-007): the web admin's page and the API, over HTTPS, from one name. The
 # admin session's cookie is host-only and SameSite=Strict, so the page and /v1 must share this origin
-# (ADR-0009). SCREENTAIL_DOMAIN comes from compose.yaml. docs/dev/deploy.md is the guide.
+# (ADR-0009). SCREENTRAIL_DOMAIN comes from compose.yaml. docs/dev/deploy.md is the guide.
 
 {
 	# No admin endpoint: nothing inside the container can change the running configuration. A change
@@ -31,7 +31,7 @@ http://:8081 {
 	respond /healthz 200
 }
 
-{$SCREENTAIL_DOMAIN} {
+{$SCREENTRAIL_DOMAIN} {
 	import transport_headers
 
 	# The API answers /health and everything under /v1 and nothing else outside Development

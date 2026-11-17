@@ -1,6 +1,6 @@
-# ScreenTail logo files (Iris, Spec v0.6.0)
+# ScreenTrail logo files (Iris, Spec v0.6.0)
 
-The refined ScreenTail mark: one ribbon hook, drawn once and turned 180 degrees, folds into an S around an
+The refined ScreenTrail mark: one ribbon hook, drawn once and turned 180 degrees, folds into an S around an
 upright 4:3 screen. Every file is a flat-fill vector on a 64-unit grid (80 units for the tiles), with no
 gradients and no background plate unless the name says so. Colours are the brand tokens in
 `../tokens.json`: Iris #6A43C4, Ribbon 400 #B2A6EC, frame #141030, paper #F7F5FE, ink #0A071E. The rules
@@ -41,12 +41,12 @@ and 256.
 ## Lockups
 
 The wordmark is Exo 2 ExtraBold (Natanael Gama, SIL Open Font License 1.1) converted to outlines, tracking
--20/1000, so no font needs installing. On the frame the whole word is white; on white, "Tail" is Iris.
+-20/1000, so no font needs installing. On the frame the whole word is white; on white, "Trail" is Iris. Redrawn on 2026-11-17 when the product was renamed from ScreenTail: "Screen" is unchanged, "Trail" set from the same font (Exo 2 wght 800) and tracking, and each lockup widened by the extra advance (the stacked mark re-centred).
 
 | File | Use |
 |---|---|
 | `lockup-horizontal-on-navy.svg` | Horizontal lockup on the frame; mark at least 24 px tall (about 120 px wide) |
-| `lockup-horizontal-on-white.svg` | Horizontal lockup on white, "Tail" in Iris |
+| `lockup-horizontal-on-white.svg` | Horizontal lockup on white, "Trail" in Iris |
 | `lockup-horizontal-mono-black.svg` | Horizontal lockup, one colour, for print |
 | `lockup-stacked-on-navy.svg` | Stacked lockup on the frame; mark at least 64 px |
 | `lockup-stacked-on-white.svg` | Stacked lockup on white |
@@ -85,8 +85,8 @@ masks correctly, and writes:
 
 | Output | Frames |
 |---|---|
-| `client/ScreenTail.UI/Assets/app.ico` | 16, 20, 24 from `app-icon-small.svg`; 32, 40, 48 from `glyph-mid-on-navy.svg`; 64, 128, 256 from `app-icon-256.svg` |
-| `client/ScreenTail.UI/Assets/Tray/tray-<state>-<light\|dark>.ico` | 16, 20, 24 from the `-16` file; 32, 40, 48 from the `-32` file |
+| `client/ScreenTrail.UI/Assets/app.ico` | 16, 20, 24 from `app-icon-small.svg`; 32, 40, 48 from `glyph-mid-on-navy.svg`; 64, 128, 256 from `app-icon-256.svg` |
+| `client/ScreenTrail.UI/Assets/Tray/tray-<state>-<light\|dark>.ico` | 16, 20, 24 from the `-16` file; 32, 40, 48 from the `-32` file |
 
 Frames below 256 are 32-bit BMP, the 256 frame is PNG. The UI uses `app.ico` as the executable's icon and
 on every window (`Window.Base`), and the tray loads the state's icon at the screen's small-icon size (16 at

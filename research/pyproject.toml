@@ -1,7 +1,7 @@
 [project]
-name = "screentail-research"
+name = "screentrail-research"
 version = "0.0.0"
-description = "Prompts, evaluation harness and fixtures for ScreenTail drafts"
+description = "Prompts, evaluation harness and fixtures for ScreenTrail drafts"
 requires-python = ">=3.11"
 dependencies = []
 

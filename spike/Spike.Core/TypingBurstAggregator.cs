@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 /// <summary>
 /// The only keyboard record that leaves the hook layer. Deliberately has no field that could hold a key (INV-2).

@@ -57,7 +57,7 @@ export function IntegrationsPage({ api }: { api: AdminApi }) {
   return (
     <>
       <p className="secondary">
-        Connect ConnectWise and Hudu here. Technicians see each connection in ScreenTail on their PC, in Settings,
+        Connect ConnectWise and Hudu here. Technicians see each connection in ScreenTrail on their PC, in Settings,
         Integrations, but cannot change it, and they choose company mappings when they publish. Keys are stored
         encrypted and are never shown again, not even in part.
       </p>
@@ -227,7 +227,7 @@ function IntegrationCard({ row, api, onChanged }: { row: Integration; api: Admin
 /** "Name", "Name (DEVICE)", or who it was when the name is not known. */
 function actorName(actor: IntegrationActor, startOfSentence = false): string {
   if (actor.kind === 'screentail') {
-    return 'ScreenTail';
+    return 'ScreenTrail';
   }
   const unknown = actor.kind === 'owner' ? 'the owner' : 'a technician';
   let name = actor.name ?? unknown;
@@ -512,8 +512,8 @@ function DisconnectQuestion({
       </p>
       <p>
         {provider === 'hudu'
-          ? 'Its key is deleted from ScreenTail and the company mappings made on it are forgotten. Notes cannot be published to Hudu until you connect it again.'
-          : `Its key is deleted from ScreenTail, and notes cannot be published to ${row.name} until you connect it again.`}
+          ? 'Its key is deleted from ScreenTrail and the company mappings made on it are forgotten. Notes cannot be published to Hudu until you connect it again.'
+          : `Its key is deleted from ScreenTrail, and notes cannot be published to ${row.name} until you connect it again.`}
       </p>
       <div className="actions">
         <button type="button" className="button secondary" disabled={busy} onClick={onKeep}>

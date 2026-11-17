@@ -1,0 +1,204 @@
+using ScreenTrail.Core.Review;
+using ScreenTrail.Shared.Ipc;
+
+namespace ScreenTrail.Core.Shell;
+
+/// <summary>
+/// Review's Discard and History's bulk discard from the UI's side (Spec §5 S3, S4; contract v6).
+///
+/// The same two round trips as the tray's discard (<see cref="ConfirmedAction"/>), with the sessions
+/// named on both: the token the service issues is good for exactly those ids, and the command carries
+/// the same ids back. Afterwards the shell is told, so a discarded session is not left open in Review,
+/// and Review goes to History.
+///
+/// Neither asks anything while the session is still being captured: Spec §4 allows no modal during a
+/// recording, and Review of the running session is read-only until it stops (§5 S2). The screen says why
+/// beside the button instead, which a keyboard user can reach. The service would stop a recording session
+/// before discarding it all the same (v0.4.1 Q3); this keeps the dialog off the screen. Review's Discard
+/// and History's bulk discard ask nothing while any session is being captured, and ask again once their
+/// dialog is answered.
+///
+/// Platform-neutral, so the flow is tested on the Mac over a real pipe (ADR-0002).
+/// </summary>
+/// <param name="state">The store the shell binds to: what capture is doing, and which session Review shows.</param>
+/// <param name="request">Asks the service a question whose answer is an event; null when there is nobody to ask.</param>
+/// <param name="send">Sends a command and brings back the service's result.</param>
+public sealed class SessionDiscard(
+    ShellState state,
+    Func<Func<int, IpcCommand>, CancellationToken, Task<ConfirmationIssued?>> request,
+    Func<Func<int, IpcCommand>, CancellationToken, Task<CommandResult>> send)
+{
+    public const string StillCapturing = "This session is still being captured. Stop it first, then discard it.";
+
+    public const string OneStillCapturing = "One of these sessions is still being captured. Stop it first, then discard them.";
+
+    /// <summary>History's bulk discard while some other session is being captured.</summary>
+    public const string WhileCapturing = "A session is being captured. Stop it first, then discard the selected sessions.";
+
+    /// <summary>The reason beside Review's Discard while its session is being captured (Spec §5 S3).</summary>
+    public const string StopToDiscard = "Stop the session to discard";
+
+    /// <summary>
+    /// The short reason shown beside Review's Discard, which is off while it applies, or null. Only for a
+    /// session being captured: not connected is said when the button is pressed, as before.
+    /// </summary>
+    public static string? Hint(string? blockedBecause) => blockedBecause is StillCapturing ? StopToDiscard : null;
+
+    /// <summary>Review's Discard of a finished session while some other session is being captured.</summary>
+    public const string ReviewWhileCapturing = "A session is being captured. Stop it first, then discard this one.";
+
+    private readonly ShellState _state = state ?? throw new ArgumentNullException(nameof(state));
+    private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<ConfirmationIssued?>> _request = request ?? throw new ArgumentNullException(nameof(request));
+    private readonly Func<Func<int, IpcCommand>, CancellationToken, Task<CommandResult>> _send = send ?? throw new ArgumentNullException(nameof(send));
+
+    /// <summary>Over the shell's connection, as the running application has it.</summary>
+    public SessionDiscard(ShellState state, CaptureConnection connection)
+        : this(
+            state,
+            (build, ct) => (connection ?? throw new ArgumentNullException(nameof(connection))).RequestAsync<ConfirmationIssued>(build, ct),
+            (build, ct) => connection.SendAsync(build, ct))
+    {
+    }
+
+    /// <summary>
+    /// Why these sessions cannot be discarded right now, or null when they can be asked about.
+    ///
+    /// Not connected counts: the last thing the service said may be that it was recording, and nothing
+    /// may be assumed about a session it cannot be asked about.
+    /// </summary>
+    public string? BlockedBecause(IReadOnlyCollection<string> sessionIds)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        if (_state.Snapshot.KnownCapture is not { } capture)
+        {
+            return ConfirmedAction.NotConnected;
+        }
+
+        return Capturing(capture) && capture.SessionId is { } live && sessionIds.Contains(live, StringComparer.Ordinal)
+            ? (sessionIds.Count == 1 ? StillCapturing : OneStillCapturing)
+            : null;
+    }
+
+    /// <summary>
+    /// Why History's bulk discard cannot ask about these sessions right now, or null. Stricter than
+    /// <see cref="BlockedBecause"/>: its typed dialog is a modal, and Spec §4 allows none while any
+    /// session is being captured, whichever sessions are selected (review of #274). The selection's own
+    /// live session is still named when it is in it.
+    /// </summary>
+    public string? BulkBlockedBecause(IReadOnlyCollection<string> sessionIds) =>
+        BlockedBecause(sessionIds) ?? (Capturing(_state.Snapshot.KnownCapture) ? WhileCapturing : null);
+
+    /// <summary>
+    /// Why Review's Discard cannot ask about the session it shows right now, or null. Stricter than
+    /// <see cref="BlockedBecause"/> in the same way as <see cref="BulkBlockedBecause"/>: its typed dialog
+    /// is a modal, and Spec §4 allows none while any session is being captured, whichever one Review
+    /// shows. The shown session is still named when it is the live one.
+    /// </summary>
+    public string? ReviewBlockedBecause(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return BlockedBecause([sessionId]) ?? (Capturing(_state.Snapshot.KnownCapture) ? ReviewWhileCapturing : null);
+    }
+
+    /// <summary>Whether <paramref name="error"/> is one of the reasons a discard waits for capture to stop, which leaves the screen as it is.</summary>
+    public static bool SaysCapturing(string? error) =>
+        error is StillCapturing or OneStillCapturing or WhileCapturing or ReviewWhileCapturing;
+
+    /// <summary>Whether <paramref name="capture"/> is a session being captured: recording, paused, suppressed or still finalizing.</summary>
+    internal static bool Capturing(CaptureStateSnapshot? capture) =>
+        capture?.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing;
+
+    /// <summary>
+    /// Review's Discard, once the technician has typed DISCARD in the dialog. A token is asked for now,
+    /// fresh, as <see cref="ConfirmedAction"/> asks for its second: a service that asks for anything but
+    /// DISCARD is not one the technician agreed with, and nothing is sent.
+    ///
+    /// The note pane asks <see cref="ReviewBlockedBecause"/> before it shows the dialog and again once it
+    /// is answered; this asks once more, here, as the last thing before the service is: a session may
+    /// have begun, or the service gone, while DISCARD was typed.
+    /// </summary>
+    public async Task<ConfirmedResult> FromReviewAsync(string sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        IReadOnlyList<string> ids = [sessionId];
+        if (ReviewBlockedBecause(sessionId) is { } blocked)
+        {
+            return Blocked(blocked);
+        }
+
+        var issued = await _request(Ask(History.DiscardCommands.OneSession, ids), ct).ConfigureAwait(false);
+        if (issued is null)
+        {
+            return new ConfirmedResult(ConfirmedOutcome.NotAvailable, ConfirmedAction.NotConnected);
+        }
+
+        if (!string.Equals(issued.Phrase, TypedConfirmation.DiscardWord, StringComparison.Ordinal))
+        {
+            return new ConfirmedResult(ConfirmedOutcome.Refused, ConfirmedAction.PhraseChanged);
+        }
+
+        var result = await _send(Discard(ids, issued.Token), ct).ConfigureAwait(false);
+        return Settled(result.Ok ? new ConfirmedResult(ConfirmedOutcome.Done) : Refused(result), ids, showHistory: true);
+    }
+
+    /// <summary>
+    /// History's bulk discard: the service says what to type, which is how many sessions it bound the
+    /// token to (v0.4.1 Q6), the technician types it in <paramref name="typed"/>, and the command goes
+    /// back with a fresh token for the same ids.
+    /// </summary>
+    public async Task<ConfirmedResult> BulkAsync(IReadOnlyList<string> sessionIds, Func<string, Task<bool>> typed, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        ArgumentNullException.ThrowIfNull(typed);
+        if (BulkBlockedBecause(sessionIds) is { } blocked)
+        {
+            return Blocked(blocked);
+        }
+
+        // Asked again once the dialog is answered, as the mark does (review of #274): the service starts
+        // sessions by itself, and one may have begun, or the service gone, while the count was typed.
+        // Nothing more is asked or sent then, and the reason is said beside the button.
+        string? since = null;
+        var result = await ConfirmedAction.RunAsync(
+            (action, c) => _request(Ask(action, sessionIds), c),
+            History.DiscardCommands.Sessions,
+            async phrase =>
+            {
+                if (!await typed(phrase).ConfigureAwait(false))
+                {
+                    return false;
+                }
+
+                since = BulkBlockedBecause(sessionIds);
+                return since is null;
+            },
+            token => Discard(sessionIds, token),
+            _send,
+            ct).ConfigureAwait(false);
+        return since is not null ? Blocked(since) : Settled(result, sessionIds, showHistory: false);
+    }
+
+    private ConfirmedResult Settled(ConfirmedResult result, IReadOnlyList<string> ids, bool showHistory)
+    {
+        if (result.Done)
+        {
+            _state.Discarded(ids, showHistory);
+        }
+
+        return result;
+    }
+
+    private static ConfirmedResult Blocked(string reason) =>
+        reason == ConfirmedAction.NotConnected
+            ? new ConfirmedResult(ConfirmedOutcome.NotAvailable, reason)
+            : new ConfirmedResult(ConfirmedOutcome.Refused, reason);
+
+    private static ConfirmedResult Refused(CommandResult result) =>
+        new(ConfirmedOutcome.Refused, string.IsNullOrWhiteSpace(result.Error) ? ConfirmedAction.RefusedWithoutReason : result.Error);
+
+    private static Func<int, IpcCommand> Ask(string action, IReadOnlyList<string> ids) =>
+        id => new RequestConfirmationCommand { RequestId = id, Action = action, SessionIds = ids };
+
+    private static Func<int, IpcCommand> Discard(IReadOnlyList<string> ids, string token) =>
+        id => new DiscardSessionsCommand { RequestId = id, SessionIds = ids, Confirmation = token };
+}

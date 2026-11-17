@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core;
+namespace ScreenTrail.Spike.Core;
 
 /// <summary>
 /// Checks a captured region for the overlay's marker colour. The overlay paints itself mostly in the

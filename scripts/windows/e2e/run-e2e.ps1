@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    ST-013: runs ScreenTail's whole loop on this Windows machine, unattended, and says which step broke.
+    ST-013: runs ScreenTrail's whole loop on this Windows machine, unattended, and says which step broke.
 
 .DESCRIPTION
     Starts PostgreSQL, creates a database of its own, starts the backend in Development with the demo PSA
     and the scripted drafting provider (no model key, no cost), enrols a development device, publishes and
     starts the capture service and the UI the way the demo scripts do, then runs the driver
-    (client\ScreenTail.E2E), which takes the session through the pipe commands the UI uses: a test window
+    (client\ScreenTrail.E2E), which takes the session through the pipe commands the UI uses: a test window
     with known text, All windows, start, captures, stop, the draft, publish to demo ticket #48213, and
     checks of what was stored and what the backend received. Last, it stops everything and checks that
     each process stopped cleanly and that the run's fake secret appears in no log.
@@ -18,7 +18,7 @@
     the ASP.NET Core development certificate is created and trusted for the machine, because the hosted
     VM has none and is thrown away after the job. On the laptop, run scripts\windows\demo\setup.cmd once
     first; this script then uses the database server and the certificate setup made, in a database of
-    its own (screentail_e2e), and on a port of its own, so it does not touch the demo's.
+    its own (screentrail_e2e), and on a port of its own, so it does not touch the demo's.
 
     No image leaves the machine: the outputs are text logs, and the driver checks the stored frames
     through the service's own answers, never by reading pixels.
@@ -29,7 +29,7 @@
     The backend's port. Not the demo's 5001, so a demo backend left running is not in the way.
 
 .PARAMETER OutDir
-    Where the logs go. $env:RUNNER_TEMP\e2e on a runner, %LOCALAPPDATA%\ScreenTail.Dev\e2e otherwise.
+    Where the logs go. $env:RUNNER_TEMP\e2e on a runner, %LOCALAPPDATA%\ScreenTrail.Dev\e2e otherwise.
 
 .PARAMETER DraftTimeout
     How long the driver waits for the draft, in seconds. The laptop's input job shortens it so the step
@@ -37,7 +37,7 @@
 
 .PARAMETER InjectClicks
     Real left clicks on the test window instead of mark-moment captures. Takes over the mouse, so it also
-    needs SCREENTAIL_ALLOW_INPUT_INJECTION=1, as the laptop's input job sets.
+    needs SCREENTRAIL_ALLOW_INPUT_INJECTION=1, as the laptop's input job sets.
 
 .EXAMPLE
     scripts\windows\e2e\run-e2e.cmd
@@ -65,10 +65,10 @@ if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path 
 $script:Log = Join-Path $OutDir 'e2e.log'
 [IO.File]::WriteAllText($script:Log, '', (New-Object Text.UTF8Encoding $false))
 
-$AppDir = Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\e2e-app'
+$AppDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail.Dev\e2e-app'
 $BackendUrl = "https://localhost:$Port"
 $OnHostedRunner = ($env:RUNNER_ENVIRONMENT -eq 'github-hosted')
-$DataDir = Join-Path $env:LOCALAPPDATA 'ScreenTail'
+$DataDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail'
 
 # --- Output ------------------------------------------------------------------------------------------
 
@@ -153,7 +153,7 @@ function Get-SecretParts([string]$Secret) {
     return @([regex]::Matches($Secret, '[A-Za-z]{5,}') | ForEach-Object { $_.Value }) + @($Secret)
 }
 
-Write-Line "ScreenTail end-to-end run (ST-013), $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') on $env:COMPUTERNAME"
+Write-Line "ScreenTrail end-to-end run (ST-013), $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') on $env:COMPUTERNAME"
 Write-Line "Backend $BackendUrl, logs in $OutDir, clicks: $(if ($InjectClicks) { 'real (SendInput)' } else { 'mark moment over the pipe' })"
 Write-Line ''
 
@@ -172,7 +172,7 @@ try {
 $secret = New-FakeSecret
 $signingKey = New-SigningKey
 
-if (-not (Step 'setup' 'windows' 'Windows PowerShell 5.1 or later inside a ScreenTail clone' {
+if (-not (Step 'setup' 'windows' 'Windows PowerShell 5.1 or later inside a ScreenTrail clone' {
     if ($env:OS -ne 'Windows_NT') { throw 'This is not Windows.' }
     if ($PSVersionTable.PSVersion.Major -lt 5) { throw "PowerShell $($PSVersionTable.PSVersion) is too old." }
     if (-not (Test-Path -LiteralPath $script:DemoApiProject)) { throw "No backend project under $script:DemoRepo." }
@@ -186,10 +186,10 @@ if (-not (Step 'setup' 'dotnet' 'a .NET 10 SDK that global.json accepts' {
     "SDK $version."
 })) { throw $script:AbortMarker }
 
-if (-not (Step 'setup' 'nothing-running' 'no ScreenTail service or UI already running for this user' {
-    $others = @(Get-Process -Name 'ScreenTail.Service', 'ScreenTail.UI', 'ScreenTail.E2E' -ErrorAction SilentlyContinue)
+if (-not (Step 'setup' 'nothing-running' 'no ScreenTrail service or UI already running for this user' {
+    $others = @(Get-Process -Name 'ScreenTrail.Service', 'ScreenTrail.UI', 'ScreenTrail.E2E' -ErrorAction SilentlyContinue)
     if ($others.Count -gt 0) {
-        throw ('Already running: ' + (@($others | ForEach-Object { "$($_.ProcessName) pid $($_.Id)" }) -join ', ') + '. Stop the demo (scripts\windows\demo\stop.cmd) or quit ScreenTail first.')
+        throw ('Already running: ' + (@($others | ForEach-Object { "$($_.ProcessName) pid $($_.Id)" }) -join ', ') + '. Stop the demo (scripts\windows\demo\stop.cmd) or quit ScreenTrail first.')
     }
     if (Test-Path -LiteralPath $script:DemoDeviceCredential) {
         throw "This machine has an invite-activated device ($script:DemoDeviceCredential), which the service prefers to a development token, and the e2e database does not know it. See 'Activated device' in docs\dev\demo.md."
@@ -223,7 +223,7 @@ if (-not (Step 'setup' 'postgres' 'PostgreSQL to answer' {
     # A database of the test's own, so a run never touches the demo's sessions or tenants.
     $builder = New-Object System.Data.Common.DbConnectionStringBuilder
     $builder.set_ConnectionString($script:connection)
-    $builder['Database'] = 'screentail_e2e'
+    $builder['Database'] = 'screentrail_e2e'
     $script:connection = $builder.get_ConnectionString()
 
     $parts = Get-ConnectionParts $script:connection
@@ -232,7 +232,7 @@ if (-not (Step 'setup' 'postgres' 'PostgreSQL to answer' {
         if ((Get-Date) -gt $deadline) { throw "Nothing answers on $($parts.Host):$($parts.Port) after 60 s ($where)." }
         Start-Sleep -Seconds 1
     }
-    "$where answers on $($parts.Host):$($parts.Port); database screentail_e2e."
+    "$where answers on $($parts.Host):$($parts.Port); database screentrail_e2e."
 })) { throw $script:AbortMarker }
 $connection = $script:connection
 
@@ -267,7 +267,7 @@ if (-not (Step 'setup' 'backend-build' 'the backend to build' {
 })) { throw $script:AbortMarker }
 $apiDll = $script:apiDll
 
-if (-not (Step 'setup' 'migrations' 'every migration to apply to screentail_e2e' {
+if (-not (Step 'setup' 'migrations' 'every migration to apply to screentrail_e2e' {
     Add-DotNetToolsToPath
     if (-not (Get-EfToolInstalledVersion)) {
         $install = Invoke-Native -FilePath 'dotnet' -ArgumentList @('tool', 'install', '--global', 'dotnet-ef', '--version', (Get-EfToolVersion))
@@ -294,8 +294,8 @@ $backendEnvironment = @{
     'Jwt__SigningKey' = $signingKey
     'Providers__Demo' = 'true'
     'Summarization__Provider' = 'scripted'
-    'SCREENTAIL_DEVICE_TOKEN' = $null
-    'SCREENTAIL_E2E_SECRET' = $null
+    'SCREENTRAIL_DEVICE_TOKEN' = $null
+    'SCREENTRAIL_E2E_SECRET' = $null
 }
 
 $backend = $null
@@ -321,7 +321,7 @@ if (-not (Step 'setup' 'enrol' 'a development device token the backend accepts' 
         Invoke-Native -FilePath 'dotnet' -ArgumentList @($apiDll, '--enrol-dev-device') -WorkingDirectory $script:DemoApiDir
     }
     foreach ($line in $enrol.Lines) {
-        $match = [regex]::Match($line, '^SCREENTAIL_DEVICE_TOKEN=(\S+)\s*$')
+        $match = [regex]::Match($line, '^SCREENTRAIL_DEVICE_TOKEN=(\S+)\s*$')
         if ($match.Success) { $script:token = $match.Groups[1].Value }
     }
     if ($enrol.ExitCode -ne 0 -or -not $script:token) { throw ('Enrolment failed: ' + ((Get-Tail -Lines $enrol.Lines -Count 4 -Secrets @($signingKey)) -join ' | ')) }
@@ -333,21 +333,21 @@ $token = $script:token
 
 if (-not (Step 'setup' 'client-publish' 'the capture service, the UI and the driver published into one folder' {
     & $script:DemoRunLocal -Output $AppDir -NoLaunch | Out-Null
-    $driverProject = Join-Path $script:DemoRepo 'client\ScreenTail.E2E\ScreenTail.E2E.csproj'
+    $driverProject = Join-Path $script:DemoRepo 'client\ScreenTrail.E2E\ScreenTrail.E2E.csproj'
     $published = Invoke-Native -FilePath 'dotnet' -ArgumentList @('publish', $driverProject, '-c', 'Debug', '-o', $AppDir, '--nologo', '-v', 'quiet')
     if ($published.ExitCode -ne 0) { throw ('Publishing the driver failed: ' + ((Get-Tail -Lines $published.Lines -Count 6) -join ' | ')) }
-    foreach ($exe in @('ScreenTail.Service.exe', 'ScreenTail.UI.exe', 'ScreenTail.E2E.exe')) {
+    foreach ($exe in @('ScreenTrail.Service.exe', 'ScreenTrail.UI.exe', 'ScreenTrail.E2E.exe')) {
         if (-not (Test-Path -LiteralPath (Join-Path $AppDir $exe))) { throw "$exe is not in $AppDir." }
     }
     "Service, UI and driver in $AppDir."
 })) { throw $script:AbortMarker }
 
 $serviceEnvironment = @{
-    'SCREENTAIL_BACKEND' = $BackendUrl
-    'SCREENTAIL_DEVICE_TOKEN' = $token
-    'SCREENTAIL_LOG_LEVEL' = 'Debug'
-    'SCREENTAIL_CRASH_REPORTS' = '1'
-    'SCREENTAIL_E2E_SECRET' = $null
+    'SCREENTRAIL_BACKEND' = $BackendUrl
+    'SCREENTRAIL_DEVICE_TOKEN' = $token
+    'SCREENTRAIL_LOG_LEVEL' = 'Debug'
+    'SCREENTRAIL_CRASH_REPORTS' = '1'
+    'SCREENTRAIL_E2E_SECRET' = $null
 }
 $crashDir = Join-Path $DataDir 'crashes'
 $crashesBefore = @()
@@ -357,7 +357,7 @@ $service = $null
 if (-not (Step 'setup' 'service' 'the capture service to start and publish its pipe token' {
     $tokenFile = Join-Path $DataDir 'ipc.token'
     $before = if (Test-Path -LiteralPath $tokenFile) { (Get-Item -LiteralPath $tokenFile).LastWriteTimeUtc } else { [DateTime]::MinValue }
-    $script:service = Start-Logged -Role 'service' -FilePath (Join-Path $AppDir 'ScreenTail.Service.exe') -WorkingDirectory $AppDir -Environment $serviceEnvironment
+    $script:service = Start-Logged -Role 'service' -FilePath (Join-Path $AppDir 'ScreenTrail.Service.exe') -WorkingDirectory $AppDir -Environment $serviceEnvironment
     $deadline = (Get-Date).AddSeconds(45)
     while ((Get-Date) -lt $deadline) {
         if ($script:service.HasExited) { throw ("The service exited with code $($script:service.ExitCode): " + ((Get-Tail -Lines (Read-Logs 'service') -Count 6) -join ' | ')) }
@@ -373,10 +373,10 @@ $service = $script:service
 
 $ui = $null
 if (-not (Step 'setup' 'ui' 'the UI to start and stay up' {
-    $uiEnvironment = @{ 'SCREENTAIL_DEVICE_TOKEN' = $null; 'SCREENTAIL_BACKEND' = $null; 'SCREENTAIL_CRASH_REPORTS' = '1'; 'SCREENTAIL_E2E_SECRET' = $null }
+    $uiEnvironment = @{ 'SCREENTRAIL_DEVICE_TOKEN' = $null; 'SCREENTRAIL_BACKEND' = $null; 'SCREENTRAIL_CRASH_REPORTS' = '1'; 'SCREENTRAIL_E2E_SECRET' = $null }
     # Logged like the others, so the secret check reads what the UI wrote too. Shown normally: a hidden
     # start would apply to the first window the UI shows, which can be the pill.
-    $script:ui = Start-Logged -Role 'ui' -FilePath (Join-Path $AppDir 'ScreenTail.UI.exe') -WorkingDirectory $AppDir -Environment $uiEnvironment -WindowStyle 'Normal'
+    $script:ui = Start-Logged -Role 'ui' -FilePath (Join-Path $AppDir 'ScreenTrail.UI.exe') -WorkingDirectory $AppDir -Environment $uiEnvironment -WindowStyle 'Normal'
     Start-Sleep -Seconds 5
     if ($script:ui.HasExited) { throw "The UI exited with code $($script:ui.ExitCode)." }
     "pid $($script:ui.Id)."
@@ -388,13 +388,13 @@ $ui = $script:ui
 Write-Line ''
 $driverArgs = @('--backend', $BackendUrl, '--draft-timeout', [string]$DraftTimeout)
 if ($InjectClicks) { $driverArgs += '--inject-clicks' }
-$driverCode = Invoke-WithEnvironment -Variables @{ 'SCREENTAIL_E2E_SECRET' = $secret; 'SCREENTAIL_DEVICE_TOKEN' = $null } -Body {
+$driverCode = Invoke-WithEnvironment -Variables @{ 'SCREENTRAIL_E2E_SECRET' = $secret; 'SCREENTRAIL_DEVICE_TOKEN' = $null } -Body {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
         # The secret is not scrubbed from the driver's lines: the driver never prints it, and the log
         # check below is how a line that did would be caught.
-        & (Join-Path $AppDir 'ScreenTail.E2E.exe') @driverArgs 2>&1 | ForEach-Object { Write-Line (Protect-Text -Text "$_" -Secrets @($token, $signingKey)) }
+        & (Join-Path $AppDir 'ScreenTrail.E2E.exe') @driverArgs 2>&1 | ForEach-Object { Write-Line (Protect-Text -Text "$_" -Secrets @($token, $signingKey)) }
         $LASTEXITCODE
     }
     finally {
@@ -406,7 +406,7 @@ Write-Line ''
 
 # --- Teardown ----------------------------------------------------------------------------------------
 
-$driverExe = Join-Path $AppDir 'ScreenTail.E2E.exe'
+$driverExe = Join-Path $AppDir 'ScreenTrail.E2E.exe'
 
 function Stop-Console {
     param($Process, [string]$Role, [string]$Said)
@@ -443,9 +443,9 @@ $null = Step 'teardown' 'service-stop' 'the capture service to stop cleanly on C
     Stop-Console -Process $service -Role 'service' -Said 'Capture service stopping'
 }
 
-$null = Step 'teardown' 'service-log-level' 'the service to log at the level SCREENTAIL_LOG_LEVEL asked for (Debug)' {
+$null = Step 'teardown' 'service-log-level' 'the service to log at the level SCREENTRAIL_LOG_LEVEL asked for (Debug)' {
     $debug = @(Read-Logs 'service' | Where-Object { $_ -match '^\S+ DEBUG ' })
-    if ($debug.Count -eq 0) { throw 'SCREENTAIL_LOG_LEVEL=Debug and the service logged no Debug line.' }
+    if ($debug.Count -eq 0) { throw 'SCREENTRAIL_LOG_LEVEL=Debug and the service logged no Debug line.' }
     "$($debug.Count) Debug line(s)."
 }
 

@@ -1,4 +1,4 @@
-#:project ../../backend/src/ScreenTail.Api/ScreenTail.Api.csproj
+#:project ../../backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj
 #:property PublishAot=false
 #:property InvariantGlobalization=true
 #:property JsonSerializerIsReflectionEnabledByDefault=true
@@ -24,7 +24,7 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using ScreenTail.Api.Summarize;
+using ScreenTrail.Api.Summarize;
 
 var request = JsonDocument.Parse(File.ReadAllText(args[0])).RootElement;
 var mode = request.GetProperty("mode").GetString();

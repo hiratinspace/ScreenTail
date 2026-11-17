@@ -1,6 +1,6 @@
-# ScreenTail: Build Agent Execution Guide (v0.4)
+# ScreenTrail: Build Agent Execution Guide (v0.4)
 
-This is the entry point for any human or AI build agent working on ScreenTail. Read this file first, then the UX Design Spec, then pick up the next open ticket from the Backlog.
+This is the entry point for any human or AI build agent working on ScreenTrail. Read this file first, then the UX Design Spec, then pick up the next open ticket from the Backlog.
 
 **Package contents**
 - `00-Build-Agent-Guide.md`: this file (how to work, non-negotiable invariants, execution order)
@@ -11,7 +11,7 @@ This is the entry point for any human or AI build agent working on ScreenTail. R
 
 ## 1. What we are building (one paragraph)
 
-ScreenTail is a Windows desktop app for MSP technicians. A background **capture service** notices when a remote-support window (ScreenConnect, RDP, Splashtop, TeamViewer, AnyDesk, or a browser-based remote client) is in focus, records clicks and click-triggered screenshots, transcribes the technician's microphone locally, redacts sensitive content on-device, and, after the session, asks a language model once to draft a ticket note (Problem → Steps → Result → Follow-ups). A **UI process** (tray icon, recording HUD, Review screen, Settings) lets the technician review the draft in about thirty seconds and publish it to ConnectWise Manage and Hudu. A small **web app** handles tenant signup, seats and admin policy.
+ScreenTrail is a Windows desktop app for MSP technicians. A background **capture service** notices when a remote-support window (ScreenConnect, RDP, Splashtop, TeamViewer, AnyDesk, or a browser-based remote client) is in focus, records clicks and click-triggered screenshots, transcribes the technician's microphone locally, redacts sensitive content on-device, and, after the session, asks a language model once to draft a ticket note (Problem → Steps → Result → Follow-ups). A **UI process** (tray icon, recording HUD, Review screen, Settings) lets the technician review the draft in about thirty seconds and publish it to ConnectWise Manage and Hudu. A small **web app** handles tenant signup, seats and admin policy.
 
 ---
 
@@ -19,12 +19,12 @@ ScreenTail is a Windows desktop app for MSP technicians. A background **capture 
 
 ```
 /client            .NET 10 solution
-  /ScreenTail.Core         platform-neutral capture logic: state machine, store rules, patterns, aligner, bundle (ADR-0002)
-  /ScreenTail.Service      Windows host + adapters (hooks, detection, screenshots, STT, OCR, DPAPI, pipes) over Core
-  /ScreenTail.UI           WPF app (shell, tray, HUD, Review, Settings, Onboarding)
-  /ScreenTail.Shared       generated types, IPC contracts, tokens
-  /ScreenTail.Tests        unit + integration tests for Core/Shared (net10.0, runs on any OS)
-  /ScreenTail.Tests.Windows  Windows-bound tests (added when the first one is needed)
+  /ScreenTrail.Core         platform-neutral capture logic: state machine, store rules, patterns, aligner, bundle (ADR-0002)
+  /ScreenTrail.Service      Windows host + adapters (hooks, detection, screenshots, STT, OCR, DPAPI, pipes) over Core
+  /ScreenTrail.UI           WPF app (shell, tray, HUD, Review, Settings, Onboarding)
+  /ScreenTrail.Shared       generated types, IPC contracts, tokens
+  /ScreenTrail.Tests        unit + integration tests for Core/Shared (net10.0, runs on any OS)
+  /ScreenTrail.Tests.Windows  Windows-bound tests (added when the first one is needed)
 /backend           ASP.NET Core API (auth, tenants, policy, summarization broker, providers, metrics)
 /web               React + TypeScript (tenant onboarding, admin dashboard)
 /shared
@@ -90,7 +90,7 @@ An agent that finds a ticket seemingly requiring one of these to be broken must 
 
 ## 5. Coding conventions (summary)
 
-- **Client:** .NET 10 (LTS), C# 14, nullable enabled, `TreatWarningsAsErrors`, `AnalysisLevel=latest-recommended`. WPF with MVVM (CommunityToolkit.Mvvm). No business logic in views. Platform-neutral logic lives in `ScreenTail.Core` (ADR-0002). Async all the way; capture threads never await UI. *(Amended 2026-09-11: .NET 8 support ends November 2026; see ADR-0001 finding 1.)*
+- **Client:** .NET 10 (LTS), C# 14, nullable enabled, `TreatWarningsAsErrors`, `AnalysisLevel=latest-recommended`. WPF with MVVM (CommunityToolkit.Mvvm). No business logic in views. Platform-neutral logic lives in `ScreenTrail.Core` (ADR-0002). Async all the way; capture threads never await UI. *(Amended 2026-09-11: .NET 8 support ends November 2026; see ADR-0001 finding 1.)*
 - **IPC:** named pipe, length-prefixed JSON messages, versioned `IpcContractVersion`. Commands from UI → service; events from service → UI. Every command is authenticated with the session token.
 - **Store:** SQLite + SQLCipher via a repository interface; migrations are numbered SQL files; no ad-hoc SQL in view models.
 - **Backend:** ASP.NET Core minimal APIs on .NET 10, EF Core, Postgres. Providers behind `IPsaProvider` / `IDocProvider`. All external calls have timeouts and typed errors.

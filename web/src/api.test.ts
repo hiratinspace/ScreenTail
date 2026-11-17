@@ -43,8 +43,8 @@ describe('httpApi', () => {
 
     expect(sent[0]!.url).toBe('/v1/admin/session');
     expect(JSON.parse(sent[0]!.init.body as string)).toEqual({ credential: 'google-token' });
-    expect(header(sent[1]!, 'X-ScreenTail-CSRF')).toBeUndefined();
-    expect(header(sent[2]!, 'X-ScreenTail-CSRF')).toBe('the-csrf');
+    expect(header(sent[1]!, 'X-ScreenTrail-CSRF')).toBeUndefined();
+    expect(header(sent[2]!, 'X-ScreenTrail-CSRF')).toBe('the-csrf');
     expect(sent.every((s) => s.init.credentials === 'same-origin')).toBe(true);
   });
 
@@ -100,13 +100,13 @@ describe('httpApi', () => {
     await api.disconnectIntegration('hudu');
 
     expect(sent[1]!.url).toBe('/v1/admin/integrations');
-    expect(header(sent[1]!, 'X-ScreenTail-CSRF')).toBeUndefined();
+    expect(header(sent[1]!, 'X-ScreenTrail-CSRF')).toBeUndefined();
     expect([sent[2]!.init.method, sent[2]!.url]).toEqual(['PUT', '/v1/admin/integrations/connectwise']);
     expect(JSON.parse(sent[2]!.init.body as string)).toEqual({ siteUrl: 'https://na.myconnectwise.example', secret: 'acme+pub:priv' });
     expect([sent[3]!.init.method, sent[3]!.url]).toEqual(['POST', '/v1/admin/integrations/connectwise/check']);
     expect([sent[4]!.init.method, sent[4]!.url]).toEqual(['DELETE', '/v1/admin/integrations/hudu']);
     for (const change of sent.slice(2)) {
-      expect(header(change, 'X-ScreenTail-CSRF')).toBe('the-csrf');
+      expect(header(change, 'X-ScreenTrail-CSRF')).toBe('the-csrf');
     }
   });
 
@@ -139,7 +139,7 @@ describe('httpApi', () => {
     await api.signOut();
     await api.revokeDevice('d').catch(() => undefined);
 
-    expect(header(sent[1]!, 'X-ScreenTail-CSRF')).toBe('the-csrf');
-    expect(header(sent[2]!, 'X-ScreenTail-CSRF')).toBeUndefined();
+    expect(header(sent[1]!, 'X-ScreenTrail-CSRF')).toBe('the-csrf');
+    expect(header(sent[2]!, 'X-ScreenTrail-CSRF')).toBeUndefined();
   });
 });

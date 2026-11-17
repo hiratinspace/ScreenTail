@@ -3,7 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
-    <RootNamespace>ScreenTail.Spike.Core.Tests</RootNamespace>
+    <RootNamespace>ScreenTrail.Spike.Core.Tests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

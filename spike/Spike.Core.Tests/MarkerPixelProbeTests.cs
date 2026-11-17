@@ -1,4 +1,4 @@
-namespace ScreenTail.Spike.Core.Tests;
+namespace ScreenTrail.Spike.Core.Tests;
 
 public class MarkerPixelProbeTests
 {

@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <!-- Per-user capture service host: Windows adapters (hooks, UIA, capture, DPAPI, pipes) over ScreenTrail.Core. -->
+  <PropertyGroup>
+    <!-- Windows SDK projections, for Windows.Media.Ocr (ST-041): built into Windows, hardware
+         accelerated, no native binaries or language data to ship, and it works on ARM where Tesseract
+         does not. Fewer third-party binaries is also a smaller attack surface. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <!-- Exe for now so `dotnet run` shows logs; ST-004 decides how the per-user service is hosted. -->
+    <OutputType>Exe</OutputType>
+    <!-- ST-112: the installed service starts at every sign-in (ADR-0003), and a console program would open
+         a console window on the technician's desktop each time, showing its log. The installer build is
+         a Windows program with no window; development builds stay console programs, because that window
+         is where a developer reads the log. The utility modes (capabilities, transcribe) still write to
+         their output when it is redirected. -->
+    <OutputType Condition="'$(ScreenTrailInstaller)' == 'true'">WinExe</OutputType>
+    <RootNamespace>ScreenTrail.Service</RootNamespace>
+    <AssemblyName>ScreenTrail.Service</AssemblyName>
+    <!-- ST-012 (ADR-0003): the runtime loads no startup hook into this process, whatever the
+         environment asks. RunningHonestly's check runs in Main, after a hook would already have run,
+         so it cannot be what keeps one out. ProcessStartupTests pins this for both processes. -->
+    <StartupHookSupport>false</StartupHookSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <!-- ST-025: GDI+ for the downscale and JPEG encode. ADR-0001 flags this path as over budget; the
+         laptop's per-stage timings decide whether it is replaced by WIC or Windows.Graphics.Capture. -->
+    <PackageReference Include="System.Drawing.Common" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- ST-027: local speech. The audio never leaves the machine whatever the tenant's egress settings
+         say, because a transcript of a support call is the most sensitive thing a session produces. -->
+    <PackageReference Include="Whisper.net" />
+    <PackageReference Include="Whisper.net.Runtime" />
+    <PackageReference Include="NAudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTrail.Core\ScreenTrail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTrail.Platform\ScreenTrail.Platform.csproj" />
+    <ProjectReference Include="..\ScreenTrail.Shared\ScreenTrail.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Windows tests exercise the capability probe against real Windows (ST-021). -->
+    <InternalsVisibleTo Include="ScreenTrail.Tests.Windows" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\shared\registry\remote-tools.json" Link="Registry\remote-tools.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\shared\registry\exclusions-default.json" Link="Registry\exclusions-default.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- ST-112: how the installer publishes this process (self-contained, single file). -->
+  <Import Project="..\Packaging.props" />
+</Project>

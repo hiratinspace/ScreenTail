@@ -1,7 +1,7 @@
 # Market scan and product ideas, September 2026
 
 **Snapshot taken:** 2026-09-15
-**Purpose:** record what the market looked like, where ScreenTail's wedge is, and the feature ideas
+**Purpose:** record what the market looked like, where ScreenTrail's wedge is, and the feature ideas
 worth turning into tickets. This is a reference for prioritisation, not a spec. Nothing here is
 committed work until it has a ticket in `Build Plan/02-Backlog-v0.4.md`.
 
@@ -12,7 +12,7 @@ indexes because the vendor blocked direct fetches (marked *indexed*). Treat ever
 
 ---
 
-## 1. Where ScreenTail stands against this
+## 1. Where ScreenTrail stands against this
 
 The goal (follow a remote-fix session, take relevant screenshots with context, add what the
 technician said, and produce a note that can be retrieved later) is already specified in the
@@ -24,9 +24,9 @@ is about where to aim next, not what to build from scratch.
 
 ## 2. The market in September 2026
 
-### 2.1 Same shape as ScreenTail
+### 2.1 Same shape as ScreenTrail
 
-| Product | What it does | Where it differs from ScreenTail |
+| Product | What it does | Where it differs from ScreenTrail |
 |---|---|---|
 | **Cyft** (cyft.ai) | Desktop app: reads the screen by OS-level OCR, listens to the call, watches typing; activity stream with timestamps and screenshots. A "pod" inside ConnectWise detects the open ticket. Outputs customer-facing, internal and resolution notes, auto time entry, similar-past-ticket correlation. SOC 2 claimed; 30-day default retention (*indexed*). | Cloud processing. ConnectWise only. No stated on-device redaction. Pricing and platform not public. |
 | **Vight** (vight.ai) | Started as call intelligence; now a background agent "recording the session while they work the ticket". Notes, PSA time entries, follow-ups, sentiment, coaching scores, KB drafts. ConnectWise, Autotask, HaloPSA; IT Glue, Hudu, SharePoint; most MSP phone systems. Case study claims 5,671 unbilled hours recovered across 67,794 calls. Added "AI-powered Level 2 support" in August 2026. | Cloud. No redaction statement beyond encryption, SSO and IP allow-lists. Real traction and press: the competitor to watch. |
@@ -37,7 +37,7 @@ is about where to aim next, not what to build from scratch.
 ### 2.2 Remote tools with a native session-to-summary feature
 
 These are the direct threat to the wedge: if the tool the technician already uses writes the note,
-ScreenTail's value for that tool's users shrinks. Every one of them is locked to its own client.
+ScreenTrail's value for that tool's users shrinks. Every one of them is locked to its own client.
 
 | Tool | Status | What it does | Notes |
 |---|---|---|---|
@@ -77,7 +77,7 @@ None of these see the screen. They summarise the ticket thread.
 5. **A fixed note shape.** Problem → Steps → Result → Follow-ups. Incumbents produce free text or
    "itemised actions".
 
-These five are ScreenTail's wedge and they are all already design decisions in the Build Plan.
+These five are ScreenTrail's wedge and they are all already design decisions in the Build Plan.
 The scan confirms them; it does not change them.
 
 ---
@@ -86,7 +86,7 @@ The scan confirms them; it does not change them.
 
 "Auto-documentation" is what every incumbent will call its feature. A sharper frame:
 
-> ScreenTail is the technician's black box. It records what happened in any remote session, on
+> ScreenTrail is the technician's black box. It records what happened in any remote session, on
 > the device, and gives that memory three jobs: the ticket note and time entry **now**, the
 > knowledge-base article **when the fix repeats**, and tamper-evident proof **when a client asks
 > what you did to their server**.

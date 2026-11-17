@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Runs ScreenTail on this machine: publishes the capture service and the UI into one directory and
+    Runs ScreenTrail on this machine: publishes the capture service and the UI into one directory and
     starts both.
 
 .DESCRIPTION
@@ -13,7 +13,7 @@
     compare and the rule falls back to the only other thing that is hard to fake without already owning
     the machine: the peer's executable must sit in the same directory as ours.
 
-    'dotnet run --project client\ScreenTail.Service' and the same for the UI put the two executables in
+    'dotnet run --project client\ScreenTrail.Service' and the same for the UI put the two executables in
     their own bin folders, which fails that check in both directions. The symptom is a tray icon stuck on
     "service unavailable", retrying forever, with the reason recorded nowhere a person would look. This
     script is the one-line answer: publish both into one directory, then run them from there.
@@ -23,7 +23,7 @@
 
 .PARAMETER Output
     Where both processes are published. Anything outside the repository is fine; it is rewritten on every
-    run. Not inside %LOCALAPPDATA%\ScreenTail: that is the product's data directory, and "Delete
+    run. Not inside %LOCALAPPDATA%\ScreenTrail: that is the product's data directory, and "Delete
     everything" empties it.
 
 .PARAMETER Configuration
@@ -41,7 +41,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Output = (Join-Path $env:LOCALAPPDATA 'ScreenTail.Dev\run'),
+    [string]$Output = (Join-Path $env:LOCALAPPDATA 'ScreenTrail.Dev\run'),
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug',
     [switch]$NoLaunch
 )
@@ -60,11 +60,11 @@ function Write-Step([string]$Title) {
 $Output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Output)
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$service = Join-Path $repo 'client\ScreenTail.Service'
-$ui = Join-Path $repo 'client\ScreenTail.UI'
+$service = Join-Path $repo 'client\ScreenTrail.Service'
+$ui = Join-Path $repo 'client\ScreenTrail.UI'
 
 if (-not (Test-Path $service) -or -not (Test-Path $ui)) {
-    throw "Cannot find the client projects under $repo. Run this from inside a ScreenTail clone."
+    throw "Cannot find the client projects under $repo. Run this from inside a ScreenTrail clone."
 }
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
@@ -79,7 +79,7 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 # last run with its UI quit and its service left up. One somewhere else is the dangerous case: it holds
 # the pipe, it is a build nobody here chose, and the handshake will refuse it either way.
 $target = $Output.TrimEnd('\')
-$running = @(Get-Process -Name 'ScreenTail.Service' -ErrorAction SilentlyContinue)
+$running = @(Get-Process -Name 'ScreenTrail.Service' -ErrorAction SilentlyContinue)
 
 if ($running.Count -gt 0) {
     Write-Step 'A capture service is already running'
@@ -92,7 +92,7 @@ if ($running.Count -gt 0) {
     }
 
     Write-Host ''
-    Write-Host '  Stop it first: Ctrl+C in its window, or Stop-Process -Name ScreenTail.Service.'
+    Write-Host '  Stop it first: Ctrl+C in its window, or Stop-Process -Name ScreenTrail.Service.'
     Write-Host '  Then run this again.'
     return
 }
@@ -113,8 +113,8 @@ foreach ($project in @($service, $ui)) {
     }
 }
 
-$serviceExe = Join-Path $Output 'ScreenTail.Service.exe'
-$uiExe = Join-Path $Output 'ScreenTail.UI.exe'
+$serviceExe = Join-Path $Output 'ScreenTrail.Service.exe'
+$uiExe = Join-Path $Output 'ScreenTrail.UI.exe'
 foreach ($exe in @($serviceExe, $uiExe)) {
     if (-not (Test-Path $exe)) {
         throw "Published, but $exe is not there. The handshake needs both executables in one directory."

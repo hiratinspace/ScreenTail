@@ -1,0 +1,429 @@
+using ScreenTrail.Shared.Schema;
+
+namespace ScreenTrail.Core.Store;
+
+/// <summary>
+/// The encrypted local store (ST-005). Frames enter with <c>redaction_pending</c> set and only the
+/// redaction worker can read one back (<see cref="TakeNextPendingFrameAsync"/>). Everything else (Review,
+/// bundle builder, export) reads through <see cref="LoadSessionAsync"/> and
+/// <see cref="GetRedactedFrameImageAsync"/>, which return redacted frames only (INV-1).
+/// </summary>
+public interface ISessionStore : IAsyncDisposable
+{
+    Task CreateSessionAsync(NewSession session, CancellationToken ct = default);
+
+    /// <returns>Whether it was written: false for a session that is gone or discarded, whose content takes nothing more (INV-12).</returns>
+    Task<bool> AppendEventAsync(string sessionId, SessionEvent sessionEvent, CancellationToken ct = default);
+
+    /// <returns>Whether it was written: false for a session that is gone or discarded.</returns>
+    Task<bool> AppendTranscriptAsync(string sessionId, TranscriptSegment segment, CancellationToken ct = default);
+
+    /// <summary>Writes a freshly captured frame with <c>redaction_pending = 1</c>.</summary>
+    /// <returns>Whether it was written: false for a session that is gone or discarded.</returns>
+    Task<bool> StageFrameAsync(string sessionId, StagedFrame frame, CancellationToken ct = default);
+
+    /// <summary>For the redaction worker only: the oldest frame still waiting for redaction, with its image.</summary>
+    Task<PendingFrame?> TakeNextPendingFrameAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The same, skipping frames another worker already has in hand. A frame stays
+    /// <c>redaction_pending</c> until its redaction finishes, so the query alone cannot tell "waiting"
+    /// from "being worked on" and two workers would take the same row.
+    /// </summary>
+    Task<PendingFrame?> TakeNextPendingFrameAsync(IReadOnlySet<string>? except, CancellationToken ct = default);
+
+    /// <summary>Replaces the staged image with the redacted one and clears <c>redaction_pending</c>.</summary>
+    /// <exception cref="InvalidOperationException">The frame doesn't exist or was already redacted.</exception>
+    /// <summary>
+    /// Writes a frame that has already been read and masked (ADR-0006). The only frame insert the
+    /// running service makes; <paramref name="frame"/>'s own image is not written.
+    /// </summary>
+    /// <returns>Whether it was stored: false for a session that is gone or discarded, which is a refusal, not a fault.</returns>
+    Task<bool> SaveRedactedFrameAsync(string sessionId, StagedFrame frame, RedactionOutcome outcome, CancellationToken ct = default);
+
+    /// <summary>
+    /// Counts a frame that was captured and never stored (ADR-0006). No row to delete; the session's
+    /// purge count and the audit row are what the bundle reads.
+    /// </summary>
+    Task RecordPurgedFramesAsync(string sessionId, int count, CancellationToken ct = default);
+
+    Task MarkFrameRedactedAsync(string frameId, RedactionOutcome outcome, CancellationToken ct = default);
+
+    Task<int> CountPendingFramesAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>Frames waiting for redaction across every session: the backlog depth the HUD shows (ST-041).</summary>
+    /// <summary>
+    /// How many bytes each redacted frame's stored image weighs, by frame id.
+    ///
+    /// The bundle's byte budget needs this and nothing else has it: a <c>Frame</c> carries the path
+    /// "frames/abc123.jpg" rather than a picture, so measuring its Image told you about twenty-three
+    /// characters (2026-09-19 review). Lengths only; no image leaves the store here.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, long>> GetFrameImageSizesAsync(string sessionId, CancellationToken ct = default);
+
+    Task<int> CountAllPendingFramesAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes one frame that could not be redacted, counting it against its session so Review can say a
+    /// screenshot was dropped rather than leaving a silent gap. Used by the redaction worker when a frame
+    /// cannot be read, masked, or fully searched: an unreadable frame kept is an unredacted frame.
+    /// </summary>
+    Task DiscardPendingFrameAsync(string frameId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the session's frames that are still pending (finalize grace expired), records the count on
+    /// the session and in the audit log, and returns it.
+    /// </summary>
+    Task<int> PurgePendingFramesAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>Throws <see cref="InvalidOperationException"/> when there is no such frame, so a caller never takes a write that changed nothing for one that landed.</summary>
+    Task SetFrameExcludedAsync(string frameId, bool excluded, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes one screenshot for good (ST-075) and writes <see cref="AuditTypes.FrameDeletedByUser"/>.
+    /// Called when the 5 s undo window closes, never before it. Spec §4 prefers an undo to a dialog, and
+    /// an undo that cannot put the frame back is a dialog with extra steps.
+    /// </summary>
+    /// <returns>Whether there was a frame to delete.</returns>
+    Task<bool> DeleteFrameAsync(string frameId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces a redacted frame's image with one the technician blurred a region out of, and records the
+    /// region as <c>user_blur</c> (ST-075). The frame's OCR text goes in the same statement: it was read
+    /// from the pixels the technician has just destroyed, and nothing records which words were under the
+    /// rectangle, so all of it goes rather than any of it surviving to be shown or sent.
+    ///
+    /// The original bytes are not kept anywhere. Spec §5 S3 calls this destructive and means it: a
+    /// technician blurring a password on a customer's screen is telling the product to destroy those
+    /// pixels, and a copy retained "for undo" is a copy.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The frame is gone, or still pending redaction.</exception>
+    Task ApplyUserBlurAsync(string frameId, ReadOnlyMemory<byte> image, MaskedRegion region, CancellationToken ct = default);
+
+    /// <summary>The draft as edited. The first save is also kept as the original, for the edit ratio (ST-098).</summary>
+    Task SaveDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
+
+    /// <summary>
+    /// A drafted note arriving, saved with the session's draft_ready state in one write (ST-013). Two writes
+    /// left room for Review's discard between them, and the second put draft_ready on a discarded row.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">There is no such session, or it was discarded.</exception>
+    Task SaveReadyDraftAsync(string sessionId, DraftNote draft, CancellationToken ct = default);
+
+    /// <summary>The draft as it was first written, or null when nothing has been drafted or it was purged.</summary>
+    Task<DraftNote?> LoadOriginalDraftAsync(string sessionId, CancellationToken ct = default);
+
+    Task FinalizeSessionAsync(string sessionId, FinalizeInfo info, CancellationToken ct = default);
+
+    /// <summary>Persists a state-machine transition (ST-020). <paramref name="state"/> is a wire name from <c>CaptureStates</c>.</summary>
+    Task SetSessionStateAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// The same, except over a session that is settled for good: published or discarded. Finalize writes a
+    /// draft's outcome with this, so drafting never undoes either (second review of #243).
+    /// </summary>
+    /// <returns>Whether it was written.</returns>
+    Task<bool> SetSessionStateUnlessSettledAsync(string sessionId, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>
+    /// Moves a session to <paramref name="state"/> only if it is in <paramref name="expected"/> now, and
+    /// says whether it did (ST-013). For writers that arrive late, such as the outbox settling a draft:
+    /// a row discarded, purged or already moved on is left as it is.
+    /// </summary>
+    Task<bool> SetSessionStateIfAsync(string sessionId, string expected, string state, string? reason, CancellationToken ct = default);
+
+    /// <summary>Sessions currently in any of the given states, oldest first. Used for orphan recovery and draft counts.</summary>
+    Task<IReadOnlyList<string>> ListSessionsInStatesAsync(IReadOnlyCollection<string> states, CancellationToken ct = default);
+
+    /// <summary>The latest timestamp any event, frame or transcript segment carries, or 0 for an empty session.</summary>
+    Task<long> GetLastTimestampAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sessions whose raw data is still present and whose last activity (<c>ended_at</c>, or the creation
+    /// time when a session never finished) is older than <paramref name="cutoff"/> (ST-044). A session that
+    /// never reaches finalize ages out like any other; only <paramref name="activeSessionId"/> is exempt.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListSessionsWithRawDataOlderThanAsync(DateTimeOffset cutoff, string? activeSessionId = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes the session's frames (images and OCR text), transcript and events; keeps the session row, its
+    /// draft note and the audit log (INV-12). Returns the number of frames removed.
+    /// </summary>
+    Task<int> PurgeRawDataAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Review's Discard (ST-074, Spec §5 S3). Deletes the frames, transcript and events, drops the drafted
+    /// note, marks the session discarded and writes the audit row, in one transaction, so there is no
+    /// moment where the raw data is gone and nothing says why.
+    ///
+    /// Not <see cref="DeleteSessionAsync"/>, which removes the row: Spec §5 S4 lists Discarded as a status
+    /// a technician can filter history by, and a row that is gone cannot have one. Not
+    /// <see cref="PurgeRawDataAsync"/> either, which keeps the note on purpose, because retention ages out
+    /// the evidence and leaves the deliverable, and here the note is the thing being thrown away.
+    /// </summary>
+    /// <returns>How many frames were deleted.</returns>
+    Task<int> DiscardSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Review's Discard and History's bulk discard, by name (contract v6): marks every one of these
+    /// discarded, in one transaction, with an audit row each saying how many screenshots it held. The note,
+    /// the ticket number read off the screen and the queued work go at once; the screenshots, transcript
+    /// and events are deleted afterwards by <see cref="PurgeDiscardedContentAsync"/>, in chunks, and from
+    /// the moment this commits no reader returns them and no write adds to them.
+    ///
+    /// Cheap on purpose: the machine calls it under its transition gate, which the password and login
+    /// guards' suppression waits for (INV-6), and deleting a thousand screenshots with secure delete on
+    /// took seconds there (review of #243).
+    ///
+    /// All or none. A session that is missing, already discarded or published refuses the whole set and
+    /// nothing changes: the technician confirmed a number, and discarding fewer than it would be
+    /// discarding something they did not type. The machine checks every id under its own gate first, so
+    /// this is the second line, for a session that changed after the check.
+    /// </summary>
+    /// <returns>How many screenshots the sessions held, all of which are now unreachable.</returns>
+    /// <exception cref="InvalidOperationException">A session could not be discarded; nothing was.</exception>
+    Task<int> DiscardSessionsAsync(IReadOnlyList<string> sessionIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sessions marked discarded whose content has not all been deleted yet: the work a bulk discard
+    /// left, or a service that stopped before finishing it.
+    /// </summary>
+    Task<IReadOnlyList<string>> ListUnfinishedDiscardsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes up to <paramref name="chunk"/> of a discarded session's screenshots, in one transaction,
+    /// and once none are left its transcript and events too, and records the raw data as gone. Does
+    /// nothing to a session that is not marked discarded.
+    /// </summary>
+    /// <returns>Whether the session's content is all gone.</returns>
+    Task<bool> PurgeDiscardedContentAsync(string sessionId, int chunk, CancellationToken ct = default);
+
+    /// <summary>
+    /// The session reached a PSA (Spec §5 S4's Published), once any destination landed. Refused, and
+    /// false, for a discarded row: a publish that lands after a discard does not bring the session back.
+    /// </summary>
+    Task<bool> MarkPublishedAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>What the last publish left on the ticket, per destination, and whether any of it is in doubt (O2). Null for no such session.</summary>
+    Task<PublishRecord?> GetPublishRecordAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Replaces the session's publish outcomes (destination to <see cref="PublishRecord.Landed"/> or
+    /// <see cref="PublishRecord.Unknown"/>). The unconfirmed mark is set while any is unknown, keeping when
+    /// it was first set, and cleared when none is. False for no such session.
+    /// </summary>
+    Task<bool> SavePublishRecordAsync(string sessionId, IReadOnlyDictionary<string, string> outcomes, CancellationToken ct = default);
+
+    /// <summary>
+    /// The ticket a publish of the session may have reached, and its company as the ticket search named it
+    /// (spec v0.6.9 S4), for the inbox rail's row. Written once something of the publish landed or is
+    /// unknown, never from a search alone; a blank company is kept as none. Refused, and false, for a
+    /// discarded or missing session: a discard is the last word (INV-12).
+    /// </summary>
+    Task<bool> SavePublishedTicketAsync(string sessionId, string ticketId, string? company, CancellationToken ct = default);
+
+    /// <summary>
+    /// How many sessions carry the unconfirmed mark, for the tray. A discarded session is not counted:
+    /// the technician threw it away, and nothing can be done about it here (INV-12).
+    /// </summary>
+    Task<int> CountUnconfirmedPublishesAsync(CancellationToken ct = default);
+
+    /// <summary>Rebuilds the database file so purged space is actually released.</summary>
+    /// <summary>How much of the file is free pages, between 0 and 1. See <see cref="RetentionJob.ShouldVacuum"/>.</summary>
+    Task<double> FreeSpaceFractionAsync(CancellationToken ct = default);
+
+    Task VacuumAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The session as a schema document containing redacted frames only. References to frames that are
+    /// pending or purged are dropped, so the result always passes <see cref="SessionValidator"/>.
+    /// </summary>
+    Task<Session?> LoadSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>Image bytes of a redacted frame; null when the frame is pending or doesn't exist.</summary>
+    Task<byte[]?> GetRedactedFrameImageAsync(string frameId, CancellationToken ct = default);
+
+    /// <summary>
+    /// A redacted frame's image with its captured and stored sizes, for a blur; null when the frame is
+    /// pending or doesn't exist. A frame written before the stored size was recorded reports the size the
+    /// downscale rule gives its captured one.
+    /// </summary>
+    Task<StoredFrameImage?> GetRedactedFrameForBlurAsync(string frameId, CancellationToken ct = default);
+
+    /// <summary>
+    /// What the redaction worker read on a redacted frame, after masking: one row, for Review's `T` (E-20).
+    /// Null when the frame is pending or does not exist (INV-1); a redacted frame with no text is a
+    /// <see cref="FrameText"/> whose text is null.
+    /// </summary>
+    Task<FrameText?> GetRedactedFrameTextAsync(string frameId, CancellationToken ct = default);
+
+    /// <summary>Deletes the session and everything under it, and writes an audit row.</summary>
+    Task DeleteSessionAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Every session, newest first, as the history table shows them (ST-079).
+    ///
+    /// One query rather than a list of ids followed by a load each: Spec §5 S4 renders two hundred rows
+    /// and <see cref="LoadSessionAsync"/> reads every frame, event and transcript segment of a session to
+    /// build one. Two hundred of those is the whole store.
+    /// </summary>
+    /// <param name="limit">How many rows to read. The caller shows a page; the store should not read the store.</param>
+    Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(int limit = 1000, CancellationToken ct = default);
+
+    /// <summary>
+    /// One session's history row, or null when there is no such session. For recovery, which needs the
+    /// tool and the duration of the session it adopts and not its frames: <see cref="LoadSessionAsync"/>
+    /// reads all of them.
+    /// </summary>
+    Task<SessionSummary?> GetSessionSummaryAsync(string sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// The draft_pending session created last, and whether its draft still has live outbox work
+    /// (pending or uncertain); null when no session is draft_pending. For recovery, which adopts it.
+    ///
+    /// Last by insertion, not by <c>started_at</c>: the start time is the wall clock's, and a clock
+    /// stepped back between two sessions would make the earlier one look newer, and the tray's Discard
+    /// throw away a session other than the last one run.
+    /// </summary>
+    Task<LastQueuedDraft?> GetLastDraftPendingAsync(CancellationToken ct = default);
+
+    Task<IReadOnlyList<AuditEntry>> GetAuditAsync(string? sessionId = null, CancellationToken ct = default);
+
+    Task<int> GetSchemaVersionAsync(CancellationToken ct = default);
+}
+
+/// <param name="SuggestedTicket">Digits read off the window or the clipboard at start (ST-077), or null. Never the title.</param>
+public sealed record NewSession(
+    string SessionId,
+    DateTimeOffset StartedAt,
+    RemoteTool RemoteTool,
+    bool LocalOnly,
+    string? PolicyVersion,
+    string? SuggestedTicket = null);
+
+/// <summary>A captured, not yet redacted frame. Never leaves the capture service unredacted (INV-1).</summary>
+public sealed record StagedFrame(
+    string Id,
+    long TsMs,
+    FrameTrigger Trigger,
+    int Width,
+    int Height,
+    Point? Cursor,
+    ReadOnlyMemory<byte> Image);
+
+public sealed record PendingFrame(string Id, string SessionId, long TsMs, byte[] Image);
+
+/// <param name="StoredWidth">The width of <paramref name="RedactedImage"/>, which the masker downscaled from
+/// the frame's own. Null when the caller does not know it; a reader then assumes the one downscale rule
+/// there has ever been (<see cref="Capture.Downscale"/>).</param>
+/// <param name="StoredHeight">The height of <paramref name="RedactedImage"/>; null with the width.</param>
+public sealed record RedactionOutcome(
+    ReadOnlyMemory<byte> RedactedImage,
+    string? OcrText,
+    IReadOnlyList<MaskedRegion> MaskedRegions,
+    bool SensitiveContext,
+    DateTimeOffset RedactedAt,
+    int? StoredWidth = null,
+    int? StoredHeight = null);
+
+/// <summary>
+/// A redacted frame's image with the two sizes a Review blur has to reconcile (ST-075).
+/// </summary>
+/// <param name="Width">The frame's own width, as captured. Its masked regions, and the rectangle the Review
+/// pane sends, are in these pixels.</param>
+/// <param name="StoredWidth">The width of <paramref name="Image"/>, which redaction downscaled. What gets
+/// painted is in these pixels.</param>
+public sealed record StoredFrameImage(byte[] Image, int Width, int Height, int StoredWidth, int StoredHeight);
+
+public sealed record FinalizeInfo(long DurationMs, bool PartialCapture);
+
+/// <param name="OcrText">The frame's OCR text as redaction left it, or null when it had none.</param>
+public sealed record FrameText(string? OcrText);
+
+/// <summary>
+/// One row of the history table (ST-079, Spec §5 S4). Counts and states only: this list is rendered
+/// beside a customer and holds nothing that was on their screen (INV-10).
+/// </summary>
+/// <param name="Frames">Screenshots still held. Zero after retention has purged the raw data.</param>
+/// <param name="Title">The drafted note's suggested title, once there is one. The only free text here,
+/// and it is the technician's own note rather than anything captured.</param>
+/// <param name="PublishUnconfirmed">The session carries the unconfirmed mark: a publish of it may have reached the ticket (O2).</param>
+/// <param name="Ticket">The ticket a publish may have reached, else the digits read off the window at start (ST-077); null when neither is known.</param>
+/// <param name="Company">The PSA's name for that published ticket's company; null until a publish may have reached one. Shown, never logged (INV-10).</param>
+public sealed record SessionSummary(
+    string Id,
+    DateTimeOffset StartedAt,
+    long? DurationMs,
+    string RemoteTool,
+    string State,
+    bool PartialCapture,
+    long FramesPurgedUnredacted,
+    int Frames,
+    bool RawPurged,
+    string? Title,
+    bool PublishUnconfirmed = false,
+    string? Ticket = null,
+    string? Company = null);
+
+/// <summary>What the last publish of a session left on the ticket (O2): destination names and outcomes, never content.</summary>
+/// <param name="UnconfirmedAt">When a destination first became unknown; null when none is.</param>
+/// <param name="Outcomes">Destination wire name to <see cref="Landed"/> or <see cref="Unknown"/>. A destination that plainly failed, or was never sent, is absent.</param>
+public sealed record PublishRecord(DateTimeOffset? UnconfirmedAt, IReadOnlyDictionary<string, string> Outcomes)
+{
+    public const string Landed = "landed";
+
+    public const string Unknown = "unknown";
+}
+
+/// <param name="SessionId">The draft_pending session created last.</param>
+/// <param name="DraftLive">Whether its draft has outbox work that is still pending or uncertain, so something will settle it.</param>
+/// <param name="DraftDone">Whether its draft's outbox work is done: the backend answered and the sender kept the note.</param>
+/// <param name="HasNote">Whether a note is stored for it.</param>
+/// <param name="FailedReason">What its failed draft work recorded as the reason, or null when it has none.</param>
+public sealed record LastQueuedDraft(string SessionId, bool DraftLive, bool DraftDone = false, bool HasNote = false, string? FailedReason = null);
+
+public sealed record AuditEntry(long Id, DateTimeOffset At, string? SessionId, string Type, long? Count);
+
+/// <summary>Audit row types written by the store itself. Counts and states only (INV-10).</summary>
+public static class AuditTypes
+{
+    public const string FramesPurgedUnredacted = "frames_purged_unredacted";
+    public const string SessionDiscarded = "session_discarded";
+    public const string RetentionPurged = "retention_purged";
+
+    /// <summary>ST-075: the technician deleted one screenshot in Review, after the undo window closed.</summary>
+    public const string FrameDeletedByUser = "frame_deleted_by_user";
+
+    /// <summary>A frame was staged. Count only; nothing about what was on it (ST-045).</summary>
+    public const string FrameCaptured = "frame_captured";
+
+    /// <summary>A frame was masked and made readable. <c>detail</c> is the mask kind, <c>count</c> how many.</summary>
+    public const string FrameRedacted = "frame_redacted";
+
+    /// <summary>
+    /// Something said aloud was masked before it was stored. <c>detail</c> is the mask kind, <c>count</c>
+    /// how many. Its own type rather than <see cref="FrameRedacted"/>: a customer reading their audit
+    /// export should be able to tell a card number on a screen from one read over the phone.
+    /// </summary>
+    public const string TranscriptRedacted = "transcript_redacted";
+
+    /// <summary>Capture stopped for a reason that was not the technician. <c>detail</c> is the reason, <c>count</c> the milliseconds.</summary>
+    public const string CaptureSuppressed = "capture_suppressed";
+
+    /// <summary>Bytes left the machine. <c>detail</c> is the destination host, <c>count</c> the bytes.</summary>
+    public const string BundleSent = "bundle_sent";
+}
+
+/// <summary>The database could not be opened with the supplied key.</summary>
+public sealed class StoreKeyException(string message, Exception inner) : Exception(message, inner)
+{
+    public StoreKeyException()
+        : this("The store could not be opened with this key.", new InvalidOperationException())
+    {
+    }
+
+    public StoreKeyException(string message)
+        : this(message, new InvalidOperationException())
+    {
+    }
+}

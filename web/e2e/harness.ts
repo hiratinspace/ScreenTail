@@ -9,9 +9,9 @@
  * read, in a scratch folder removed at the end, and the workers are given its path: never the key itself, so
  * no environment (the browser's included, which Playwright starts with the workers' own) carries it.
  *
- * Needs `SCREENTAIL_E2E_POSTGRES` (an Npgsql connection string; the database in it is created and
+ * Needs `SCREENTRAIL_E2E_POSTGRES` (an Npgsql connection string; the database in it is created and
  * migrated if missing) and a Release build of the API (`dotnet build
- * backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release`, as CI runs it). docs/dev/web-admin.md, section 6.
+ * backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj -c Release`, as CI runs it). docs/dev/web-admin.md, section 6.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
@@ -76,25 +76,25 @@ async function waitForHealth(url: string, child: ChildProcess, timeoutMs: number
 }
 
 export default async function globalSetup(): Promise<() => Promise<void>> {
-  const postgres = process.env.SCREENTAIL_E2E_POSTGRES;
+  const postgres = process.env.SCREENTRAIL_E2E_POSTGRES;
   if (!postgres) {
-    throw new Error('Set SCREENTAIL_E2E_POSTGRES to an Npgsql connection string (docs/dev/web-admin.md, section 6).');
+    throw new Error('Set SCREENTRAIL_E2E_POSTGRES to an Npgsql connection string (docs/dev/web-admin.md, section 6).');
   }
-  const dotnet = process.env.SCREENTAIL_E2E_DOTNET ?? 'dotnet';
-  const dll = process.env.SCREENTAIL_E2E_API_DLL ?? join(repo, 'backend/src/ScreenTail.Api/bin/Release/net10.0/ScreenTail.Api.dll');
+  const dotnet = process.env.SCREENTRAIL_E2E_DOTNET ?? 'dotnet';
+  const dll = process.env.SCREENTRAIL_E2E_API_DLL ?? join(repo, 'backend/src/ScreenTrail.Api/bin/Release/net10.0/ScreenTrail.Api.dll');
   if (!existsSync(dll)) {
-    throw new Error(`No API build at ${dll}. Run: dotnet build backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release`);
+    throw new Error(`No API build at ${dll}. Run: dotnet build backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj -c Release`);
   }
 
   const runId = randomBytes(4).toString('hex');
   const keyId = `e2e-${runId}`;
-  const clientId = `${runId}-screentail-e2e.apps.googleusercontent.com`;
-  const downloadUrl = 'https://downloads.e2e.example/ScreenTail-Setup.exe';
+  const clientId = `${runId}-screentrail-e2e.apps.googleusercontent.com`;
+  const downloadUrl = 'https://downloads.e2e.example/ScreenTrail-Setup.exe';
   const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const jwk = publicKey.export({ format: 'jwk' });
   const publicSet = JSON.stringify({ keys: [{ kty: 'RSA', kid: keyId, alg: 'RS256', use: 'sig', n: jwk.n, e: jwk.e }] });
 
-  const scratch = mkdtempSync(join(tmpdir(), 'screentail-e2e-'));
+  const scratch = mkdtempSync(join(tmpdir(), 'screentrail-e2e-'));
   const stops: (() => Promise<void>)[] = [];
   const teardown = async () => {
     for (const stop of stops.reverse()) {
@@ -146,7 +146,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
     await waitForHealth(api, backend, 60_000);
 
     // The page's /v1 goes to this backend through the preview server's proxy, as a deployment's proxy does.
-    process.env.SCREENTAIL_API = api;
+    process.env.SCREENTRAIL_API = api;
     const servers: Record<'configured' | 'unconfigured', string> = { configured: '', unconfigured: '' };
     for (const variant of ['configured', 'unconfigured'] as const) {
       const outDir = join(scratch, variant);

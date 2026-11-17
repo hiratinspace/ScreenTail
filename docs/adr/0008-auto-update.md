@@ -13,9 +13,9 @@ ST-113 asks for signed updates, a stable and a beta (here: pilot) channel, backg
 prompt only when idle, never during a session, a refused signature logged, and the channel selectable in
 Settings. Five facts shape it:
 
-1. **The install is per machine** (ADR-0007): `C:\Program Files\ScreenTail`, which only administrators
-   can change. Neither ScreenTail process has administrator rights, and an update needs them.
-2. **Both processes run as the technician** (ADR-0003). There is no privileged ScreenTail process, and
+1. **The install is per machine** (ADR-0007): `C:\Program Files\ScreenTrail`, which only administrators
+   can change. Neither ScreenTrail process has administrator rights, and an update needs them.
+2. **Both processes run as the technician** (ADR-0003). There is no privileged ScreenTrail process, and
    adding one is a standing attack surface on every technician's machine.
 3. **MSPs already push software with Intune and RMM agents**, as the system account, silently. Many will
    prefer that to any self-update.
@@ -53,11 +53,11 @@ the follow-up to consider, with its own ADR and threat model.
 Served as a static file, `<feed><channel>/win-x64.json`. On the wire an envelope:
 
 ```json
-{ "format": "screentail-update-manifest-v1", "key": "<key id>",
+{ "format": "screentrail-update-manifest-v1", "key": "<key id>",
   "payload": "<base64 of the signed bytes>", "signature": "<base64, r then s, 64 bytes>" }
 ```
 
-The signed bytes are UTF-8 JSON: `format` (`screentail-update-v1`), `channel`, `architecture` (`x64`),
+The signed bytes are UTF-8 JSON: `format` (`screentrail-update-v1`), `channel`, `architecture` (`x64`),
 `version`, `minimumVersion` (the oldest installed version that may update straight to this one; older
 installations are told to reinstall), `package` (`url`, `sha256`, `size`) and `published`. The signature
 is ECDSA P-256 with SHA-256 over exactly those bytes, so there is no canonical form to get wrong.
@@ -76,7 +76,7 @@ has no in-box implementation, so P-256 is the one curve both ends have without a
 ### Trust, compiled in
 
 `shared/release/update-trust.json` holds the feed URL, the exact package host names (no wildcards) and
-the public keys. ScreenTail.Core embeds it, so nothing on the machine can redirect the feed or add a key;
+the public keys. ScreenTrail.Core embeds it, so nothing on the machine can redirect the feed or add a key;
 CI's signing step reads the same file and checks every manifest against it before uploading. **It ships
 empty**: a build without a feed or a key makes no update request at all and says so in Settings.
 
@@ -122,7 +122,7 @@ in the Privacy document, which is saved whole.
 ### Download and install
 
 - **Background, and only when idle:** a verified offer downloads only while no session is recording
-  (recording, paused, suppressed or finalizing), into `%LOCALAPPDATA%\ScreenTail\Updates`. The folder
+  (recording, paused, suppressed or finalizing), into `%LOCALAPPDATA%\ScreenTrail\Updates`. The folder
   is prepared before anything is read from or written in it, and every time: inheritance cut and access
   for the technician, the system account and administrators only, applied to a folder that already
   existed too, and refused if it is a link. A session that starts during a download stops it after the
@@ -184,7 +184,7 @@ through the job's own OIDC token and the pilot app registration, verifies the si
 trust file's pilot keys on Windows PowerShell 5.1, and writes it. The channel is a required parameter
 with no default and no "all", and a build may not name stable. A run refuses to sign while it can see
 the other channel's settings. The private keys never leave Key Vault. Until
-`SCREENTAIL_UPDATE_PILOT_KEY` and `SCREENTAIL_UPDATE_BASE` are set on the `signing` environment it signs
+`SCREENTRAIL_UPDATE_PILOT_KEY` and `SCREENTRAIL_UPDATE_BASE` are set on the `signing` environment it signs
 nothing, with a notice, like `sign.ps1` without a certificate; the unsigned job runs the same step on
 every pull request. The pilot manifest is its own artifact, kept 90 days so a later promotion can read it.
 
@@ -198,7 +198,7 @@ that run's pilot manifest (a JSON file; nothing from the earlier run is executed
 for stable with the stable key and the stable app registration, exactly what it describes, after
 checking that it verifies with a key the client trusts for pilot, says pilot and carries the version
 typed. **It fails closed**: the script refuses unless
-`SCREENTAIL_STABLE_RELEASE` is `true`, a variable that exists only on the owner's protected environment
+`SCREENTRAIL_STABLE_RELEASE` is `true`, a variable that exists only on the owner's protected environment
 (an environment GitHub creates on first use, without reviewers, does not have it), and Azure issues the
 vault token only to an environment it was told to trust. The stable manifest is uploaded for a day, for
 the owner to publish; an ordinary CI run never produces or uploads one. A pilot manifest copied to the
@@ -248,30 +248,30 @@ The full list, with the exact variable names, is in `docs/dev/installer.md` ("Sw
    sign only: one for pilot, one for stable. Note each key identifier **with its version**.
 2. **Azure, two app registrations for the manifests:** a pilot one with a federated credential for
    environment `signing`, and a stable one with a federated credential for environment `release-stable`
-   (subject `repo:hiratinspace/ScreenTail:environment:release-stable`). Give each a role that allows only
+   (subject `repo:hiratinspace/ScreenTrail:environment:release-stable`). Give each a role that allows only
    `Microsoft.KeyVault/vaults/keys/sign/action` (a custom role; *Key Vault Crypto User* also works but
    allows more) on its own key, and nothing on the other key.
 3. **The public keys:** export each as base64 DER SubjectPublicKeyInfo (`az keyvault key download
    --encoding DER` then base64) and add both to `shared/release/update-trust.json`, each with an id and
    its channel (`"channel": "pilot"` or `"stable"`), in a reviewed pull request.
 4. **Hosting (ST-007):** an HTTPS location for `<feed>pilot/win-x64.json`, `<feed>stable/win-x64.json` and
-   `<base><version>/ScreenTail.msi`. Put the feed URL and the package host names in the trust file in the
+   `<base><version>/ScreenTrail.msi`. Put the feed URL and the package host names in the trust file in the
    same pull request.
-5. **GitHub, `signing` environment variables:** `SCREENTAIL_UPDATE_PILOT_KEY` (the pilot key's versioned
-   identifier), `SCREENTAIL_UPDATE_PILOT_CLIENT_ID` (the pilot app registration) and
-   `SCREENTAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in a slash).
+5. **GitHub, `signing` environment variables:** `SCREENTRAIL_UPDATE_PILOT_KEY` (the pilot key's versioned
+   identifier), `SCREENTRAIL_UPDATE_PILOT_CLIENT_ID` (the pilot app registration) and
+   `SCREENTRAIL_UPDATE_BASE` (the packages' HTTPS folder, ending in a slash).
 6. **GitHub, *Settings → Environments → New environment*: `release-stable`.** Mandatory before any
    promotion: *Deployment branches and tags* set to `main` only; *Required reviewers* (the owner);
-   environment **variables** `SCREENTAIL_STABLE_RELEASE` = `true`, `SCREENTAIL_UPDATE_STABLE_KEY`,
-   `SCREENTAIL_UPDATE_STABLE_CLIENT_ID` (the stable app registration) and `AZURE_TENANT_ID`. Until all
+   environment **variables** `SCREENTRAIL_STABLE_RELEASE` = `true`, `SCREENTRAIL_UPDATE_STABLE_KEY`,
+   `SCREENTRAIL_UPDATE_STABLE_CLIENT_ID` (the stable app registration) and `AZURE_TENANT_ID`. Until all
    of this exists the promotion fails closed. **Never set any of these at repository or organisation
    level**: a job that finds no such variable on its environment falls back to those, so a value there
    would put one channel's settings in the other's job, or open the gate wherever the job ran.
-7. **Each pilot release:** from the signing run's artifacts, upload `ScreenTail.msi` to `<base><version>/`
+7. **Each pilot release:** from the signing run's artifacts, upload `ScreenTrail.msi` to `<base><version>/`
    and `pilot/win-x64.json` to the feed; check it first with `installer/update-manifest.ps1 -Verify`.
 8. **Each promotion to stable:** *Actions → promote-stable → Run workflow* on main, with that ci run's id
    and the version; approve it as the environment's reviewer; upload the `stable/win-x64.json` it produces
-   (artifact `screentail-stable-manifest`, kept one day) to the feed.
+   (artifact `screentrail-stable-manifest`, kept one day) to the feed.
 
 ## Consequences
 

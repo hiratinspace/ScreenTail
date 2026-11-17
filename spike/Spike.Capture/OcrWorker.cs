@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Threading.Channels;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 using Tesseract;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>Single-threaded Tesseract worker. Recognized text is counted, never stored.</summary>
 internal sealed class OcrWorker : IDisposable

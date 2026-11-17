@@ -1,4 +1,4 @@
-# ScreenTail backend
+# ScreenTrail backend
 
 ASP.NET Core minimal API on .NET 10: tenants, technicians, devices, policy, and the summarization broker
 that drafts a session note (ST-008 onward).
@@ -23,8 +23,8 @@ export ConnectionStrings__Postgres='Host=localhost;Database=screentail;Username=
 export Jwt__SigningKey="$(openssl rand -base64 48)"
 
 dotnet tool install --global dotnet-ef --version 10.0.12
-dotnet ef database update --project src/ScreenTail.Api --startup-project src/ScreenTail.Api
-dotnet run --project src/ScreenTail.Api
+dotnet ef database update --project src/ScreenTrail.Api --startup-project src/ScreenTrail.Api
+dotnet run --project src/ScreenTrail.Api
 ```
 
 Then `http://localhost:5000/health` answers without a token, and the OpenAPI document is at
@@ -34,7 +34,7 @@ Then `http://localhost:5000/health` answers without a token, and the OpenAPI doc
 proxy serving the web admin from one HTTPS origin. Three things exist for that. `--migrate` applies the
 migrations with nothing but the connection string and exits; the service never migrates at startup, so a
 deployment runs it as its own step. `--health-probe` is the container's health check (the image has no
-shell or curl): it asks this machine's `/health` and exits 0 or 1. `SCREENTAIL_SECRETS_DIR` names a
+shell or curl): it asks this machine's `/health` and exits 0 or 1. `SCREENTRAIL_SECRETS_DIR` names a
 directory of one file per secret, named after its key with `__` for the colon (`Jwt__SigningKey`), read
 after everything else; Docker's secrets arrive in `/run/secrets` that way, so no key is ever an
 environment variable.
@@ -50,7 +50,7 @@ and every `Admin__*` key; ADR-0009 says how the session works.
 
 ## Tests
 
-`dotnet test ScreenTail.Backend.sln` runs the whole API against SQLite over the same EF model, so every
+`dotnet test ScreenTrail.Backend.sln` runs the whole API against SQLite over the same EF model, so every
 query is compiled and executed on any machine with no database server. CI additionally applies the real
 migrations to a real Postgres and checks every table arrived, because the migration SQL is the part
 SQLite cannot check and is what a deployment actually runs.
@@ -64,7 +64,7 @@ is on.
 The one measurement that does call the model is opt-in:
 
 ```bash
-SCREENTAIL_LIVE_LLM=1 dotnet test ScreenTail.Backend.sln --filter LiveDraftingBudget
+SCREENTRAIL_LIVE_LLM=1 dotnet test ScreenTrail.Backend.sln --filter LiveDraftingBudget
 ```
 
 It reads the same user secret, drafts the everyday and heaviest fixture bundles several times, and
@@ -80,7 +80,7 @@ The key has no default and none is in the repository. There are two places to pu
 is nothing here to commit by mistake and nothing to export each morning:
 
 ```bash
-cd backend/src/ScreenTail.Api
+cd backend/src/ScreenTrail.Api
 dotnet user-secrets set "Summarization:ApiKey" "…"
 dotnet user-secrets set "Jwt:SigningKey" "$(openssl rand -base64 48)"
 dotnet user-secrets list          # prints the values, so mind the shoulder

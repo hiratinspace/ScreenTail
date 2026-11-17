@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- WPF UI process: shell, tray, HUD, Review, Settings, Onboarding (MVVM, CommunityToolkit.Mvvm). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <!-- For NotifyIcon only (ST-071, ST-085). WPF has no tray icon of its own, and INV-4 makes one
+         non-negotiable: the tray is the indicator that is on screen even when the HUD is dismissed.
+         Nothing else in the UI uses Windows Forms. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>ScreenTrail.UI</RootNamespace>
+    <AssemblyName>ScreenTrail.UI</AssemblyName>
+    <!-- ST-012 (ADR-0003): the runtime loads no startup hook into this process, whatever the
+         environment asks. RunningHonestly's check runs at start-up, after a hook would already have
+         run, so it cannot be what keeps one out. ProcessStartupTests pins this for both processes. -->
+    <StartupHookSupport>false</StartupHookSupport>
+    <!-- The Iris app icon (Spec v0.6.0 §2.0), built from shared/design/brand by build-icons.py. -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The window and taskbar icon, set on Window.Base (Theme/Components.xaml) for every window. -->
+    <Resource Include="Assets\app.ico" />
+    <!-- The tray icons, one per state and taskbar theme (TrayIconHost, TrayGlyph). -->
+    <EmbeddedResource Include="Assets\Tray\*.ico" LogicalName="ScreenTrail.UI.Assets.Tray.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Enabling Windows Forms brings its implicit usings with it, and System.Windows.Forms and
+         System.Drawing then collide with WPF's Application, Point, Size, TextBox and both EventArgs
+         types across every file in the project. The tray icon names what it needs explicitly instead. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The pill's monitor check and the shell's quit path are held by Windows tests through seams that
+         are not public API: the monitors the pill is placed against, and the shell's pipe and settings file. -->
+    <InternalsVisibleTo Include="ScreenTrail.Tests.Windows" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScreenTrail.Core\ScreenTrail.Core.csproj" />
+    <ProjectReference Include="..\ScreenTrail.Platform\ScreenTrail.Platform.csproj" />
+    <ProjectReference Include="..\ScreenTrail.Shared\ScreenTrail.Shared.csproj" />
+  </ItemGroup>
+
+  <!-- ST-112: how the installer publishes this process (self-contained, single file). -->
+  <Import Project="..\Packaging.props" />
+</Project>

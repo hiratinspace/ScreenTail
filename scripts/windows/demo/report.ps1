@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-    Writes one plain-text report about the ScreenTail demo on this laptop to the Desktop (or, when the
-    Desktop is synced to OneDrive, to %LOCALAPPDATA%\ScreenTail.Dev\demo\reports), for sending to the
+    Writes one plain-text report about the ScreenTrail demo on this laptop to the Desktop (or, when the
+    Desktop is synced to OneDrive, to %LOCALAPPDATA%\ScreenTrail.Dev\demo\reports), for sending to the
     developer.
 
 .DESCRIPTION
@@ -18,7 +18,7 @@
     asks Windows what it allows and exits.
 
     It is made to leave out screenshots, OCR text, transcripts, note text, window titles, keys, tokens,
-    passwords and connection strings. Of the logs it keeps only the lines ScreenTail's scrubbing log
+    passwords and connection strings. Of the logs it keeps only the lines ScreenTrail's scrubbing log
     sink wrote (INV-10): any other line a program printed (a .NET crash message, native library output)
     is withheld and shown only as its length, and of an unhandled exception only the type is kept. Every
     line of the report then goes through a final pattern scrub. The top of the report says what was
@@ -291,7 +291,7 @@ function Invoke-WithTimeout {
     return [pscustomobject]@{ ExitCode = $process.ExitCode; Out = $out.Result; Err = $err.Result; TimedOut = $false }
 }
 
-# Lines read from a log or a program's output, with every line that ScreenTail's scrubbing logger did not
+# Lines read from a log or a program's output, with every line that ScreenTrail's scrubbing logger did not
 # write withheld, the same way the windows withhold them as they write. Again here because a file from an
 # older start, or a program's output read directly, was never filtered.
 #
@@ -309,8 +309,8 @@ function Select-DemoLogLines([string[]]$Lines, [switch]$Raw) {
     $kept = New-Object System.Collections.Generic.List[string]
     foreach ($line in $Lines) {
         $text = ConvertTo-DemoLogLine $line $state
-        if ($text -match '^\[line not from ScreenTail''s logger withheld, \d+ chars\]$|^Unhandled exception\. \S+ \[message and stack withheld\]$') {
-            Add-Removed 'lines not written by ScreenTail''s logger (shown only as their length, or an exception''s type)'
+        if ($text -match '^\[line not from ScreenTrail''s logger withheld, \d+ chars\]$|^Unhandled exception\. \S+ \[message and stack withheld\]$') {
+            Add-Removed 'lines not written by ScreenTrail''s logger (shown only as their length, or an exception''s type)'
         }
         elseif ($text -cmatch '^\[start\.ps1\] .* \[reason withheld\]$' -and -not [string]::Equals($text, [string]$line, [StringComparison]::Ordinal)) {
             Add-Removed 'reasons in start.cmd''s own log lines (an error''s message)'
@@ -420,7 +420,7 @@ function Add-LogTail([string]$Path, [int]$Count, [switch]$Raw) {
     return $lines
 }
 
-# The ERROR and FATAL lines of a ScreenTail log (both sinks write "HH:mm:ss.fff LEVEL category: ...").
+# The ERROR and FATAL lines of a ScreenTrail log (both sinks write "HH:mm:ss.fff LEVEL category: ...").
 function Get-ErrorLines([string[]]$Lines) {
     return @($Lines | Where-Object { $_ -match '^\d\d:\d\d:\d\d\.\d{3} (ERROR|FATAL) ' })
 }
@@ -463,7 +463,7 @@ function Get-CheckedLogFilter([string]$Source, [string]$Hash) {
     catch {
         return $null
     }
-    if (-not ([string]$plain -cmatch '^\[line not from ScreenTail''s logger withheld, [0-9]+ chars\]$')) { return $null }
+    if (-not ([string]$plain -cmatch '^\[line not from ScreenTrail''s logger withheld, [0-9]+ chars\]$')) { return $null }
     if (-not [string]::Equals([string]$message, '    System.Exception: [message withheld]', [StringComparison]::Ordinal)) { return $null }
     if ([string]$started -cmatch 'message to withhold') { return $null }
     if ([string]$typed -cmatch 'message to withhold') { return $null }
@@ -582,11 +582,11 @@ function Test-ReparsePoint([IO.FileSystemInfo]$Item) {
     return (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
-# When the run started, from e2e.log's first line ("ScreenTail end-to-end run (ST-013), <time> on <name>"),
+# When the run started, from e2e.log's first line ("ScreenTrail end-to-end run (ST-013), <time> on <name>"),
 # as a time and as text. Only the digits are taken from the line.
 function Get-E2eRunStart([string[]]$Lines) {
     if ($Lines.Count -eq 0) { return $null }
-    $pattern = '^ScreenTail end-to-end run \(ST-013\), ([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2})[:.]([0-9]{2})[:.]([0-9]{2}) on '
+    $pattern = '^ScreenTrail end-to-end run \(ST-013\), ([0-9]{4})-([0-9]{2})-([0-9]{2}) ([0-9]{2})[:.]([0-9]{2})[:.]([0-9]{2}) on '
     if (-not ([string]$Lines[0] -cmatch $pattern)) { return $null }
     $found = $Matches
     try {
@@ -824,7 +824,7 @@ function Get-CapabilityCheckView($Check) {
     }
     else {
         $state = 'unknown'
-        $message = 'ScreenTail couldn''t check this (reason withheld).'
+        $message = 'ScreenTrail couldn''t check this (reason withheld).'
         $hint = ''
     }
     $line = "$state. $message"
@@ -856,7 +856,7 @@ function Add-CapabilityReport([string]$Out, [string]$Err, [int]$ExitCode) {
         if ($first -and $first.Hint) { $fix = $first.Hint }
         $what = 'one of its checks failed'
         if ($first) { $what = "$($first.Name): $($first.Message)" }
-        Add-Problem 85 "Windows is not letting ScreenTail capture ($what)." $fix
+        Add-Problem 85 "Windows is not letting ScreenTrail capture ($what)." $fix
     }
     else {
         foreach ($view in @($views | Where-Object { $_.State -ne 'ok' -and $_.Name -ne 'elevated_windows' })) {
@@ -924,7 +924,7 @@ function Add-DemoLogsReport {
         Add-Line ''
         Add-Line '  -- UI'
         Add-Line '  The UI writes no log file: it has no console window, and its only record is a crash report,'
-        Add-Line '  which is written only when SCREENTAIL_CRASH_REPORTS=1 is set.'
+        Add-Line '  which is written only when SCREENTRAIL_CRASH_REPORTS=1 is set.'
         $crashes = @()
         if ($CrashDir -and (Test-Path -LiteralPath $CrashDir)) {
             $crashes = @(Get-ChildItem -LiteralPath $CrashDir -Filter '*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
@@ -979,7 +979,7 @@ function Add-CloneReport([string]$Repo) {
     Invoke-Section 'The clone' {
         Add-Fact 'Folder' $Repo
         if ($Repo -match '(?i)actions-runner|\\_work\\') {
-            Add-Notice 'The demo is running from the CI runner''s folder. Use your own clone (for example C:\src\ScreenTail): the runner changes its folder under you.'
+            Add-Notice 'The demo is running from the CI runner''s folder. Use your own clone (for example C:\src\ScreenTrail): the runner changes its folder under you.'
         }
         if (-not (Test-Program 'git')) {
             Add-Fact 'git' 'not installed or not on PATH, so the commit is unknown'
@@ -1040,7 +1040,7 @@ if ($FunctionsOnly) { return }
 
 # --- Collecting -----------------------------------------------------------------------------------------
 
-Write-Host 'Writing the ScreenTail demo report. This takes up to a minute and changes nothing.'
+Write-Host 'Writing the ScreenTrail demo report. This takes up to a minute and changes nothing.'
 $now = Get-Date
 
 # The secrets are read first so that the scrub knows their exact values. They are never written.
@@ -1066,7 +1066,7 @@ try {
         }
     }
     foreach ($scope in @('User', 'Machine')) {
-        $known += [string][Environment]::GetEnvironmentVariable('SCREENTAIL_DEVICE_TOKEN', $scope)
+        $known += [string][Environment]::GetEnvironmentVariable('SCREENTRAIL_DEVICE_TOKEN', $scope)
     }
     # Only values of 12 characters or more are looked for by value: keys, tokens and connection strings
     # all are. A short database password (often just "postgres") is left to the name=value rules, because
@@ -1097,7 +1097,7 @@ Invoke-Section 'This machine' {
     $elevation = Get-TokenElevationType
     Add-Fact 'This report''s token elevation type' (Get-ElevationFact $elevation)
     if ((Get-ElevationVerdict $elevation) -eq 'refuse') {
-        Add-Problem 15 'This report ran from a PowerShell window that runs as administrator. ScreenTail''s capture service refuses to run elevated, so start.cmd from a window like this cannot start the demo.' 'Close it, open PowerShell from the Start menu with plain Enter (not Run as administrator), cd to the repository and run start.cmd.'
+        Add-Problem 15 'This report ran from a PowerShell window that runs as administrator. ScreenTrail''s capture service refuses to run elevated, so start.cmd from a window like this cannot start the demo.' 'Close it, open PowerShell from the Start menu with plain Enter (not Run as administrator), cd to the repository and run start.cmd.'
     }
 
     $smart = 'not present on this Windows'
@@ -1159,13 +1159,13 @@ Invoke-Section 'Demo components' {
         }
     }
 
-    foreach ($name in @('ScreenTail.Service', 'ScreenTail.UI')) {
+    foreach ($name in @('ScreenTrail.Service', 'ScreenTrail.UI')) {
         $all = @(Get-Process -Name $name -ErrorAction SilentlyContinue)
         $mine = @($all | Where-Object { $_.Path -and $_.Path.StartsWith($script:DemoAppDir, [StringComparison]::OrdinalIgnoreCase) })
         $other = $all.Count - $mine.Count
         Add-Fact "$name processes" "$($all.Count) running ($($mine.Count) from the demo's folder, $other from elsewhere)"
         if ($other -gt 0) {
-            Add-Notice "A $name that start.cmd did not start is running (an installed ScreenTail, or an earlier run). It can get in the demo's way: quit it from its tray icon."
+            Add-Notice "A $name that start.cmd did not start is running (an installed ScreenTrail, or an earlier run). It can get in the demo's way: quit it from its tray icon."
         }
     }
 
@@ -1286,7 +1286,7 @@ Invoke-Section 'The CI runner (it can take over the screen)' {
     switch (Get-RunnerState) {
         'job' {
             Add-Fact 'GitHub Actions runner' 'running a job right now'
-            Add-Problem 45 'A GitHub Actions job is running on this laptop. Hardware jobs take over the keyboard, mouse and screen, and start and stop ScreenTail themselves.' 'Wait for it to finish (github.com/hiratinspace/ScreenTail/actions), then stop.cmd and start.cmd.'
+            Add-Problem 45 'A GitHub Actions job is running on this laptop. Hardware jobs take over the keyboard, mouse and screen, and start and stop ScreenTrail themselves.' 'Wait for it to finish (github.com/hiratinspace/ScreenTrail/actions), then stop.cmd and start.cmd.'
         }
         'idle' {
             Add-Fact 'GitHub Actions runner' 'on, waiting for a job'
@@ -1402,11 +1402,11 @@ Invoke-Section 'Settings the demo depends on (yes/no or names only)' {
     if ($names.Count -eq 0) { $names = @('none') }
     Add-Fact 'Names of all saved user secrets' ($names -join ', ')
 
-    $pattern = '^(SCREENTAIL_|ASPNETCORE_|DOTNET_ENVIRONMENT$|Summarization__|ConnectionStrings__|Jwt__|Providers__|Vault__|Logging__)'
+    $pattern = '^(SCREENTRAIL_|ASPNETCORE_|DOTNET_ENVIRONMENT$|Summarization__|ConnectionStrings__|Jwt__|Providers__|Vault__|Logging__)'
     foreach ($scope in @('User', 'Machine')) {
         $set = @([Environment]::GetEnvironmentVariables($scope).Keys | Where-Object { $_ -match $pattern } | Sort-Object)
         if ($set.Count -gt 0) { $line = $set -join ', ' } else { $line = 'none' }
-        Add-Fact "ScreenTail-related variables ($scope)" $line
+        Add-Fact "ScreenTrail-related variables ($scope)" $line
     }
 }
 
@@ -1453,17 +1453,17 @@ Invoke-Section 'Device token' {
     }
 
     foreach ($scope in @('User', 'Machine')) {
-        $token = [Environment]::GetEnvironmentVariable('SCREENTAIL_DEVICE_TOKEN', $scope)
+        $token = [Environment]::GetEnvironmentVariable('SCREENTRAIL_DEVICE_TOKEN', $scope)
         if ($token) {
             $expiry = Get-TokenExpiry $token
             if ($expiry) { $when = 'expires ' + $expiry.ToLocalTime().ToString('yyyy-MM-dd HH:mm') } else { $when = 'not a JWT' }
-            Add-Fact "SCREENTAIL_DEVICE_TOKEN ($scope)" "set ($when). The demo overrides it, but other programs see it."
+            Add-Fact "SCREENTRAIL_DEVICE_TOKEN ($scope)" "set ($when). The demo overrides it, but other programs see it."
         }
     }
 }
 
 Invoke-Section 'What Windows lets the capture service do' {
-    $exe = Join-Path $script:DemoAppDir 'ScreenTail.Service.exe'
+    $exe = Join-Path $script:DemoAppDir 'ScreenTrail.Service.exe'
     if (-not (Test-Path -LiteralPath $exe)) {
         Add-Fact 'Capability check' 'not run: the capture service is not published yet (start.cmd publishes it)'
     }
@@ -1489,7 +1489,7 @@ Invoke-Section 'What Windows lets the capture service do' {
         Add-Fact 'OCR language the service will use' $ocr
         Add-Fact 'OCR languages installed' ($languages -join ', ')
         if ($ocr -eq 'none') {
-            Add-Notice 'Windows has no OCR language installed, so ScreenTail cannot read screenshots to find secrets in them. Add one: Settings > Time & language > Language & region > a language > Language options > Optical character recognition.'
+            Add-Notice 'Windows has no OCR language installed, so ScreenTrail cannot read screenshots to find secrets in them. Add one: Settings > Time & language > Language & region > a language > Language options > Optical character recognition.'
         }
     }
     catch {
@@ -1510,15 +1510,15 @@ Invoke-Section 'What Windows lets the capture service do' {
     }
     catch {
         Add-Fact 'UI Automation available' ('no (' + (Get-ExceptionTypeName $_) + ')')
-        Add-Notice 'UI Automation is not available, so ScreenTail cannot tell when a password box has the cursor.'
+        Add-Notice 'UI Automation is not available, so ScreenTrail cannot tell when a password box has the cursor.'
     }
 
     # The speech model, by the name capture.json asks for or the default.
     $sizes = @{ 'tiny.en' = 77704715; 'base.en' = 147964211; 'small.en' = 487614201 }
-    $capture = Read-JsonFile (Join-Path $env:LOCALAPPDATA 'ScreenTail\capture.json')
+    $capture = Read-JsonFile (Join-Path $env:LOCALAPPDATA 'ScreenTrail\capture.json')
     $modelName = 'base.en'
     if ($capture -and $capture -ne 'unreadable' -and $capture.speech_model) { $modelName = [string]$capture.speech_model }
-    $modelPath = Join-Path $env:LOCALAPPDATA ("ScreenTail\models\ggml-$modelName.bin")
+    $modelPath = Join-Path $env:LOCALAPPDATA ("ScreenTrail\models\ggml-$modelName.bin")
     if (Test-Path -LiteralPath $modelPath) {
         $length = (New-Object IO.FileInfo($modelPath)).Length
         if ($sizes.ContainsKey($modelName) -and $length -ne $sizes[$modelName]) {
@@ -1539,7 +1539,7 @@ Invoke-Section 'What Windows lets the capture service do' {
 }
 
 Invoke-Section 'Capture settings and hotkeys' {
-    $dataDir = Join-Path $env:LOCALAPPDATA 'ScreenTail'
+    $dataDir = Join-Path $env:LOCALAPPDATA 'ScreenTrail'
     $capture = Read-JsonFile (Join-Path $dataDir 'capture.json')
     $settings = Read-JsonFile (Join-Path $dataDir 'settings.json')
     $policy = Read-JsonFile (Join-Path $dataDir 'policy.json')
@@ -1594,7 +1594,7 @@ Invoke-Section 'Capture settings and hotkeys' {
         Add-Fact 'Admin policy cached' 'no'
     }
     if ($localMine -or $localPolicy) {
-        Add-Problem 80 'Local-only mode is on, so sessions never go to the backend: notes are drafted on this laptop, plainer, not by the drafting model.' 'Right-click the tray icon > Open ScreenTail > Settings > Privacy, and turn Local-only mode off.'
+        Add-Problem 80 'Local-only mode is on, so sessions never go to the backend: notes are drafted on this laptop, plainer, not by the drafting model.' 'Right-click the tray icon > Open ScreenTrail > Settings > Privacy, and turn Local-only mode off.'
     }
     if ($settings) {
         Add-Fact 'Retention' "$($settings.retention_days) days"
@@ -1607,7 +1607,7 @@ $demoLogs = @(
     @{ Name = 'Capture service'; Path = $script:DemoServiceLog; Rank = 90 },
     @{ Name = 'Backend'; Path = $script:DemoBackendLog; Rank = 92 }
 )
-Add-DemoLogsReport -Logs $demoLogs -OldBackendLog $script:DemoOldBackendLog -CrashDir (Join-Path $env:LOCALAPPDATA 'ScreenTail\crashes') -FilterSource $script:DemoLogWriterSource -FilterHash $script:DemoLogWriterHash
+Add-DemoLogsReport -Logs $demoLogs -OldBackendLog $script:DemoOldBackendLog -CrashDir (Join-Path $env:LOCALAPPDATA 'ScreenTrail\crashes') -FilterSource $script:DemoLogWriterSource -FilterHash $script:DemoLogWriterHash
 
 Add-E2eReport -Folder $script:DemoE2eDir -FilterSource $script:DemoLogWriterSource -FilterHash $script:DemoLogWriterHash
 
@@ -1643,13 +1643,13 @@ if ($script:Notices.Count -gt 0) {
 }
 
 $header = New-Object System.Collections.Generic.List[string]
-$header.Add('ScreenTail demo report')
+$header.Add('ScreenTrail demo report')
 $header.Add('Written ' + $now.ToString('yyyy-MM-dd HH:mm:ss') + ' local time (' + $now.ToUniversalTime().ToString('yyyy-MM-dd HH:mm') + ' UTC) by scripts\windows\demo\report.cmd.')
 $header.Add('Apart from writing this file, it only read things; nothing else on this laptop was changed.')
 $header.Add('')
 $header.Add('What this report is made to leave out: screenshots, OCR text, transcripts, note text, window titles,')
 $header.Add('keys, tokens, passwords and connection strings. Settings appear as yes/no or by name only. It never')
-$header.Add('opens the session store. From the logs it keeps only the lines ScreenTail''s scrubbing logger wrote')
+$header.Add('opens the session store. From the logs it keeps only the lines ScreenTrail''s scrubbing logger wrote')
 $header.Add('(INV-10); any other line a program printed, such as a .NET crash message or a native library''s')
 $header.Add('output, is withheld and shown only as its length. Of any exception, logged or not, only the type and')
 $header.Add('the stack frames are kept, never its message. Lines over 4,000 characters are shown only as their')
@@ -1679,7 +1679,7 @@ $desktop = [Environment]::GetFolderPath('Desktop')
 if (-not $desktop -or -not (Test-Path -LiteralPath $desktop)) { $desktop = Join-Path $env:USERPROFILE 'Desktop' }
 $destination = Get-ReportFolder $desktop
 if (-not (Test-Path -LiteralPath $destination.Folder)) { New-Item -ItemType Directory -Path $destination.Folder -Force | Out-Null }
-$path = Join-Path $destination.Folder ('ScreenTail-report-' + $now.ToString('yyyyMMdd-HHmm') + '.txt')
+$path = Join-Path $destination.Folder ('ScreenTrail-report-' + $now.ToString('yyyyMMdd-HHmm') + '.txt')
 $all = @($header) + @($wrong) + @($script:Body)
 [IO.File]::WriteAllLines($path, [string[]]$all, (New-Object Text.UTF8Encoding $true))
 

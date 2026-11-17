@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
-using ScreenTail.Spike.Core;
+using ScreenTrail.Spike.Core;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 internal sealed record FrameRecord(
     int NativeWidth,

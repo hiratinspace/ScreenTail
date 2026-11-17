@@ -37,7 +37,7 @@ $googleKey = 'AI' + 'za' + (New-Random 35)
 $namedSecret = New-Random 28
 $e2eSecret = $script:E2eSecretFirstWords[2] + ('{0:0000}' -f (Get-Random -Maximum 10000)) + $script:E2eSecretSecondWords[3]
 $email = 'jane.doe' + '@' + 'example' + '.com'
-$userPath = 'C:\Users\' + 'jdoe' + '\AppData\Local\ScreenTail'
+$userPath = 'C:\Users\' + 'jdoe' + '\AppData\Local\ScreenTrail'
 $windowTitle = 'Q3 Payroll Budget.xlsx - Excel'
 $exceptionMessage = 'The process cannot access the file Board Minutes.docx'
 $unhandledMessage = 'Window Salary Review was closed'
@@ -69,7 +69,7 @@ function New-RunFolder([string]$Name) {
     $dir = Join-Path $root $Name
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
     Write-Lines (Join-Path $dir 'e2e.log') @(
-        "ScreenTail end-to-end run (ST-013), $startedText on $computer",
+        "ScreenTrail end-to-end run (ST-013), $startedText on $computer",
         "Backend https://localhost:5071, logs in $userPath, clicks: mark moment over the pipe",
         '',
         "PASS setup-01 windows (0.1 s): waited for Windows PowerShell 5.1. PowerShell 5.1, repository $userPath.",
@@ -82,36 +82,36 @@ function New-RunFolder([string]$Name) {
         "FAIL e2e: 2 step(s) failed, 2 passed. Logs: $userPath"
     )
     # 250 logger lines, so the tail shows the last 200 only.
-    $backend = @(1..250 | ForEach-Object { '12:00:00.000 INFO  ScreenTail.Api.Probe: backend line ' + $_.ToString('0000') })
+    $backend = @(1..250 | ForEach-Object { '12:00:00.000 INFO  ScreenTrail.Api.Probe: backend line ' + $_.ToString('0000') })
     Write-Lines (Join-Path $dir 'backend.out.log') $backend
     Write-Lines (Join-Path $dir 'backend.err.log') @()
     Write-Lines (Join-Path $dir 'service.out.log') @(
-        '12:00:01.000 INFO  ScreenTail.Service.Program: Capture service started',
-        "12:00:02.000 INFO  ScreenTail.Service.Summarize: using key $googleKey",
-        "12:00:03.000 INFO  ScreenTail.Service.Settings: client_secret=$namedSecret",
-        "12:00:04.000 INFO  ScreenTail.Service.Auth: signed in $email",
-        "12:00:05.000 INFO  ScreenTail.Service.Store: data in $userPath",
-        "12:00:06.000 WARN  ScreenTail.Service.Redaction: a value like $e2eSecret",
-        "12:00:06.100 WARN  ScreenTail.Service.Redaction: typed $e2eSeparated end",
-        '12:00:06.200 INFO  ScreenTail.Service.Probe: unscrambled tumbleweed Juniper Networks',
+        '12:00:01.000 INFO  ScreenTrail.Service.Program: Capture service started',
+        "12:00:02.000 INFO  ScreenTrail.Service.Summarize: using key $googleKey",
+        "12:00:03.000 INFO  ScreenTrail.Service.Settings: client_secret=$namedSecret",
+        "12:00:04.000 INFO  ScreenTrail.Service.Auth: signed in $email",
+        "12:00:05.000 INFO  ScreenTrail.Service.Store: data in $userPath",
+        "12:00:06.000 WARN  ScreenTrail.Service.Redaction: a value like $e2eSecret",
+        "12:00:06.100 WARN  ScreenTrail.Service.Redaction: typed $e2eSeparated end",
+        '12:00:06.200 INFO  ScreenTrail.Service.Probe: unscrambled tumbleweed Juniper Networks',
         $windowTitle,
         "[start.ps1] Payroll $startMarker",
-        '12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file',
+        '12:00:07.000 ERROR ScreenTrail.Service.Store: could not open a file',
         "    System.IO.IOException: $exceptionMessage",
-        '    at ScreenTail.Service.Store.Open()',
+        '    at ScreenTrail.Service.Store.Open()',
         "Unhandled exception. System.InvalidOperationException: $unhandledMessage"
     )
     # Not text: a log with a NUL byte in it.
-    $bytes = $utf8.GetBytes("12:00:08.000 INFO  ScreenTail.Service.Probe: $binaryMarker")
+    $bytes = $utf8.GetBytes("12:00:08.000 INFO  ScreenTrail.Service.Probe: $binaryMarker")
     [System.IO.File]::WriteAllBytes((Join-Path $dir 'service.err.log'), [byte[]](@($bytes) + @([byte]0) + @($bytes)))
     # Not a log: never read.
     Write-Lines (Join-Path $dir 'devcert.cer') @("-----BEGIN CERTIFICATE-----", $devcertMarker, "-----END CERTIFICATE-----")
     # Logs the runner does not write: never read, only counted.
-    Write-Lines (Join-Path $dir 'other.log') @("12:00:00.000 INFO  ScreenTail.Probe: $strayMarker")
-    Write-Lines (Join-Path $dir 'backend.1.log') @("12:00:00.000 INFO  ScreenTail.Probe: $olderMarker")
+    Write-Lines (Join-Path $dir 'other.log') @("12:00:00.000 INFO  ScreenTrail.Probe: $strayMarker")
+    Write-Lines (Join-Path $dir 'backend.1.log') @("12:00:00.000 INFO  ScreenTrail.Probe: $olderMarker")
     # From an earlier run: the ui log is older than this run's start.
     $ui = Join-Path $dir 'ui.out.log'
-    Write-Lines $ui @('12:00:09.000 INFO  ScreenTail.UI.App: ui line')
+    Write-Lines $ui @('12:00:09.000 INFO  ScreenTrail.UI.App: ui line')
     [System.IO.File]::SetLastWriteTime($ui, $startedAt.AddDays(-1))
     return $dir
 }
@@ -229,7 +229,7 @@ try {
     $t = $section.Text
 
     Check 'the section runs without an error' ((Has $t '== End-to-end run') -and (HasNot $t 'could not be checked')) $t
-    Check 'a logger line is shown as the logger wrote it' (Has $t '    12:00:01.000 INFO  ScreenTail.Service.Program: Capture service started') $t
+    Check 'a logger line is shown as the logger wrote it' (Has $t '    12:00:01.000 INFO  ScreenTrail.Service.Program: Capture service started') $t
     Check 'the summary line is shown' (Has $t 'FAIL e2e: 2 step(s) failed, 2 passed.') $t
     Check 'the driver''s summary is shown' (Has $t 'FAIL loop: 1 step(s) failed, 1 passed.') $t
     Check 'the failed steps are shown by id and status' ((Has $t '    FAIL setup-05 certificate') -and (Has $t '    FAIL loop-03 test-window')) $t
@@ -242,16 +242,16 @@ try {
     Check 'a secret written as name=value is removed' ((HasNot $t $namedSecret) -and (Has $t 'client_secret=[removed]')) $t
     Check 'the end-to-end run''s secret is removed by its shape' ((HasNot $t $e2eSecret) -and (Has $t 'a value like [e2e secret removed]')) $t
     Check 'an email address is removed' ((HasNot $t $email) -and (Has $t 'signed in [email]')) $t
-    Check 'a user folder path is shown as %USERPROFILE%' ((HasNot $t 'jdoe') -and (Has $t 'data in %USERPROFILE%\AppData\Local\ScreenTail')) $t
-    Check 'a title-like line not from the logger is withheld' ((HasNot $t 'Payroll') -and (Has $t "[line not from ScreenTail's logger withheld, $($windowTitle.Length) chars]")) $t
-    Check 'an exception''s message is withheld, its type and frame kept' ((HasNot $t 'Board Minutes') -and (Has $t '    System.IO.IOException: [message withheld]') -and (Has $t 'at ScreenTail.Service.Store.Open()')) $t
+    Check 'a user folder path is shown as %USERPROFILE%' ((HasNot $t 'jdoe') -and (Has $t 'data in %USERPROFILE%\AppData\Local\ScreenTrail')) $t
+    Check 'a title-like line not from the logger is withheld' ((HasNot $t 'Payroll') -and (Has $t "[line not from ScreenTrail's logger withheld, $($windowTitle.Length) chars]")) $t
+    Check 'an exception''s message is withheld, its type and frame kept' ((HasNot $t 'Board Minutes') -and (Has $t '    System.IO.IOException: [message withheld]') -and (Has $t 'at ScreenTrail.Service.Store.Open()')) $t
     Check 'an unhandled exception keeps only its type' ((HasNot $t 'Salary Review') -and (Has $t 'Unhandled exception. System.InvalidOperationException [message and stack withheld]')) $t
     Check 'the computer name in e2e.log is not shown' (HasNot $t $computer) $t
     Check 'a file that is not a .log is not read, only counted' ((HasNot $t $devcertMarker) -and (HasNot $t 'BEGIN CERTIFICATE') -and ($t -match 'Other files in the folder \(not read\) +3(\n|$)')) $t
     Check 'a log the runner does not write (other.log, backend.1.log) is not read' ((HasNot $t $strayMarker) -and (HasNot $t $olderMarker)) $t
-    Check 'a raw [start.ps1] line from a process is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTail's logger withheld, $(('[start.ps1] Payroll ' + $startMarker).Length) chars]")) $t
+    Check 'a raw [start.ps1] line from a process is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTrail's logger withheld, $(('[start.ps1] Payroll ' + $startMarker).Length) chars]")) $t
     Check 'the e2e secret with separators is removed, digits too' ((HasNot $t $e2eSeparated) -and (Has $t 'typed [e2e secret removed] end')) $t
-    Check 'words that only contain the secret''s words are kept' (Has $t 'ScreenTail.Service.Probe: unscrambled tumbleweed Juniper Networks') $t
+    Check 'words that only contain the secret''s words are kept' (Has $t 'ScreenTrail.Service.Probe: unscrambled tumbleweed Juniper Networks') $t
     Check 'a log that is not text is not read' ((HasNot $t $binaryMarker) -and (Has $t 'service.err.log: not text, so not read')) $t
     Check 'the tail is as long as the demo logs''' ((Has $t 'backend.out.log: 250 lines') -and (Has $t "The last $($script:LogTail):") -and (Has $t 'backend line 0051') -and (HasNot $t 'backend line 0050')) $t
     Check 'an empty log says so' (Has $t 'backend.err.log: empty') $t
@@ -261,7 +261,7 @@ try {
     # --- A log over the size cap is read from its end only ------------------------------------------
     $big = Join-Path $root 'big-run'
     New-Item -ItemType Directory -Force -Path $big | Out-Null
-    $line = '12:00:00.000 INFO  ScreenTail.Service.Probe: ' + ('x' * 60) + ' '
+    $line = '12:00:00.000 INFO  ScreenTrail.Service.Probe: ' + ('x' * 60) + ' '
     $count = [int]([Math]::Ceiling(($script:DemoLogCapBytes + 200000) / ($line.Length + 6)))
     Write-Lines (Join-Path $big 'service.out.log') @(1..$count | ForEach-Object { $line + $_.ToString('000000') })
     $t = (Get-Section $big).Text
@@ -302,15 +302,15 @@ try {
     $locked = Join-Path $root 'locked-run'
     New-Item -ItemType Directory -Force -Path $locked | Out-Null
     $lockedLog = Join-Path $locked 'service.out.log'
-    Write-Lines $lockedLog @('12:00:00.000 INFO  ScreenTail.Service.Program: locked line')
+    Write-Lines $lockedLog @('12:00:00.000 INFO  ScreenTrail.Service.Program: locked line')
     $hold = New-Object System.IO.FileStream($lockedLog, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::None)
     try { $t = (Get-Section $locked).Text } finally { $hold.Dispose() }
     Check 'a log that cannot be opened says so in a fixed sentence' ((Has $t 'service.out.log: could not be read') -and (HasNot $t 'locked line') -and (HasNot $t 'being used by another process') -and (HasNot $t 'could not be checked:')) $t
 
     # --- A program's output read directly (the capability check) ------------------------------------
-    $output = "[start.ps1] Payroll $startMarker`r`nUnhandled exception. System.Exception: $unhandledMessage`n12:00:00.000 INFO  ScreenTail.Service.Program: capabilities checked"
+    $output = "[start.ps1] Payroll $startMarker`r`nUnhandled exception. System.Exception: $unhandledMessage`n12:00:00.000 INFO  ScreenTrail.Service.Program: capabilities checked"
     $t = @(Select-ProgramOutputLines $output) -join "`n"
-    Check 'a program''s raw [start.ps1] line is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTail's logger withheld,")) $t
+    Check 'a program''s raw [start.ps1] line is withheld' ((HasNot $t $startMarker) -and (Has $t "[line not from ScreenTrail's logger withheld,")) $t
     Check 'a program''s output keeps logger lines and an exception''s type only' ((Has $t 'capabilities checked') -and (HasNot $t 'Salary Review') -and (Has $t 'Unhandled exception. System.Exception [message and stack withheld]')) $t
     $weakHash = Get-DemoLogWriterHash $weak
     $t = @(Select-ProgramOutputLines -Text $output -FilterSource $weak -FilterHash $weakHash) -join "`n"
@@ -349,7 +349,7 @@ try {
     $capMarker = 'CAPMARK-' + [guid]::NewGuid().ToString('N')
     $checks = @(
         [ordered]@{ capability = 'desktop_session'; state = 'ok'; message = 'Desktop session is available.' },
-        [ordered]@{ capability = 'screen_capture'; state = 'unknown'; message = "ScreenTail couldn't check this. $capMarker"; fix_hint = "Access to the path '$madePath' is denied. $capMarker" },
+        [ordered]@{ capability = 'screen_capture'; state = 'unknown'; message = "ScreenTrail couldn't check this. $capMarker"; fix_hint = "Access to the path '$madePath' is denied. $capMarker" },
         [ordered]@{ capability = 'input_hooks'; state = 'surprising'; message = "A state nobody knows $capMarker"; fix_hint = "Hint $capMarker" },
         [ordered]@{ capability = "Payroll $capMarker"; state = 'blocked'; message = 'Microphone is blocked by Windows privacy settings.'; fix_hint = 'Allow desktop apps to use your microphone, then start the session again.' }
     )
@@ -357,7 +357,7 @@ try {
     Reset-Report
     Add-CapabilityReport -Out ("Probing...`n" + $blockedJson) -Err '' -ExitCode 1
     $t = Get-ReportText
-    $withheld = 'unknown\. ScreenTail couldn''t check this \(reason withheld\)\.'
+    $withheld = 'unknown\. ScreenTrail couldn''t check this \(reason withheld\)\.'
     Check 'an unknown check shows a fixed sentence, not its message or fix_hint' (($t -cmatch "screen_capture +$withheld") -and (HasNot $t $capMarker) -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
     Check 'a check in a state the report does not know is shown as unknown' (($t -cmatch "input_hooks +$withheld") -and (HasNot $t 'A state nobody knows')) $t
     Check 'a capability''s name that is not the service''s is not shown' ((Has $t 'a capability') -and (HasNot $t 'Payroll')) $t
@@ -369,7 +369,7 @@ try {
         $problemText = [string]$topProblems[0].Text
         $problemFix = [string]$topProblems[0].Fix
     }
-    Check 'the problem at the top names the unknown check with the fixed sentence and no fix_hint' (($topProblems.Count -eq 1) -and (Has $problemText 'screen_capture: ScreenTail couldn''t check this (reason withheld).') -and (Has $problemFix 'See "What Windows lets the capture service do" below.')) "$($topProblems.Count) problem(s): $problemText | $problemFix"
+    Check 'the problem at the top names the unknown check with the fixed sentence and no fix_hint' (($topProblems.Count -eq 1) -and (Has $problemText 'screen_capture: ScreenTrail couldn''t check this (reason withheld).') -and (Has $problemFix 'See "What Windows lets the capture service do" below.')) "$($topProblems.Count) problem(s): $problemText | $problemFix"
 
     # The same checks, the fourth now ok, and capture allowed: what is wrong goes into the notices.
     $capable = @($checks[0], $checks[1], $checks[2], [ordered]@{ capability = 'microphone'; state = 'ok'; message = 'Microphone is available.' })
@@ -377,7 +377,7 @@ try {
     Reset-Report
     Add-CapabilityReport -Out $capableJson -Err '' -ExitCode 0
     $t = Get-ReportText
-    Check 'a notice about an unknown check carries the fixed sentence only' ((Has $t 'screen_capture is unknown: ScreenTail couldn''t check this (reason withheld).') -and (HasNot $t $capMarker) -and (HasNot $t $client) -and (@($script:Problems | ForEach-Object { $_ }).Count -eq 0)) $t
+    Check 'a notice about an unknown check carries the fixed sentence only' ((Has $t 'screen_capture is unknown: ScreenTrail couldn''t check this (reason withheld).') -and (HasNot $t $capMarker) -and (HasNot $t $client) -and (@($script:Problems | ForEach-Object { $_ }).Count -eq 0)) $t
 
     # --- The .NET SDK and clone sections never show git's or dotnet's error output ---------------------
     $nativeMarker = 'NATIVEMARK' + [guid]::NewGuid().ToString('N')
@@ -463,7 +463,7 @@ try {
     $logsDir = Join-Path $root 'demo-logs'
     New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
     Write-Lines (Join-Path $logsDir 'service.log') @(
-        '12:00:01.000 INFO  ScreenTail.Service.Program: demo service started',
+        '12:00:01.000 INFO  ScreenTrail.Service.Program: demo service started',
         $windowTitle,
         '[start.ps1] The capture service has stopped (exit code 3).',
         "[start.ps1] The capture service could not run: $thrownMessage",
@@ -471,12 +471,12 @@ try {
         "[start.ps1] The capture service could not run (System.ComponentModel.Win32Exception): $thrownMessage",
         "[start.ps1] The capture service has stopped (could not run (System.ComponentModel.Win32Exception): $thrownMessage).",
         "[start.ps1] Payroll $startMarker",
-        '12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file',
+        '12:00:07.000 ERROR ScreenTrail.Service.Store: could not open a file',
         "    System.IO.IOException: $exceptionMessage",
-        '    at ScreenTail.Service.Store.Open()'
+        '    at ScreenTrail.Service.Store.Open()'
     )
     Write-Lines (Join-Path $logsDir 'backend.log') @(
-        '12:00:02.000 INFO  ScreenTail.Api.Program: demo backend started',
+        '12:00:02.000 INFO  ScreenTrail.Api.Program: demo backend started',
         "[start.ps1] The backend could not run: $thrownMessage"
     )
     # A crash report as CrashReport.cs writes one, with lines planted where a message could be.
@@ -484,13 +484,13 @@ try {
     $crashDir = Join-Path $logsDir 'crashes'
     New-Item -ItemType Directory -Force -Path $crashDir | Out-Null
     Write-Lines (Join-Path $crashDir '20261029-100000-1234.txt') @(
-        "ScreenTail.UI 1.0.0 $crashMarker",
+        "ScreenTrail.UI 1.0.0 $crashMarker",
         '2026-10-29T10:00:00.0000000+00:00',
         'Microsoft Windows NT 10.0.22631.0 .NET 10.0.0',
         '',
         'System.InvalidOperationException',
-        '  at ScreenTail.UI.App.OnStartup:42',
-        '  at ScreenTail.UI.App+<>c.<Run>b__1_0',
+        '  at ScreenTrail.UI.App.OnStartup:42',
+        '  at ScreenTrail.UI.App+<>c.<Run>b__1_0',
         'caused by',
         "System.IO.IOException: The file $madePath is locked $crashMarker",
         "  at Open file D:\$crashMarker\Payroll.docx",
@@ -504,23 +504,23 @@ try {
     $t = (Get-LogsSection $logsDir).Text
     $crashRemoved = Get-RemovedCount 'crash report lines, or text after a type, that are not a type or a frame'
     $startRemoved = Get-RemovedCount 'reasons in start.cmd''s own log lines (an error''s message)'
-    Check 'the demo logs section runs through the checked filter' ((Has $t '== Logs') -and (Has $t '    12:00:01.000 INFO  ScreenTail.Service.Program: demo service started') -and (Has $t 'demo backend started') -and (HasNot $t 'could not be checked') -and (HasNot $t 'could not be completed')) $t
-    Check 'a demo log''s title-like line is withheld' ((HasNot $t 'Payroll') -and (Has $t "[line not from ScreenTail's logger withheld, $($windowTitle.Length) chars]")) $t
+    Check 'the demo logs section runs through the checked filter' ((Has $t '== Logs') -and (Has $t '    12:00:01.000 INFO  ScreenTrail.Service.Program: demo service started') -and (Has $t 'demo backend started') -and (HasNot $t 'could not be checked') -and (HasNot $t 'could not be completed')) $t
+    Check 'a demo log''s title-like line is withheld' ((HasNot $t 'Payroll') -and (Has $t "[line not from ScreenTrail's logger withheld, $($windowTitle.Length) chars]")) $t
     Check 'a demo log''s exception message is withheld, its type kept' ((HasNot $t 'Board Minutes') -and (Has $t '    System.IO.IOException: [message withheld]')) $t
     Check 'start''s exit code line is kept as it is' (Has $t '    [start.ps1] The capture service has stopped (exit code 3).') $t
     Check 'start''s lines with an error message keep only that there was one' ((Has $t '[start.ps1] The capture service could not run [reason withheld]') -and (Has $t '[start.ps1] The capture service has stopped [reason withheld]') -and (Has $t '[start.ps1] The backend could not run [reason withheld]') -and (HasNot $t $client) -and (HasNot $t 'denied')) $t
     Check 'any other [start.ps1] line in a demo log is withheld' (HasNot $t $startMarker) $t
     Check 'start''s lines with a type keep the type, not the message' ((Has $t '[start.ps1] The capture service could not run (System.ComponentModel.Win32Exception) [reason withheld]') -and (Has $t '[start.ps1] The capture service has stopped (could not run (System.ComponentModel.Win32Exception)) [reason withheld]') -and (HasNot $t $client)) $t
     Check 'the reasons withheld from start''s lines are counted for the top of the report' ($startRemoved -eq 5) "counted $startRemoved"
-    Check 'a crash report keeps its types and frames' ((Has $t '    System.InvalidOperationException') -and (Has $t '      at ScreenTail.UI.App.OnStartup:42') -and (Has $t '      at ScreenTail.UI.App+<>c.<Run>b__1_0') -and (Has $t '    caused by') -and (Has $t '    System.IO.IOException')) $t
+    Check 'a crash report keeps its types and frames' ((Has $t '    System.InvalidOperationException') -and (Has $t '      at ScreenTrail.UI.App.OnStartup:42') -and (Has $t '      at ScreenTrail.UI.App+<>c.<Run>b__1_0') -and (Has $t '    caused by') -and (Has $t '    System.IO.IOException')) $t
     Check 'a crash report''s message, odd frames and other lines are left out' ((HasNot $t $crashMarker) -and (HasNot $t 'is locked') -and (HasNot $t 'Payroll') -and (HasNot $t 'Windows NT') -and (Has $t '      at [frame withheld]') -and ($crashRemoved -eq 11)) "counted $crashRemoved`n$t"
     Check 'a dotted name that is not an exception type is not kept as one' ((HasNot $t 'Budget') -and (HasNot $t 'acme.example') -and (HasNot $t 'jane.doe')) $t
     $withheldFrames = @(($t -split "`n") | Where-Object { $_ -ceq '      at [frame withheld]' }).Count
     Check 'a frame without a type and a method is withheld' ($withheldFrames -eq 2) "$withheldFrames withheld frame(s)`n$t"
-    $crashOnly = @(Select-CrashReportLines @('System.IO.IOException: x', 'Payroll.Budget.xlsx', 'ScreenTail.Store+LockedError', '  at ScreenTail.Store.Store..ctor:7', '  at Payroll.Budget', '  at ScreenTail.Store.save'))
+    $crashOnly = @(Select-CrashReportLines @('System.IO.IOException: x', 'Payroll.Budget.xlsx', 'ScreenTrail.Store+LockedError', '  at ScreenTrail.Store.Store..ctor:7', '  at Payroll.Budget', '  at ScreenTrail.Store.save'))
     $crashText = $crashOnly -join "`n"
-    Check 'the crash type and frame rules on their own' (($crashText -ceq "System.IO.IOException`nScreenTail.Store+LockedError`n  at ScreenTail.Store.Store..ctor:7`n  at [frame withheld]`n  at [frame withheld]")) $crashText
-    Check 'an error the log has still reaches the top' (Has $t 'The capture service logged 1 error(s). The first: 12:00:07.000 ERROR ScreenTail.Service.Store: could not open a file') $t
+    Check 'the crash type and frame rules on their own' (($crashText -ceq "System.IO.IOException`nScreenTrail.Store+LockedError`n  at ScreenTrail.Store.Store..ctor:7`n  at [frame withheld]`n  at [frame withheld]")) $crashText
+    Check 'an error the log has still reaches the top' (Has $t 'The capture service logged 1 error(s). The first: 12:00:07.000 ERROR ScreenTrail.Service.Store: could not open a file') $t
 
     $t = (Get-LogsSection $logsDir -Source $weak -Hash $weakHash).Text
     Check 'the demo logs section refuses a filter that keeps everything' ((Has $t 'The log filter could not be checked, so no log is shown.') -and (HasNot $t 'demo service started') -and (HasNot $t 'Payroll') -and (HasNot $t $client) -and (HasNot $t 'logged 1 error')) $t

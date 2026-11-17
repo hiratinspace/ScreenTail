@@ -1,4 +1,4 @@
-# ScreenTail: Engineering Backlog v0.4 (agent-executable)
+# ScreenTrail: Engineering Backlog v0.4 (agent-executable)
 
 **Read first:** `00-Build-Agent-Guide.md` (invariants INV-1…INV-12, conventions) and `01-UX-Design-Spec.md` (referenced below as **Spec §x**).
 **Format:** every ticket has an ID, epic, priority, estimate, dependencies by ID, acceptance criteria, and an *Agent brief* (Read / Write / Verify).
@@ -78,14 +78,14 @@ Repository layout per Guide §2, with analyzers, formatting, unit tests, Windows
 - ⛓️ **Blocked By:** ST-001
 
 **Acceptance Criteria:**
-- [ ] Schema validates fixtures; codegen produces C# (`ScreenTail.Shared`) and TS (`/web/src/generated`) in CI
+- [ ] Schema validates fixtures; codegen produces C# (`ScreenTrail.Shared`) and TS (`/web/src/generated`) in CI
 - [ ] Every event/frame carries monotonic `ts_ms`; frames carry `redaction_pending`, `redacted_at`, `masked_regions[]`, `sensitive_context`
 - [ ] Transcript segments carry `speaker` (`tech`; `end_user` reserved); draft steps carry `confidence`, `frame_refs[]`
 
 **Agent brief**
 - Read: Guide §3 (INV-1, INV-2), Spec §5 S3 (fields the Review needs)
-- Write: `/shared/schema/session.v1.json`, codegen config, `/client/ScreenTail.Shared/Generated`, `/web/src/generated`
-- Verify: `npm run codegen && dotnet build`; schema tests in `ScreenTail.Tests/Schema`
+- Write: `/shared/schema/session.v1.json`, codegen config, `/client/ScreenTrail.Shared/Generated`, `/web/src/generated`
+- Verify: `npm run codegen && dotnet build`; schema tests in `ScreenTrail.Tests/Schema`
 ---
 
 ---
@@ -110,8 +110,8 @@ Per-user background capture service and separate WPF UI process connected by a n
 
 **Agent brief**
 - Read: Guide §5 (IPC), INV-4
-- Write: `/client/ScreenTail.Service/Host/*`, `/client/ScreenTail.Shared/Ipc/*`, `/client/ScreenTail.UI/Ipc/*`, `/docs/ipc-contract.md`
-- Verify: `ScreenTail.Tests/Ipc/*` (auth rejection, reattach), manual kill/restart demo
+- Write: `/client/ScreenTrail.Service/Host/*`, `/client/ScreenTrail.Shared/Ipc/*`, `/client/ScreenTrail.UI/Ipc/*`, `/docs/ipc-contract.md`
+- Verify: `ScreenTrail.Tests/Ipc/*` (auth rejection, reattach), manual kill/restart demo
 ---
 
 ---
@@ -136,8 +136,8 @@ SQLite + SQLCipher keyed via DPAPI (user scope). Frames written encrypted with `
 
 **Agent brief**
 - Read: INV-1, INV-12; Spec §5 S3 banners ("Frames purged")
-- Write: `/client/ScreenTail.Service/Store/*`, `/client/ScreenTail.Service/Migrations/*.sql`
-- Verify: `ScreenTail.Tests/Store/*` including `PendingFramesNeverReadable` and `DifferentUserCannotDecrypt`
+- Write: `/client/ScreenTrail.Service/Store/*`, `/client/ScreenTrail.Service/Migrations/*.sql`
+- Verify: `ScreenTrail.Tests/Store/*` including `PendingFramesNeverReadable` and `DifferentUserCannotDecrypt`
 ---
 
 ---
@@ -170,7 +170,7 @@ Five schema-valid bundles assembled from staged VM screenshots, written transcri
 - **Epic/Feature:** INFRA
 - **Priority:** Urgent
 - **Estimate:** 3
-- **Status:** **Partial 2026-11-01: a host-agnostic deployment is built and smoke-tested; no host is chosen.** `deploy/` runs the API, PostgreSQL and the web admin on any Linux host with Docker, from one HTTPS origin: Caddy (automatic HTTPS) serves the built page with the headers generated from `web/security-headers.ts` and forwards only `/v1` and `/health`, setting `X-Forwarded-For` itself and listed by its fixed address in `ForwardedHeaders:KnownProxies`. Secrets are Docker secret files (`SCREENTAIL_SECRETS_DIR`, `make-secrets.sh`); every container is non-root, read-only and capability-free; Postgres is on an internal network with no host port; the API connects as a rows-only role; migrations are an explicit one-shot `migrate` service (`--migrate`); images are pinned by digest. `deploy/smoke.sh` builds and checks the whole stack in the Backend job of CI. The guide is `docs/dev/deploy.md`. **Still open, needing the owner:** the host and the name, the mail provider, and the ticket's cloud half (Terraform, managed Postgres, a KMS, the release-feed bucket, staging and a deploy with manual approval, the cost estimate). No longer blocks ST-008 (Part D, D-2). When the cloud is chosen, add its platform addresses that sit in public ranges (metadata, DNS, health probes) to `PublicNetwork.NotPublicV4`, so provider calls cannot reach them.
+- **Status:** **Partial 2026-11-01: a host-agnostic deployment is built and smoke-tested; no host is chosen.** `deploy/` runs the API, PostgreSQL and the web admin on any Linux host with Docker, from one HTTPS origin: Caddy (automatic HTTPS) serves the built page with the headers generated from `web/security-headers.ts` and forwards only `/v1` and `/health`, setting `X-Forwarded-For` itself and listed by its fixed address in `ForwardedHeaders:KnownProxies`. Secrets are Docker secret files (`SCREENTRAIL_SECRETS_DIR`, `make-secrets.sh`); every container is non-root, read-only and capability-free; Postgres is on an internal network with no host port; the API connects as a rows-only role; migrations are an explicit one-shot `migrate` service (`--migrate`); images are pinned by digest. `deploy/smoke.sh` builds and checks the whole stack in the Backend job of CI. The guide is `docs/dev/deploy.md`. **Still open, needing the owner:** the host and the name, the mail provider, and the ticket's cloud half (Terraform, managed Postgres, a KMS, the release-feed bucket, staging and a deploy with manual approval, the cost estimate). No longer blocks ST-008 (Part D, D-2). When the cloud is chosen, add its platform addresses that sit in public ranges (metadata, DNS, health probes) to `PublicNetwork.NotPublicV4`, so provider calls cannot reach them.
 
 **Description:**
 Terraform for staging/production: API hosting, managed Postgres, KMS, secrets manager, TLS, release-feed bucket. No object storage for frames (INV-7).
@@ -262,7 +262,7 @@ Owner signup (email/password or Microsoft SSO), invites, device activation by co
 
 **Agent brief**
 - Read: Spec §5 S9 (web copy), Spec §5 S8 step 2
-- Write: `/backend/src/Tenancy/*`, `/backend/src/Licensing/*`, client licence check in `/client/ScreenTail.Service/Licensing/*`
+- Write: `/backend/src/Tenancy/*`, `/backend/src/Licensing/*`, client licence check in `/client/ScreenTrail.Service/Licensing/*`
 - Verify: `backend/tests/Tenancy/*`, client test `OfflineGraceKeepsCapturing`
 ---
 
@@ -271,7 +271,7 @@ Owner signup (email/password or Microsoft SSO), invites, device activation by co
 - **Epic/Feature:** INFRA
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** **Done 2026-09-25.** One scrubbing log sink per process in place of the framework's providers (service, UI, backend): a value under a content-carrying key is `[redacted]`, paths are `[path]`, addresses `[email]`, exceptions written with type, scrubbed message and scrubbed trace (AC1); a source scan fails the build on a log template whose placeholder would carry content. A crash writes a stack-only report (types and frames, never the message) to `%LOCALAPPDATA%\ScreenTail\crashes\` when `SCREENTAIL_CRASH_REPORTS=1`, and nothing otherwise (AC2; sending is ST-098's). `SCREENTAIL_LOG_LEVEL` sets the level, Information by default (AC3). The scrubber is duplicated on the backend by hand, the way the wire contracts are. 2026-10-14 (review 2026-10-12, S-67, S-152): the backend also redacts the framework's `QueryString` and `Uri` values, so a request line or a PSA call no longer carries search text, a tenant's site or a ticket id; the HTTPS redirect's target is redacted too, and the backend now builds each line from its template, so a sensitive value is never written whatever it overlaps or however it is formatted. A request Kestrel refuses is logged without the line or header it quotes. `RequestLoggingTests` pins that in Development and Production and over Kestrel, and that the scrubbing provider is the only sink in both.
+- **Status:** **Done 2026-09-25.** One scrubbing log sink per process in place of the framework's providers (service, UI, backend): a value under a content-carrying key is `[redacted]`, paths are `[path]`, addresses `[email]`, exceptions written with type, scrubbed message and scrubbed trace (AC1); a source scan fails the build on a log template whose placeholder would carry content. A crash writes a stack-only report (types and frames, never the message) to `%LOCALAPPDATA%\ScreenTrail\crashes\` when `SCREENTRAIL_CRASH_REPORTS=1`, and nothing otherwise (AC2; sending is ST-098's). `SCREENTRAIL_LOG_LEVEL` sets the level, Information by default (AC3). The scrubber is duplicated on the backend by hand, the way the wire contracts are. 2026-10-14 (review 2026-10-12, S-67, S-152): the backend also redacts the framework's `QueryString` and `Uri` values, so a request line or a PSA call no longer carries search text, a tenant's site or a ticket id; the HTTPS redirect's target is redacted too, and the backend now builds each line from its template, so a sensitive value is never written whatever it overlaps or however it is formatted. A request Kestrel refuses is logged without the line or header it quotes. `RequestLoggingTests` pins that in Development and Production and over Kestrel, and that the scrubbing provider is the only sink in both.
 
 **Description:**
 Structured logs across service, UI, backend with a scrubber removing paths, window titles, transcript/OCR/note text; opt-in crash reports (stack traces only).
@@ -287,8 +287,8 @@ Structured logs across service, UI, backend with a scrubber removing paths, wind
 
 **Agent brief**
 - Read: INV-10
-- Write: `/client/ScreenTail.Shared/Logging/*`, `/backend/src/Logging/*`
-- Verify: `ScreenTail.Tests/Logging/ScrubberTests`
+- Write: `/client/ScreenTrail.Shared/Logging/*`, `/backend/src/Logging/*`
+- Verify: `ScreenTrail.Tests/Logging/ScrubberTests`
 ---
 
 ---
@@ -312,7 +312,7 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
 
 **Agent brief**
 - Read: Guide §3 all invariants
-- Write: `/docs/security/threat-model.md`, integrity check in `/client/ScreenTail.UI/Ipc/*`
+- Write: `/docs/security/threat-model.md`, integrity check in `/client/ScreenTrail.UI/Ipc/*`
 - Verify: `netstat` proof in PR; `IntegrityCheckTests`
 ---
 
@@ -322,7 +322,7 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
 - **Priority:** High
 - **Estimate:** 3
 - **Status:** **Partial, 2026-10-28.** The loop harness is built and green on the hosted Windows VM:
-  `scripts/windows/e2e/run-e2e.ps1` with the driver `client/ScreenTail.E2E` runs PostgreSQL, the backend
+  `scripts/windows/e2e/run-e2e.ps1` with the driver `client/ScreenTrail.E2E` runs PostgreSQL, the backend
   (Development, demo PSA, the new Development-only scripted drafting provider), a development device, the
   capture service and the UI, and takes one session from the pill's indicator report to the note on demo
   ticket #48213, checking the stored frames are redacted, the PSA received the masked note, the audit rows
@@ -330,10 +330,10 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
   job is report-only until it has passed twice in a row on main; the laptop's input job runs it with real
   hotkeys and clicks, report-only too. Its first runs found three product bugs, fixed with regression tests:
   a queued draft reported as failed and never reaching draft_ready, the "Draft ready" notification's
-  missing title, and `SCREENTAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
+  missing title, and `SCREENTRAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
   replay with its event-count and redaction-count criteria (needs ST-030's sessions), CPU, RAM and disk per
   run, and the nightly schedule with a team-channel notification. Also owed: a passing laptop run with real
-  hotkeys and clicks (its first stopped at setup because a ScreenTail UI was already running), and making
+  hotkeys and clicks (its first stopped at setup because a ScreenTrail UI was already running), and making
   the CI job a required check. On `main` that job failed once, at `20d2471` (run 42524521759, 2026-11-08), at `loop-13 frame-text`: a
   real leak in on-screen redaction, which the harness had caught now and then and #268 fixed (ST-042). It
   has passed on the four runs since, up to 42717653493 on 2026-11-09, the last of them with the fix, so
@@ -381,7 +381,7 @@ Make hardware evidence count. Today 18 of 46 hardware facts always skip on the h
 
 **Agent brief**
 - Read: `docs/review/weaknesses.md` P1-4; `docs/dev/windows-test-loop.md`; `.github/workflows/hardware-checks.yml`, `ci.yml`
-- Write: `.github/workflows/*`, `client/ScreenTail.Tests.Windows/Support/*`, `docs/dev/windows-test-loop.md`
+- Write: `.github/workflows/*`, `client/ScreenTrail.Tests.Windows/Support/*`, `docs/dev/windows-test-loop.md`
 - Verify: one PR that skips on purpose goes red; the baseline PR goes green with the count in the summary
 ---
 
@@ -442,7 +442,7 @@ Pixel-level Review (Spec §5 S3) in both themes; clickable prototype covering �
 - **Epic/Feature:** DESIGN
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Done 2026-09-12. **Restyled 2026-10-29 (#228)** with no change in behaviour: tokens v0.5.0 (layered neutral surfaces, a Fluent blue accent, Segoe UI Variable, six new state tints held to the same contrast tests) and every control and screen redrawn to a Windows 11 look, rendered by CI in both themes and high contrast. **2026-11-11 (#281):** a Mac test holds every keyed style to its TargetType across the views, and inputs are outlined in a new `border.control` token held to 3:1 (WCAG 1.4.11) with the other control edges (spec v0.5.4). The two dialogs (Shell/ConfirmWindow, Review/ConfirmTypedDialog) did the same job; they are one dialog since spec v0.6.11. **Render harness widened 2026-11-11 (#282):** high contrast is now rendered as Windows Night sky (`hcblack`) and Desert (`hcwhite`) from palettes held to Windows' own theme files rather than the runner's system colours; CI also renders every Settings section at full height, keyboard focus on a button, input, check box and list row, Review, History and Settings at 150%, both typed-confirmation dialogs in all four themes, the expanded pill and the enlarged frame, with an `index.html` in the artifact. **Settings to the Outbox design 2026-11-12 (spec v0.6.3):** a section nav beside one scrolling page and one Save bar for the whole page (owner decision); Save writes each changed section through its own save path and keeps a failing section's changes pending while the others commit (`SettingsPageTests`); the harness renders every section with changes pending and the bar after a failed save, in all four themes; not yet seen on a real screen. Still owed: the owner accepting spec amendment v0.5.0, the brand colour and logo (the blue and the text wordmark are placeholders), and a look on Windows at what no render shows: dropdowns, tool tips, hover and pressed states and a Narrator pass. **2026-11-12:** a Mac ratchet (`ScreenTail.Tests/Theme/XamlLiteralRatchetTests`) fails when a view gains a literal colour, an off-scale margin or padding, a literal radius or font size, a border over 1 px, or a width or height that a `Layout.*` or `Icon.*` token spells; the 206 literals on main are in a checked-in baseline that only shrinks. Still owed: the owner accepting spec amendment v0.5.0, the brand colour and logo (the blue and the text wordmark are placeholders), and a look on Windows at what no render shows: dropdowns, tool tips, hover and pressed states and a Narrator pass. **2026-11-12 (Outbox inbox rail):** the workspace frame (the rail on `shell.bg` headed by the status chip in the frame's colours, the session pane on `bg.base`, no title band inside the window) and S4's inbox rail are built (spec v0.6.4), with the `layout.rail-width` token, a 3 px `shell.accent` focus ring on the frame, and renders of the rail populated, empty, with no search match, with a Not confirmed session open, at 150%, and of All sessions with Bulk discard held while capturing. **2026-11-12 (spec v0.6.11):** the diagnostics panel, the confirm dialogs and the shortcut sheet are on the Outbox tokens: every question the client asks (Discard, bulk discard, Delete everything, Mark as published, Quit while capturing, a refused tray discard) goes through one dialog whose buttons say what happens, never OK; Remove on an integration asks first, inline on its card; the panel shows its state with a glyph and the Local-only badge; the sheet draws keys as key caps. Rendered in all four themes and at 150%, with the mouse taken off the shell first; awaiting owner review.
+- **Status:** Done 2026-09-12. **Restyled 2026-10-29 (#228)** with no change in behaviour: tokens v0.5.0 (layered neutral surfaces, a Fluent blue accent, Segoe UI Variable, six new state tints held to the same contrast tests) and every control and screen redrawn to a Windows 11 look, rendered by CI in both themes and high contrast. **2026-11-11 (#281):** a Mac test holds every keyed style to its TargetType across the views, and inputs are outlined in a new `border.control` token held to 3:1 (WCAG 1.4.11) with the other control edges (spec v0.5.4). The two dialogs (Shell/ConfirmWindow, Review/ConfirmTypedDialog) did the same job; they are one dialog since spec v0.6.11. **Render harness widened 2026-11-11 (#282):** high contrast is now rendered as Windows Night sky (`hcblack`) and Desert (`hcwhite`) from palettes held to Windows' own theme files rather than the runner's system colours; CI also renders every Settings section at full height, keyboard focus on a button, input, check box and list row, Review, History and Settings at 150%, both typed-confirmation dialogs in all four themes, the expanded pill and the enlarged frame, with an `index.html` in the artifact. **Settings to the Outbox design 2026-11-12 (spec v0.6.3):** a section nav beside one scrolling page and one Save bar for the whole page (owner decision); Save writes each changed section through its own save path and keeps a failing section's changes pending while the others commit (`SettingsPageTests`); the harness renders every section with changes pending and the bar after a failed save, in all four themes; not yet seen on a real screen. Still owed: the owner accepting spec amendment v0.5.0, the brand colour and logo (the blue and the text wordmark are placeholders), and a look on Windows at what no render shows: dropdowns, tool tips, hover and pressed states and a Narrator pass. **2026-11-12:** a Mac ratchet (`ScreenTrail.Tests/Theme/XamlLiteralRatchetTests`) fails when a view gains a literal colour, an off-scale margin or padding, a literal radius or font size, a border over 1 px, or a width or height that a `Layout.*` or `Icon.*` token spells; the 206 literals on main are in a checked-in baseline that only shrinks. Still owed: the owner accepting spec amendment v0.5.0, the brand colour and logo (the blue and the text wordmark are placeholders), and a look on Windows at what no render shows: dropdowns, tool tips, hover and pressed states and a Narrator pass. **2026-11-12 (Outbox inbox rail):** the workspace frame (the rail on `shell.bg` headed by the status chip in the frame's colours, the session pane on `bg.base`, no title band inside the window) and S4's inbox rail are built (spec v0.6.4), with the `layout.rail-width` token, a 3 px `shell.accent` focus ring on the frame, and renders of the rail populated, empty, with no search match, with a Not confirmed session open, at 150%, and of All sessions with Bulk discard held while capturing. **2026-11-12 (spec v0.6.11):** the diagnostics panel, the confirm dialogs and the shortcut sheet are on the Outbox tokens: every question the client asks (Discard, bulk discard, Delete everything, Mark as published, Quit while capturing, a refused tray discard) goes through one dialog whose buttons say what happens, never OK; Remove on an integration asks first, inline on its card; the panel shows its state with a glyph and the Local-only badge; the sheet draws keys as key caps. Rendered in all four themes and at 150%, with the mouse taken off the shell first; awaiting owner review.
 
 **Description:**
 Implement Spec §2 tokens as `/shared/design/tokens.json` consumed by WPF resource dictionaries and web CSS variables; base components from Spec §3 with a gallery window.
@@ -458,8 +458,8 @@ Implement Spec §2 tokens as `/shared/design/tokens.json` consumed by WPF resour
 
 **Agent brief**
 - Read: Spec §2, §3, §7
-- Write: `/shared/design/tokens.json`, `/client/ScreenTail.UI/Theme/*`, `/client/ScreenTail.UI/Controls/*`, `/client/ScreenTail.UI/Gallery/*`
-- Verify: `ScreenTail.Tests/Theme/ContrastTests`; gallery screenshots both themes
+- Write: `/shared/design/tokens.json`, `/client/ScreenTrail.UI/Theme/*`, `/client/ScreenTrail.UI/Controls/*`, `/client/ScreenTrail.UI/Gallery/*`
+- Verify: `ScreenTrail.Tests/Theme/ContrastTests`; gallery screenshots both themes
 ---
 
 ---
@@ -511,8 +511,8 @@ Moderated sessions on the prototype measuring time-to-publish, errors and confus
 
 **Agent brief**
 - Read: INV-4, INV-6; Spec §5 S1/S2 state names
-- Write: `/client/ScreenTail.Service/Session/*`
-- Verify: `ScreenTail.Tests/Session/StateMachineTests` (all transitions, crash recovery)
+- Write: `/client/ScreenTrail.Service/Session/*`
+- Verify: `ScreenTrail.Tests/Session/StateMachineTests` (all transitions, crash recovery)
 ---
 
 ---
@@ -536,7 +536,7 @@ Verify mic privacy permission, capture ability, hook installation, elevated-wind
 
 **Agent brief**
 - Read: Spec §5 S2, §6 capability copy
-- Write: `/client/ScreenTail.Service/Capabilities/*`
+- Write: `/client/ScreenTrail.Service/Capabilities/*`
 - Verify: `CapabilityTests`; manual screenshot of HUD messages
 ---
 
@@ -561,7 +561,7 @@ Verify mic privacy permission, capture ability, hook installation, elevated-wind
 
 **Agent brief**
 - Read: ST-023 needs (title patterns)
-- Write: `/client/ScreenTail.Service/Detection/ForegroundWatcher.cs`
+- Write: `/client/ScreenTrail.Service/Detection/ForegroundWatcher.cs`
 - Verify: `ForegroundWatcherTests` with synthetic windows
 ---
 
@@ -587,7 +587,7 @@ JSON registry of remote-tool processes and browser title/URL patterns; auto-star
 
 **Agent brief**
 - Read: INV-5; Spec §5 S2 scope pill, S5 scope copy
-- Write: `/client/ScreenTail.Service/Detection/Registry/*`, `/client/ScreenTail.Service/Detection/ScopePolicy.cs`, `/shared/registry/remote-tools.json`
+- Write: `/client/ScreenTrail.Service/Detection/Registry/*`, `/client/ScreenTrail.Service/Detection/ScopePolicy.cs`, `/shared/registry/remote-tools.json`
 - Verify: `RegistryTests`, `ScopePolicyTests`
 ---
 
@@ -612,7 +612,7 @@ JSON registry of remote-tool processes and browser title/URL patterns; auto-star
 
 **Agent brief**
 - Read: INV-2
-- Write: `/client/ScreenTail.Service/Input/*`
+- Write: `/client/ScreenTrail.Service/Input/*`
 - Verify: `HookTests` (no character capture assertion), latency log
 ---
 
@@ -637,7 +637,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 
 **Agent brief**
 - Read: INV-1, INV-5
-- Write: `/client/ScreenTail.Service/Capture/ScreenshotCapturer.cs`
+- Write: `/client/ScreenTrail.Service/Capture/ScreenshotCapturer.cs`
 - Verify: `ScreenshotTests`; frame sample in PR
 ---
 
@@ -662,7 +662,7 @@ On in-scope click: capture active window at native res with per-monitor DPI, deb
 
 **Agent brief**
 - Read: ST-025
-- Write: `/client/ScreenTail.Service/Capture/SceneSampler.cs`
+- Write: `/client/ScreenTrail.Service/Capture/SceneSampler.cs`
 - Verify: `SceneSamplerTests` with recorded frame sequences
 ---
 
@@ -688,7 +688,7 @@ NAudio mic capture, VAD, local transcription (base/small CPU, larger GPU), times
 
 **Agent brief**
 - Read: INV-9; Spec §5 S2 mic states, S5 model-size copy
-- Write: `/client/ScreenTail.Service/Speech/*`
+- Write: `/client/ScreenTrail.Service/Speech/*`
 - Verify: `SpeechTests` against `/research/fixtures/audio/*`; WER script `research/eval/wer.py`
 ---
 
@@ -713,7 +713,7 @@ Merge transcript, click, frame and marker events; attach segments to nearest pre
 
 **Agent brief**
 - Read: ST-003
-- Write: `/client/ScreenTail.Service/Timeline/Aligner.cs`
+- Write: `/client/ScreenTrail.Service/Timeline/Aligner.cs`
 - Verify: `AlignerTests`
 ---
 
@@ -738,7 +738,7 @@ Configurable chords per Spec §5 S1 defaults; "mark moment" forces a frame and m
 
 **Agent brief**
 - Read: Spec §5 S1 chords
-- Write: `/client/ScreenTail.Service/Input/Hotkeys.cs`
+- Write: `/client/ScreenTrail.Service/Input/Hotkeys.cs`
 - Verify: `HotkeyTests`
 ---
 
@@ -763,7 +763,7 @@ Developer flag exporting full bundles from scripted VM scenarios against real RD
 
 **Agent brief**
 - Read: ST-006 layout
-- Write: `/client/ScreenTail.Service/Dev/Recorder.cs` (DEBUG only), `/research/fixtures/golden/*`, `/research/fixtures/redaction-corpus/*`
+- Write: `/client/ScreenTrail.Service/Dev/Recorder.cs` (DEBUG only), `/research/fixtures/golden/*`, `/research/fixtures/redaction-corpus/*`
 - Verify: `pytest research/tests/test_golden.py`
 ---
 
@@ -772,7 +772,7 @@ Developer flag exporting full bundles from scripted VM scenarios against real RD
 - **Epic/Feature:** CAPTURE
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Partial, 2026-10-29.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. **AC2 is built (2026-10-29, `CaptureThrottle`):** while a session is under way the service reads its own processor time once a second against 15% of a four-core machine (`CpuBudget`: 60% of one core on a bigger machine, 15% of a smaller one). Ten seconds over and capture gives up one step, and one more after each further ten: the scene sampler looks every other tick, then every fourth, then OCR reads one frame at a time instead of two while the session records, then the sampler stops looking so OCR reads only click and marked-moment frames. Thirty seconds under 80% of the budget and it takes one step back; the session ending, or a new session the loop has not seen, puts it back to full. The input hooks and speech are never throttled, click screenshots are never paused or skipped (from the third step they are read one at a time with the rest), finalize is never slowed, and every frame taken is redacted exactly as before (INV-1). The laptop recording measurement fails if the throttle moves during it. The Mac suite proves it on a fake clock; seeing it trip on a real overload is an owner step on the laptop (`docs/dev/performance.md`). **Idle cost no longer follows the desktop (2026-11-01):** the laptop's idle figure swung between 17 and 52 wakeups a second on the same code, because both idle WinEvent hooks heard every thread on the desktop. The name-change hook now follows the foreground window's thread (`ForegroundNameHook`), and the focus hook is in only while a session is under way or a hold is kept (`FocusInterest`). `ServiceCostTests.WithNoSessionABusyDesktopDoesNotWakeTheService` and `IdleHookTests` hold each watcher's pump under 10 a second with a printing console in front and a window behind renaming itself, on the hosted runner too. The laptop confirmed it on the pull request's final head (#252, hardware-checks run 41363089926): 21.9 wakeups a second at a quiet idle and 23.2 on the busy desktop against the ceiling of 40, the watcher pumps at 2.4 and 0.0 a second at most. **The name hook's refusals are shown (2026-11-04, contract v8):** "What's being captured right now?" and its copied text carry the watcher's count as "Hook fallbacks", unknown before the watcher starts (`NameHookRefusalsTests` on Windows, `IpcServerTests` on the Mac). **Over budget while narrating (M1, 2026-11-13; measured 2026-11-17, PR #334):** M1 saw the capture service at about 25% of the laptop during a six-minute narrated AnyDesk session. The budget arithmetic: 60% of one core is 7.5% of this 8-logical-processor laptop (15% of a four-core machine, as the description puts it), so 25% of the machine is about 200% of one core. The units did not match: the 4.7% recorded above for recording without speech is of one core, 0.6% of the machine, so it never said the narrated session would fit. The 25% was most likely one of the throttle's one-second readings (two whisper threads busy are 25% of eight processors); a session's mean is lower. Laptop run 44014246194 found speech about 80% of a narrated session's processor time, because whisper.cpp encodes a full 30-second window for every segment (5.3 to 7.1 s of processor a segment whatever its length), and OCR at twice the size most of the rest; and its recording measurement had been running on a 420x220 window. Fixed (run 44027063937): whisper runs on one thread (a 10-second segment took 6.7 s of processor on two, 5.2 s on one); the demo publishes Release; the recording measurement fills the screen (now 12.9% of one core without speech, 1.6% of the machine); and a narrated recording is enforced under 120% of one core (15% of the machine). Narrated, the composed service went from 105.2% of one core (13.1% of the machine, one-second peak 33.8%) to 95.9% (12.0%, peak 20.9%). It still trips the throttle: 37 of 45 one-second readings over budget, and acting, the throttle stepped from Full to OcrOneAtATime inside 51 s. A segment-sized encoder context (`AudioContext`, 512 or 1024 positions instead of 1500) is built and switched off: set `SCREENTAIL_SPEECH_SIZED_CONTEXT=1` to turn it on. It cuts speech to 2.2 s of processor a segment and a narrated session to 42.1% of one core (5.3% of the machine, 13 of 45 readings over, the throttle never moving), with word error unchanged on synthetic speech (1.1% both ways over 270 words, three voices) and no extra memory (147 MB loaded against 149 MB). Whether it stays unchanged on real speech is for ST-027's recorded narration, and the owner decides the default after that. The throttle's accounting is unchanged. Still owed: AC1 (the 30-minute golden replay needs ST-030), the laptop sighting of AC2, AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
+- **Status:** **Partial, 2026-10-29.** The budgets are measured on the laptop in `hardware-checks` and written to the job summary (`docs/dev/performance.md`): idle CPU for the service and the UI, a ceiling on the idle service's wakeups, recording CPU and disk are enforced there, and memory is reported. The idle service woke 129 times a second and used 2.5% of a core with no session; six loops now wait for an event instead (`SessionLoop`), and laptop run 40626688381 measures 17 wakeups a second (14 to 17 across four runs) and 0.41% of one core. Recording without speech is 4.7% of one core, a stored frame 70 KB, and the speech model's idle unload gives back all 150 MB it took. **AC2 is built (2026-10-29, `CaptureThrottle`):** while a session is under way the service reads its own processor time once a second against 15% of a four-core machine (`CpuBudget`: 60% of one core on a bigger machine, 15% of a smaller one). Ten seconds over and capture gives up one step, and one more after each further ten: the scene sampler looks every other tick, then every fourth, then OCR reads one frame at a time instead of two while the session records, then the sampler stops looking so OCR reads only click and marked-moment frames. Thirty seconds under 80% of the budget and it takes one step back; the session ending, or a new session the loop has not seen, puts it back to full. The input hooks and speech are never throttled, click screenshots are never paused or skipped (from the third step they are read one at a time with the rest), finalize is never slowed, and every frame taken is redacted exactly as before (INV-1). The laptop recording measurement fails if the throttle moves during it. The Mac suite proves it on a fake clock; seeing it trip on a real overload is an owner step on the laptop (`docs/dev/performance.md`). **Idle cost no longer follows the desktop (2026-11-01):** the laptop's idle figure swung between 17 and 52 wakeups a second on the same code, because both idle WinEvent hooks heard every thread on the desktop. The name-change hook now follows the foreground window's thread (`ForegroundNameHook`), and the focus hook is in only while a session is under way or a hold is kept (`FocusInterest`). `ServiceCostTests.WithNoSessionABusyDesktopDoesNotWakeTheService` and `IdleHookTests` hold each watcher's pump under 10 a second with a printing console in front and a window behind renaming itself, on the hosted runner too. The laptop confirmed it on the pull request's final head (#252, hardware-checks run 41363089926): 21.9 wakeups a second at a quiet idle and 23.2 on the busy desktop against the ceiling of 40, the watcher pumps at 2.4 and 0.0 a second at most. **The name hook's refusals are shown (2026-11-04, contract v8):** "What's being captured right now?" and its copied text carry the watcher's count as "Hook fallbacks", unknown before the watcher starts (`NameHookRefusalsTests` on Windows, `IpcServerTests` on the Mac). **Over budget while narrating (M1, 2026-11-13; measured 2026-11-17, PR #334):** M1 saw the capture service at about 25% of the laptop during a six-minute narrated AnyDesk session. The budget arithmetic: 60% of one core is 7.5% of this 8-logical-processor laptop (15% of a four-core machine, as the description puts it), so 25% of the machine is about 200% of one core. The units did not match: the 4.7% recorded above for recording without speech is of one core, 0.6% of the machine, so it never said the narrated session would fit. The 25% was most likely one of the throttle's one-second readings (two whisper threads busy are 25% of eight processors); a session's mean is lower. Laptop run 44014246194 found speech about 80% of a narrated session's processor time, because whisper.cpp encodes a full 30-second window for every segment (5.3 to 7.1 s of processor a segment whatever its length), and OCR at twice the size most of the rest; and its recording measurement had been running on a 420x220 window. Fixed (run 44027063937): whisper runs on one thread (a 10-second segment took 6.7 s of processor on two, 5.2 s on one); the demo publishes Release; the recording measurement fills the screen (now 12.9% of one core without speech, 1.6% of the machine); and a narrated recording is enforced under 120% of one core (15% of the machine). Narrated, the composed service went from 105.2% of one core (13.1% of the machine, one-second peak 33.8%) to 95.9% (12.0%, peak 20.9%). It still trips the throttle: 37 of 45 one-second readings over budget, and acting, the throttle stepped from Full to OcrOneAtATime inside 51 s. A segment-sized encoder context (`AudioContext`, 512 or 1024 positions instead of 1500) is built and switched off: set `SCREENTRAIL_SPEECH_SIZED_CONTEXT=1` to turn it on. It cuts speech to 2.2 s of processor a segment and a narrated session to 42.1% of one core (5.3% of the machine, 13 of 45 readings over, the throttle never moving), with word error unchanged on synthetic speech (1.1% both ways over 270 words, three voices) and no extra memory (147 MB loaded against 149 MB). Whether it stays unchanged on real speech is for ST-027's recorded narration, and the owner decides the default after that. The throttle's accounting is unchanged. Still owed: AC1 (the 30-minute golden replay needs ST-030), the laptop sighting of AC2, AC3 (the nightly harness), whole-process memory with somebody speaking (`scripts/windows/measure-idle.ps1`, by hand), and live CPU and memory in "What's being captured".
 
 **Description:**
 Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, disk < 40 MB per 20 min; self-throttle sampling/OCR first; live figures in "What's being captured".
@@ -788,7 +788,7 @@ Budgets: idle CPU < 1%, recording CPU < 15% (4-core), RAM < 600 MB with STT, dis
 
 **Agent brief**
 - Read: Spec §5 S1 diagnostics panel
-- Write: `/client/ScreenTail.Service/Perf/*`, e2e budget assertions
+- Write: `/client/ScreenTrail.Service/Perf/*`, e2e budget assertions
 - Verify: nightly run report
 ---
 
@@ -815,7 +815,7 @@ On UIA focus change read `IsPassword` (fallback `EM_GETPASSWORDCHAR`); enter `su
 
 **Agent brief**
 - Read: INV-6; Spec §5 S2 "Paused: sensitive field"
-- Write: `/client/ScreenTail.Service/Privacy/PasswordFieldGuard.cs`
+- Write: `/client/ScreenTrail.Service/Privacy/PasswordFieldGuard.cs`
 - Verify: `PasswordFieldGuardTests` against a WPF test app with a PasswordBox
 ---
 
@@ -841,7 +841,7 @@ Background worker pulls `redaction_pending` frames, runs OCR (Tesseract .NET) fo
 
 **Agent brief**
 - Read: INV-1; Spec §5 S1 "redaction backlog" field
-- Write: `/client/ScreenTail.Service/Privacy/RedactionWorker.cs`, `/client/ScreenTail.Service/Privacy/Ocr/*`
+- Write: `/client/ScreenTrail.Service/Privacy/RedactionWorker.cs`, `/client/ScreenTrail.Service/Privacy/Ocr/*`
 - Verify: `RedactionWorkerTests`, isolation test
 ---
 
@@ -867,7 +867,7 @@ Pattern library (SSN, Luhn cards, API keys, password pairs, optional emails) mas
 
 **Agent brief**
 - Read: INV-1; Spec §5 S6 pattern toggles
-- Write: `/client/ScreenTail.Service/Privacy/Patterns/*`
+- Write: `/client/ScreenTrail.Service/Privacy/Patterns/*`
 - Verify: `pytest research/eval/redaction_recall.py` gate in CI; `PatternEngineTests`
 ---
 
@@ -892,7 +892,7 @@ Processes/title substrings/URL fragments that trigger `suppressed`; defaults for
 
 **Agent brief**
 - Read: Spec §5 S6 "Excluded apps"
-- Write: `/client/ScreenTail.Service/Privacy/ExclusionList.cs`, `/shared/registry/exclusions-default.json`
+- Write: `/client/ScreenTrail.Service/Privacy/ExclusionList.cs`, `/shared/registry/exclusions-default.json`
 - Verify: `ExclusionListTests`
 ---
 
@@ -917,7 +917,7 @@ Delete raw frames/OCR/transcripts/outbox older than retention (default 7 d); kee
 
 **Agent brief**
 - Read: INV-12; Spec §5 S6 retention copy
-- Write: `/client/ScreenTail.Service/Store/RetentionJob.cs`
+- Write: `/client/ScreenTrail.Service/Store/RetentionJob.cs`
 - Verify: `RetentionJobTests` with clock injection
 ---
 
@@ -942,7 +942,7 @@ Append-only hash-chained log of captured/suppressed/redacted/purged/sent/publish
 
 **Agent brief**
 - Read: INV-10; Spec §5 S4 export
-- Write: `/client/ScreenTail.Service/Audit/*`
+- Write: `/client/ScreenTrail.Service/Audit/*`
 - Verify: `AuditLogTests` (chain tamper detection)
 ---
 
@@ -967,7 +967,7 @@ Global/admin-enforceable setting routing summarization on-device and blocking al
 
 **Agent brief**
 - Read: INV-8, INV-11
-- Write: `/client/ScreenTail.Service/Net/EgressGuard.cs`
+- Write: `/client/ScreenTrail.Service/Net/EgressGuard.cs`
 - Verify: `EgressGuardTests` with fake HTTP handler
 ---
 
@@ -992,7 +992,7 @@ Backend policy (retention, Local-only enforce, exclusions, patterns, scope, tele
 
 **Agent brief**
 - Read: INV-11; Spec §3 Toggle locked variant, §5 S9 Policy page
-- Write: `/backend/src/Policy/*`, `/client/ScreenTail.Service/Policy/*`
+- Write: `/backend/src/Policy/*`, `/client/ScreenTrail.Service/Policy/*`
 - Verify: `PolicySyncTests` both sides
 ---
 
@@ -1016,13 +1016,13 @@ The review found that the decision classes are right and the places that apply t
 - [ ] P0-3: `HudState.For(capture: null, hidden: true)` is visible; hidden takes effect only when the state is known idle; the test covers `null`
 - [ ] P0-5: two hooks (`EVENT_SYSTEM_FOREGROUND` and `EVENT_OBJECT_NAMECHANGE`) or an allow-list at the top of `OnWinEvent`; the CPU test measures on a busy desktop (a window redrawing at ≥ 30 fps under the cursor), not an idle one
 - [ ] P2-1: the pattern library resolves matches once per frame and `ScrubText` reuses them; `RedactionThroughputTests` asserts against a fixed budget rather than one that self-disarms
-- [ ] P0-4: the scope decision loop is lifted into `ScreenTail.Core` behind an interface (the `IForegroundWatcher` pattern); a store-level test proves recording + excluded scope → exactly one `ClickEvent`, zero typing-derived events, zero frames; deleting the drop lines makes it fail
+- [ ] P0-4: the scope decision loop is lifted into `ScreenTrail.Core` behind an interface (the `IForegroundWatcher` pattern); a store-level test proves recording + excluded scope → exactly one `ClickEvent`, zero typing-derived events, zero frames; deleting the drop lines makes it fail
 - [ ] `docs/review/weaknesses.md` marks each finding fixed with the PR number
 
 **Agent brief**
 - Read: `docs/review/weaknesses.md` P0-1, P0-3, P0-4, P0-5, P2-1; INV-1, INV-4, INV-5, INV-6
-- Write: `client/ScreenTail.Core/Privacy/RedactionWorker.cs`, `Core/Hud/HudState.cs`, `Service/Detection/WindowsForegroundWatcher.cs`, `Core/Privacy/RedactionEngine.cs`, `Core/Capture/*` (new decision loop), `Service/Capture/ClickCaptureLoop.cs`, `SceneSampleLoop.cs`, tests
-- Verify: `dotnet test client/ScreenTail.sln`; the Windows suite on the laptop with ST-018's gate green
+- Write: `client/ScreenTrail.Core/Privacy/RedactionWorker.cs`, `Core/Hud/HudState.cs`, `Service/Detection/WindowsForegroundWatcher.cs`, `Core/Privacy/RedactionEngine.cs`, `Core/Capture/*` (new decision loop), `Service/Capture/ClickCaptureLoop.cs`, `SceneSampleLoop.cs`, tests
+- Verify: `dotnet test client/ScreenTrail.sln`; the Windows suite on the laptop with ST-018's gate green
 ---
 
 ---
@@ -1052,8 +1052,8 @@ The P1 findings that are not resolved by wiring the UI (ST-085 closes P1-1, P1-2
 
 **Agent brief**
 - Read: `docs/review/weaknesses.md` P1-3, P1-5, P1-7, P1-8, P1-9, P2-3, P2-4, P2-9, P2-12; INV-1, INV-12; T4, T11
-- Write: `client/ScreenTail.Core/Store/*`, `Core/Audit/*`, `Core/Privacy/*`, `UI/Review/Filmstrip*`, `docs/security/threat-model.md`, `docs/review/weaknesses.md`
-- Verify: `dotnet test client/ScreenTail.sln`; the audit tamper tests; a 150-frame session opened in Review on the laptop with memory recorded
+- Write: `client/ScreenTrail.Core/Store/*`, `Core/Audit/*`, `Core/Privacy/*`, `UI/Review/Filmstrip*`, `docs/security/threat-model.md`, `docs/review/weaknesses.md`
+- Verify: `dotnet test client/ScreenTrail.sln`; the audit tamper tests; a 150-frame session opened in Review on the laptop with memory recorded
 ---
 
 ## Phase 4: Intelligence Layer (Epic: INTEL)
@@ -1079,7 +1079,7 @@ From redacted frames only, select ≤ 25 informative frames; assemble timeline, 
 
 **Agent brief**
 - Read: INV-1
-- Write: `/client/ScreenTail.Service/Intel/BundleBuilder.cs`
+- Write: `/client/ScreenTrail.Service/Intel/BundleBuilder.cs`
 - Verify: `BundleBuilderTests` incl. `NeverIncludesPendingFrames`
 ---
 
@@ -1142,16 +1142,16 @@ Human rubric (accuracy, completeness, no hallucination, tone) plus automated edi
 
   The owner's key arrived on 2026-09-19 and the first live call found four defects no stub could have caught, each now covered by a test that fails when its fix is removed:
 
-  1. **The model name was a constant, and Google had retired it.** `gemini-2.0-flash` answered 404 to every draft. The name is now `Summarization__Model`, defaulting to `gemini-3.6-flash`, and a 404 says which setting to change instead of "this is a bug in ScreenTail".
+  1. **The model name was a constant, and Google had retired it.** `gemini-2.0-flash` answered 404 to every draft. The name is now `Summarization__Model`, defaulting to `gemini-3.6-flash`, and a 404 says which setting to change instead of "this is a bug in ScreenTrail".
   2. **Thinking tokens were not being counted.** Gemini 3.x reasons before it answers, bills that at the output rate, and reports it separately from the answer's own tokens. A one-word question was charged 92 thinking tokens against 1 token of answer, so the daily cost cap was reading a fraction of the real spend.
   3. **The token rates were a retired model's.** $0.075/$0.30 per million against an actual $0.75/$3.75, out by a factor of ten, in the direction that makes a cap useless. Rates are now settings, dated in the README, with the scheduled 2027-01-01 doubling noted.
   4. **Every picture was labelled JPEG** because the Windows client encodes JPEG. The frame now says what it is.
 
   **AC1 and AC4 are now measured**, on the heaviest bundle a client may send (25 frames, `BundleOptions.MaxFrames`): **12.2 s and $0.0167** end to end through the service. That took a fifth defect to reach: at the provider's default media resolution the same bundle took **39.9 s**, missing the thirty-second budget outright. Sending pictures at `MEDIA_RESOLUTION_LOW` costs a seventh as much and is defensible because the redaction worker's OCR travels beside every frame; the picture is for layout, not for reading.
 
-  `LiveDraftingBudgetTests` is the measurement, kept and re-runnable with `SCREENTAIL_LIVE_LLM=1`, skipped otherwise. **Sample size is thin:** the owner's key is free tier, capped at 20 requests a day for this model, so the budget figures rest on single-digit successful runs rather than a real percentile. Re-run it on a billed key before the pilot.
+  `LiveDraftingBudgetTests` is the measurement, kept and re-runnable with `SCREENTRAIL_LIVE_LLM=1`, skipped otherwise. **Sample size is thin:** the owner's key is free tier, capped at 20 requests a day for this model, so the budget figures rest on single-digit successful runs rather than a real percentile. Re-run it on a billed key before the pilot.
 
-  Two things the live run also showed, neither a ScreenTail defect: `gemini-3.6-flash` answered 503 "experiencing high demand" to roughly a third of calls, which is exactly what ST-064's outbox exists to absorb; and the free tier rate-limits at 5 requests a minute.
+  Two things the live run also showed, neither a ScreenTrail defect: `gemini-3.6-flash` answered 503 "experiencing high demand" to roughly a third of calls, which is exactly what ST-064's outbox exists to absorb; and the free tier rate-limits at 5 requests a minute.
 
 **Description:**
 `POST /v1/sessions/summarize` behind a provider interface (Gemini Flash default; OpenAI/Anthropic swappable) with fallback provider, schema validation + one repair retry, per-tenant daily cost cap; frames in memory only (INV-7).
@@ -1197,7 +1197,7 @@ Local outbox with idempotency keys; retry with backoff; "Draft pending: offline"
 
 **Agent brief**
 - Read: Spec §5 S2 offline pill, §6 offline toast
-- Write: `/client/ScreenTail.Service/Outbox/*`
+- Write: `/client/ScreenTrail.Service/Outbox/*`
 - Verify: `OutboxTests` with fake network
 ---
 
@@ -1223,7 +1223,7 @@ OCR text + transcript + click log → small local text model (Llama 3.2 3B / Phi
 
 **Agent brief**
 - Read: INV-8; Spec §5 S3 "Local draft" banner
-- Write: `/client/ScreenTail.Service/Intel/LocalSummarizer/*`, `/research/prompts/note_local_v1.md`
+- Write: `/client/ScreenTrail.Service/Intel/LocalSummarizer/*`, `/research/prompts/note_local_v1.md`
 - Verify: harness run on local model; `LocalSummarizerTests`
 ---
 
@@ -1248,7 +1248,7 @@ Active duration minus pauses with tenant rounding (6/15) and minimum increment.
 
 **Agent brief**
 - Read: Spec §5 S3 time entry field
-- Write: `/client/ScreenTail.Service/Intel/TimeEntryCalculator.cs`
+- Write: `/client/ScreenTrail.Service/Intel/TimeEntryCalculator.cs`
 - Verify: `TimeEntryCalculatorTests`
 ---
 
@@ -1273,7 +1273,7 @@ Diff draft vs final on publish; store structural style signals only; inject top 
 
 **Agent brief**
 - Read: INV-10
-- Write: `/backend/src/Style/*`, client diff in `/client/ScreenTail.Service/Intel/StyleDiff.cs`
+- Write: `/backend/src/Style/*`, client diff in `/client/ScreenTrail.Service/Intel/StyleDiff.cs`
 - Verify: `StyleDiffTests`, PII-absence test
 ---
 
@@ -1300,7 +1300,7 @@ WPF host with navigation (Review, History, Settings), MVVM store fed by IPC even
 
 **Agent brief**
 - Read: Spec §2.3 motion, §4 global behaviors, §7
-- Write: `/client/ScreenTail.UI/App/*`, `/client/ScreenTail.UI/Shell/*`, `/client/ScreenTail.UI/State/*`
+- Write: `/client/ScreenTrail.UI/App/*`, `/client/ScreenTrail.UI/Shell/*`, `/client/ScreenTrail.UI/State/*`
 - Verify: `ShellTests`; screenshots both themes
 ---
 
@@ -1325,7 +1325,7 @@ Implements Spec §5 S1 exactly: five icon states, menu order and chords, diagnos
 
 **Agent brief**
 - Read: Spec §5 S1, §2.4 tray icons, INV-4
-- Write: `/client/ScreenTail.UI/Tray/*`, `/client/ScreenTail.UI/Diagnostics/*`, icon assets
+- Write: `/client/ScreenTrail.UI/Tray/*`, `/client/ScreenTrail.UI/Diagnostics/*`, icon assets
 - Verify: screenshots of each tray state and the panel
 ---
 
@@ -1350,7 +1350,7 @@ Implements Spec §5 S2: pill with timer, mic meter, redaction count, pause/stop;
 
 **Agent brief**
 - Read: Spec §5 S2, §2 tokens, INV-4
-- Write: `/client/ScreenTail.UI/Hud/*`
+- Write: `/client/ScreenTrail.UI/Hud/*`
 - Verify: screenshots of all variants; capture-exclusion test
 ---
 
@@ -1375,7 +1375,7 @@ Toasts and banners per Spec §6; failure paths always expose the raw timeline.
 
 **Agent brief**
 - Read: Spec §6
-- Write: `/client/ScreenTail.UI/Notifications/*`
+- Write: `/client/ScreenTrail.UI/Notifications/*`
 - Verify: screenshot of each toast
 ---
 
@@ -1402,7 +1402,7 @@ Implements Spec §5 S3 left pane: sections, inline editing, reorder, confidence 
 
 **Agent brief**
 - Read: Spec §5 S3 left pane + shortcuts, §4 undo-over-confirm
-- Write: `/client/ScreenTail.UI/Review/NoteEditor/*`
+- Write: `/client/ScreenTrail.UI/Review/NoteEditor/*`
 - Verify: `NoteEditorTests`; keyboard-only demo video/screens
 ---
 
@@ -1428,7 +1428,7 @@ Implements Spec §5 S3 center pane: filmstrip, include/exclude, destructive blur
 
 **Agent brief**
 - Read: Spec §5 S3 center pane, §3 Filmstrip
-- Write: `/client/ScreenTail.UI/Review/Filmstrip/*`
+- Write: `/client/ScreenTrail.UI/Review/Filmstrip/*`
 - Verify: `FilmstripTests`; screenshots
 ---
 
@@ -1453,7 +1453,7 @@ Implements Spec §5 S3 bottom panel: collapsible scrubber, markers, monospace tr
 
 **Agent brief**
 - Read: Spec §5 S3 bottom panel, §3 Timeline
-- Write: `/client/ScreenTail.UI/Review/Timeline/*`
+- Write: `/client/ScreenTrail.UI/Review/Timeline/*`
 - Verify: `TimelineTests`
 ---
 
@@ -1478,7 +1478,7 @@ Parse title and clipboard at session start for a ticket-ID pattern; pre-select i
 
 **Agent brief**
 - Read: Spec §5 S3 ticket picker
-- Write: `/client/ScreenTail.Service/Detection/TicketInference.cs`, picker binding
+- Write: `/client/ScreenTrail.Service/Detection/TicketInference.cs`, picker binding
 - Verify: `TicketInferenceTests`
 ---
 
@@ -1504,7 +1504,7 @@ Implements Spec §5 S3 right pane: searchable ticket combo, note type, time entr
 
 **Agent brief**
 - Read: Spec §5 S3 right pane and edge states, §6 published toasts
-- Write: `/client/ScreenTail.UI/Review/Publish/*`
+- Write: `/client/ScreenTrail.UI/Review/Publish/*`
 - Verify: `PublishPanelTests` with fake providers; screenshots of all states
 ---
 
@@ -1529,7 +1529,7 @@ Implements Spec §5 S4: virtualized table, filters, coverage banner, bulk discar
 
 **Agent brief**
 - Read: Spec §5 S4, §3 Table
-- Write: `/client/ScreenTail.UI/History/*`
+- Write: `/client/ScreenTrail.UI/History/*`
 - Verify: `HistoryTests`; screenshots incl. empty state
 ---
 
@@ -1554,7 +1554,7 @@ Implements Spec §5 S5 sections and copy, including scope warning and hotkey con
 
 **Agent brief**
 - Read: Spec §5 S5
-- Write: `/client/ScreenTail.UI/Settings/Capture/*`
+- Write: `/client/ScreenTrail.UI/Settings/Capture/*`
 - Verify: screenshots; `SettingsCaptureTests`
 ---
 
@@ -1580,7 +1580,7 @@ Implements Spec §5 S6: data-flow explainer, Local-only, exclusions, patterns wi
 
 **Agent brief**
 - Read: Spec §5 S6, §3 Toggle locked, INV-11, INV-12
-- Write: `/client/ScreenTail.UI/Settings/Privacy/*`
+- Write: `/client/ScreenTrail.UI/Settings/Privacy/*`
 - Verify: screenshots; `SettingsPrivacyTests`
 ---
 
@@ -1605,7 +1605,7 @@ Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech memb
 
 **Agent brief**
 - Read: Spec §5 S7, §4 error pattern
-- Write: `/client/ScreenTail.UI/Settings/Integrations/*`
+- Write: `/client/ScreenTrail.UI/Settings/Integrations/*`
 - Verify: screenshots; `SettingsIntegrationsTests`
 ---
 
@@ -1614,7 +1614,7 @@ Implements Spec §5 S7 cards with Test connection, masked secrets, per-tech memb
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 5
-- **Status:** **Built 2026-09-26, not yet seen on a real screen.** Spec §5 S8's seven steps with progress dots, composed from Settings' own panels: Welcome; Activate (the invite code, the tenant's name); Permissions (each check ✓ or a fix: a blocked microphone shows its Windows Settings deep link and "Check again" and lets setup continue with the consequence stated, blocked screen capture stops it; AC3); Your remote tools (the toggles); Connect (Integrations, skippable: drafts are produced regardless and Publish says "Connect a PSA", AC2; Activate is skippable too, since a device enrolled from the environment has no code to enter); Try it (a real sixty-second session started and stopped through the service, drafted the real way; the sample fixture does not ship, so the sample is the technician's own first draft); Done. Finishing is remembered in the shell's preferences and the wizard runs at the first start; "Set up ScreenTail…" in the tray runs it again. **AC1** (three test users in five minutes) is ST-017's usability round. **To the Outbox design 2026-11-12 (spec v0.6.7):** the dots are a step list by name on a frame with the horizontal lockup, each row spoken with its number and state; the window opens at 960 by 640 and its literals are tokens; rendered by CI for every step in four themes, at 150% and at the window's minimum; rules, steps and copy unchanged; not yet seen on a real screen.
+- **Status:** **Built 2026-09-26, not yet seen on a real screen.** Spec §5 S8's seven steps with progress dots, composed from Settings' own panels: Welcome; Activate (the invite code, the tenant's name); Permissions (each check ✓ or a fix: a blocked microphone shows its Windows Settings deep link and "Check again" and lets setup continue with the consequence stated, blocked screen capture stops it; AC3); Your remote tools (the toggles); Connect (Integrations, skippable: drafts are produced regardless and Publish says "Connect a PSA", AC2; Activate is skippable too, since a device enrolled from the environment has no code to enter); Try it (a real sixty-second session started and stopped through the service, drafted the real way; the sample fixture does not ship, so the sample is the technician's own first draft); Done. Finishing is remembered in the shell's preferences and the wizard runs at the first start; "Set up ScreenTrail…" in the tray runs it again. **AC1** (three test users in five minutes) is ST-017's usability round. **To the Outbox design 2026-11-12 (spec v0.6.7):** the dots are a step list by name on a frame with the horizontal lockup, each row spoken with its number and state; the window opens at 960 by 640 and its literals are tokens; rendered by CI for every step in four themes, at 150% and at the window's minimum; rules, steps and copy unchanged; not yet seen on a real screen.
 
 **Description:**
 Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
@@ -1630,7 +1630,7 @@ Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
 
 **Agent brief**
 - Read: Spec §5 S8
-- Write: `/client/ScreenTail.UI/Onboarding/*`
+- Write: `/client/ScreenTrail.UI/Onboarding/*`
 - Verify: screenshots of all 7 steps; timed run log
 ---
 
@@ -1639,7 +1639,7 @@ Implements Spec §5 S8 seven steps; ≤ 5 minutes; re-runnable.
 - **Epic/Feature:** UI
 - **Priority:** Medium
 - **Estimate:** 2
-- **Status:** **Automated pass done 2026-11-01; the Narrator listening pass is owed** (`docs/ux/a11y-audit.md`). The static half (2026-09-26) is still held on the Mac: names in the XAML, contrast, and now that every live region is one that is announced and that no view lays out rows with a plain ItemsControl. The Windows suite (`client/ScreenTail.Tests.Windows/Accessibility`, hosted runner and laptop) opens every technician-facing screen with sample data (Review in eight states, the blur box out among them, History, Settings, the service-down banner, the seven onboarding steps, the diagnostics panel twice, the three typed confirmations, the shortcut sheet, the pill in ten states, the tray menu) and checks names, roles and label-in-name through the automation peers; 28 px hit targets (32 on the pill); Tab reach, no trap, reading order, focus never on a covered control, Shift+Tab retracing, and a visible focus change with 3:1 contrast in all three palettes; every documented shortcut and Esc on every dialog; live-region announcements; reduce motion and high contrast simulated through `ThemeManager` seams; and Accessibility Insights' automated rules (axe-windows, in its own process), zero errors (AC2's automated part). It found and this change fixed: Review's Tab order (the timeline first), Ctrl+S, Alt+1/2/3 and the `?` sheet documented and missing, the enlarged screenshot leaving the strip it covers in the Tab order, every live region silent (WPF never announces one), the pill and badge read as "Capture state", list items, rows and combo items read as type names, every layout list a Tab stop, icon glyphs read as private-use characters, repeated button names, 12 px splitters, 26 px transcript rows, 22 px tray items, History sortable only by mouse, clipped focus rings, the erase confirmation opening without the caret in its box, a disabled Publish with no spoken reason. **Owed:** the Narrator listening pass in the audit's checklist (what each control, list position and live region actually sounds like, the tray menu opened from the keyboard, a real Windows contrast theme), and the Accessibility Insights FastPass report to attach (AC2): the laptop or the owner. **Owner decisions taken as defaults:** `?` opens the sheet only outside a text box and the sheet is not modal; scroll bars stay 12 px; History's headers are Tab stops. **Keyboard blur added 2026-11-04** (the first pass had left blurring to the mouse): on an enlarged screenshot B brings out a box with focus on it, the arrows move it, Shift with them resizes it, Ctrl takes bigger steps, Enter blurs through the drag's own path and Esc puts it away; its position is announced in percent, numbers only. The keys are an owner decision to confirm (Spec v0.5.1, `docs/ux/a11y-audit.md`); the Narrator pass gains the box.
+- **Status:** **Automated pass done 2026-11-01; the Narrator listening pass is owed** (`docs/ux/a11y-audit.md`). The static half (2026-09-26) is still held on the Mac: names in the XAML, contrast, and now that every live region is one that is announced and that no view lays out rows with a plain ItemsControl. The Windows suite (`client/ScreenTrail.Tests.Windows/Accessibility`, hosted runner and laptop) opens every technician-facing screen with sample data (Review in eight states, the blur box out among them, History, Settings, the service-down banner, the seven onboarding steps, the diagnostics panel twice, the three typed confirmations, the shortcut sheet, the pill in ten states, the tray menu) and checks names, roles and label-in-name through the automation peers; 28 px hit targets (32 on the pill); Tab reach, no trap, reading order, focus never on a covered control, Shift+Tab retracing, and a visible focus change with 3:1 contrast in all three palettes; every documented shortcut and Esc on every dialog; live-region announcements; reduce motion and high contrast simulated through `ThemeManager` seams; and Accessibility Insights' automated rules (axe-windows, in its own process), zero errors (AC2's automated part). It found and this change fixed: Review's Tab order (the timeline first), Ctrl+S, Alt+1/2/3 and the `?` sheet documented and missing, the enlarged screenshot leaving the strip it covers in the Tab order, every live region silent (WPF never announces one), the pill and badge read as "Capture state", list items, rows and combo items read as type names, every layout list a Tab stop, icon glyphs read as private-use characters, repeated button names, 12 px splitters, 26 px transcript rows, 22 px tray items, History sortable only by mouse, clipped focus rings, the erase confirmation opening without the caret in its box, a disabled Publish with no spoken reason. **Owed:** the Narrator listening pass in the audit's checklist (what each control, list position and live region actually sounds like, the tray menu opened from the keyboard, a real Windows contrast theme), and the Accessibility Insights FastPass report to attach (AC2): the laptop or the owner. **Owner decisions taken as defaults:** `?` opens the sheet only outside a text box and the sheet is not modal; scroll bars stay 12 px; History's headers are Tab stops. **Keyboard blur added 2026-11-04** (the first pass had left blurring to the mouse): on an enlarged screenshot B brings out a box with focus on it, the arrows move it, Shift with them resizes it, Ctrl takes bigger steps, Enter blurs through the drag's own path and Esc puts it away; its position is announced in percent, numbers only. The keys are an owner decision to confirm (Spec v0.5.1, `docs/ux/a11y-audit.md`); the Narrator pass gains the box.
 
 **Description:**
 Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
@@ -1655,7 +1655,7 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 
 **Agent brief**
 - Read: Spec §7
-- Write: fixes across `/client/ScreenTail.UI/**`, `/docs/ux/a11y-audit.md`
+- Write: fixes across `/client/ScreenTrail.UI/**`, `/docs/ux/a11y-audit.md`
 - Verify: Accessibility Insights report attached
 ---
 
@@ -1664,17 +1664,17 @@ Narrator and keyboard-only audit of all screens against Spec §7; fix findings.
 - **Epic/Feature:** UI
 - **Priority:** Urgent
 - **Estimate:** 8
-- **Status:** **Done on the Mac side 2026-09-16 (#59)**: the UI connects, a real tray icon exists, the pill follows live state, diagnostics and the session list are answered by the service, `erase_all_local_data` reaches the eraser, the egress guard is at the composition root, and the connection flood no longer locks the UI out. 771 Core tests green. ADR-0005 adds `ScreenTail.Platform` so the UI can verify the service without referencing it. **Not yet seen running:** the tray and pill following a real session on a machine with the service up, and the screenshots over a remote window. Both need the laptop, so the ticket closes when the hardware run has produced them. **Review and History are in the live shell as of 2026-09-25** (#138 the pipe messages, #140 the panes): the shell opens the draft that just became ready, History opens any session, and the note, the screenshots and the three frame edits go over the pipe. Found 2026-09-24 that until then the content area showed the pane's name and the views were rendered only by the harness. Still not seen on a real screen; M1 is that.
+- **Status:** **Done on the Mac side 2026-09-16 (#59)**: the UI connects, a real tray icon exists, the pill follows live state, diagnostics and the session list are answered by the service, `erase_all_local_data` reaches the eraser, the egress guard is at the composition root, and the connection flood no longer locks the UI out. 771 Core tests green. ADR-0005 adds `ScreenTrail.Platform` so the UI can verify the service without referencing it. **Not yet seen running:** the tray and pill following a real session on a machine with the service up, and the screenshots over a remote window. Both need the laptop, so the ticket closes when the hardware run has produced them. **Review and History are in the live shell as of 2026-09-25** (#138 the pipe messages, #140 the panes): the shell opens the draft that just became ready, History opens any session, and the note, the screenshots and the three frame edits go over the pipe. Found 2026-09-24 that until then the content area showed the pane's name and the views were rendered only by the harness. Still not seen on a real screen; M1 is that.
 
   **Corrected 2026-09-19.** The 2026-09-19 review found that the running application never reconnected. `CaptureConnection` took an optional retry schedule whose documentation said it defaulted to the built-in one; it defaulted to never, `LiveShell` passed nothing, and every test passed a schedule of its own, so no test ran the wiring that shipped. A UI that started before the service, or outlived a service restart, sat on a grey tray icon while the service went on starting sessions by itself. Beside it, the pill and the shell read the *last* capture state as the present one, so after a lost pipe a hidden pill stayed hidden and read "Not recording" through a live session, the unfinished half of weaknesses P0-3. Fixed: the default is the schedule and giving up has to be asked for by name; a rejected token is treated as a restart race up to three times, because the token is rotated on every service start; and everything that tells a technician whether they are being recorded reads `KnownCapture`, which is null whenever nobody is answering. Six tests, each failing when its fix is removed. Still owed from the same review and not in this change: capture continuing with no UI attached at all, and tray Quit leaving capture running.
 
   **Follow-up left deliberately (2026-10-14, review E-20).** A long, text-heavy session no longer drops the pipe when it opens in Review: the `session` reply leaves out every frame's OCR text, which `get_frame_text` fetches for the enlarged frame, and a reply that still would not fit in one 1 MiB message is refused with its size. That refusal is a ceiling, not a fix. At the review's sizing (600 frames, 4,000 events, 800 transcript segments come to about 0.69 MB without OCR text), a session of the same density is refused at roughly 2 to 3 hours of busy capture; that figure is reasoned, not measured. Such a session cannot be reviewed or published from the UI, and the technician sees only the generic hand-over sentence until E-17 carries the reason through. Owed: page events and transcript (and frames, if needed) into Review over several messages, so no session has a size limit.
 
 **Description:**
-Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`, `TrayPresence`, `LocalDataEraser`, `ReviewSession` and seven `ISessionStore` read methods have no production caller; the shell, HUD, history and diagnostics render literal sample data. This ticket connects the UI to the service over the authenticated pipe (ADR-0003) and makes every screen show live state. It also installs the egress guard at the composition root and adds the IPC command that ST-081's "delete everything" will call.
+Today `ScreenTrail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`, `TrayPresence`, `LocalDataEraser`, `ReviewSession` and seven `ISessionStore` read methods have no production caller; the shell, HUD, history and diagnostics render literal sample data. This ticket connects the UI to the service over the authenticated pipe (ADR-0003) and makes every screen show live state. It also installs the egress guard at the composition root and adds the IPC command that ST-081's "delete everything" will call.
 
 **Architecture (holds for every later UI ticket):**
-- The UI references `ScreenTail.Shared` and `ScreenTail.Core` only. It never references `ScreenTail.Service`; everything crosses the pipe. Store reads the UI needs go through service commands, so INV-1's read-path filtering has one owner.
+- The UI references `ScreenTrail.Shared` and `ScreenTrail.Core` only. It never references `ScreenTrail.Service`; everything crosses the pipe. Store reads the UI needs go through service commands, so INV-1's read-path filtering has one owner.
 - One `CaptureConnection` object owns the pipe, reconnects with backoff, and exposes an observable `CaptureSnapshot?` where `null` means unknown. View models bind to that, never to the pipe.
 - Unknown is a first-class state: the tray, the HUD and Review all render "Capture state unknown: it may still be recording" from `null`, and nothing hides on `null` (ST-048 P0-3).
 - All HTTP in the client is built through `EgressRequest.For(purpose)`; a `ReleaseSurfaceTests` scan bans bare `new HttpClient(` in client source.
@@ -1692,13 +1692,13 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - [ ] `IpcServer` enforces a per-peer connection limit and fairness so sixteen idle connections cannot lock the UI out (weaknesses P1-6)
 - [ ] `EgressGuard` is registered at the composition root; `ModelDownload` builds its request with a purpose; the bare-`HttpClient` scan passes (weaknesses P1-1)
 - [ ] An IPC command `EraseAllLocalData` exists, is authenticated, and calls `LocalDataEraser` (UI in ST-081)
-- [ ] `ScreenTail.UI` has no `ProjectReference` to `ScreenTail.Service` (test in `ReleaseSurfaceTests`)
+- [ ] `ScreenTrail.UI` has no `ProjectReference` to `ScreenTrail.Service` (test in `ReleaseSurfaceTests`)
 - [ ] Screenshots in both themes at 1366×768 and 1920×1080 with the live HUD over a remote window
 
 **Agent brief**
 - Read: ADR-0003; `docs/ipc-contract.md`; `docs/review/weaknesses.md` P0-2, P1-1, P1-2, P1-6; Spec §5 S1, S2, S4; INV-1, INV-4, INV-8
-- Write: `client/ScreenTail.UI/App.xaml.cs`, `UI/Shell/*`, `UI/Tray/*` (new), `UI/Hud/*`, `UI/Diagnostics/*`, `UI/History/*`, `Core/Ipc/IpcClient.cs`, `Service/Ipc/IpcServer.cs`, `Service/Host/*`, `docs/ipc-contract.md`, tests
-- Verify: `dotnet test client/ScreenTail.sln`; the laptop run with ST-018's gate green; the screenshots
+- Write: `client/ScreenTrail.UI/App.xaml.cs`, `UI/Shell/*`, `UI/Tray/*` (new), `UI/Hud/*`, `UI/Diagnostics/*`, `UI/History/*`, `Core/Ipc/IpcClient.cs`, `Service/Ipc/IpcServer.cs`, `Service/Host/*`, `docs/ipc-contract.md`, tests
+- Verify: `dotnet test client/ScreenTrail.sln`; the laptop run with ST-018's gate green; the screenshots
 ---
 
 ## Phase 6: Integrations (Epic: INTEG)
@@ -1708,7 +1708,7 @@ Today `ScreenTail.UI` never opens the pipe. `IpcClient`, `WindowsServerVerifier`
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Done 2026-09-18 (#64).** `IPsaProvider`, `IDocProvider`, a five-kind error taxonomy written to Spec §4's two-sentence pattern, and a contract harness the fakes pass. 38 backend tests. The interfaces live in `backend/src/ScreenTail.Api/Providers/` rather than a separate project; the README the ticket asks for is there. ST-091 and ST-095 derive from the harness. 2026-10-19 (2026-10-12 review): a sixth kind, `Unknown`, for a write that may have been saved; a write is retried only when none of it left or the answer was a 429, a Retry-After up to five seconds is waited out, an answer that is not JSON or over 4 MB is a typed error, and a publish answers each destination on its own when a provider throws. Owed to the owner: whether the client's Retry is hidden, relabelled or confirmed on an `unknown` row (it is still offered, under a message that says to check first), and a time budget for the whole publish, so a request that reaches its 90 s limit partway still answers the destinations already written. 2026-10-27: a demo PSA and knowledge base for live demonstrations without a ConnectWise sandbox, behind `Providers:Demo`, which the service refuses outside Development; it keeps published notes in memory, never touches a tenant's company mappings or credentials while on, and shows them at `/dev/demo-psa` to the same machine only (loopback at both ends, no proxy headers, a local Host name), and the client names it "Demo PSA (not ConnectWise)" in Settings and the publish pane (`docs/dev/demo-psa.md`).
+- **Status:** **Done 2026-09-18 (#64).** `IPsaProvider`, `IDocProvider`, a five-kind error taxonomy written to Spec §4's two-sentence pattern, and a contract harness the fakes pass. 38 backend tests. The interfaces live in `backend/src/ScreenTrail.Api/Providers/` rather than a separate project; the README the ticket asks for is there. ST-091 and ST-095 derive from the harness. 2026-10-19 (2026-10-12 review): a sixth kind, `Unknown`, for a write that may have been saved; a write is retried only when none of it left or the answer was a 429, a Retry-After up to five seconds is waited out, an answer that is not JSON or over 4 MB is a typed error, and a publish answers each destination on its own when a provider throws. Owed to the owner: whether the client's Retry is hidden, relabelled or confirmed on an `unknown` row (it is still offered, under a message that says to check first), and a time budget for the whole publish, so a request that reaches its 90 s limit partway still answers the destinations already written. 2026-10-27: a demo PSA and knowledge base for live demonstrations without a ConnectWise sandbox, behind `Providers:Demo`, which the service refuses outside Development; it keeps published notes in memory, never touches a tenant's company mappings or credentials while on, and shows them at `/dev/demo-psa` to the same machine only (loopback at both ends, no proxy headers, a local Host name), and the client names it "Demo PSA (not ConnectWise)" in Settings and the publish pane (`docs/dev/demo-psa.md`).
 
 **Description:**
 `IPsaProvider` / `IDocProvider`, shared DTOs, error taxonomy mapped to Spec §4 messages, contract-test harness with a fake provider.
@@ -1783,7 +1783,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 3
-- **Status:** **Server half done 2026-09-25 (#145).** `POST /v1/sessions/publish` renders the note as the editor lays it out (Problem, numbered Steps with "(screenshot n)" by place among the ones sent, Result, Follow-ups), leaves `[REDACTED]` alone, adds the configurable "Drafted with ScreenTail, reviewed by …" footer, posts the note with the internal/discussion flag and each included frame as a document on the ticket, and answers every destination on its own so a retry sends only what failed. INV-7 asserted: a publish leaves every table as it was. `shared/contracts/publish-request.v1.json` is the wire shape. **Client path done the same day:** `publish_session`, `search_tickets` and `get_integrations` on the pipe; the service reads the named frames' bytes from the store and posts through the egress guard under the user-initiated purpose; the publish pane's three delegates are real. The one thing left is the sandbox check with ST-091, which is the owner's. **2026-10-19 (2026-10-12 review):** a note that landed but lost a screenshot is ok with its id and `kind: partial`, so Retry does not post it again; destinations go together and screenshots four at a time under a 75 s publish deadline counted from the request's arrival, which answers every destination (`timed_out` for one still on its way, `unconfirmed` for an answer that could not be read) instead of an empty 504 or a 500; an Internal note's documents carry `privateFlag`. **2026-11-08 (no duplicate note after a lost answer):** a pipe that drops after `publish_session` went out is "not confirmed" per destination rather than failed, and so are the backend's `unknown` and `timed_out` rows: Publish, `Ctrl+Enter`, Retry and the mapping retry wait for an "I checked ticket #..." checkbox, spent on one send. The service refuses a plain send of a destination it holds as landed or unknown (`publish_again` is the technician's tick), and a second publish while the first is still on its way; contract v9. The backend stays stateless (INV-7). The outbox-key idempotency in the description is still not built. **Owner decisions O2 to O4 (same PR):** the service keeps what the last publish left per destination (`landed` or `unknown`) and an unconfirmed mark in two nullable columns (migration 0013, not a session state), written ahead of the backend call, and refuses a destination held as unknown without `publish_again`, across a service restart; discard is not blocked by it. Reopened Review offers each destination as the record left it, landed and unknown ones unticked behind the check. The gateway turns a publish that failed after the request may have left (timeout, a mid-request `HttpRequestException`, a 5xx other than the backend's nothing-connected 501, a 202 or 204, an unreadable answer) into `unknown` rows, and writes `bundle_sent` for it. **Re-review (MJ1):** the service checks each destination sent against the record, so `publish_again` is the technician's tick alone (the earlier silent flag on Retry is withdrawn: a plainly failed destination is not held, so its Retry needs none), and Retry waits for the tick while a failed destination has an earlier landed or unknown outcome. A crash between saving the outcomes and marking the session published still refuses a plain resend, and the next publish marks the session published. A session published before 0013 is refused for every destination, and its first new publish writes every destination as unknown, so one publish of the article does not clear the doubt about the note.
+- **Status:** **Server half done 2026-09-25 (#145).** `POST /v1/sessions/publish` renders the note as the editor lays it out (Problem, numbered Steps with "(screenshot n)" by place among the ones sent, Result, Follow-ups), leaves `[REDACTED]` alone, adds the configurable "Drafted with ScreenTrail, reviewed by …" footer, posts the note with the internal/discussion flag and each included frame as a document on the ticket, and answers every destination on its own so a retry sends only what failed. INV-7 asserted: a publish leaves every table as it was. `shared/contracts/publish-request.v1.json` is the wire shape. **Client path done the same day:** `publish_session`, `search_tickets` and `get_integrations` on the pipe; the service reads the named frames' bytes from the store and posts through the egress guard under the user-initiated purpose; the publish pane's three delegates are real. The one thing left is the sandbox check with ST-091, which is the owner's. **2026-10-19 (2026-10-12 review):** a note that landed but lost a screenshot is ok with its id and `kind: partial`, so Retry does not post it again; destinations go together and screenshots four at a time under a 75 s publish deadline counted from the request's arrival, which answers every destination (`timed_out` for one still on its way, `unconfirmed` for an answer that could not be read) instead of an empty 504 or a 500; an Internal note's documents carry `privateFlag`. **2026-11-08 (no duplicate note after a lost answer):** a pipe that drops after `publish_session` went out is "not confirmed" per destination rather than failed, and so are the backend's `unknown` and `timed_out` rows: Publish, `Ctrl+Enter`, Retry and the mapping retry wait for an "I checked ticket #..." checkbox, spent on one send. The service refuses a plain send of a destination it holds as landed or unknown (`publish_again` is the technician's tick), and a second publish while the first is still on its way; contract v9. The backend stays stateless (INV-7). The outbox-key idempotency in the description is still not built. **Owner decisions O2 to O4 (same PR):** the service keeps what the last publish left per destination (`landed` or `unknown`) and an unconfirmed mark in two nullable columns (migration 0013, not a session state), written ahead of the backend call, and refuses a destination held as unknown without `publish_again`, across a service restart; discard is not blocked by it. Reopened Review offers each destination as the record left it, landed and unknown ones unticked behind the check. The gateway turns a publish that failed after the request may have left (timeout, a mid-request `HttpRequestException`, a 5xx other than the backend's nothing-connected 501, a 202 or 204, an unreadable answer) into `unknown` rows, and writes `bundle_sent` for it. **Re-review (MJ1):** the service checks each destination sent against the record, so `publish_again` is the technician's tick alone (the earlier silent flag on Retry is withdrawn: a plainly failed destination is not held, so its Retry needs none), and Retry waits for the tick while a failed destination has an earlier landed or unknown outcome. A crash between saving the outcomes and marking the session published still refuses a plain resend, and the next publish marks the session published. A session published before 0013 is refused for every destination, and its first new publish writes every destination as unknown, so one publish of the article does not clear the doubt about the note.
 
 **Description:**
 `POST /service/tickets/{id}/notes` + document uploads of selected redacted frames; idempotent via outbox key; configurable footer.
@@ -1795,7 +1795,7 @@ Search by ID/summary/company via `conditions`; default "recently touched by this
 **Acceptance Criteria:**
 - [ ] Note text/formatting match editor
 - [ ] 3 selected frames → 3 attachments
-- [ ] `[REDACTED]` preserved; footer "Drafted with ScreenTail, reviewed by <tech>" configurable
+- [ ] `[REDACTED]` preserved; footer "Drafted with ScreenTrail, reviewed by <tech>" configurable
 
 **Agent brief**
 - Read: INV-3, INV-1
@@ -1908,7 +1908,7 @@ Per-tenant mapping auto-matched by name with confidence, user-correctable in Set
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 2
-- **Status:** **Done 2026-09-25.** `shared/contracts/session-metric.v1.json` is the field list (the session id, counts and times, the edit ratio, published) with no string but the id, checked by reflection on both sides (AC1, INV-10). The service queues one metric when a draft lands and again when a publish lands, through the outbox so an offline afternoon queues it, and only when telemetry is on (`SCREENTAIL_TELEMETRY=1` until ST-081's toggle; off means nothing is queued, AC2). The edit ratio is the share of the draft's steps changed, added or removed between the draft as first written (`original_draft_json`, store migration 0010) and as published. `POST /v1/metrics/sessions` replaces the row on a retry; the Postgres view `weekly_tenant_metrics` gives sessions, published sessions, edit rate, session minutes and minutes saved per tenant per ISO week (AC3), with "five minutes per published note" as the working assumption named in the migration until ST-110 measures it.
+- **Status:** **Done 2026-09-25.** `shared/contracts/session-metric.v1.json` is the field list (the session id, counts and times, the edit ratio, published) with no string but the id, checked by reflection on both sides (AC1, INV-10). The service queues one metric when a draft lands and again when a publish lands, through the outbox so an offline afternoon queues it, and only when telemetry is on (`SCREENTRAIL_TELEMETRY=1` until ST-081's toggle; off means nothing is queued, AC2). The edit ratio is the share of the draft's steps changed, added or removed between the draft as first written (`original_draft_json`, store migration 0010) and as published. `POST /v1/metrics/sessions` replaces the row on a retry; the Postgres view `weekly_tenant_metrics` gives sessions, published sessions, edit rate, session minutes and minutes saved per tenant per ISO week (AC3), with "five minutes per published note" as the working assumption named in the migration until ST-110 measures it.
 
 **Description:**
 Anonymized per-session metrics to `session_metrics`; respects telemetry off; offline queue.
@@ -1924,7 +1924,7 @@ Anonymized per-session metrics to `session_metrics`; respects telemetry off; off
 
 **Agent brief**
 - Read: INV-10; Spec §5 S6 telemetry field list
-- Write: `/backend/src/Metrics/*`, client `/client/ScreenTail.Service/Metrics/*`
+- Write: `/backend/src/Metrics/*`, client `/client/ScreenTrail.Service/Metrics/*`
 - Verify: schema test rejecting content fields
 ---
 
@@ -1933,7 +1933,7 @@ Anonymized per-session metrics to `session_metrics`; respects telemetry off; off
 - **Epic/Feature:** INTEG
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** **Built 2026-10-31, not yet run against a real Google account** (ADR-0009 Proposed). Owners sign in with Google, the owner's choice: Google Identity Services in the page hands an ID token to `POST /v1/admin/session`, which checks it server-side (RS256 against Google's published keys, cached 5 minutes to a day and fetched at most once per five minutes for an unknown key, failing closed; issuer, audience equal to `Admin:GoogleClientId`, expiry with no grace, verified address) and answers with an admin session: a ScreenTail token with its own audience in an HttpOnly, Secure, SameSite=Strict `__Host-` cookie, a double-submit CSRF header on every change, and a session version that sign-out moves on so a copied cookie stops at once. No client id, no sign-in (501). The first sign-in of an address on `Admin:SignupAllowlist` (empty by default: nobody) asks for the organisation's name and creates the tenant with `Admin:NewTenantSeats` (5) and that person as its one owner. Owner routes under `/v1/admin`, every query scoped by the session's tenant: technicians, devices and seats used of total, invites (ST-010's hashed 72-hour code, returned once to hand on), revoke a device, the policy read and set (every field required, ranges refused rather than clamped, every-window capture confirmed, INV-5), integration status for ConnectWise and Hudu (connected, last test, never a credential), and the client download link (`Admin:ClientDownloadUrl`, empty says so). The web app (`web/src/admin/*`) has the sign-in page with a "not configured" state, the first-run screen, and the shell with Technicians and seats (code shown once with Copy, revoke on a second click, the list read again every fifteen seconds so an activation shows up), Policy, Integrations and Download client, light by default on the shared tokens. AC1 is `TheOwnerSignsUpInvitesATechSetsAPolicyAndSeesTheDeviceActivate` over HTTP; AC3: Lighthouse accessibility 100 on every page in both themes (2026-10-31, `docs/dev/web-admin.md`). Device tokens never open an admin route and admin sessions never act as a device (`AdminAccessTests`, every route enumerated). **Hardened 2026-11-01** (ADR-0009 "Hardening"): the sign-in nonce, sign-in, signup and device activation are rate limited per client address (10 a minute by default, 429 with Retry-After and no body, before the token verifier; a call another site's page started refused before it is counted; sign-out never counted; forwarded headers read only from proxies listed in `ForwardedHeaders:KnownProxies`/`KnownNetworks`, empty by default, whatever `ASPNETCORE_FORWARDEDHEADERS_ENABLED` says); every Google ID token must carry a single-use nonce the page asked for (`POST /v1/admin/session/nonce`, 10 minutes, HMAC-signed so handing one out stores nothing, its hash written as a primary key in the same save as the session or the tenant so a replay is a key conflict); every API answer, unhandled errors included, carries a closed CSP and the related headers unless the route set its own (the demo PSA page keeps its styles); the device client says a 429 in words, and the page's headers (`web/security-headers.ts`) are sent by `vite preview` and, since 2026-11-01, by the deployment's Caddy, which generates them from that file (ST-007, `deploy/`), with a CSP that is Google's GIS list plus inline styles, which the GIS client needs. Lighthouse accessibility stayed 100 on every page with the CSP on. **Browser tests 2026-11-04** (ADR-0009 "Testing in a real browser"): a Playwright suite (`web/e2e`, Chromium, `@playwright/test` 1.64.1, `@axe-core/playwright` 4.14.0) drives the built page with the deployment's headers against the real backend on Postgres in the Web job, from sign-in through first-run signup, the invite code shown once, a device activating, the two-click revoke, the policy editor with INV-5's confirmation, integrations without a credential and the download link to sign-out ending a copied cookie, with the page's headers, zero CSP violations and axe-core (no serious or critical) on every page; Google is a stand-in signed with a key made per run, which the backend trusts only through `Testing:GoogleSigningKeys`, refused at startup outside Development. **Owed:** the owner's OAuth client id and a run with a real Google account under the CSP; a host and a name for `deploy/`, which already lists its proxy in `ForwardedHeaders:KnownProxies` (ST-007); the owner's decisions listed in ADR-0009; the mail provider for invites (ST-007); the v1.1 dashboard. **2026-11-15** (security review, owner decision): the Integrations page connects, replaces, tests and disconnects ConnectWise and Hudu (`/v1/admin/integrations/{provider}`, CSRF on every change), shows who connected each and the last 20 credential and mapping changes with who made them, and never any part of a secret; ADR-0009 decision 6 is superseded.
+- **Status:** **Built 2026-10-31, not yet run against a real Google account** (ADR-0009 Proposed). Owners sign in with Google, the owner's choice: Google Identity Services in the page hands an ID token to `POST /v1/admin/session`, which checks it server-side (RS256 against Google's published keys, cached 5 minutes to a day and fetched at most once per five minutes for an unknown key, failing closed; issuer, audience equal to `Admin:GoogleClientId`, expiry with no grace, verified address) and answers with an admin session: a ScreenTrail token with its own audience in an HttpOnly, Secure, SameSite=Strict `__Host-` cookie, a double-submit CSRF header on every change, and a session version that sign-out moves on so a copied cookie stops at once. No client id, no sign-in (501). The first sign-in of an address on `Admin:SignupAllowlist` (empty by default: nobody) asks for the organisation's name and creates the tenant with `Admin:NewTenantSeats` (5) and that person as its one owner. Owner routes under `/v1/admin`, every query scoped by the session's tenant: technicians, devices and seats used of total, invites (ST-010's hashed 72-hour code, returned once to hand on), revoke a device, the policy read and set (every field required, ranges refused rather than clamped, every-window capture confirmed, INV-5), integration status for ConnectWise and Hudu (connected, last test, never a credential), and the client download link (`Admin:ClientDownloadUrl`, empty says so). The web app (`web/src/admin/*`) has the sign-in page with a "not configured" state, the first-run screen, and the shell with Technicians and seats (code shown once with Copy, revoke on a second click, the list read again every fifteen seconds so an activation shows up), Policy, Integrations and Download client, light by default on the shared tokens. AC1 is `TheOwnerSignsUpInvitesATechSetsAPolicyAndSeesTheDeviceActivate` over HTTP; AC3: Lighthouse accessibility 100 on every page in both themes (2026-10-31, `docs/dev/web-admin.md`). Device tokens never open an admin route and admin sessions never act as a device (`AdminAccessTests`, every route enumerated). **Hardened 2026-11-01** (ADR-0009 "Hardening"): the sign-in nonce, sign-in, signup and device activation are rate limited per client address (10 a minute by default, 429 with Retry-After and no body, before the token verifier; a call another site's page started refused before it is counted; sign-out never counted; forwarded headers read only from proxies listed in `ForwardedHeaders:KnownProxies`/`KnownNetworks`, empty by default, whatever `ASPNETCORE_FORWARDEDHEADERS_ENABLED` says); every Google ID token must carry a single-use nonce the page asked for (`POST /v1/admin/session/nonce`, 10 minutes, HMAC-signed so handing one out stores nothing, its hash written as a primary key in the same save as the session or the tenant so a replay is a key conflict); every API answer, unhandled errors included, carries a closed CSP and the related headers unless the route set its own (the demo PSA page keeps its styles); the device client says a 429 in words, and the page's headers (`web/security-headers.ts`) are sent by `vite preview` and, since 2026-11-01, by the deployment's Caddy, which generates them from that file (ST-007, `deploy/`), with a CSP that is Google's GIS list plus inline styles, which the GIS client needs. Lighthouse accessibility stayed 100 on every page with the CSP on. **Browser tests 2026-11-04** (ADR-0009 "Testing in a real browser"): a Playwright suite (`web/e2e`, Chromium, `@playwright/test` 1.64.1, `@axe-core/playwright` 4.14.0) drives the built page with the deployment's headers against the real backend on Postgres in the Web job, from sign-in through first-run signup, the invite code shown once, a device activating, the two-click revoke, the policy editor with INV-5's confirmation, integrations without a credential and the download link to sign-out ending a copied cookie, with the page's headers, zero CSP violations and axe-core (no serious or critical) on every page; Google is a stand-in signed with a key made per run, which the backend trusts only through `Testing:GoogleSigningKeys`, refused at startup outside Development. **Owed:** the owner's OAuth client id and a run with a real Google account under the CSP; a host and a name for `deploy/`, which already lists its proxy in `ForwardedHeaders:KnownProxies` (ST-007); the owner's decisions listed in ADR-0009; the mail provider for invites (ST-007); the v1.1 dashboard. **2026-11-15** (security review, owner decision): the Integrations page connects, replaces, tests and disconnects ConnectWise and Hudu (`/v1/admin/integrations/{provider}`, CSRF on every change), shows who connected each and the last 20 credential and mapping changes with who made them, and never any part of a secret; ADR-0009 decision 6 is superseded.
 
 **Description:**
 React + TS on shared tokens per Spec §5 S9: sign up/in, technicians and seats, policy editor, integration status, client download.
@@ -2010,7 +2010,7 @@ Lightweight pilot agreement, plain-language privacy policy, DPA template based o
 - **Epic/Feature:** RELEASE
 - **Priority:** High
 - **Estimate:** 5
-- **Status:** **Partial 2026-10-27, updated 2026-11-04: built and smoke-tested unsigned; signing waits for the certificate.** ADR-0007 (Proposed) chooses a per-machine MSI built with WiX 5 plus `ScreenTail-Setup.exe`, which installs the Visual C++ runtime Whisper's natives need and then the MSI. Both processes are published self-contained and single-file for the installer only (`client/Packaging.props`), natives beside them in Program Files, the service as a Windows program; the service starts at every sign-in from the machine Run key. `installer/build.ps1` builds both, `installer/sign.ps1` is the one signing step (Azure Artifact Signing or a store certificate, SHA-256, RFC 3161 timestamp, one signer), skipped with a notice when not configured. CI's **Installer (Windows)** job, on the hosted runner, runs `installer/smoke-test.ps1` on every client change: silent install, the installed service starting and the installed UI rendering, an upgrade that keeps user data while the service runs, silent uninstall leaving no files, Run value, shortcut, process or Programs entry, and the setup program round with a link planted where the data folder was. **AC2 and AC3 pass there** (`/qn` exits 0 with no restart; MSI 94 MB, setup program 112 MB). **Uninstall, by design:** a user's data folder is deleted only while that user is signed in, with their own rights; for anybody else only the store's key and the device's credentials are removed, file by file through handles that refuse links, so the store left behind cannot be read; everything left is counted in the uninstall log, and "Delete everything" in Settings stays the full erase while ScreenTail is installed (INV-12; `docs/dev/installer.md`; the owner confirms this default in ADR-0007). The install folder cannot be moved out of Program Files, and CI's signing credential (OIDC, no secret) reaches only its signing steps. **AC1** (no SmartScreen or antivirus warning on a fresh Windows 11) needs the certificate: switching it on is `docs/dev/installer.md`, and the signed job runs on main once `SCREENTAIL_SIGNING` is true. **No restart for a held file:** the uninstall step waits until no other program has an installed file open (#247), and so, since this follow-up, does the old version's removal during an upgrade, through the installed service's `--upgrade-release` mode (stops running copies and waits, nothing else); the smoke test upgrades three ways (msiexec `/qn`, the update installer's `/passive`, the setup program) with another process holding the service executable and requires exit 0 and nothing left for a restart. Upgrades from builds without that mode can still end in 3010 once (ADR-0007). **2026-11-01:** the capture service answers Windows' requests to close (sign-out, shutdown, Restart Manager, `WM_CLOSE`) through a hidden window and exits by itself with its store closed; a recording in progress is left for recovery as partial, as after a crash (ST-020). It and the UI register for Restart Manager's restart, so another program's installer that closes it starts it again, watching, not recording, and it never runs elevated, as another user, or in session 0 (INV-6). The smoke test checks Restart Manager's request to the service and the UI, the restart, and that an uninstall's step finds no running copy left to end. **2026-11-04: the stop time mid-recording is measured automatically.** `StopTimeTests` (Windows tests) runs the real `CaptureHost`, composed as `Program.cs` composes it, over a throwaway folder and a pipe of its own (`CaptureHostPaths`, which keeps the key, the device credential and the IPC token inside the data folder so Delete everything always reaches them; the service itself always uses the product's), with no backend address or device token. It records with the input hooks in and a synthetic window of a remote-tool class in front, marks a burst of moments, and asks it to close by sign-out, Restart Manager and `WM_CLOSE`. It requires a frame still waiting for OCR and redaction at the ask, the store closed within the 4 s budget (WM_ENDSESSION answered only then), no `-wal` or `-shm` left, the next start of the real service recovering the session as partial, and every kept frame's OCR text carrying a word from the test window, with the session still recording at the ask; it refuses to run while a visible window on its desktop looks like a real remote-support session (a remote tool's window, or a browser titled with one), counted, never named. It runs on the hosted runner and in the laptop's capabilities job, where the sign-out case also requires the microphone and the speech model in memory. Hosted: 38 to 115 ms with one frame in flight; laptop: 98 to 191 ms (run 41927796271, 2026-11-04). A quiet room gives Whisper nothing to transcribe, so a stop in the middle of a transcription is not what it measures. **2026-11-05:** with sound at the laptop's microphone the sign-out ran past the budget twice (runs 42031407710, 42051212812), the speech model's disposal waiting for a native call. **Owner's decision: the stop does not wait for a transcription in flight.** It is told to abort, the segment is dropped (never half-kept), and the recogniser's disposal waits at most 500 ms before leaving the call to end by itself or with the process; a count is logged (#262). `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` holds it on the laptop, since #263 with ten minutes of audio in flight: the disposal must return within 500 ms plus 150 ms and the abort be answered within 3 s. `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` (laptop only) requires a process left with a call still running to exit with code 0 within 5 s. On #263's final head (run 42526106737): disposal 505 ms, process exit 140 ms, the sign-out stop 168 ms. Owed: on the laptop with UAC on, an elevated third-party installer closing the service, and the copy Restart Manager starts again running at medium integrity or refused by the start guard (#251); the owner's choice of whether to refuse Restart Manager while recording, and whether the UI stays registered for restart (ADR-0007).
+- **Status:** **Partial 2026-10-27, updated 2026-11-04: built and smoke-tested unsigned; signing waits for the certificate.** ADR-0007 (Proposed) chooses a per-machine MSI built with WiX 5 plus `ScreenTrail-Setup.exe`, which installs the Visual C++ runtime Whisper's natives need and then the MSI. Both processes are published self-contained and single-file for the installer only (`client/Packaging.props`), natives beside them in Program Files, the service as a Windows program; the service starts at every sign-in from the machine Run key. `installer/build.ps1` builds both, `installer/sign.ps1` is the one signing step (Azure Artifact Signing or a store certificate, SHA-256, RFC 3161 timestamp, one signer), skipped with a notice when not configured. CI's **Installer (Windows)** job, on the hosted runner, runs `installer/smoke-test.ps1` on every client change: silent install, the installed service starting and the installed UI rendering, an upgrade that keeps user data while the service runs, silent uninstall leaving no files, Run value, shortcut, process or Programs entry, and the setup program round with a link planted where the data folder was. **AC2 and AC3 pass there** (`/qn` exits 0 with no restart; MSI 94 MB, setup program 112 MB). **Uninstall, by design:** a user's data folder is deleted only while that user is signed in, with their own rights; for anybody else only the store's key and the device's credentials are removed, file by file through handles that refuse links, so the store left behind cannot be read; everything left is counted in the uninstall log, and "Delete everything" in Settings stays the full erase while ScreenTrail is installed (INV-12; `docs/dev/installer.md`; the owner confirms this default in ADR-0007). The install folder cannot be moved out of Program Files, and CI's signing credential (OIDC, no secret) reaches only its signing steps. **AC1** (no SmartScreen or antivirus warning on a fresh Windows 11) needs the certificate: switching it on is `docs/dev/installer.md`, and the signed job runs on main once `SCREENTRAIL_SIGNING` is true. **No restart for a held file:** the uninstall step waits until no other program has an installed file open (#247), and so, since this follow-up, does the old version's removal during an upgrade, through the installed service's `--upgrade-release` mode (stops running copies and waits, nothing else); the smoke test upgrades three ways (msiexec `/qn`, the update installer's `/passive`, the setup program) with another process holding the service executable and requires exit 0 and nothing left for a restart. Upgrades from builds without that mode can still end in 3010 once (ADR-0007). **2026-11-01:** the capture service answers Windows' requests to close (sign-out, shutdown, Restart Manager, `WM_CLOSE`) through a hidden window and exits by itself with its store closed; a recording in progress is left for recovery as partial, as after a crash (ST-020). It and the UI register for Restart Manager's restart, so another program's installer that closes it starts it again, watching, not recording, and it never runs elevated, as another user, or in session 0 (INV-6). The smoke test checks Restart Manager's request to the service and the UI, the restart, and that an uninstall's step finds no running copy left to end. **2026-11-04: the stop time mid-recording is measured automatically.** `StopTimeTests` (Windows tests) runs the real `CaptureHost`, composed as `Program.cs` composes it, over a throwaway folder and a pipe of its own (`CaptureHostPaths`, which keeps the key, the device credential and the IPC token inside the data folder so Delete everything always reaches them; the service itself always uses the product's), with no backend address or device token. It records with the input hooks in and a synthetic window of a remote-tool class in front, marks a burst of moments, and asks it to close by sign-out, Restart Manager and `WM_CLOSE`. It requires a frame still waiting for OCR and redaction at the ask, the store closed within the 4 s budget (WM_ENDSESSION answered only then), no `-wal` or `-shm` left, the next start of the real service recovering the session as partial, and every kept frame's OCR text carrying a word from the test window, with the session still recording at the ask; it refuses to run while a visible window on its desktop looks like a real remote-support session (a remote tool's window, or a browser titled with one), counted, never named. It runs on the hosted runner and in the laptop's capabilities job, where the sign-out case also requires the microphone and the speech model in memory. Hosted: 38 to 115 ms with one frame in flight; laptop: 98 to 191 ms (run 41927796271, 2026-11-04). A quiet room gives Whisper nothing to transcribe, so a stop in the middle of a transcription is not what it measures. **2026-11-05:** with sound at the laptop's microphone the sign-out ran past the budget twice (runs 42031407710, 42051212812), the speech model's disposal waiting for a native call. **Owner's decision: the stop does not wait for a transcription in flight.** It is told to abort, the segment is dropped (never half-kept), and the recogniser's disposal waits at most 500 ms before leaving the call to end by itself or with the process; a count is logged (#262). `SpeechUnloadTests.AStopDoesNotWaitForATranscriptionInFlight` holds it on the laptop, since #263 with ten minutes of audio in flight: the disposal must return within 500 ms plus 150 ms and the abort be answered within 3 s. `StopTimeTests.TheProcessEndsWithATranscriptionStillInFlight` (laptop only) requires a process left with a call still running to exit with code 0 within 5 s. On #263's final head (run 42526106737): disposal 505 ms, process exit 140 ms, the sign-out stop 168 ms. Owed: on the laptop with UAC on, an elevated third-party installer closing the service, and the copy Restart Manager starts again running at medium integrity or refused by the start guard (#251); the owner's choice of whether to refuse Restart Manager while recording, and whether the UI stays registered for restart (ADR-0007).
 
 **Description:**
 EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall removes binaries, store, tokens, models, tasks.
@@ -2035,7 +2035,7 @@ EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall r
 - **Epic/Feature:** RELEASE
 - **Priority:** Medium
 - **Estimate:** 3
-- **Status:** **Partial 2026-10-29: built and tested; switched off until the owner creates the key and the hosting.** ADR-0008 (Proposed). The capture service checks `<feed><channel>/win-x64.json`, an ECDSA P-256 signed manifest it believes only after the signature verifies with a key compiled into the client (`shared/release/update-trust.json`, empty until the owner fills it in, so no build makes an update request yet), under its own egress purpose to the compiled-in hosts only, never under local-only unless the tenant's admin allows it, with no credential or device in the request, and only after this run's first policy fetch. It refuses and logs a bad signature, another channel or architecture, a downgrade or a replayed older release, an installation older than the minimum, a package host it does not trust, and a malformed hash or size (**AC2**). A newer release downloads while no session is recording and is kept only if its size and SHA-256 match; the tray announces it once, only when no session is running, and Settings → Updates offers Install only then (**AC1**). Install re-checks the package through a write-locked handle (hash, Authenticode, timestamp, publisher by identity rather than leaf certificate), holds every session start, and starts `msiexec /i /passive /norestart`, which asks for an administrator's approval; no privileged ScreenTail process is added. The channel (stable or pilot) is chosen in Settings unless the admin's policy locks it, and the admin sets the interval and the local-only exception (**AC3**; INV-11; backend and contract carry the four fields). CI signs every build on main for pilot only, through Key Vault and the signing job's OIDC token, skipped until configured; stable is signed only by the hand-started `promote-stable` workflow in the owner's `release-stable` environment, which fails closed until it exists. Since the 2026-11-15 security review each signing key is trusted for one channel only (pilot or stable), checked by the client. Still owner: the two Key Vault keys and their two app registrations (one per channel), the hosting (ST-007), the two environments' settings, and the UAC prompt checked on the laptop with the first signed build (`docs/dev/installer.md`, "Updates").
+- **Status:** **Partial 2026-10-29: built and tested; switched off until the owner creates the key and the hosting.** ADR-0008 (Proposed). The capture service checks `<feed><channel>/win-x64.json`, an ECDSA P-256 signed manifest it believes only after the signature verifies with a key compiled into the client (`shared/release/update-trust.json`, empty until the owner fills it in, so no build makes an update request yet), under its own egress purpose to the compiled-in hosts only, never under local-only unless the tenant's admin allows it, with no credential or device in the request, and only after this run's first policy fetch. It refuses and logs a bad signature, another channel or architecture, a downgrade or a replayed older release, an installation older than the minimum, a package host it does not trust, and a malformed hash or size (**AC2**). A newer release downloads while no session is recording and is kept only if its size and SHA-256 match; the tray announces it once, only when no session is running, and Settings → Updates offers Install only then (**AC1**). Install re-checks the package through a write-locked handle (hash, Authenticode, timestamp, publisher by identity rather than leaf certificate), holds every session start, and starts `msiexec /i /passive /norestart`, which asks for an administrator's approval; no privileged ScreenTrail process is added. The channel (stable or pilot) is chosen in Settings unless the admin's policy locks it, and the admin sets the interval and the local-only exception (**AC3**; INV-11; backend and contract carry the four fields). CI signs every build on main for pilot only, through Key Vault and the signing job's OIDC token, skipped until configured; stable is signed only by the hand-started `promote-stable` workflow in the owner's `release-stable` environment, which fails closed until it exists. Since the 2026-11-15 security review each signing key is trusted for one channel only (pilot or stable), checked by the client. Still owner: the two Key Vault keys and their two app registrations (one per channel), the hosting (ST-007), the two environments' settings, and the UAC prompt checked on the laptop with the first signed build (`docs/dev/installer.md`, "Updates").
 
 **Dependencies & Blockers:**
 - 🛑 **Blocks:** None
@@ -2048,7 +2048,7 @@ EV-signed MSI/EXE; per-user/per-machine; `/quiet`; service at login; uninstall r
 
 **Agent brief**
 - Read: ST-112
-- Write: `/client/ScreenTail.UI/Update/*`, release feed manifest (also `/client/ScreenTail.Core/Update/*`, `/installer/update-manifest.ps1`, `.github/workflows/promote-stable.yml`, `/shared/release/*`)
+- Write: `/client/ScreenTrail.UI/Update/*`, release feed manifest (also `/client/ScreenTrail.Core/Update/*`, `/installer/update-manifest.ps1`, `.github/workflows/promote-stable.yml`, `/shared/release/*`)
 - Verify: `UpdateTests`
 ---
 
@@ -2224,7 +2224,7 @@ Implements Spec §5 S10; `end_user` diarization; redaction extended; off by defa
 
 **Agent brief**
 - Read: Spec §5 S10, INV-9 (this ticket amends it under consent)
-- Write: `/client/ScreenTail.Service/Speech/EndUserAudio/*`, `/client/ScreenTail.UI/Consent/*`
+- Write: `/client/ScreenTrail.Service/Speech/EndUserAudio/*`, `/client/ScreenTrail.UI/Consent/*`
 - Verify: `ConsentTests`
 ---
 

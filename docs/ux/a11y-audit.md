@@ -11,12 +11,12 @@ runner and on the laptop; what is left is listening to what is read.
 | Spec §7 says | How it is held |
 |---|---|
 | WCAG 2.1 AA contrast for all text | `ContrastTests`: every text token against every background token in every theme, minimum 4.5:1 |
-| Every interactive element has an `AutomationProperties.Name` | `AutomationNamesTests` reads every XAML file under `client/ScreenTail.UI` (the token gallery left out, as a design reference) and fails on a button, box, check, radio, combo, slider, list or grid with no name, no `Content` and no `Header` |
+| Every interactive element has an `AutomationProperties.Name` | `AutomationNamesTests` reads every XAML file under `client/ScreenTrail.UI` (the token gallery left out, as a design reference) and fails on a button, box, check, radio, combo, slider, list or grid with no name, no `Content` and no `Header` |
 | Live regions are announced | `AutomationNamesTests.EveryLiveRegionIsOneThatIsAnnounced`: no view sets `AutomationProperties.LiveSetting` itself, which WPF never announces; every live region uses `controls:LiveRegion.Setting` |
 | Layout lists are not read as lists of type names | `AutomationNamesTests.NoViewLaysOutRowsWithAPlainItemsControl`: repeated rows use `controls:Repeater` |
 | The pill is read as its state | `HudStateTests`: "Recording, 12 minutes 41 seconds, 3 screenshots still being redacted", and the announcement leaves the clock out |
 
-### On a real window (the Windows suite, `client/ScreenTail.Tests.Windows/Accessibility`)
+### On a real window (the Windows suite, `client/ScreenTrail.Tests.Windows/Accessibility`)
 
 Every screen a technician reaches is opened with the screenshot harness's sample data at the shell's
 minimum size (1024 x 680), shown and focused, and checked through its automation peers, WPF's own
@@ -47,7 +47,7 @@ shortcut sheet, the pill in all ten states, and the tray menu.
 | Live regions | `LiveRegionTests` | The shell's capture state, the service-down banner or the pill's state changing without an announcement; the pill announcing its clock every second |
 | Reduce motion | every screen (`ScreenAccessibilityTests`), and `MotionAndContrastTests.WithAnimationsOffNothingMoves` for the timeline and the combo boxes | With Windows' animations off (simulated through `ThemeManager.ClientAreaAnimation`, not changed on the machine): any element animating as a screen opens, as the timeline toggles or as a combo box drops down, a popup that animates, or a storyboard declared in any style or template. The text caret's blink is left to Windows' own cursor settings |
 | High contrast | every screen under the high-contrast palette (`ScreenAccessibilityTests`), and `MotionAndContrastTests.InHighContrastEveryColourIsTheSystems` | With Windows' high contrast simulated (`ThemeManager.SystemHighContrast`): the app not switching to the high-contrast palette whatever theme was chosen, or not remembering the choice; a colour token that is not a system colour; any opaque colour drawn on any screen that is not one of the system's |
-| Accessibility Insights FastPass, automated checks (AC2) | every screen and pill state, through `ScreenTail.Tests.AxeRunner` | Any error the axe-windows engine reports. It runs in its own process because the engine skips the elements of the process that runs it; it writes no file and prints no window title |
+| Accessibility Insights FastPass, automated checks (AC2) | every screen and pill state, through `ScreenTrail.Tests.AxeRunner` | Any error the axe-windows engine reports. It runs in its own process because the engine skips the elements of the process that runs it; it writes no file and prints no window title |
 
 The keyboard is driven without injecting input: `Keys.Press` hands the window's `HwndSource` the key
 messages the message loop would, and holds Shift, Ctrl and Alt with `SetKeyboardState`, which changes the
@@ -151,7 +151,7 @@ Narrator said, and what it should have said.
 4. **The pill is read as its state.** With a session running, move Narrator to the pill (Caps+arrow
    keys, scan mode): "Recording, 3 minutes 12 seconds". It never takes focus, by design; its keys are the
    global hotkeys the shortcut sheet lists.
-5. **The tray menu from the keyboard.** Win+B, the arrows to the ScreenTail icon, then the menu key or
+5. **The tray menu from the keyboard.** Win+B, the arrows to the ScreenTrail icon, then the menu key or
    Shift+F10: the menu opens, the arrows move through it, each item is read, Enter acts, Esc closes.
 6. **Typed confirmations.** Discard a session and Delete everything: the dialog's heading and consequence
    are read when it opens, the caret is in the box, Esc keeps the data.

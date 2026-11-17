@@ -1,0 +1,375 @@
+using ScreenTrail.Core.Capabilities;
+using ScreenTrail.Core.Onboarding;
+using ScreenTrail.Core.Sessions;
+using ScreenTrail.Core.Settings;
+using ScreenTrail.Core.Shell;
+using ScreenTrail.Shared.Ipc;
+
+namespace ScreenTrail.Tests.Onboarding;
+
+/// <summary>
+/// The onboarding wizard's rules (ST-083, Spec §5 S8): seven steps in order, each with what it takes to
+/// continue; permissions checked with a fix offered and re-checked (AC3); integrations skippable with
+/// drafts still produced and Publish saying "Connect a PSA" (AC2); "Try it" a real test session through
+/// the service; Done remembered so it does not run again, and re-runnable from the tray.
+/// </summary>
+public sealed class OnboardingWizardTests
+{
+    [Fact]
+    public void TheStepsRunInTheSpecsOrderAndTheDotsSayWhere()
+    {
+        var wizard = Wizard();
+
+        Assert.Equal(OnboardingStep.Welcome, wizard.Step);
+        Assert.Equal(7, wizard.StepCount);
+        Assert.Equal(1, wizard.StepNumber);
+        Assert.False(wizard.CanGoBack);
+
+        wizard.Next();
+        Assert.Equal(OnboardingStep.Activate, wizard.Step);
+        Assert.True(wizard.CanGoBack);
+        wizard.Back();
+        Assert.Equal(OnboardingStep.Welcome, wizard.Step);
+    }
+
+    [Fact]
+    public async Task ActivationWaitsForTheDeviceOrAnExplicitLater()
+    {
+        var device = new FakeDevice();
+        var wizard = Wizard(device: device);
+        wizard.Next();
+
+        await wizard.LoadStepAsync();
+        Assert.False(wizard.CanContinue);
+        Assert.Contains("code", wizard.Blocker, StringComparison.OrdinalIgnoreCase);
+
+        wizard.Activation.Code = InviteCodes.Example;
+        Assert.True(await wizard.Activation.ActivateAsync());
+        Assert.True(wizard.CanContinue);
+        Assert.Equal("Acme IT", wizard.Activation.TenantName);
+    }
+
+    [Fact]
+    public async Task ActivationCanBeSkippedBecauseTheStepSaysItCan()
+    {
+        // The blocker's own words are "or come back to this from Settings later" (ST-010's card), and a
+        // device enrolled from the environment (the M1 runbook) has no code to enter. Skip has to be real.
+        var wizard = Wizard();
+        wizard.Next();
+        await wizard.LoadStepAsync();
+
+        Assert.True(wizard.CanSkip);
+        wizard.Skip();
+
+        Assert.Equal(OnboardingStep.Permissions, wizard.Step);
+    }
+
+    [Fact]
+    public async Task ABlockedMicrophoneShowsTheFixAndIsCheckedAgain()
+    {
+        // AC3: blocked mic → deep link and re-check. The check is the one the service sends, built the
+        // way the service builds it: the hint is a sentence for a person and the link is what the Fix
+        // button opens, and a fake that put the link in the hint hid a Fix button that did nothing
+        // (2026-10-12 review, T-110).
+        var blocked = CapabilityCopy.MicrophoneBlocked().ToWire();
+        var capabilities = new FakeCapabilities
+        {
+            Checks =
+            [
+                blocked,
+                new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
+                new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
+            ],
+        };
+        var wizard = Wizard(capabilities: capabilities);
+        wizard.Go(OnboardingStep.Permissions);
+
+        await wizard.LoadStepAsync();
+
+        var mic = wizard.Permissions.Single(p => p.Capability == "microphone");
+        Assert.False(mic.Ok);
+        Assert.Equal(CapabilityCopy.MicrophoneSettings, mic.FixLink);
+        Assert.Equal(blocked.Message, mic.Message);
+        Assert.True(ExternalLinks.TryFixLink(mic.FixLink, out _), "the Fix button opens only a link it accepts");
+        Assert.True(wizard.CanContinue, "a blocked microphone is a worse session, not a blocked setup");
+        Assert.Contains("without narration", wizard.Blocker ?? wizard.Note, StringComparison.OrdinalIgnoreCase);
+
+        capabilities.Checks = [.. capabilities.Checks.Select(c => c.Capability == "microphone" ? c with { State = "ok", Message = "Microphone works.", FixHint = null, FixLink = null } : c)];
+        await wizard.RecheckAsync();
+        Assert.True(wizard.Permissions.Single(p => p.Capability == "microphone").Ok);
+        Assert.Equal(2, capabilities.Asked);
+    }
+
+    [Fact]
+    public async Task AMicrophoneTheAdminBlockedOffersNoFixButton()
+    {
+        // The admin's block has a hint and no link: there is nothing in Windows Settings the technician
+        // can change, so there is no button to press.
+        var capabilities = new FakeCapabilities
+        {
+            Checks =
+            [
+                CapabilityCopy.MicrophoneBlockedByAdmin().ToWire(),
+                new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
+                new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
+            ],
+        };
+        var wizard = Wizard(capabilities: capabilities);
+        wizard.Go(OnboardingStep.Permissions);
+
+        await wizard.LoadStepAsync();
+
+        var mic = wizard.Permissions.Single(p => p.Capability == "microphone");
+        Assert.False(mic.Ok);
+        Assert.Null(mic.FixLink);
+    }
+
+    [Fact]
+    public async Task ScreenCaptureBlockedBlocksSetup()
+    {
+        var capabilities = new FakeCapabilities
+        {
+            Checks = [new CapabilityStatus { Capability = "screen_capture", State = "blocked", Message = "Screen capture is refused by policy.", FixHint = null }],
+        };
+        var wizard = Wizard(capabilities: capabilities);
+        wizard.Go(OnboardingStep.Permissions);
+
+        await wizard.LoadStepAsync();
+
+        Assert.False(wizard.CanContinue);
+        Assert.Contains("Screen capture", wizard.Blocker, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SkippingConnectFinishesWithNothingConnected()
+    {
+        // AC2: skipped integrations → drafts still produced; Publish shows "Connect a PSA" (the
+        // publish pane's own rule). The wizard only has to let the technician past.
+        var integrations = new FakeIntegrations();
+        var wizard = Wizard(integrations: integrations);
+        wizard.Go(OnboardingStep.Connect);
+        await wizard.LoadStepAsync();
+
+        Assert.True(wizard.CanSkip);
+        wizard.Skip();
+
+        Assert.Equal(OnboardingStep.TryIt, wizard.Step);
+        Assert.Equal(1, integrations.Listed);
+    }
+
+    [Fact]
+    public async Task ConnectShowsWhatIsConnectedAndContinuesWithNothingToType()
+    {
+        // Spec v0.6.15 S8 step 5: integration credentials can only be changed by the tenant owner, in the
+        // web admin. The step reads what is connected and can be continued as well as skipped.
+        var integrations = new FakeIntegrations
+        {
+            Rows = [new IntegrationDetail("connectwise", "https://na.myconnectwise.net", "••••1234", DateTimeOffset.UnixEpoch, null, null)],
+        };
+        var wizard = Wizard(integrations: integrations);
+        wizard.Go(OnboardingStep.Connect);
+        await wizard.LoadStepAsync();
+
+        Assert.True(wizard.Integrations.ConnectWise.Connected);
+        Assert.Equal(IntegrationCard.OwnerManages, wizard.Integrations.ConnectWise.OwnerLine);
+        Assert.False(wizard.Integrations.Hudu.Connected);
+        Assert.Null(wizard.Blocker);
+        Assert.True(wizard.CanContinue);
+        Assert.True(wizard.CanSkip);
+
+        wizard.Next();
+        Assert.Equal(OnboardingStep.TryIt, wizard.Step);
+    }
+
+    [Fact]
+    public void ConnectSaysTheOwnerConnectsTheIntegrations()
+    {
+        Assert.Equal("Your ScreenTrail owner connects ConnectWise and Hudu in the web admin. You can publish once they have.", OnboardingWizard.ConnectByOwner);
+        Assert.DoesNotContain('—', OnboardingWizard.ConnectByOwner);
+        Assert.DoesNotContain('!', OnboardingWizard.ConnectByOwner);
+    }
+
+    [Fact]
+    public void TheStepsAreStillSevenWithConnectFifth()
+    {
+        Assert.Equal(7, Wizard().StepCount);
+        Assert.Equal(4, (int)OnboardingStep.Connect);
+    }
+
+    [Fact]
+    public async Task TryItStartsAndStopsATestSessionThroughTheService()
+    {
+        var session = new FakeTestSession();
+        var wizard = Wizard(session: session);
+        wizard.Go(OnboardingStep.TryIt);
+        await wizard.LoadStepAsync();
+        Assert.False(wizard.CanContinue);
+
+        Assert.True(await wizard.StartTestAsync());
+        Assert.True(session.Started);
+        Assert.True(wizard.TestRunning);
+        Assert.True(await wizard.StopTestAsync());
+        Assert.True(session.Stopped);
+        Assert.False(wizard.TestRunning);
+        Assert.True(wizard.CanContinue);
+        Assert.Contains("draft", wizard.Note, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ATestSessionTheServiceRefusedSaysWhyAndWhatToDo()
+    {
+        // A refused start used to leave the step exactly as it was: the button did nothing and nothing
+        // said so. The service's own sentence is shown, here the indicator gate's, and the next start
+        // that works clears it.
+        var session = new FakeTestSession { Refuses = ManualStart.NotIndicated };
+        var wizard = Wizard(session: session);
+        wizard.Go(OnboardingStep.TryIt);
+        await wizard.LoadStepAsync();
+
+        Assert.False(await wizard.StartTestAsync());
+
+        Assert.False(wizard.TestRunning);
+        Assert.Equal(ManualStart.NotIndicated, wizard.Note);
+        Assert.False(wizard.CanContinue);
+
+        session.Refuses = null;
+        Assert.True(await wizard.StartTestAsync());
+        Assert.Null(wizard.Note);
+    }
+
+    [Fact]
+    public async Task ARefusalWithNoReasonStillSaysSomething()
+    {
+        var wizard = Wizard(session: new FakeTestSession { Refuses = string.Empty });
+        wizard.Go(OnboardingStep.TryIt);
+        await wizard.LoadStepAsync();
+
+        Assert.False(await wizard.StartTestAsync());
+
+        Assert.Equal(OnboardingWizard.TestNotStarted, wizard.Note);
+    }
+
+    [Fact]
+    public async Task ThePipesTestSessionPassesOnTheServicesReason()
+    {
+        // Over a connection that never connected, the reason is the connection's own.
+        await using var connection = new CaptureConnection(new ShellState(), _ => throw new TimeoutException("no service"));
+        var session = new PipeTestSession(connection);
+
+        Assert.False(await session.StartAsync(TestContext.Current.CancellationToken));
+
+        Assert.Equal("Not connected to the capture service.", session.Refusal);
+    }
+
+    [Fact]
+    public async Task FinishingIsRememberedSoSetupDoesNotRunAgainUnasked()
+    {
+        DateTimeOffset? finishedAt = null;
+        var wizard = Wizard(finished: at => finishedAt = at);
+        wizard.Go(OnboardingStep.Done);
+        await wizard.LoadStepAsync();
+
+        wizard.Finish();
+
+        Assert.NotNull(finishedAt);
+        Assert.True(wizard.Finished);
+    }
+
+    /// <summary>A wizard whose service answers the permission checks with <paramref name="checks"/>.</summary>
+    internal static OnboardingWizard WizardFor(IReadOnlyList<CapabilityStatus> checks) =>
+        Wizard(capabilities: new FakeCapabilities { Checks = checks });
+
+    private static OnboardingWizard Wizard(FakeDevice? device = null, FakeCapabilities? capabilities = null, FakeIntegrations? integrations = null, FakeTestSession? session = null, Action<DateTimeOffset>? finished = null) =>
+        new(
+            new ActivationPanel(device ?? new FakeDevice(), "TECH-LAPTOP"),
+            capabilities ?? new FakeCapabilities(),
+            new CapturePanel(new FakeCapture()),
+            new IntegrationsPanel(integrations ?? new FakeIntegrations()),
+            session ?? new FakeTestSession(),
+            finished ?? (_ => { }));
+
+    private sealed class FakeDevice : IDeviceGateway
+    {
+        private DeviceStanding _standing = new(false, null, 0, false, false, "Not activated. Enter the code from your invite.");
+
+        public Task<DeviceStanding?> StandingAsync(CancellationToken ct = default) => Task.FromResult<DeviceStanding?>(_standing);
+
+        public Task<ActivationAnswer> ActivateAsync(string code, string deviceName, CancellationToken ct = default)
+        {
+            _standing = new DeviceStanding(true, "Acme IT", 0, false, false, "Activated with Acme IT.");
+            return Task.FromResult(new ActivationAnswer("Acme IT", null));
+        }
+    }
+
+    private sealed class FakeCapabilities : ICapabilitiesGateway
+    {
+        public IReadOnlyList<CapabilityStatus> Checks { get; set; } =
+        [
+            new CapabilityStatus { Capability = "microphone", State = "ok", Message = "Microphone works." },
+            new CapabilityStatus { Capability = "screen_capture", State = "ok", Message = "Screen capture works." },
+            new CapabilityStatus { Capability = "input_hooks", State = "ok", Message = "Input hooks install." },
+        ];
+
+        public int Asked { get; private set; }
+
+        public Task<IReadOnlyList<CapabilityStatus>?> CheckAsync(CancellationToken ct = default)
+        {
+            Asked++;
+            return Task.FromResult<IReadOnlyList<CapabilityStatus>?>(Checks);
+        }
+    }
+
+    private sealed class FakeCapture : ICaptureGateway
+    {
+        public Task<CaptureSnapshot?> LoadAsync(CancellationToken ct = default) =>
+            Task.FromResult<CaptureSnapshot?>(new CaptureSnapshot(new Shared.Settings.CaptureSettings(), [new ToolChoice("rdp", "Remote Desktop")], [], false, 120));
+
+        public Task<string?> SaveAsync(Shared.Settings.CaptureSettings settings, CancellationToken ct = default) => Task.FromResult<string?>(null);
+    }
+
+    private sealed class FakeIntegrations : IIntegrationsGateway
+    {
+        public IReadOnlyList<IntegrationDetail> Rows { get; set; } = [];
+
+        public int Listed { get; private set; }
+
+        public Task<IReadOnlyList<IntegrationDetail>?> ListAsync(CancellationToken ct = default)
+        {
+            Listed++;
+            return Task.FromResult<IReadOnlyList<IntegrationDetail>?>(Rows);
+        }
+
+        public Task<CheckOutcome> CheckAsync(string provider, CancellationToken ct = default) => Task.FromResult(new CheckOutcome(true, "Connected."));
+
+        public Task<CompanyMappingsPage?> MappingsAsync(CancellationToken ct = default) => Task.FromResult<CompanyMappingsPage?>(null);
+
+        public Task<string?> MapAsync(string psaCompany, string docCompanyId, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+        public Task<string?> UnmapAsync(string psaCompany, CancellationToken ct = default) => Task.FromResult<string?>(null);
+    }
+
+    private sealed class FakeTestSession : ITestSession
+    {
+        public bool Started { get; private set; }
+
+        public bool Stopped { get; private set; }
+
+        /// <summary>The service's reason when it refuses the start; null starts it.</summary>
+        public string? Refuses { get; set; }
+
+        public string? Refusal { get; private set; }
+
+        public Task<bool> StartAsync(CancellationToken ct = default)
+        {
+            Refusal = Refuses;
+            Started = Refuses is null;
+            return Task.FromResult(Refuses is null);
+        }
+
+        public Task<bool> StopAsync(CancellationToken ct = default)
+        {
+            Stopped = true;
+            return Task.FromResult(true);
+        }
+    }
+}

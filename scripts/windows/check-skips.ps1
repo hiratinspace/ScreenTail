@@ -10,7 +10,7 @@
     (docs/review/weaknesses.md P1-4).
 
     This reads the TRX reports a run produced, counts what did not execute, and compares that with the
-    budget in client/ScreenTail.Tests.Windows/skip-baseline.json. Every skipped test is named in the log
+    budget in client/ScreenTrail.Tests.Windows/skip-baseline.json. Every skipped test is named in the log
     and in the job summary, so a run that skipped something says which fact went unchecked.
 
     More things fail the gate, whatever the budget (2026-10-12 review, T-231):
@@ -42,7 +42,7 @@
 param(
     [Parameter(Mandatory)][ValidateSet('hosted', 'laptop-capabilities', 'laptop-input')][string]$Environment,
     [Parameter(Mandatory)][string]$TrxGlob,
-    [string]$BaselinePath = 'client/ScreenTail.Tests.Windows/skip-baseline.json'
+    [string]$BaselinePath = 'client/ScreenTrail.Tests.Windows/skip-baseline.json'
 )
 
 $ErrorActionPreference = 'Stop'

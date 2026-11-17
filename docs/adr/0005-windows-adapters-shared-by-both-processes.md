@@ -6,8 +6,8 @@
 
 ## Context
 
-ADR-0002 put platform-neutral logic in `ScreenTail.Core` and said Windows-only code sits behind thin
-adapters. Every adapter went into `ScreenTail.Service`, which was right while the service was the only
+ADR-0002 put platform-neutral logic in `ScreenTrail.Core` and said Windows-only code sits behind thin
+adapters. Every adapter went into `ScreenTrail.Service`, which was right while the service was the only
 process that needed one: the UI drew windows and read nothing from Windows that WPF did not already give
 it.
 
@@ -22,31 +22,31 @@ reference.
 
 ## Decision
 
-**A fourth client project, `ScreenTail.Platform` (`net10.0-windows`), holds the Windows adapters that both
+**A fourth client project, `ScreenTrail.Platform` (`net10.0-windows`), holds the Windows adapters that both
 processes need.** It starts with the four that ST-085 required: `Authenticode`, `WindowsClientVerifier`,
-`WindowsServerVerifier` and `WindowsPipeFactory`. `ScreenTail.Service` and `ScreenTail.UI` both reference
-it; `ScreenTail.Core` does not and must not.
+`WindowsServerVerifier` and `WindowsPipeFactory`. `ScreenTrail.Service` and `ScreenTrail.UI` both reference
+it; `ScreenTrail.Core` does not and must not.
 
-The rule for what belongs here is narrow: **an adapter moves into `ScreenTail.Platform` when the second
+The rule for what belongs here is narrow: **an adapter moves into `ScreenTrail.Platform` when the second
 process needs it, and not before.** Anything one process needs alone stays where it is. The hooks, the
 screen capture, the OCR engine, the store and the focus watcher are all service-only and stay in
-`ScreenTail.Service`.
+`ScreenTrail.Service`.
 
 ## Why not the alternatives
 
 | Option | Why not |
 |---|---|
-| `ScreenTail.UI` references `ScreenTail.Service` | Pulls the hooks, the store, the OCR engine and the whole capture engine into the UI process for the sake of one signature check. The UI is the process that runs all day in front of a customer; the smaller its surface, the better. It also puts a store handle in a process that has no business opening one, which is how INV-1's read-path filtering would end up with two owners. A test in `ReleaseSurfaceTests` now forbids the reference outright. |
+| `ScreenTrail.UI` references `ScreenTrail.Service` | Pulls the hooks, the store, the OCR engine and the whole capture engine into the UI process for the sake of one signature check. The UI is the process that runs all day in front of a customer; the smaller its surface, the better. It also puts a store handle in a process that has no business opening one, which is how INV-1's read-path filtering would end up with two owners. A test in `ReleaseSurfaceTests` now forbids the reference outright. |
 | Duplicate `Authenticode` in the UI | Two copies of a signature check is one copy that will be fixed and one that will not. This is the code that decides whether a stranger gets the session token. |
-| Move the adapters into `ScreenTail.Core` | Breaks ADR-0002. Core is `net10.0` and runs its tests on the build machine, which is a Mac; a Windows dependency there costs the whole platform-neutral test suite. |
-| Put them in `ScreenTail.Shared` | Shared is generated contract types, referenced by Core. Making it Windows-only would drag Core to Windows by the same argument as above. |
+| Move the adapters into `ScreenTrail.Core` | Breaks ADR-0002. Core is `net10.0` and runs its tests on the build machine, which is a Mac; a Windows dependency there costs the whole platform-neutral test suite. |
+| Put them in `ScreenTrail.Shared` | Shared is generated contract types, referenced by Core. Making it Windows-only would drag Core to Windows by the same argument as above. |
 
 ## Consequences
 
 - Two more project references and one more project in CI's client build. No new packages.
 - `WindowsClientVerifierTests` and `WindowsServerVerifierTests` moved namespace with the code; their
   content is unchanged.
-- `ScreenTail.Platform` is in the `ReleaseSurfaceTests` sweep, so the "no listeners, no `#if DEBUG`"
+- `ScreenTrail.Platform` is in the `ReleaseSurfaceTests` sweep, so the "no listeners, no `#if DEBUG`"
   rules apply to it like every other client project.
 - The hardware-checks path filter includes it, because a change to a verifier is a change the laptop
   should see.

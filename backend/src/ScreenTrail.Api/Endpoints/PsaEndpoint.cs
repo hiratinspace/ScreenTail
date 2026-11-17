@@ -1,0 +1,62 @@
+using ScreenTrail.Api.Auth;
+using ScreenTrail.Api.Providers;
+using ScreenTrail.Api.Providers.ConnectWise;
+
+namespace ScreenTrail.Api.Endpoints;
+
+public sealed record TicketSearchRow(string Id, string Summary, string Company, string? Status);
+
+public sealed record TicketSearchResponse(IReadOnlyList<TicketSearchRow> Tickets);
+
+/// <summary>
+/// The client's way to the tenant's PSA (ST-092): a search, answered from the provider the vault's
+/// credential builds, or with nothing typed the recent tickets the picker shows on focus (Spec §5 S3).
+/// The client never learns which PSA it is.
+/// </summary>
+public static class PsaEndpoint
+{
+    public static RouteGroupBuilder MapPsa(this RouteGroupBuilder group)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        group.MapGet("/psa/tickets", async (string? q, Caller who, IPsaProviderFactory providers, CancellationToken ct) =>
+        {
+            // Nothing typed is a different question from too little typed: the first is the recent
+            // list, the second is a stray keystroke that would match half the PSA.
+            var query = (q ?? string.Empty).Trim();
+            if (query.Length > 0 && query.Length < 3 && !query.All(char.IsAsciiDigit))
+            {
+                return Results.BadRequest(new { error = "query_too_short", message = "Type at least three characters, or a ticket number." });
+            }
+
+            var psa = await providers.ForTenantAsync(who.TenantId, ct).ConfigureAwait(false);
+            if (psa is null)
+            {
+                return Results.Json(new { error = "no_psa", message = "No PSA is connected, so tickets cannot be searched. Your ScreenTrail owner connects one in the web admin." }, statusCode: StatusCodes.Status501NotImplemented);
+            }
+
+            var result = query.Length == 0
+                ? await psa.RecentTicketsAsync(ct).ConfigureAwait(false)
+                : await psa.SearchTicketsAsync(query, ct).ConfigureAwait(false);
+            if (!result.Ok)
+            {
+                return Refused(result.Error!);
+            }
+
+            return Results.Ok(new TicketSearchResponse([.. result.Value!.Select(t => new TicketSearchRow(t.Id, t.Summary, t.Company, t.Status))]));
+        })
+        .WithName("SearchTickets")
+        .WithSummary("Searches the tenant's PSA for tickets: three characters or a ticket number. With no query, the open tickets most recently touched.");
+
+        return group;
+    }
+
+    /// <summary>A provider's refusal, passed on with its kind and both of its sentences, as a 502: the fault is upstream of us.</summary>
+    public static IResult Refused(ProviderError error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return Results.Json(
+            new { error = "psa_" + error.Kind.ToString().ToLowerInvariant(), message = error.ToString(), retryable = error.Retryable, retry_after_seconds = ProviderHttp.RetryAfterSeconds(error.RetryAfter) },
+            statusCode: StatusCodes.Status502BadGateway);
+    }
+}

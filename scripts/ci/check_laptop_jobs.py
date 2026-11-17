@@ -24,7 +24,7 @@ import sys
 
 import yaml
 
-LAPTOP_LABELS = {'self-hosted', 'screentail-win'}
+LAPTOP_LABELS = {'self-hosted', 'screentrail-win'}
 PINNED = re.compile(r'^[^@\s]+@[0-9a-f]{40}$')
 SHELL = re.compile(r'^powershell(\.exe)?\s+-NoProfile(\s|$)', re.IGNORECASE)
 
@@ -85,7 +85,7 @@ def self_test():
         'jobs': {
             'hosted': {'runs-on': 'windows-latest', 'steps': [{'uses': 'actions/checkout@v7'}, {'run': 'x', 'shell': 'pwsh'}]},
             'laptop': {
-                'runs-on': ['self-hosted', 'Windows', 'screentail-win'],
+                'runs-on': ['self-hosted', 'Windows', 'screentrail-win'],
                 'defaults': {'run': {'shell': "powershell -NoProfile -ExecutionPolicy Bypass -Command \". '{0}'\""}},
                 'steps': [
                     {'uses': good_sha + ''},
@@ -111,7 +111,7 @@ def self_test():
         'a step with the profile': broken(lambda j, w: j['steps'].append({'run': 'x', 'shell': 'powershell'})),
         'a step in pwsh': broken(lambda j, w: j['steps'].append({'run': 'x', 'shell': 'pwsh -NoProfile'})),
         'no shell anywhere': broken(lambda j, w: j.pop('defaults')),
-        'the label alone': broken(lambda j, w: j.update({'runs-on': 'screentail-win', 'steps': [{'uses': 'actions/checkout@v7'}]})),
+        'the label alone': broken(lambda j, w: j.update({'runs-on': 'screentrail-win', 'steps': [{'uses': 'actions/checkout@v7'}]})),
         'runs-on from an expression': broken(lambda j, w: j.update({'runs-on': '${{ inputs.where }}', 'steps': [{'uses': 'actions/checkout@v7'}]})),
     }
     for case, sample in must_fail.items():

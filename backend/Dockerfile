@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Build from the repo root: docker build -f backend/Dockerfile -t screentail-api .
+# Build from the repo root: docker build -f backend/Dockerfile -t screentrail-api .
 # (The root holds Directory.Build.props and global.json; .dockerignore allow-lists what's copied.)
 # deploy/compose.yaml builds it the same way (ST-007, docs/dev/deploy.md).
 #
@@ -10,11 +10,11 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769
 WORKDIR /repo
 COPY Directory.Build.props global.json .editorconfig ./
 COPY backend/Directory.Build.props backend/Directory.Packages.props backend/
-COPY backend/src/ScreenTail.Api/ScreenTail.Api.csproj backend/src/ScreenTail.Api/
-RUN dotnet restore backend/src/ScreenTail.Api/ScreenTail.Api.csproj
+COPY backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj backend/src/ScreenTrail.Api/
+RUN dotnet restore backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj
 COPY research/prompts/note_v2.md research/prompts/schema.json research/prompts/unicode-tables.json research/prompts/
 COPY backend/src/ backend/src/
-RUN dotnet publish backend/src/ScreenTail.Api/ScreenTail.Api.csproj -c Release -o /app --no-restore -p:UseAppHost=false
+RUN dotnet publish backend/src/ScreenTrail.Api/ScreenTrail.Api.csproj -c Release -o /app --no-restore -p:UseAppHost=false
 
 # Ubuntu chiseled: the .NET runtime and nothing else. No shell, no package manager, and a non-root user
 # by default. The app runs with InvariantGlobalization, so it needs no ICU. The container's health check
@@ -24,4 +24,4 @@ WORKDIR /app
 COPY --from=build /app .
 USER $APP_UID
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "ScreenTail.Api.dll"]
+ENTRYPOINT ["dotnet", "ScreenTrail.Api.dll"]

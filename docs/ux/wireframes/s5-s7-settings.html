@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S5–S7 Settings · ScreenTail wireframes</title>
+<title>S5–S7 Settings · ScreenTrail wireframes</title>
 <link rel="stylesheet" href="wf.css">
 <script src="wf.js" defer></script>
 <style>
@@ -41,7 +41,7 @@
 </head>
 <body>
 <header class="wf-top">
-  <a class="crumb" href="index.html">ScreenTail wireframes</a><span class="crumb">/</span>
+  <a class="crumb" href="index.html">ScreenTrail wireframes</a><span class="crumb">/</span>
   <span class="id">S5–S7 Settings</span><span class="spec">Spec §5 S5, S6, S7 · §3 Toggle (locked)</span>
   <nav class="states" aria-label="Wireframe states">
     <button data-state-set="capture">S5 Capture</button>
@@ -110,7 +110,7 @@
       </div>
 
       <h2>Startup</h2>
-      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Start ScreenTail at sign-in"></button><span>Open the ScreenTail window at sign-in <span class="help">(capture runs either way)</span></span></div>
+      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Start ScreenTrail at sign-in"></button><span>Open the ScreenTrail window at sign-in <span class="help">(capture runs either way)</span></span></div>
     </div>
 
     <!-- S6 PRIVACY -->
@@ -121,7 +121,7 @@
       <div class="flow">
         <div><b>1 · Captured on this device</b>Screenshots, clicks and your voice, only while a session records.</div>
         <div><b>2 · Redacted on this device</b>Passwords, card numbers and keys are masked before anything else sees them.</div>
-        <div><b>3 · Summary request</b>A few redacted screenshots and text go to ScreenTail to write the draft; nothing is stored there. <i>In Local-only mode this step happens on this device.</i></div>
+        <div><b>3 · Summary request</b>A few redacted screenshots and text go to ScreenTrail to write the draft; nothing is stored there. <i>In Local-only mode this step happens on this device.</i></div>
         <div><b>4 · You publish</b>Only when you click Publish, to ConnectWise and Hudu.</div>
       </div>
 
@@ -159,7 +159,7 @@
       <p class="help">Deleted after this: screenshots, OCR text, transcripts, pending uploads. Kept: your published notes and the audit log.</p>
 
       <h2>Usage telemetry</h2>
-      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Usage telemetry"></button><span>Send usage numbers to improve ScreenTail</span></div>
+      <div class="row"><button class="toggle" role="switch" aria-checked="true" aria-label="Usage telemetry"></button><span>Send usage numbers to improve ScreenTrail</span></div>
       <p class="help">Exactly these fields: session length, time to publish, share of draft edited, screenshot and redaction counts, app and Windows version. Never note text, window titles, company or ticket names, or transcripts.</p>
 
       <h2>Your data</h2>
@@ -179,7 +179,7 @@
           <div class="field"><label>Your API member (optional)</label><input class="input" placeholder="Leave empty to use the shared API member"><span class="help">Time entries are attributed to this member.</span></div>
         </div>
         <div class="row" style="margin-top:10px"><button class="btn" id="cw-test">Test connection</button>
-          <span class="result" id="cw-ok">Connected as <b>api-screentail</b> · company <b>Contoso MSP</b></span>
+          <span class="result" id="cw-ok">Connected as <b>api-screentrail</b> · company <b>Contoso MSP</b></span>
           <span class="error-text" id="cw-err" hidden>ConnectWise rejected the request: clientId header missing. Add your client ID above.</span> <span class="n">5</span></div>
         <div class="rule"></div>
         <div class="row"><span class="label">Default note type</span><label><input type="radio" name="dnt" checked> Internal</label><label><input type="radio" name="dnt"> Discussion</label>
@@ -212,7 +212,7 @@
     <div class="scrim" id="del-modal" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="del-h">
         <h3 id="del-h">Delete everything on this device?</h3>
-        <p class="meta">Deletes every session, draft, screenshot and transcript, your settings, and the sign-in tokens for ConnectWise and Hudu. You'll need to set ScreenTail up again. It can't be undone.</p>
+        <p class="meta">Deletes every session, draft, screenshot and transcript, your settings, and the sign-in tokens for ConnectWise and Hudu. You'll need to set ScreenTrail up again. It can't be undone.</p>
         <div class="field"><label for="del-input">Type DELETE to confirm</label><input class="input" id="del-input" autocomplete="off"></div>
         <div class="actions"><button class="btn" id="del-cancel">Cancel</button><button class="btn primary" id="del-ok" disabled>Delete everything</button></div>
       </div>

@@ -195,7 +195,7 @@ function IssuedCode({ invite, onDone }: { invite: CreatedInvite; onDone: () => v
         {invite.code}
       </p>
       <p className="secondary">
-        This code is shown once. Give it to the technician: they enter it in ScreenTail on their PC, in Settings, This
+        This code is shown once. Give it to the technician: they enter it in ScreenTrail on their PC, in Settings, This
         device. It works on one device until {absoluteTime(invite.expiresAt)} (72 hours).
       </p>
       <div className="actions">

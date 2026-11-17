@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://screentail.dev/schema/session.v1.json",
+  "$id": "https://screentrail.dev/schema/session.v1.json",
   "title": "Session",
   "description": "One captured remote-support session: timeline events, screenshots, transcript and, once drafted, the note. Used by the client store export, the bundle builder, fixtures and Review. Ordering uses ts_ms: monotonic milliseconds since the session started. Optional values are omitted rather than written as null.",
   "type": "object",

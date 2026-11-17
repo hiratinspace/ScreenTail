@@ -1,0 +1,352 @@
+using ScreenTrail.Core.Shell;
+using ScreenTrail.Shared.Ipc;
+
+namespace ScreenTrail.Tests.Shell;
+
+/// <summary>
+/// ST-071: the tray icon and the "What's being captured right now?" panel.
+///
+/// The tray icon is the one indicator that is always on screen, so INV-3 and INV-4 both rest on it saying
+/// the right thing in one 16-pixel glyph. The panel exists to answer a customer standing behind a
+/// technician asking what that is recording, which is also why nothing it shows may be content.
+/// </summary>
+public sealed class TrayAndDiagnosticsTests
+{
+    [Theory]
+    [InlineData(ServiceConnection.Connecting)]
+    [InlineData(ServiceConnection.Connected)]
+    [InlineData(ServiceConnection.Unavailable)]
+    public void NoTrayOrShellStatusStringCarriesAnEmDash(ServiceConnection connection)
+    {
+        // The tray's tooltip and state line, and the shell's status line that repeats them, use plain
+        // punctuation (2026-10-12 review). Every state, with and without a tool and a time.
+        string[] states = [CaptureStates.Idle, CaptureStates.Recording, CaptureStates.Paused, CaptureStates.Suppressed, CaptureStates.Finalizing, CaptureStates.DraftReady, CaptureStates.DraftFailed, "new_state"];
+        var said = new List<string>();
+        foreach (var state in states)
+        {
+            foreach (var tool in new string?[] { null, "screenconnect" })
+            {
+                foreach (var elapsed in new long?[] { null, 761_000 })
+                {
+                    var snapshot = new ShellSnapshot(connection, new CaptureStateSnapshot { State = state, SessionId = "s1", RemoteTool = tool, ElapsedMs = elapsed, DraftsReady = 1 }, ShellView.Review, null);
+                    var presence = TrayPresence.From(snapshot);
+                    said.Add(presence.Tooltip);
+                    said.Add(presence.StateLine);
+                    said.Add(ShellStatus.Describe(snapshot));
+                }
+            }
+        }
+
+        Assert.All(said, text => Assert.DoesNotContain("—", text, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RecordingLooksDifferentFromPausedAndFromUnknown()
+    {
+        // Three states a technician has to tell apart at a glance, and the only place they can.
+        Assert.Equal(TrayIcon.Recording, Presence("recording").Icon);
+        Assert.Equal(TrayIcon.Paused, Presence("paused").Icon);
+        Assert.Equal(TrayIcon.Paused, Presence("suppressed").Icon);
+        Assert.Equal(TrayIcon.Idle, Presence("idle").Icon);
+    }
+
+    [Fact]
+    public void TheTooltipSaysWhatAndForHowLong()
+    {
+        // Spec §5 S1's wording. "Recording" alone does not tell a technician whether the thing they
+        // started an hour ago is still going.
+        Assert.Equal("ScreenTrail · Recording: ScreenConnect (12:41)", Presence("recording").Tooltip);
+    }
+
+    [Theory]
+    [InlineData(0, "0:00")]
+    [InlineData(59_999, "0:59")]
+    [InlineData(761_000, "12:41")]
+    [InlineData(3_599_000, "59:59")]
+    [InlineData(3_600_000, "1:00:00")]
+    [InlineData(3_900_000, "1:05:00")]
+    [InlineData(-5_000, "0:00")]
+    public void TheTrayAndTheStatusLineKeepTheHour(long elapsed, string expected)
+    {
+        // The clock moves now (ST-072), so a long session reaches the hour on screen. A TimeSpan's m:ss
+        // starts its minutes again there, and an hour and five minutes read "5:00".
+        var snapshot = new ShellSnapshot(ServiceConnection.Connected, new CaptureStateSnapshot { State = CaptureStates.Recording, SessionId = "s1", ElapsedMs = elapsed }, ShellView.Review, null);
+
+        Assert.Equal($"ScreenTrail · Recording ({expected})", TrayPresence.From(snapshot).Tooltip);
+        Assert.Equal($"Recording ({expected})", ShellStatus.Describe(snapshot));
+    }
+
+    [Fact]
+    public void LosingTheServiceIsItsOwnIconAndNotIdle()
+    {
+        // A grey icon says "ask me again"; an idle icon says "nothing is being captured". Only one of
+        // those is honest when the service has stopped answering, and INV-4 turns on the difference.
+        var offline = TrayPresence.From(new ShellSnapshot(ServiceConnection.Unavailable, Recording(), ShellView.Review, "banner"));
+
+        Assert.Equal(TrayIcon.Offline, offline.Icon);
+        Assert.DoesNotContain("Recording", offline.Tooltip, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DraftsReadyShowTheirCount()
+    {
+        var presence = TrayPresence.From(new ShellSnapshot(
+            ServiceConnection.Connected,
+            new CaptureStateSnapshot { State = "draft_ready", DraftsReady = 2 },
+            ShellView.Review,
+            null));
+
+        Assert.Equal(TrayIcon.DraftReady, presence.Icon);
+        Assert.Equal(2, presence.DraftsReady);
+    }
+
+    [Fact]
+    public void DraftsWaitingAreVisibleEvenWhenNothingIsRunning()
+    {
+        // The session ended hours ago and two notes are still unpublished. An idle icon would let them sit
+        // there unnoticed, which is the failure the badge exists for.
+        var presence = TrayPresence.From(new ShellSnapshot(
+            ServiceConnection.Connected,
+            new CaptureStateSnapshot { State = "idle", DraftsReady = 3 },
+            ShellView.Review,
+            null));
+
+        Assert.Equal(TrayIcon.DraftReady, presence.Icon);
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Idle, 1, "Not capturing · 1 draft ready")]
+    [InlineData(CaptureStates.Idle, 3, "Not capturing · 3 drafts ready")]
+    [InlineData(CaptureStates.DraftReady, 1, "Draft ready")]
+    [InlineData(CaptureStates.DraftReady, 2, "Draft ready · 2 drafts ready")]
+    [InlineData(CaptureStates.DraftFailed, 1, "Draft failed · 1 draft ready")]
+    [InlineData(CaptureStates.DraftPending, 0, "Not capturing: drafting the note")]
+    public void BetweenSessionsTheCountOfDraftsReadyIsInWords(string state, int drafts, string line)
+    {
+        // Spec §5 S1: draft ready is a badge count. The badge glyph has no number in it, so the count was
+        // nowhere: "Not capturing" over a badge said a draft was waiting and not how many (v0.6.10).
+        var presence = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, new CaptureStateSnapshot { State = state, DraftsReady = drafts }, ShellView.Review, null));
+
+        Assert.Equal(line, presence.StateLine);
+        Assert.Equal($"ScreenTrail · {line}", presence.Tooltip);
+    }
+
+    [Fact]
+    public void TheDraftsCountGoesBeforeTheDoubtAndTheTooltipDropsOnlyWhatDoesNotFit()
+    {
+        var presence = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, new CaptureStateSnapshot { State = CaptureStates.Idle, DraftsReady = 2, PublishesUnconfirmed = 3 }, ShellView.Review, null));
+
+        Assert.Equal("Not capturing · 2 drafts ready · 3 publishes not confirmed", presence.StateLine);
+        Assert.Equal("ScreenTrail · Not capturing · 2 drafts ready", presence.Tooltip);
+    }
+
+    [Fact]
+    public void WhileASessionIsCapturedTheDraftsCountIsNotSaid()
+    {
+        // INV-4: while capturing, the always-on indicator is about the capture alone.
+        var presence = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connected, Recording() with { DraftsReady = 2 }, ShellView.Review, null));
+
+        Assert.Equal("Recording: ScreenConnect (12:41)", presence.StateLine);
+    }
+
+    [Fact]
+    public void StartingUpSaysConnectingRatherThanNotRunning()
+    {
+        // The icon is shown before the first connection finishes (LiveShell), and "not running" at every
+        // start of the day was an alarm about nothing.
+        var connecting = TrayPresence.From(new ShellSnapshot(ServiceConnection.Connecting, null, ShellView.Review, null));
+        var lost = TrayPresence.From(new ShellSnapshot(ServiceConnection.Unavailable, null, ShellView.Review, null));
+
+        Assert.Equal(TrayIcon.Offline, connecting.Icon);
+        Assert.Equal("Connecting to the capture service", connecting.StateLine);
+        Assert.Equal("ScreenTrail · Connecting to the capture service", connecting.Tooltip);
+        Assert.Equal("Capture service not running", lost.StateLine);
+
+        // The tooltip and the menu's first row say the same thing in the same words.
+        Assert.Equal($"ScreenTrail · {lost.StateLine}", lost.Tooltip);
+    }
+
+    [Fact]
+    public void TheTooltipNeverCarriesAWindowTitle()
+    {
+        // The tray tooltip is on screen during a screen share. The remote tool's name is the answer;
+        // what the technician has open in it is the customer's business (INV-10).
+        var presence = Presence("recording");
+
+        Assert.DoesNotContain(":  ", presence.Tooltip, StringComparison.Ordinal);
+        Assert.Equal(presence.Tooltip, $"ScreenTrail · {presence.StateLine}");
+    }
+
+    [Fact]
+    public void CopiedDiagnosticsCarryStatesAndCountsAndNothingElse()
+    {
+        // AC3. This text goes into a ticket or an email, so a window title or a line of OCR reaching it is
+        // the same leak as one in the audit log.
+        var text = Sample().ToClipboardText(new DateTimeOffset(2026, 9, 13, 17, 0, 0, TimeSpan.Zero));
+
+        Assert.Contains("redaction queue  4", text, StringComparison.Ordinal);
+        Assert.Contains("keystrokes held  17", text, StringComparison.Ordinal);
+        Assert.Contains("egress blocked   2", text, StringComparison.Ordinal);
+        Assert.Contains("hook fallbacks   3", text, StringComparison.Ordinal);
+        Assert.Contains("local-only       yes", text, StringComparison.Ordinal);
+        Assert.Contains("Not capturing: outlook", text, StringComparison.Ordinal);
+
+        // And nothing that could only have come from the screen or the microphone.
+        Assert.DoesNotContain("Acme", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("invoice", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("password", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TheDiagnosticsTypeHasNowhereToPutContent()
+    {
+        // The argument is structural, not a habit: the panel is built from this record alone, and every
+        // one of its fields is a state, a count, or a name a technician could read off the registry.
+        var content = typeof(Diagnostics).GetProperties()
+            .Where(p => p.PropertyType == typeof(string))
+            .Select(p => p.Name)
+            .ToList();
+
+        // BackendNote (contract v12) is one fixed sentence from DeploymentAddresses, never the address.
+        Assert.Equal(["Scope", "Microphone", "Suppression", "PolicyVersion", "ClientVersion", "BackendNote", "Headline"], content);
+    }
+
+    [Fact]
+    public void ASuppressedSessionSaysSoFirst()
+    {
+        // What the customer over the shoulder needs to read: not the scope, but that it has stopped.
+        var suppressed = Sample() with { Suppression = "a password field has focus" };
+
+        Assert.Equal("Paused: a password field has focus", suppressed.Headline);
+    }
+
+    private static Diagnostics Sample() => new(
+        Scope: "Not capturing: outlook",
+        Microphone: "Headset Microphone (Realtek)",
+        Suppression: null,
+        RedactionBacklog: 4,
+        FramesDropped: 1,
+        KeystrokesDropped: 17,
+        EgressBlocked: 2,
+        NameHookRefusals: 3,
+        LocalOnly: true,
+        PolicyVersion: "policy-2026-09-13",
+        CpuPercent: 3.4,
+        WorkingSetBytes: 240L * 1024 * 1024,
+        ClientVersion: "0.1.0");
+
+    private static TrayPresence Presence(string state) => TrayPresence.From(new ShellSnapshot(
+        ServiceConnection.Connected,
+        state == "idle" ? new CaptureStateSnapshot { State = "idle" } : Recording(state),
+        ShellView.Review,
+        null));
+
+    private static CaptureStateSnapshot Recording(string state = "recording") => new()
+    {
+        State = state,
+        SessionId = "s1",
+        RemoteTool = "screenconnect",
+        ElapsedMs = (12 * 60 * 1000) + 41_000,
+    };
+
+    [Fact]
+    public void AStateThisBuildHasNeverHeardOfIsUnknownRatherThanIdle()
+    {
+        // 2026-09-19 review. An unrecognised state fell through to "Not capturing" and the idle ring, so
+        // a service newer than this UI (one that had added a recording-like state) would show a
+        // technician the icon that means nothing is happening. That is the one guess INV-4 cannot afford
+        // to get wrong, and KnownIdle already says so about whether the pill is shown; this is the same
+        // reasoning applied to what it says.
+        var presence = TrayPresence.From(new ShellSnapshot(
+            ServiceConnection.Connected,
+            new CaptureStateSnapshot { State = "recording_with_audio" },
+            ShellView.Review,
+            null));
+
+        Assert.Equal(TrayIcon.Offline, presence.Icon);
+        Assert.Contains("unknown", presence.Tooltip, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void IdleStillLooksIdle()
+    {
+        // The control: a change that made everything unknown would pass the test above and would put a
+        // warning glyph in the tray all day.
+        var presence = TrayPresence.From(new ShellSnapshot(
+            ServiceConnection.Connected,
+            new CaptureStateSnapshot { State = CaptureStates.Idle },
+            ShellView.Review,
+            null));
+
+        Assert.Equal(TrayIcon.Idle, presence.Icon);
+    }
+
+    [Fact]
+    public void ThePillSaysUnknownForAStateItDoesNotKnow()
+    {
+        // Hidden, so the Visible assert can fail: without the flag the pill is up whatever the state, and
+        // the line proved nothing (2026-10-12 review, T-138).
+        var hud = Core.Hud.HudState.For(new CaptureStateSnapshot { State = "recording_with_audio" }, hidden: true);
+
+        Assert.Contains("unknown", hud.State.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.True(hud.Visible);
+    }
+
+    [Fact]
+    public void AnUnansweredPanelClaimsNoCounts()
+    {
+        // The service is not answering. The panel used to be built from zeros, so a customer read "0
+        // frames dropped" and "Local-only: no" when nobody knew either (2026-10-12 review, T-152).
+        var panel = DiagnosticsPanel.Unanswered;
+
+        Assert.False(panel.Answered);
+        Assert.Contains("unknown", panel.Headline, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(DiagnosticsPanel.From(Sample()).Rows.Select(r => r.Label), panel.Rows.Select(r => r.Label));
+        foreach (var row in panel.Rows.Where(r => r.Label != "Scope"))
+        {
+            Assert.Equal(DiagnosticsPanel.Unknown, row.Value);
+        }
+
+        Assert.Contains("Not connected", panel.Rows.Single(r => r.Label == "Scope").Value, StringComparison.Ordinal);
+        Assert.DoesNotContain(panel.Rows, r => r.Value == "0" || r.Value == "no" || r.Value == "yes");
+
+        var text = panel.ToClipboardText(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        Assert.Contains(DiagnosticsPanel.NotConnected, text, StringComparison.Ordinal);
+        Assert.DoesNotContain("local-only       no", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("frames dropped   0", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AnAnsweredPanelShowsTheServicesOwnCounts()
+    {
+        // The control: a panel that said unknown on every row would pass the test above and tell a
+        // customer nothing all day.
+        var panel = DiagnosticsPanel.From(Sample());
+
+        Assert.True(panel.Answered);
+        Assert.Equal("Not capturing: outlook", panel.Headline);
+        Assert.Equal("4", panel.Rows.Single(r => r.Label == "Redaction queue").Value);
+        Assert.Equal("yes", panel.Rows.Single(r => r.Label == "Local-only").Value);
+        Assert.Equal("240 MB", panel.Rows.Single(r => r.Label == "Memory").Value);
+        Assert.Equal(Sample().ToClipboardText(DateTimeOffset.UnixEpoch), panel.ToClipboardText(DateTimeOffset.UnixEpoch));
+    }
+
+    [Fact]
+    public void HookFallbacksAreACountWithWhatTheyMean()
+    {
+        // ST-031. Windows refusing the narrow title hook costs idle wakeups and nothing else, so the row
+        // says the number and, when it is not 0, that nothing was missed and what it costs, in words a
+        // technician can repeat to an admin.
+        var some = DiagnosticsPanel.From(Sample() with { NameHookRefusals = 3 }).Rows.Single(r => r.Label == DiagnosticsPanel.HookFallbacks);
+        var none = DiagnosticsPanel.From(Sample() with { NameHookRefusals = 0 }).Rows.Single(r => r.Label == DiagnosticsPanel.HookFallbacks);
+        var notKnown = DiagnosticsPanel.From(Sample() with { NameHookRefusals = null });
+
+        Assert.Equal($"3 ({DiagnosticsPanel.HookFallbacksMeaning})", some.Value);
+        Assert.Contains("nothing missed", some.Value, StringComparison.Ordinal);
+        Assert.Equal("0", none.Value);
+
+        // The service answered but could not know: unknown, never a 0 nobody measured (T-152).
+        Assert.Equal(DiagnosticsPanel.Unknown, notKnown.Rows.Single(r => r.Label == DiagnosticsPanel.HookFallbacks).Value);
+        Assert.Contains("hook fallbacks   unknown", notKnown.ToClipboardText(DateTimeOffset.UnixEpoch), StringComparison.Ordinal);
+    }
+}

@@ -1,0 +1,86 @@
+using System.Security.Cryptography;
+using ScreenTrail.Core.Capture;
+using ScreenTrail.Core.Sessions;
+using ScreenTrail.Core.Store;
+
+namespace ScreenTrail.Tests.Sessions;
+
+/// <summary>
+/// A state machine over a real (temporary) encrypted store, for tests that care about what the machine
+/// records rather than about the transitions themselves. <see cref="StateMachineTests"/> keeps its own
+/// fakes, which count calls and vary the drafting outcome.
+/// </summary>
+internal sealed class MachineHarness : IAsyncDisposable
+{
+    private readonly string _path;
+
+    private MachineHarness(string path, SqliteSessionStore store, SessionMachine machine, PendingFrames pending)
+    {
+        _path = path;
+        Store = store;
+        Machine = machine;
+        Pending = pending;
+    }
+
+    /// <summary>
+    /// Where a captured frame waits to be read (ADR-0006).
+    ///
+    /// The store used to hold it with <c>redaction_pending = 1</c>, so a test asking "was this frame
+    /// accepted?" asked the store. It asks this now.
+    /// </summary>
+    public PendingFrames Pending { get; }
+
+    public SqliteSessionStore Store { get; }
+
+    public SessionMachine Machine { get; }
+
+    /// <param name="time">A hand-moved clock for tests that assert durations, so they measure the
+    /// machine's accounting rather than the runner's scheduler.</param>
+    /// <param name="sources">What the machine starts, stops and asks for a marked frame. None by default.</param>
+    /// <param name="pendingDepth">How many frames may wait. Small only for a test that needs the machine to refuse one.</param>
+    /// <param name="redactionGrace">How long finalize waits for frames still being read. Short by default; long only for a test that needs to act while the machine finalizes.</param>
+    /// <param name="drafter">What drafts a finished session. Unavailable by default, so a session rests in draft_failed.</param>
+    /// <param name="emptySessionMinimum">
+    /// The empty-session rule's minimum (<see cref="EmptySession"/>). Zero by default, which keeps every
+    /// session: the tests here start and stop sessions with nothing in them to exercise drafting, discards
+    /// and publishes, and the rule would discard those before any of it ran. <see cref="EmptySessionTests"/>
+    /// runs the machine with the production minimum.
+    /// </param>
+    public static async Task<MachineHarness> StartAsync(TimeProvider? time = null, ICaptureSources? sources = null, int pendingDepth = 1000, TimeSpan? redactionGrace = null, IDrafter? drafter = null, TimeSpan? emptySessionMinimum = null)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "screentrail-tests", $"{Guid.NewGuid():N}.db");
+        var store = await SqliteSessionStore.OpenAsync(path, new FixedKey(RandomNumberGenerator.GetBytes(32)));
+
+        // Deep, so a test that captures a handful of frames is not measuring the production depth of
+        // four; PendingFramesTests owns that number.
+        var pending = new PendingFrames(depth: pendingDepth);
+        var machine = new SessionMachine(
+            store,
+            sources ?? new NoCaptureSources(),
+            drafter ?? new UnavailableDrafter(),
+            time: time,
+            options: new SessionMachineOptions
+            {
+                RedactionGrace = redactionGrace ?? TimeSpan.FromMilliseconds(100),
+                RedactionPoll = TimeSpan.FromMilliseconds(20),
+                Pending = pending,
+                EmptySessionMinimum = emptySessionMinimum ?? TimeSpan.Zero,
+            });
+        return new MachineHarness(path, store, machine, pending);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Machine.DisposeAsync();
+        await Store.DisposeAsync();
+        foreach (var suffix in new[] { string.Empty, "-wal", "-shm" })
+        {
+            File.Delete(_path + suffix);
+        }
+    }
+
+    private sealed class FixedKey(byte[] key) : IStoreKeyProvider
+    {
+        public byte[] GetKey() => (byte[])key.Clone();
+    }
+}

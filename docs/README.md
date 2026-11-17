@@ -1,4 +1,4 @@
-# ScreenTail documentation: where to look
+# ScreenTrail documentation: where to look
 
 Three kinds of document live in this repository. Knowing which kind you are reading tells you how much
 to trust it and where to change it.
@@ -10,7 +10,7 @@ to trust it and where to change it.
 | `00-Build-Agent-Guide.md` | Invariants INV-1…12, conventions, how a ticket is executed, milestone gates | A convention or invariant changes (rare; needs an ADR if architectural) |
 | `01-UX-Design-Spec.md` | Everything a user sees: tokens, screens, states, copy, shortcuts. Authoritative. | A UI ticket needs a deviation: amend §9 first, then build |
 | `02-Backlog-v0.4.md` | The tickets. Each has a **Status** line (the source of truth for its state), dependencies, acceptance criteria and an agent brief. Part C is the ordered plan; Part D logs amendments. | In the PR that changes a ticket's state or dependencies |
-| `ScreenTail-Project-Scope.md` | The original goals, success metrics, non-goals and risks (v0.1, 2026-09-10). Superseded as the working spec; kept unedited. | Never; write a new scope version instead |
+| `ScreenTrail-Project-Scope.md` | The original goals, success metrics, non-goals and risks (v0.1, 2026-09-10). Superseded as the working spec; kept unedited. | Never; write a new scope version instead |
 
 ## Record: what we decided and where we are (`docs/`)
 
@@ -24,7 +24,7 @@ to trust it and where to change it.
 | `security/redteam-01.md` | ST-115's first red-team round on the redaction pipeline at the text level (2026-09-25): every input and finding, each one a test |
 | `security/2026-11-hardening.md` | The public summary of the 2026-11-15 security review and its fixes (#321 to #327, #330 to #333): what is true now, area by area. The review itself stays private |
 | `security/key-rotation.md` | Rotating the credential vault's master key (ST-009), step by step, and the vault upgrade on first deploy |
-| `integrations/connectwise.md`, `integrations/hudu.md` | How ScreenTail talks to ConnectWise and Hudu, what a tenant supplies, and the real checks still owed before a pilot |
+| `integrations/connectwise.md`, `integrations/hudu.md` | How ScreenTrail talks to ConnectWise and Hudu, what a tenant supplies, and the real checks still owed before a pilot |
 | `legal/consent-guidance.md` | Technician scripts and the consent-law summary. Not reviewed by a lawyer |
 | `product/` | Market scans and idea lists. Reference only; nothing here is a ticket until it is in the backlog |
 | `dev/first-draft-end-to-end.md` | Getting one real session to produce one real note: the M1 step list, everything on the laptop |

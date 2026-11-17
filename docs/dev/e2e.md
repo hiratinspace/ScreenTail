@@ -1,6 +1,6 @@
 # The end-to-end run: the whole loop on Windows, with nobody at the keyboard
 
-**What this is for.** One command that takes a session through all of ScreenTail on a real Windows
+**What this is for.** One command that takes a session through all of ScreenTrail on a real Windows
 machine and says, step by step, which part of the loop works and which does not: the backend, a device
 token, the capture service, the UI and its recording pill, a window being captured and redacted, the draft,
 the publish, and what the PSA received. It is ST-013's harness, and it runs in CI on every pull request
@@ -23,11 +23,11 @@ scripts\windows\e2e\run-e2e.cmd
 About four minutes the first time (it builds the backend and publishes the client), two after. It ends
 with `PASS e2e: all N steps passed` or `FAIL e2e: ...`, and exit code 0 or 1.
 
-- It uses the database server demo setup saved, in a database of its own (`screentail_e2e`), and the
+- It uses the database server demo setup saved, in a database of its own (`screentrail_e2e`), and the
   backend on port **5071**, so the demo's database and port 5001 are untouched. Stop the demo first
   (`scripts\windows\demo\stop.cmd`): one capture service per user.
 - It runs the real capture service, so it uses the product's own data folder
-  (`%LOCALAPPDATA%\ScreenTail`): the service has no setting for another one, and adding one only for a
+  (`%LOCALAPPDATA%\ScreenTrail`): the service has no setting for another one, and adding one only for a
   test was not worth a second way to find the store. The test session stays in History afterwards, with
   its note. It turns **All windows** on for the session and puts it back twice over: the driver restores
   the setting over the pipe at the end or on Ctrl+C, and the runner copies `capture.json` aside before it
@@ -37,13 +37,13 @@ with `PASS e2e: all N steps passed` or `FAIL e2e: ...`, and exit code 0 or 1.
 - `-InjectClicks` drives the session with real input instead of pipe commands: the start and stop
   hotkeys (Ctrl+Alt+R and Ctrl+Alt+S, or whatever Settings binds them to) and three real left clicks on
   the test window. It takes over the keyboard and mouse, so it also needs
-  `SCREENTAIL_ALLOW_INPUT_INJECTION=1`, as the laptop's input job sets:
-  `$env:SCREENTAIL_ALLOW_INPUT_INJECTION = '1'; scripts\windows\e2e\run-e2e.cmd -InjectClicks`.
-- A laptop with an invite-activated device (`%LOCALAPPDATA%\ScreenTail\device.cred`) is refused, because
+  `SCREENTRAIL_ALLOW_INPUT_INJECTION=1`, as the laptop's input job sets:
+  `$env:SCREENTRAIL_ALLOW_INPUT_INJECTION = '1'; scripts\windows\e2e\run-e2e.cmd -InjectClicks`.
+- A laptop with an invite-activated device (`%LOCALAPPDATA%\ScreenTrail\device.cred`) is refused, because
   the service prefers that device to a development token and the test database does not know it. See
   "Activated device" in `docs/dev/demo.md`.
 
-The logs go to `%LOCALAPPDATA%\ScreenTail.Dev\e2e`: `e2e.log` (every PASS and FAIL line), and the
+The logs go to `%LOCALAPPDATA%\ScreenTrail.Dev\e2e`: `e2e.log` (every PASS and FAIL line), and the
 service's, the UI's and the backend's own logs. They hold no content (both processes log through the scrubber,
 INV-10) and no secret; the last step checks that.
 
@@ -84,17 +84,17 @@ failure names the join of the loop that broke and what was there instead.
 | Step | Proves |
 |---|---|
 | setup-01 windows, 02 dotnet | Windows PowerShell 5.1 in a clone, a .NET 10 SDK global.json accepts |
-| setup-03 nothing-running | No other ScreenTail, no activated device, the port is free |
+| setup-03 nothing-running | No other ScreenTrail, no activated device, the port is free |
 | setup-04 postgres | PostgreSQL answers (the runner's service, or the server demo setup saved) |
 | setup-05 certificate | The development certificate is trusted the way the client checks it |
 | setup-06 backend-build, 07 migrations | The backend builds, and every migration applies to a fresh database (zero on a rerun) |
 | setup-08 backend | The backend answers `/health` over HTTPS in Development, with `Providers:Demo=true` and `Summarization:Provider=scripted` |
 | setup-09 enrol | `--enrol-dev-device` gives a token the backend accepts at `/v1/me` |
 | setup-10 client-publish | The service, the UI and the driver publish into one folder (the unsigned handshake's rule) |
-| setup-11 service | The capture service starts with `SCREENTAIL_BACKEND` and the token in its own environment only, publishes its pipe token and says it started |
+| setup-11 service | The capture service starts with `SCREENTRAIL_BACKEND` and the token in its own environment only, publishes its pipe token and says it started |
 | setup-12 ui | The UI starts and stays up |
 
-**The loop** (`client/ScreenTail.E2E`, through the pipe commands the UI sends)
+**The loop** (`client/ScreenTrail.E2E`, through the pipe commands the UI sends)
 
 | Step | Proves |
 |---|---|
@@ -141,7 +141,7 @@ It is also how to rehearse the demo offline, or past the free Gemini key's daily
 with `$env:Summarization__Provider = 'scripted'` added. For the demo scripts, set it in the PowerShell
 window before `scripts\windows\demo\start.cmd`: start says it is drafting with the scripted provider and
 passes the setting to the backend in place of the saved Claude or Gemini choice, which it leaves as it
-was. The note it writes says what it is, so it is not something to show an audience as ScreenTail's
+was. The note it writes says what it is, so it is not something to show an audience as ScreenTrail's
 drafting.
 
 ## The secret

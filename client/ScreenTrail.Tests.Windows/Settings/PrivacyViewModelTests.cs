@@ -1,0 +1,255 @@
+using System.Runtime.Versioning;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
+using System.Windows.Threading;
+using ScreenTrail.Core.Settings;
+using ScreenTrail.Core.Shell;
+using ScreenTrail.Shared.Settings;
+using ScreenTrail.UI.Settings.Privacy;
+using AutomationProperties = System.Windows.Automation.AutomationProperties;
+
+namespace ScreenTrail.Tests.Windows.Settings;
+
+/// <summary>
+/// Settings → Privacy's retention slider over its view model (ST-081). The pane is kept and reloaded on
+/// every visit, so one view model sees the admin's policy change. A real WPF slider clamps its value when
+/// its top shrinks and pushes the clamped value back through the binding; this checks the screen never
+/// shows, or saves, a value that came from that clamp. The slider is bound as PrivacyPane.xaml binds it.
+/// </summary>
+[SupportedOSPlatform("windows")]
+[Collection(WpfApplicationOwner.Name)]
+public sealed class PrivacyViewModelTests(Accessibility.TheApplication app)
+{
+    [Fact]
+    public async Task TheRetentionSliderFollowsThePolicyAsItChangesAndNeverSavesAClampedValue()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var own = new ClientSettings { LocalOnly = true, RetentionDays = 7 };
+            var gateway = new FakePrivacy();
+            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
+            var slider = new Slider { Minimum = 1, TickFrequency = 1, IsSnapToTickEnabled = true };
+            _ = slider.SetBinding(RangeBase.MaximumProperty, new Binding(nameof(PrivacyViewModel.RetentionMaximum)) { Source = screen });
+            _ = slider.SetBinding(RangeBase.ValueProperty, new Binding(nameof(PrivacyViewModel.RetentionDays)) { Source = screen });
+
+            async Task Shows(int days, int maximum, bool locked, string policy)
+            {
+                gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: locked, PolicyVersion: policy, EffectiveLocalOnly: true, EffectiveRetentionDays: locked ? days : own.RetentionDays);
+                await screen.LoadAsync();
+                Assert.Equal(days, screen.RetentionDays);
+                Assert.Equal(days, (int)slider.Value);
+                Assert.Equal(maximum, screen.RetentionMaximum);
+                Assert.Equal(maximum, (int)slider.Maximum);
+                Assert.Equal(!locked, screen.RetentionEditable);
+            }
+
+            await Shows(90, 90, locked: true, "p1");
+            await Shows(3, ClientSettings.MaxRetentionDays, locked: true, "p2");
+            await Shows(90, 90, locked: true, "p3");
+            await Shows(7, ClientSettings.MaxRetentionDays, locked: false, "default");
+
+            screen.Telemetry = true;
+            Assert.Null(await screen.Section.SaveAsync());
+            screen.Refresh();
+            Assert.Equal(7, gateway.Saved!.RetentionDays);
+            Assert.Equal(7, (int)slider.Value);
+        });
+    }
+
+    /// <summary>
+    /// The first time the pane appears, through the real PrivacyPane.xaml. SettingsPane hands the pane its
+    /// view model by a binding, so the pane is built before its view model arrives, and the view model may
+    /// already be loaded by then. Until the slider's top is bound it is WPF's default of 10, so if the value
+    /// were bound first a 12-day retention would be clamped to 10 and pushed back, and a save would write it.
+    /// </summary>
+    [Fact]
+    public async Task TheFirstTimeThePaneAppearsItShowsAndSavesTheRetentionUnclamped()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(FirstShowAsync);
+    }
+
+    private static async Task FirstShowAsync()
+    {
+        // The technician's own 12 days, unlocked: above the slider's default top.
+        var own = new ClientSettings { LocalOnly = true, RetentionDays = 12 };
+        var gateway = new FakePrivacy
+        {
+            Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: false, PolicyVersion: "default", EffectiveLocalOnly: true, EffectiveRetentionDays: 12),
+        };
+        var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
+        await screen.LoadAsync();
+        var slider = await ShownAsync(screen);
+        Assert.Equal(ClientSettings.MaxRetentionDays, (int)slider.Maximum);
+        Assert.Equal(12, (int)slider.Value);
+        Assert.Equal(12, screen.RetentionDays);
+        screen.Telemetry = true;
+        Assert.Null(await screen.Section.SaveAsync());
+        screen.Refresh();
+        Assert.Equal(12, gateway.Saved!.RetentionDays);
+
+        // The admin's 90 days, locked: shown whole, and the technician's own 12 is what a save keeps.
+        gateway.Snapshot = new SettingsSnapshot(own, LocalOnlyLocked: false, RetentionLocked: true, PolicyVersion: "p1", EffectiveLocalOnly: true, EffectiveRetentionDays: 90);
+        var locked = new PrivacyViewModel(new PrivacyPanel(gateway), () => null, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
+        await locked.LoadAsync();
+        slider = await ShownAsync(locked);
+        Assert.Equal(90, (int)slider.Maximum);
+        Assert.Equal(90, (int)slider.Value);
+        Assert.Equal(90, locked.RetentionDays);
+        Assert.False(slider.IsEnabled);
+        locked.Telemetry = true;
+        Assert.Null(await locked.Section.SaveAsync());
+        locked.Refresh();
+        Assert.Equal(12, gateway.Saved!.RetentionDays);
+    }
+
+    /// <summary>
+    /// Builds the real pane, then gives it the view model, in the order SettingsPane.xaml does. Bindings made
+    /// while a pane loads its XAML attach later, when the dispatcher reaches data binding, in the order the
+    /// XAML declares them; the app lets that happen before the pane is ever drawn, so this does too.
+    /// </summary>
+    private static async Task<Slider> ShownAsync(PrivacyViewModel screen)
+    {
+        var pane = new PrivacyPane();
+        pane.DataContext = screen;
+        await Dispatcher.Yield(DispatcherPriority.Background);
+        return Find<Slider>(pane, "Retention in days") ?? throw new InvalidOperationException("The pane has no retention slider.");
+    }
+
+    private static T? Find<T>(DependencyObject parent, string name)
+        where T : DependencyObject
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
+        {
+            if ((child is T found && AutomationProperties.GetName(found) == name ? found : Find<T>(child, name)) is { } match)
+            {
+                return match;
+            }
+        }
+
+        return null;
+    }
+
+    [Fact]
+    public async Task WhileDeleteEverythingIsAskingTheButtonIsOffAndASecondPressAsksNothing()
+    {
+        // Review of #274: the command's Execute does not look at whether it is running, so a second
+        // invoke opened a second typed "Delete everything" dialog over the first.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var held = new TaskCompletionSource<ConfirmedResult>();
+            var asked = 0;
+            var screen = new PrivacyViewModel(new PrivacyPanel(new FakePrivacy()), () => null, () =>
+            {
+                asked++;
+                return held.Task;
+            });
+
+            var first = screen.EraseEverythingCommand.ExecuteAsync(null);
+
+            Assert.True(screen.EraseEverythingCommand.IsRunning);
+            Assert.False(screen.EraseEverythingCommand.CanExecute(null));
+            screen.EraseEverythingCommand.Execute(null);
+            Assert.False(screen.EraseEverythingCommand.CanExecute(null));
+            Assert.Equal(1, asked);
+
+            held.SetResult(new ConfirmedResult(ConfirmedOutcome.Declined));
+            await first;
+
+            Assert.Equal(1, asked);
+            Assert.True(screen.EraseEverythingCommand.CanExecute(null));
+        });
+    }
+
+    [Fact]
+    public async Task ADeleteEverythingThatCannotAskSaysWhyBesideTheButton()
+    {
+        // Spec §4: no modal while a session is being captured, and the refusal is not a message box
+        // either. It is said beside the button, and cleared by the next try that is not refused.
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var next = new ConfirmedResult(ConfirmedOutcome.Refused, DeleteEverything.WhileCapturing);
+            var screen = new PrivacyViewModel(new PrivacyPanel(new FakePrivacy()), () => null, () => Task.FromResult(next));
+            Assert.Equal(Visibility.Collapsed, screen.EraseProblemVisibility);
+
+            await screen.EraseEverythingCommand.ExecuteAsync(null);
+
+            Assert.Equal(DeleteEverything.WhileCapturing, screen.EraseProblem);
+            Assert.Equal(Visibility.Visible, screen.EraseProblemVisibility);
+
+            next = new ConfirmedResult(ConfirmedOutcome.NotAvailable, ConfirmedAction.NotConnected);
+            await screen.EraseEverythingCommand.ExecuteAsync(null);
+            Assert.Equal(ConfirmedAction.NotConnected, screen.EraseProblem);
+
+            next = new ConfirmedResult(ConfirmedOutcome.Declined);
+            await screen.EraseEverythingCommand.ExecuteAsync(null);
+
+            Assert.Equal(string.Empty, screen.EraseProblem);
+            Assert.Equal(Visibility.Collapsed, screen.EraseProblemVisibility);
+        });
+    }
+
+    [Fact]
+    public async Task WhileTheAuditIsBeingExportedTheButtonIsOffAndASecondPressOpensNoDialog()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "Windows only.");
+        await app.RunAsync(async () =>
+        {
+            var held = new TaskCompletionSource<AuditSaved>();
+            var chosen = 0;
+            var exported = 0;
+            var gateway = new FakePrivacy
+            {
+                Export = _ =>
+                {
+                    exported++;
+                    return held.Task;
+                },
+            };
+            var screen = new PrivacyViewModel(new PrivacyPanel(gateway), () =>
+            {
+                chosen++;
+                return @"C:\audit.json";
+            }, () => Task.FromResult(new ConfirmedResult(ConfirmedOutcome.Declined)));
+
+            var first = screen.ExportAuditCommand.ExecuteAsync(null);
+
+            Assert.False(screen.ExportAuditCommand.CanExecute(null));
+            screen.ExportAuditCommand.Execute(null);
+            Assert.False(screen.ExportAuditCommand.CanExecute(null));
+            Assert.Equal((1, 1), (chosen, exported));
+
+            held.SetResult(new AuditSaved(true, true, "Saved."));
+            await first;
+
+            Assert.Equal((1, 1), (chosen, exported));
+            Assert.True(screen.ExportAuditCommand.CanExecute(null));
+        });
+    }
+
+    private sealed class FakePrivacy : IPrivacyGateway
+    {
+        public SettingsSnapshot? Snapshot { get; set; }
+
+        public ClientSettings? Saved { get; private set; }
+
+        public Task<SettingsSnapshot?> LoadAsync(CancellationToken ct = default) => Task.FromResult(Snapshot);
+
+        public Task<string?> SaveAsync(ClientSettings settings, CancellationToken ct = default)
+        {
+            Saved = settings;
+            return Task.FromResult<string?>(null);
+        }
+
+        /// <summary>The export, when a test is about it.</summary>
+        public Func<string, Task<AuditSaved>>? Export { get; init; }
+
+        public Task<AuditSaved> ExportAuditAsync(string destination, CancellationToken ct = default) =>
+            Export is { } export ? export(destination) : throw new InvalidOperationException("not under test");
+    }
+}

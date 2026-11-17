@@ -1,4 +1,4 @@
-# ADR-0001: Client stack for the ScreenTail Windows client
+# ADR-0001: Client stack for the ScreenTrail Windows client
 
 - **Status:** **Accepted 2026-09-12**, when ST-001 AC1 and AC3 passed on real hardware (see [Evidence](#evidence)). Amended 2026-09-11 to .NET 10 (finding 1). Status line updated 2026-09-15; the decision itself is unchanged.
 - **Date:** 2026-09-10
@@ -70,7 +70,7 @@ Two 5-minute runs with a person typing: one with hooks only, one with everything
 
 ### Laptop, unattended synthetic run (2026-09-12)
 
-Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTail/actions/runs/34674868909), nobody present. The spike drove its own input (`--drive-input`) into its typing-target window: 2,368 keystrokes and 51 clicks over 5 minutes, with speech-to-text, UI Automation, screenshots and OCR all running. Injected input goes through the same low-level hooks as a person's, so the callback cost is measured identically.
+Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTrail/actions/runs/34674868909), nobody present. The spike drove its own input (`--drive-input`) into its typing-target window: 2,368 keystrokes and 51 clicks over 5 minutes, with speech-to-text, UI Automation, screenshots and OCR all running. Injected input goes through the same low-level hooks as a person's, so the callback cost is measured identically.
 
 | Metric | Value | Budget |
 |---|---|---|
@@ -96,7 +96,7 @@ Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTail/action
 
 ### Hosted-runner results (2026-09-11)
 
-Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; runs [34630922433](https://github.com/hiratinspace/ScreenTail/actions/runs/34630922433) and [34631759322](https://github.com/hiratinspace/ScreenTail/actions/runs/34631759322) (after the BitBlt fix). Files are in [`evidence/0001/hosted-runner/`](evidence/0001/hosted-runner/). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
+Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; runs [34630922433](https://github.com/hiratinspace/ScreenTrail/actions/runs/34630922433) and [34631759322](https://github.com/hiratinspace/ScreenTrail/actions/runs/34631759322) (after the BitBlt fix). Files are in [`evidence/0001/hosted-runner/`](evidence/0001/hosted-runner/). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
 
 **AC3 overlay exclusion:** with `WDA_EXCLUDEFROMCAPTURE` set, 0.00% of the overlay rectangle matched the marker colour. In the control run (the same overlay started with `--visible`), 86.31% matched; the rest is the transparent rounded corners and the text. The check can see the overlay when it's there, and it isn't there when excluded.
 
@@ -140,7 +140,7 @@ These came up while building the spike and hold regardless of how the Windows ru
     (open at 0.6, close at 0.35), a 700 ms hangover, a 250 ms preroll, a 400 ms minimum and a 20 s
     maximum. Played a synthetic ten-minute session with about 3.5 s of speech a minute, it hands on
     **7.0% of the audio**: 42 s of 600 s, as 10 segments. Against the 49–62% of eight threads measured
-    above for continuous feeding, that projects to roughly 3–4%, inside ST-031's 15% for all of ScreenTail.
+    above for continuous feeding, that projects to roughly 3–4%, inside ST-031's 15% for all of ScreenTrail.
 
     **That is a duty cycle, not a CPU measurement.** It says how much audio reaches Whisper, not what
     Whisper then costs, and it is computed from probabilities a test made up rather than from Silero

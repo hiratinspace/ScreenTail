@@ -120,7 +120,7 @@ def oracle_in(path: Path) -> str:
     "path",
     [
         ROOT / "prompts" / "engine_probe.cs",
-        REPO / "backend" / "tests" / "ScreenTail.Api.Tests" / "Summarize" / "DifferentialCasesTests.cs",
+        REPO / "backend" / "tests" / "ScreenTrail.Api.Tests" / "Summarize" / "DifferentialCasesTests.cs",
     ],
     ids=lambda p: p.name,
 )

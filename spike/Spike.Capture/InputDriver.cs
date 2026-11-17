@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace ScreenTail.Spike.Capture;
+namespace ScreenTrail.Spike.Capture;
 
 /// <summary>
 /// Stand-in technician for unattended runs (<c>--drive-input</c>): types lowercase text and clicks inside
@@ -9,7 +9,7 @@ namespace ScreenTail.Spike.Capture;
 /// </summary>
 internal static class InputDriver
 {
-    public const string TargetTitle = "ScreenTail.Spike.TypingTarget";
+    public const string TargetTitle = "ScreenTrail.Spike.TypingTarget";
 
     // Lowercase letters and spaces only, so each character maps straight to a virtual-key code.
     private const string Text = "checked the print spooler service and restarted it then cleared the queue ";

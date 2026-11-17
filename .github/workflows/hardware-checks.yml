@@ -1,6 +1,6 @@
 name: hardware-checks
 
-# ST-021: ask a real Windows machine what it will let ScreenTail do, and publish the answer.
+# ST-021: ask a real Windows machine what it will let ScreenTrail do, and publish the answer.
 # The hosted runner can't answer this honestly — it has no desktop session, so it reports blocked for
 # everything capture needs, which is correct and useless. The laptop is the machine whose answer matters.
 # Nothing here touches the keyboard or mouse: the probe installs a hook and removes it, and takes a
@@ -9,51 +9,51 @@ name: hardware-checks
 on:
   pull_request:
     paths:
-      - 'client/ScreenTail.Service/Capabilities/**'
-      - 'client/ScreenTail.Core/Capabilities/**'
-      - 'client/ScreenTail.Service/Detection/**'
-      - 'client/ScreenTail.Core/Detection/**'
-      - 'client/ScreenTail.Service/Input/**'
-      - 'client/ScreenTail.Core/Input/**'
-      - 'client/ScreenTail.Service/Capture/**'
-      - 'client/ScreenTail.Core/Capture/**'
-      - 'client/ScreenTail.Service/Privacy/**'
-      - 'client/ScreenTail.Core/Privacy/**'
+      - 'client/ScreenTrail.Service/Capabilities/**'
+      - 'client/ScreenTrail.Core/Capabilities/**'
+      - 'client/ScreenTrail.Service/Detection/**'
+      - 'client/ScreenTrail.Core/Detection/**'
+      - 'client/ScreenTrail.Service/Input/**'
+      - 'client/ScreenTrail.Core/Input/**'
+      - 'client/ScreenTrail.Service/Capture/**'
+      - 'client/ScreenTrail.Core/Capture/**'
+      - 'client/ScreenTrail.Service/Privacy/**'
+      - 'client/ScreenTrail.Core/Privacy/**'
       # ST-018: the store and the pipe were missing, so a change to either reached main without the
       # laptop ever seeing it — including the encrypted store the capture path writes every frame
       # through, and the handshake that decides who may talk to the service.
-      - 'client/ScreenTail.Service/Store/**'
-      - 'client/ScreenTail.Core/Store/**'
-      - 'client/ScreenTail.Service/Ipc/**'
-      - 'client/ScreenTail.Core/Ipc/**'
-      - 'client/ScreenTail.Service/Sessions/**'
-      - 'client/ScreenTail.Core/Sessions/**'
+      - 'client/ScreenTrail.Service/Store/**'
+      - 'client/ScreenTrail.Core/Store/**'
+      - 'client/ScreenTrail.Service/Ipc/**'
+      - 'client/ScreenTrail.Core/Ipc/**'
+      - 'client/ScreenTrail.Service/Sessions/**'
+      - 'client/ScreenTrail.Core/Sessions/**'
       # ST-027: this one opens a real microphone, which is exactly what only this machine can check.
-      - 'client/ScreenTail.Service/Speech/**'
-      - 'client/ScreenTail.Core/Speech/**'
-      - 'client/ScreenTail.Platform/**'
+      - 'client/ScreenTrail.Service/Speech/**'
+      - 'client/ScreenTrail.Core/Speech/**'
+      - 'client/ScreenTrail.Platform/**'
       # The Windows tests for the areas above, and the files every one of them shares. Not the whole
       # project: its Review, Settings, Shell, History, Accessibility, Onboarding, Install and Update
       # folders test the UI, none of their tests needs a real machine, and the hosted Windows job runs
       # them on every pull request. Taking them in made every screen change wait about forty minutes
       # for the laptop (owner, 2026-11-12). The nightly run below still puts all of them on the laptop.
-      - 'client/ScreenTail.Tests.Windows/Capabilities/**'
-      - 'client/ScreenTail.Tests.Windows/Capture/**'
-      - 'client/ScreenTail.Tests.Windows/Detection/**'
-      - 'client/ScreenTail.Tests.Windows/Host/**'
-      - 'client/ScreenTail.Tests.Windows/Input/**'
-      - 'client/ScreenTail.Tests.Windows/Ipc/**'
-      - 'client/ScreenTail.Tests.Windows/Performance/**'
-      - 'client/ScreenTail.Tests.Windows/Privacy/**'
-      - 'client/ScreenTail.Tests.Windows/Speech/**'
-      - 'client/ScreenTail.Tests.Windows/Store/**'
-      - 'client/ScreenTail.Tests.Windows/AssemblyInfo.cs'
-      - 'client/ScreenTail.Tests.Windows/DesktopWindow.cs'
-      - 'client/ScreenTail.Tests.Windows/Hardware.cs'
-      - 'client/ScreenTail.Tests.Windows/Measurements.cs'
-      - 'client/ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
-      - 'client/ScreenTail.Tests.Windows/WpfApplicationOwner.cs'
-      - 'client/ScreenTail.Tests.Windows/skip-baseline.json'
+      - 'client/ScreenTrail.Tests.Windows/Capabilities/**'
+      - 'client/ScreenTrail.Tests.Windows/Capture/**'
+      - 'client/ScreenTrail.Tests.Windows/Detection/**'
+      - 'client/ScreenTrail.Tests.Windows/Host/**'
+      - 'client/ScreenTrail.Tests.Windows/Input/**'
+      - 'client/ScreenTrail.Tests.Windows/Ipc/**'
+      - 'client/ScreenTrail.Tests.Windows/Performance/**'
+      - 'client/ScreenTrail.Tests.Windows/Privacy/**'
+      - 'client/ScreenTrail.Tests.Windows/Speech/**'
+      - 'client/ScreenTrail.Tests.Windows/Store/**'
+      - 'client/ScreenTrail.Tests.Windows/AssemblyInfo.cs'
+      - 'client/ScreenTrail.Tests.Windows/DesktopWindow.cs'
+      - 'client/ScreenTrail.Tests.Windows/Hardware.cs'
+      - 'client/ScreenTrail.Tests.Windows/Measurements.cs'
+      - 'client/ScreenTrail.Tests.Windows/ScreenTrail.Tests.Windows.csproj'
+      - 'client/ScreenTrail.Tests.Windows/WpfApplicationOwner.cs'
+      - 'client/ScreenTrail.Tests.Windows/skip-baseline.json'
       - 'scripts/windows/**'
       - '.github/workflows/hardware-checks.yml'
   # Every night on main, whatever changed, so what the filter above leaves out (the UI changes, and
@@ -90,7 +90,7 @@ jobs:
       vars.HW_RUNNER == 'true' &&
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, Windows, screentail-win]
+    runs-on: [self-hosted, Windows, screentrail-win]
     # 20, raised from 15 by the owner on 2026-11-05: the job had grown to 13 to 15 minutes (the
     # accessibility scans alone are about 4), and at 15 a slow day cut it off mid-scan. 30, raised by
     # the owner on 2026-11-12: the job is now 16 to 17 minutes on AC, and on battery the tests alone
@@ -120,7 +120,7 @@ jobs:
 
       # The owner runs the demo on this laptop. While it is up, its capture service holds the hotkeys and
       # the pipe, and the tests below fail one by one in ways that look like regressions. Read-only: it
-      # looks for ScreenTail processes in this session and a live demo start, and fails the job, never
+      # looks for ScreenTrail processes in this session and a live demo start, and fails the job, never
       # skips it, with one line saying what to do.
       - name: The demo is not running
         working-directory: ${{ github.workspace }}
@@ -141,12 +141,12 @@ jobs:
           dotnet --list-sdks
 
       - name: Build the service
-        run: dotnet build ScreenTail.Service/ScreenTail.Service.csproj -c Release
+        run: dotnet build ScreenTrail.Service/ScreenTrail.Service.csproj -c Release
 
       # Built explicitly because the test app is launched directly below rather than through
       # `dotnet test`, which used to do this as a side effect.
       - name: Build the Windows tests
-        run: dotnet build ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+        run: dotnet build ScreenTrail.Tests.Windows/ScreenTrail.Tests.Windows.csproj -c Release
 
       - name: What this machine allows
         id: probe
@@ -156,7 +156,7 @@ jobs:
           $file = Join-Path $out 'capability-report.json'
 
           # Exit code 1 means "cannot capture", which is a finding to publish, not a reason to stop.
-          $json = (dotnet run --project ScreenTail.Service -c Release --no-build -- --capabilities) -join "`r`n"
+          $json = (dotnet run --project ScreenTrail.Service -c Release --no-build -- --capabilities) -join "`r`n"
           $code = $LASTEXITCODE
           Write-Host $json
 
@@ -205,11 +205,11 @@ jobs:
       # `dotnet test`.
       - name: Windows tests on real hardware
         env:
-          SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/capabilities/measurements.txt
+          SCREENTRAIL_MEASUREMENTS: ${{ runner.temp }}/capabilities/measurements.txt
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'trx'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $proj = 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
+          $proj = 'ScreenTrail.Tests.Windows/ScreenTrail.Tests.Windows.csproj'
           $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
             Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
           if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
@@ -304,10 +304,10 @@ jobs:
       (github.event_name != 'pull_request' ||
        github.event.pull_request.head.repo.full_name == github.repository)
     needs: capabilities
-    runs-on: [self-hosted, Windows, screentail-win]
+    runs-on: [self-hosted, Windows, screentrail-win]
     timeout-minutes: 15
     env:
-      SCREENTAIL_ALLOW_INPUT_INJECTION: '1'
+      SCREENTRAIL_ALLOW_INPUT_INJECTION: '1'
     defaults:
       run:
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
@@ -336,15 +336,15 @@ jobs:
           }
 
       - name: Build the Windows tests
-        run: dotnet build ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj -c Release
+        run: dotnet build ScreenTrail.Tests.Windows/ScreenTrail.Tests.Windows.csproj -c Release
 
       - name: Hooks under real keystrokes and clicks
         env:
-          SCREENTAIL_MEASUREMENTS: ${{ runner.temp }}/measurements/input.txt
+          SCREENTRAIL_MEASUREMENTS: ${{ runner.temp }}/measurements/input.txt
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'trx'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $proj = 'ScreenTail.Tests.Windows/ScreenTail.Tests.Windows.csproj'
+          $proj = 'ScreenTrail.Tests.Windows/ScreenTrail.Tests.Windows.csproj'
           $dll = (dotnet msbuild $proj -getProperty:TargetPath -p:Configuration=Release) |
             Where-Object { $_ -match '\.dll\s*$' } | Select-Object -Last 1
           if (-not $dll) { throw "msbuild reported no TargetPath for $proj." }
@@ -357,7 +357,7 @@ jobs:
           # at a time, so it is fifty seconds in front of the hardware gate of every pull request that
           # touches the capture path (2026-09-20 review).
           #
-          # The four input-injection tests are the only ones that need SCREENTAIL_ALLOW_INPUT_INJECTION,
+          # The four input-injection tests are the only ones that need SCREENTRAIL_ALLOW_INPUT_INJECTION,
           # and the skip gate below still expects none of them to skip.
           dotnet $dll -class '*InputHookTests' -result-trx (Join-Path $out 'input.trx')
           exit $LASTEXITCODE
