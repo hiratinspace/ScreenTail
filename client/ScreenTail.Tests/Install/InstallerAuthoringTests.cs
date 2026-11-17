@@ -212,8 +212,9 @@ public sealed class InstallerAuthoringTests
             var property = package.Descendants(Wix + "Property").Single(p => (string?)p.Attribute("Id") == id);
             Assert.Equal("yes", (string?)property.Attribute("Secure"));
 
-            // Windows Installer's log names the property and never shows the value, as the service never
-            // logs the address (an address can carry a user name and password).
+            // Windows Installer's log names the property and shows asterisks for it, as the service never
+            // logs the address. (A verbose log's record of the registry write still has the value; the
+            // smoke test allows that one line and no other.)
             Assert.Equal("yes", (string?)property.Attribute("Hidden"));
         }
     }

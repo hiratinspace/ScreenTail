@@ -117,8 +117,9 @@
          its own and used only when the command line gives none, so an upgrade or a repair keeps it and a new
          value given later replaces it. Not given at all, nothing is written, and the service drafts on the
          device. ScreenTail-Setup.exe BACKENDURL=https://... passes it on to here (Bundle.wxs). Both
-         properties are hidden, so Windows Installer's log names them and never shows the value, as the
-         service never logs the address: an address can carry a user name and password. -->
+         properties are hidden, so Windows Installer's log names them and shows asterisks for the value,
+         as the service never logs the address. A verbose log still records the registry write with its
+         value (RegAddValue), which MsiHiddenProperties does not cover; docs/dev/installer.md says so. -->
     <Property Id="BACKENDURL" Secure="yes" Hidden="yes" />
     <Property Id="BACKENDURLKEPT" Secure="yes" Hidden="yes">
       <RegistrySearch Id="BackendUrlKept" Root="HKLM" Key="Software\ScreenTail" Name="BackendUrl" Type="raw" Bitness="always64" />

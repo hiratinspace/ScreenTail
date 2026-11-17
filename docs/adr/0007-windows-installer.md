@@ -324,7 +324,9 @@ install or upgrade; the service starts at the next sign-in, which is what the ti
   either installer sets it: `ScreenTail-Setup.exe BACKENDURL=https://... /quiet /norestart` or
   `msiexec /i ScreenTail.msi BACKENDURL=https://... /qn /norestart`. The setup program's variable is
   overridable from its command line, not persisted, and passed only when given, so the package's own rule
-  holds: read on install or upgrade, kept when not given. Both installers hide the value in their logs.)*
+  holds: read on install or upgrade, kept when not given. Both installers hide the value in their logs,
+  except Windows Installer's verbose record of the registry write, which `MsiHiddenProperties` does not
+  cover; the address is not a secret, and the deploy guide says not to put credentials in it.)*
 
 ## Alternatives considered
 

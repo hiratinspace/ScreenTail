@@ -54,7 +54,7 @@ another process reads `ScreenTail.Service.exe` for 4 seconds from the moment the
 each must exit 0 with nothing left for a restart. It installs the setup program with `BACKENDURL` and
 checks the machine-wide `BackendUrl` value holds it, gives `msiexec` the address before the setup
 program's upgrade and checks the upgrade, given none, kept it, and checks that no installer log shows the
-address. The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
+address but for Windows Installer's record of the registry write (see "The backend address" below). The unsigned packages are a workflow artifact, `screentail-installer-unsigned`,
 kept seven days. To try one: download it from the run's summary page, on a throwaway VM.
 
 For every run of the setup program the test also reads the setup program's own log, because its exit
@@ -329,10 +329,13 @@ Left out, nothing is written (see below).
   `BACKENDURL` writes it, on the `msiexec` line or on the setup program's, which passes it on to the
   package. Write the name in capitals, as above; the setup program also takes it in any case. It is read
   only when the package is installed or upgraded: an upgrade or a repair without it keeps the value
-  already there, and a new `BACKENDURL` replaces it. Neither installer's log shows the value (the logs
-  name `BACKENDURL` and hide what it holds, as the service never logs the address), so check what a
-  machine got in the registry. To change the address in place without reinstalling, write the value with
-  your RMM tool or Group Policy:
+  already there, and a new `BACKENDURL` replaces it. The logs name `BACKENDURL` and show asterisks for
+  its value (the setup program's log, and Windows Installer's command line and property lines), as the
+  service never logs the address. One line is the exception: a verbose Windows Installer log (`/l*v`,
+  and the package log the setup program writes beside its own) records the registry write with its
+  value (`Executing op: RegAddValue(Name=BackendUrl,Value=...)`), so never put a user name or password
+  in the address. To see what a machine got, read the registry. To change the address in place without
+  reinstalling, write the value with your RMM tool or Group Policy:
 
   ```powershell
   reg add HKLM\SOFTWARE\ScreenTail /v BackendUrl /t REG_SZ /d https://screentail.example.com /f /reg:64

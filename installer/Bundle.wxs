@@ -33,8 +33,8 @@
          program takes it from its command line (in any case, as msiexec users may type it), and passed
          only when given: an upgrade or a repair without it hands the package nothing, and the package
          keeps the value already on the machine. Not persisted, so a later run never repeats an old
-         address. Hidden, so the setup program's log says the name and never the value: the service never
-         logs the address either, and an address can carry a user name and password. -->
+         address. Hidden, so the setup program's log says the name and never the value, as the service never
+         logs the address. -->
     <Variable Name="BACKENDURL" Hidden="yes" bal:Overridable="yes" />
 
     <!-- No setup window of its own: the runtime installs as a prerequisite with a small progress window,

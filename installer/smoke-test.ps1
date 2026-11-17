@@ -308,11 +308,16 @@ function Get-BackendUrl {
 
 function Test-AddressNotLogged([string]$What, [string]$Prefix) {
     # The setup program's log and the package's log it writes beside it (and msiexec's own) name BACKENDURL
-    # but never show the value: the variable and the package's properties are hidden.
-    $found = @(Get-ChildItem $Logs -Filter "$Prefix*.log" -ErrorAction SilentlyContinue | Where-Object {
-            Select-String -LiteralPath $_.FullName -SimpleMatch -Pattern $smokeBackend -Quiet
-        } | ForEach-Object { $_.Name })
-    Check "${What}: no log shows the backend address" ($found.Count -eq 0) ($found -join ', ')
+    # but show the value as asterisks: the variable and the package's properties are hidden. One line is
+    # beyond that: a verbose Windows Installer log records each registry write it makes, value included
+    # ("Executing op: RegAddValue(Name=BackendUrl,Value=..."), whatever MsiHiddenProperties says. Only that
+    # line may show it (seen on the hosted runner, 2026-11-17).
+    $write = '^MSI \(s\) \([0-9A-F]+:[0-9A-F]+\) \[[0-9:]+\]: Executing op: RegAddValue\(Name=BackendUrl,Value='
+    $found = @(Get-ChildItem $Logs -Filter "$Prefix*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+            $name = $_.Name
+            Get-Content -LiteralPath $_.FullName | Where-Object { $_.Contains($smokeBackend) -and $_ -notmatch $write } | ForEach-Object { $name }
+        } | Select-Object -Unique)
+    Check "${What}: no log shows the backend address, but for Windows Installer's record of the registry write" ($found.Count -eq 0) ($found -join ', ')
 }
 
 function Test-UpgradeHeld($Holder, [string[]]$Report) {
