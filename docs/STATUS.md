@@ -51,9 +51,10 @@ still trips the throttle. The demo now publishes Release, the cost test fills th
 recording is held under 120% of one core. A segment-sized encoder context ships off behind
 `SCREENTRAIL_SPEECH_SIZED_CONTEXT=1`: with it on, a narrated session is 42% of one core (5.3% of the
 machine) and the throttle never trips. Word error is unchanged on synthetic speech only, so the default
-waits for the owner's ST-027 recording. Known follow-up: on one thread, a stop in the middle of a
-transcription routinely passes its 500 ms bound and the release finishes in the background, so the next
-test's memory reading is unreliable.
+waits for the owner's ST-027 recording. A stop in the middle of a transcription returns inside its bound
+(509 ms against 650 ms on the laptop, run 44139012468) and the model is freed in the background; the
+memory test now waits for that (#339, #340). whisper.cpp cannot be stopped inside an encoder pass, so a
+stop during one lets go only when the pass ends (about 4.7 s on one thread; `docs/dev/performance.md`).
 
 **Pull `main` before the next run on the laptop.** The pipe contract is version 12 (v10 for "Not
 confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note), and the service and the UI
@@ -555,7 +556,6 @@ chose it says so.
 |---|---|---|
 | **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
 | Then | **The Outbox and Iris leftovers:** the coverage banner (not built), the manual Narrator pass, the tray's "Start capture" when idle, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
-| Small, no owner | A stop mid-transcription on one thread passing its 500 ms bound (#334) | Agent |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
 | In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |
