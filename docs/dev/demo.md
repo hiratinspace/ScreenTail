@@ -21,7 +21,7 @@ The scripts are in `scripts\windows\demo\`. They do what the manual runbook
 | You need | Notes |
 |---|---|
 | The Windows test laptop, signed in, with you at it | Everything runs on the laptop, the backend included |
-| Your own copy of the repository | For example `C:\src\ScreenTrail`. Not the CI runner's folder. If you do not have one: `git clone https://github.com/hiratinspace/ScreenTail.git C:\src\ScreenTrail`. If you do: `git pull` in it |
+| Your own copy of the repository | For example `C:\src\ScreenTrail`. Not the CI runner's folder. If you do not have one: `git clone https://github.com/hiratinspace/ScreenTrail.git C:\src\ScreenTrail`. If you do: `git pull` in it |
 | The .NET 10 SDK | Already on the laptop (the runner's setup installed it). Setup checks |
 | PostgreSQL, or Docker Desktop | If neither is there, setup prints the one line to install PostgreSQL and stops |
 | A Claude API key (or the Gemini key, if you draft with Gemini) | Claude: make one in the Claude Console, platform.claude.com, under API keys, on the account with the credits. It starts with `sk-ant-`. Gemini: the free tier is enough; on the Mac, `cd backend/src/ScreenTrail.Api && dotnet user-secrets list` shows it (mind who is looking) |

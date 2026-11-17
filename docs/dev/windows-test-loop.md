@@ -14,12 +14,12 @@ ScreenTrail's client is Windows-only, and it's developed on a Mac. Each change g
 1. Get a runner registration token (valid for 1 hour). Either the build agent creates one, or you go to GitHub > Settings > Actions > Runners > New self-hosted runner.
 2. On the laptop, signed in as the account that will stay signed in:
    ```powershell
-   git clone https://github.com/hiratinspace/ScreenTail.git
+   git clone https://github.com/hiratinspace/ScreenTrail.git
    cd ScreenTrail\scripts\windows
    powershell -ExecutionPolicy Bypass -File .\setup-test-laptop.ps1 -Token <TOKEN>
    ```
 3. Do the manual steps the script prints: automatic sign-in, no lock screen, plugged in with the lid open, and use the laptop for testing only.
-4. The build agent checks that the runner is online (`gh api repos/hiratinspace/ScreenTail/actions/runners`) and runs `gh variable set HW_RUNNER --body true`.
+4. The build agent checks that the runner is online (`gh api repos/hiratinspace/ScreenTrail/actions/runners`) and runs `gh variable set HW_RUNNER --body true`.
 
 ### Why the runner isn't a Windows service
 

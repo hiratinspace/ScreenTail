@@ -128,7 +128,7 @@ None of these is in the repository, and nothing in CI creates or changes them.
    create a client secret.** Add a *federated credential* to it instead: scenario *GitHub Actions
    deploying Azure resources*, organisation `hiratinspace`, repository `ScreenTrail`, entity type
    *Environment*, name `signing`. Its subject is then exactly
-   `repo:hiratinspace/ScreenTail:environment:signing`, so Azure accepts a token from the signing job
+   `repo:hiratinspace/ScreenTrail:environment:signing`, so Azure accepts a token from the signing job
    in that environment and from nothing else.
 3. **GitHub, *Settings → Environments → New environment*:** `signing`.
    - **Mandatory: under *Deployment branches and tags*, choose *Selected branches and tags* and allow

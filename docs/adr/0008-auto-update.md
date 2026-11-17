@@ -248,7 +248,7 @@ The full list, with the exact variable names, is in `docs/dev/installer.md` ("Sw
    sign only: one for pilot, one for stable. Note each key identifier **with its version**.
 2. **Azure, two app registrations for the manifests:** a pilot one with a federated credential for
    environment `signing`, and a stable one with a federated credential for environment `release-stable`
-   (subject `repo:hiratinspace/ScreenTail:environment:release-stable`). Give each a role that allows only
+   (subject `repo:hiratinspace/ScreenTrail:environment:release-stable`). Give each a role that allows only
    `Microsoft.KeyVault/vaults/keys/sign/action` (a custom role; *Key Vault Crypto User* also works but
    allows more) on its own key, and nothing on the other key.
 3. **The public keys:** export each as base64 DER SubjectPublicKeyInfo (`az keyvault key download

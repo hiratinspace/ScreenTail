@@ -38,7 +38,7 @@ answers it.
 ## 2. Get the code and fill in the two settings files
 
 ```bash
-git clone https://github.com/hiratinspace/ScreenTail.git && cd ScreenTrail/deploy
+git clone https://github.com/hiratinspace/ScreenTrail.git && cd ScreenTrail/deploy
 cp env.example .env           # compose's settings: the name, the client id, ports
 cp api.env.example api.env    # the API's settings: signup allowlist, seats, drafting provider
 ```

@@ -26,7 +26,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$Token,
-    [string]$RepoUrl = 'https://github.com/hiratinspace/ScreenTail',
+    [string]$RepoUrl = 'https://github.com/hiratinspace/ScreenTrail',
     [string]$RunnerDir = 'C:\actions-runner',
     [string]$Labels = 'screentail-win'
 )

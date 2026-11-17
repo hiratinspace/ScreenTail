@@ -108,7 +108,7 @@ if ($previous.Count -gt 0) {
 switch (Get-RunnerState) {
     'job' {
         Stop-Demo -Problem 'A GitHub Actions job is running on this laptop right now. Hardware jobs drive the keyboard, mouse and screen, and start ScreenTrail themselves.' -Fix @(
-            'Wait for it to finish (github.com/hiratinspace/ScreenTail/actions shows it), then start again.')
+            'Wait for it to finish (github.com/hiratinspace/ScreenTrail/actions shows it), then start again.')
     }
     'idle' {
         Write-Caution 'The GitHub Actions runner is on. A hardware job that starts during the demo takes over the screen.'

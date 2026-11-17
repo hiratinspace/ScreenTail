@@ -70,7 +70,7 @@ Two 5-minute runs with a person typing: one with hooks only, one with everything
 
 ### Laptop, unattended synthetic run (2026-09-12)
 
-Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTail/actions/runs/34674868909), nobody present. The spike drove its own input (`--drive-input`) into its typing-target window: 2,368 keystrokes and 51 clicks over 5 minutes, with speech-to-text, UI Automation, screenshots and OCR all running. Injected input goes through the same low-level hooks as a person's, so the callback cost is measured identically.
+Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTrail/actions/runs/34674868909), nobody present. The spike drove its own input (`--drive-input`) into its typing-target window: 2,368 keystrokes and 51 clicks over 5 minutes, with speech-to-text, UI Automation, screenshots and OCR all running. Injected input goes through the same low-level hooks as a person's, so the callback cost is measured identically.
 
 | Metric | Value | Budget |
 |---|---|---|
@@ -96,7 +96,7 @@ Same laptop, [run 34674868909](https://github.com/hiratinspace/ScreenTail/action
 
 ### Hosted-runner results (2026-09-11)
 
-Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; runs [34630922433](https://github.com/hiratinspace/ScreenTail/actions/runs/34630922433) and [34631759322](https://github.com/hiratinspace/ScreenTail/actions/runs/34631759322) (after the BitBlt fix). Files are in [`evidence/0001/hosted-runner/`](evidence/0001/hosted-runner/). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
+Source: GitHub `windows-latest`, a 2-core VM running Windows 10.0.26100 (Server 2025) with no microphone; runs [34630922433](https://github.com/hiratinspace/ScreenTrail/actions/runs/34630922433) and [34631759322](https://github.com/hiratinspace/ScreenTrail/actions/runs/34631759322) (after the BitBlt fix). Files are in [`evidence/0001/hosted-runner/`](evidence/0001/hosted-runner/). It's a VM, so performance numbers are indicative only. The laptop and a person at a keyboard provide the numbers that count.
 
 **AC3 overlay exclusion:** with `WDA_EXCLUDEFROMCAPTURE` set, 0.00% of the overlay rectangle matched the marker colour. In the control run (the same overlay started with `--visible`), 86.31% matched; the rest is the transparent rounded corners and the text. The check can see the overlay when it's there, and it isn't there when excluded.
 

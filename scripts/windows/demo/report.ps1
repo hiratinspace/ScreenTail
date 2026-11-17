@@ -1286,7 +1286,7 @@ Invoke-Section 'The CI runner (it can take over the screen)' {
     switch (Get-RunnerState) {
         'job' {
             Add-Fact 'GitHub Actions runner' 'running a job right now'
-            Add-Problem 45 'A GitHub Actions job is running on this laptop. Hardware jobs take over the keyboard, mouse and screen, and start and stop ScreenTrail themselves.' 'Wait for it to finish (github.com/hiratinspace/ScreenTail/actions), then stop.cmd and start.cmd.'
+            Add-Problem 45 'A GitHub Actions job is running on this laptop. Hardware jobs take over the keyboard, mouse and screen, and start and stop ScreenTrail themselves.' 'Wait for it to finish (github.com/hiratinspace/ScreenTrail/actions), then stop.cmd and start.cmd.'
         }
         'idle' {
             Add-Fact 'GitHub Actions runner' 'on, waiting for a job'
