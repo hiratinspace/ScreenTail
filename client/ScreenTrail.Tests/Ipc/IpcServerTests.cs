@@ -685,8 +685,37 @@ public sealed class IpcServerTests : IAsyncDisposable
 
         var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 11, Token = IpcToken.Encode(_token), ClientName = "v11-ui" });
 
-        Assert.Equal(12, IpcContract.Version);
         Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
+    public async Task AVersionTwelveUiIsTurnedAwayByAVersionThirteenService()
+    {
+        // Contract v13 (ST-071, spec v0.7.2) adds origin to start, for the tray's Start capture. A v12
+        // service would refuse a start carrying it as an unknown member, so the pair is refused at the
+        // handshake rather than the tray's start failing with a framing error.
+        await StartServerAsync();
+
+        var reply = await RawHandshakeAsync(new HelloCommand { RequestId = 1, ContractVersion = 12, Token = IpcToken.Encode(_token), ClientName = "v12-ui" });
+
+        Assert.Equal(13, IpcContract.Version);
+        Assert.Equal(RejectReasons.ContractMismatch, Assert.IsType<Rejected>(reply).Reason);
+    }
+
+    [Fact]
+    public async Task TheTraysStartCarriesItsOriginOverThePipeAndTheWizardsCarriesNone()
+    {
+        // The wizard's start is the v12 start, with nothing added on the wire; the tray's names itself.
+        Assert.DoesNotContain("origin", JsonSerializer.Serialize<IpcCommand>(new StartCommand { RequestId = 1 }, IpcFraming.Json), StringComparison.Ordinal);
+        Assert.Contains("\"origin\":\"tray\"", JsonSerializer.Serialize<IpcCommand>(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, IpcFraming.Json), StringComparison.Ordinal);
+
+        await StartServerAsync();
+        await using var client = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.True((await client.SendAsync(id => new StartCommand { RequestId = id, Origin = StartOrigins.Tray }, ct)).Ok);
+
+        Assert.Equal(StartOrigins.Tray, Assert.IsType<StartCommand>(_controller.Received[^1]).Origin);
     }
 
     [Fact]

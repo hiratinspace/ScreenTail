@@ -144,6 +144,7 @@ public sealed class LiveShell : IAsyncDisposable
             Announce(snapshot);
         };
 
+        _tray.StartCapture += () => _ = StartFromTrayAsync();
         _tray.Pause += () => Send(id => new PauseCommand { RequestId = id });
         _tray.Resume += () => Send(id => new ResumeCommand { RequestId = id });
         _tray.Stop += () => Send(id => new StopCommand { RequestId = id });
@@ -467,6 +468,22 @@ public sealed class LiveShell : IAsyncDisposable
 
     private void Send(Func<int, IpcCommand> build) =>
         _ = _connection.SendAsync(build, CancellationToken.None);
+
+    /// <summary>
+    /// The tray's Start capture (Spec §5 S1, as built v0.7.2): the service starts the session in the remote
+    /// tool window most recently in front, and a refusal is said in a balloon, since otherwise the click
+    /// would look like it did nothing. A start that worked is shown by the pill and the icon (INV-4).
+    /// </summary>
+    private async Task StartFromTrayAsync()
+    {
+        var notice = await TrayMenu.StartAsync(
+            () => _connection.SendAsync(id => new StartCommand { RequestId = id, Origin = StartOrigins.Tray }, CancellationToken.None),
+            () => _state.Snapshot.Capture).ConfigureAwait(true);
+        if (notice is not null && !_disposed)
+        {
+            _tray.Notify(notice);
+        }
+    }
 
     /// <summary>
     /// The Review pane for one session, everything over the pipe (ST-085 remainder). Null when the

@@ -4,9 +4,11 @@ using ScreenTrail.Shared.Schema;
 namespace ScreenTrail.Core.Sessions;
 
 /// <summary>
-/// A start sent over the pipe (ST-020). Its only sender is the onboarding wizard's test session (ST-083):
-/// the tray has no start item, and Ctrl+Alt+R is a hotkey the service registers itself and starts through
-/// the coordinator. It keeps the same two rules as the sessions the service starts.
+/// A start sent over the pipe with no origin (ST-020): the onboarding wizard's test session (ST-083).
+/// Ctrl+Alt+R is a hotkey the service registers itself and starts through the coordinator, and the tray's
+/// Start capture (<c>origin: tray</c>, contract v13) goes there too, since only the coordinator knows which
+/// remote tool the technician was in (<see cref="HandStart"/>). It keeps the same two rules as the sessions
+/// the service starts.
 ///
 /// <b>Something on screen says capture is on (INV-4).</b> The same indicator reports the guard and the
 /// automatic start read; with none current nothing starts. A zero-size report, the pill put away between
