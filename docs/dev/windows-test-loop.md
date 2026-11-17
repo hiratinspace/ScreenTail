@@ -155,7 +155,7 @@ When `HW_RUNNER` is not `true` the job does not block. It labels the PR **`needs
 `scripts/windows/e2e/run-e2e.ps1` takes one session through the whole loop, backend included, and prints
 PASS or FAIL per step (`docs/dev/e2e.md`). CI's `End to end (Windows)` job runs it on the hosted VM with
 mark-moment captures, and the laptop's input job runs it with `-InjectClicks`: real hotkeys and clicks.
-Both are report-only for now. It is not a test in the skip gate's TRX, so it changes no budget. On the
+The hosted job is required (one of `ci-ok`'s needs); the laptop's run is still report-only. It is not a test in the skip gate's TRX, so it changes no budget. On the
 laptop it needs `scripts\windows\demo\setup.cmd` to have been run once, and it refuses to run while the
 demo is.
 

@@ -928,15 +928,14 @@ jobs:
   # moment over the pipe; real clicks are the laptop's input job's to inject. Only the text logs are
   # uploaded: the driver checks the stored frames through the service's answers, never by their pixels.
   #
-  # REPORT-ONLY until it has passed twice in a row on main: continue-on-error, and not in ci-ok's needs.
-  # Once it has, remove continue-on-error and add `e2e` to ci-ok's needs in the same pull request.
+  # Required since ST-013's follow-up (2026-11-17): it passed every main run that ran it from 2026-11-10 on,
+  # so it is one of ci-ok's needs and a failure here fails the pull request.
   e2e:
     name: End to end (Windows)
     needs: changes
     if: needs.changes.outputs.client == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.scripts == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -1404,7 +1403,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, installer, installer-sign, installer-signed-check, backend, web, research, schema, design, scripts, commits, workflows, hardware-gate]
+    needs: [changes, client, installer, installer-sign, installer-signed-check, backend, web, research, schema, design, scripts, commits, workflows, e2e, hardware-gate]
     runs-on: ubuntu-latest
     steps:
       - env:

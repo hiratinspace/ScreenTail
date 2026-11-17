@@ -26,7 +26,8 @@ was off). What it found:
   of one core, which is 7.5% of that laptop, not 15%. Speech was about 80% of a narrated session. #334
   cut it, and it still trips the throttle; a fix that does not is built and off until the owner's ST-027
   recording (below).
-- **A quick focus on AnyDesk left an empty 18-second session.** Open.
+- **A quick focus on AnyDesk left an empty 18-second session.** Fixed by #338 (ST-023): a session with
+  nothing in it is discarded when it ends, with a quiet row in History, instead of drafted.
 - The dark theme was hard to read and some screens waste space: #313 (dark layers), with #312
   (Appearance) and #336 (light mode everywhere, compact density; below).
 - Drafted titles carried em dashes because `note_v1` asked for them: fixed by `note_v2` (#314).
@@ -166,8 +167,8 @@ passed (#317's in 43980716975, #334's final head in 44031237988). The nightly ru
 **The loop runs end to end on a Windows VM, unattended** (#230, ST-013). `scripts/windows/e2e/` takes one
 session through to the note on the demo PSA's ticket with a scripted drafting provider (`docs/dev/e2e.md`).
 It passed on every `main` run since 2026-11-10 that ran it (51 of 51; 20 of 20 steps in run 43999003447).
-It is still report-only; making it a required check is owed, and so is a passing laptop run with real
-hotkeys and clicks.
+It is a required check (one of `ci-ok`'s needs) since 2026-11-17; a passing laptop run with real
+hotkeys and clicks is still owed.
 
 **Still true from the last snapshot.** The web admin is built, hardened, and off until a Google OAuth
 client id is set (#245, #246, ADR-0009 Proposed). Invite codes are twenty characters (#248, #260). A
@@ -214,9 +215,8 @@ to date by #272.
 - **9 are Open:** ST-017 (the usability round), ST-030 (golden sessions), ST-110, ST-111 and ST-116 (the
   pilot), and the four v1.1 and v1.2 tickets ST-120 to ST-123.
 
-One Status line lags what merged, and is left for the pull request that next changes that ticket:
-ST-042's still says the two fixes of #269 are not merged (they landed in #275) and does not mention #275
-or #278. ST-031's records M1's figure since #334.
+ST-042's Status line now records #275 and #278 (it said #269's fixes were not merged; they landed in
+#275). ST-031's records M1's figure since #334.
 
 Phases A and B of the ordered plan (backlog Part C) are complete apart from what needs the owner: ST-030
 (golden sessions; a ScreenConnect trial and a second machine) and ST-062's corpus, which is ST-030's.
@@ -234,7 +234,7 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 | Web admin | `web/`, `docs/dev/web-admin.md` | Google sign-in, first-run tenant, Technicians and seats, Policy, **Integrations** (connect, replace, test, disconnect, mappings, recent changes; #327), Download client. **65 unit tests** and **5 browser tests** (CI run 43999003447). Lighthouse accessibility 100 as measured by hand for #245 and #246; not in CI and not rerun since |
 | Shared contracts | `shared/` | The session schema (a click's `x` and `y` optional since #324), the design tokens (v0.6.0 Iris), the brand files (`shared/design/brand/`), the release trust file (each key with its channel, still empty), and the wire contracts (summarize, now with `local_only`; publish; session metric; tenant policy; invite code) |
 | Demo setup | `scripts/windows/demo/`, `docs/dev/demo.md` | Setup, start, stop and the diagnostic report for the whole loop on the laptop. M1 ran on it on 2026-11-13 |
-| Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider. 51 of 51 `main` runs since 2026-11-10 passed (20 of 20 steps in run 43999003447); report-only in CI |
+| Loop harness | `scripts/windows/e2e/`, `docs/dev/e2e.md` | One session through the whole loop with a scripted drafting provider. 51 of 51 `main` runs since 2026-11-10 passed (20 of 20 steps in run 43999003447); a required check since 2026-11-17 |
 | Installer and updates | `installer/`, `docs/dev/installer.md` | The MSI and setup program, smoke-tested unsigned in CI: install, upgrades with a held file, Restart Manager, uninstall, `BACKENDURL` through both, an uninstall naming another folder; **220 of 220 checks** (one note) in CI run 43999003447. The Visual C++ runtime pinned (#277). The signed update channel with one key per channel (#323). Signing and updates stay off until the owner sets them up |
 | Accessibility suite | `client/ScreenTrail.Tests.Windows/Accessibility`, `docs/ux/a11y-audit.md` | Every technician-facing screen, on the hosted runner and the laptop: 43 Accessibility Insights scans in CI run 43999003447. The Narrator pass is the part left for a person |
 | Windows test loop | Hosted Windows VM and the spare laptop `SCREENTRAIL` | The hosted VM runs on every PR that touches the client. The laptop runs only for PRs that touch hardware tests, and nightly on `main` (#298); its jobs stop at once on battery (#304), and the gate waits up to five hours for a queued laptop (#294). Online on 2026-11-16 (`docs/dev/windows-test-loop.md`) |
@@ -554,9 +554,8 @@ chose it says so.
 | When | What | Who |
 |---|---|---|
 | **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
-| Next | **The empty 18-second session** a quick focus on a remote tool leaves | Agent |
 | Then | **The Outbox and Iris leftovers:** the coverage banner (not built), the manual Narrator pass, the tray's "Start capture" when idle, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
-| Small, no owner | Make the loop harness a required check (51 passing `main` runs behind it); refresh the ST-042 Status line; a stop mid-transcription on one thread passing its 500 ms bound (#334) | Agent |
+| Small, no owner | A stop mid-transcription on one thread passing its 500 ms bound (#334) | Agent |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
 | In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |
@@ -567,7 +566,7 @@ What it also showed is that on the demo laptop the capture service spends most o
 taking fewer screenshots and reading fewer of them. Every frame it takes is still redacted, so this is
 not a privacy gap, but it is fewer screenshots in the note, and it is the first thing a pilot technician
 would meet. #334 found the cost (speech) and built the fix; what it waits for now is the owner's ST-027
-recording, so the agent's first item is the empty session. The security run is merged and leaves only
+recording, and the empty session is fixed (#338), so the agent's first items are the Outbox leftovers. The security run is merged and leaves only
 owner steps; the redesign is merged, #317's part through #336. Everything after that needs the owner's
 accounts, a PSA or people.
 
