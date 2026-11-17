@@ -327,18 +327,16 @@ STRIDE threat model with mitigations: signed binaries, authenticated IPC, no deb
   capture service and the UI, and takes one session from the pill's indicator report to the note on demo
   ticket #48213, checking the stored frames are redacted, the PSA received the masked note, the audit rows
   and a clean shutdown, one PASS or FAIL line per step (`docs/dev/e2e.md`). CI's `End to end (Windows)`
-  job is report-only until it has passed twice in a row on main; the laptop's input job runs it with real
-  hotkeys and clicks, report-only too. Its first runs found three product bugs, fixed with regression tests:
+  job is a required check (one of `ci-ok`'s needs) since 2026-11-17; the laptop's input job runs it with
+  real hotkeys and clicks, still report-only. Its first runs found three product bugs, fixed with regression tests:
   a queued draft reported as failed and never reaching draft_ready, the "Draft ready" notification's
   missing title, and `SCREENTRAIL_LOG_LEVEL` having no effect on the service. **Still owed:** the golden
   replay with its event-count and redaction-count criteria (needs ST-030's sessions), CPU, RAM and disk per
   run, and the nightly schedule with a team-channel notification. Also owed: a passing laptop run with real
-  hotkeys and clicks (its first stopped at setup because a ScreenTrail UI was already running), and making
-  the CI job a required check. On `main` that job failed once, at `20d2471` (run 42524521759, 2026-11-08), at `loop-13 frame-text`: a
+  hotkeys and clicks (its first stopped at setup because a ScreenTrail UI was already running). On `main`
+  the CI job failed once, at `20d2471` (run 42524521759, 2026-11-08), at `loop-13 frame-text`: a
   real leak in on-screen redaction, which the harness had caught now and then and #268 fixed (ST-042). It
-  has passed on the four runs since, up to 42717653493 on 2026-11-09, the last of them with the fix, so
-  the condition `ci.yml` names for making it required (two passes in a row on `main`) is met again; the
-  workflow change is owed.
+  has passed on every `main` run that ran it since, and on 2026-11-17 it was made required.
 
 **Description:**
 Windows 11 VM job installing the built client, replaying golden sessions through the real service and asserting bundle contents, redaction results and performance budgets. Nightly and on release branches.
@@ -850,7 +848,7 @@ Background worker pulls `redaction_pending` frames, runs OCR (Tesseract .NET) fo
 - **Epic/Feature:** PRIVACY
 - **Priority:** Urgent
 - **Estimate:** 5
-- **Status:** Partial. Engine and unit tests merged 2026-09-12. The ≥ 98% recall / ≤ 2% false-positive gate needs ST-030's labelled frames and closes in Phase C (Part D, D-1). **2026-11-09 (#268), a real leak found by the loop harness (ST-013) and fixed:** Windows OCR sometimes reads one on-screen token as several words, and only the words a match touched were masked, so a piece of a password stayed in the stored text and unpainted in the stored frame (INV-1). A match now takes every word on its row that is closer than a space (`OcrPage`; `RedactionEngine.TokenGap`, 0.35 of the row's height), and a match with a password cue masks every row it touches, the cue included, keeping only the words wholly left of the cue (the owner's decision, 2026-11-09). `OcrSplitSecretTests` (Windows tests) renders 1,000 secrets at each of four sizes on every run and requires none left showing in the text or the frame. Not covered: a secret that wraps across lines, and a mirrored layout with the value before a Latin label (`docs/security/data-flow.md`); the gap was measured in Segoe UI at 96 DPI only. A row of zero-height boxes and a very tall box beside a row are fixed in the draft #269, not merged.
+- **Status:** Partial. Engine and unit tests merged 2026-09-12. The ≥ 98% recall / ≤ 2% false-positive gate needs ST-030's labelled frames and closes in Phase C (Part D, D-1). **2026-11-09 (#268), a real leak found by the loop harness (ST-013) and fixed:** Windows OCR sometimes reads one on-screen token as several words, and only the words a match touched were masked, so a piece of a password stayed in the stored text and unpainted in the stored frame (INV-1). A match now takes every word on its row that is closer than a space (`OcrPage`; `RedactionEngine.TokenGap`, 0.35 of the row's height), and a match with a password cue masks every row it touches, the cue included, keeping only the words wholly left of the cue (the owner's decision, 2026-11-09). `OcrSplitSecretTests` (Windows tests) renders 1,000 secrets at each of four sizes on every run and requires none left showing in the text or the frame. **2026-11-11 (#275):** a secret that wraps onto the next row is masked on both, the rules are held at 125% and 150% display scaling and through a scaled, lossy viewer, and #269's two fixes (a row of zero-height boxes, a very tall box beside a row) landed here; #269 was closed. **2026-11-11 (#278):** recall was measured stage by stage and almost all of the loss was OCR not reading the text, not the rules. Frames are now read at up to twice their size within a pixel budget, with rules for misread key prefixes, random-looking runs and "pass" without its colon. On the hosted runner's synthetic pages, secrets masked whole went from 73.3% to 97.2% at display scales (1,166 of 1,200) and from 52.1% to 82.9% through the viewer (1,990 of 2,400), with floors held in CI; a dense full HD frame takes 725 ms at 1x and 1,465 ms at 2x on the laptop. Still not covered: a run with no cue and one class of character (hex, base32, capitals with digits), a mirrored layout with the value before a Latin label, and a split between a quarter and 0.35 of a row's height at 125% (`docs/security/data-flow.md`). The corpus gate still needs ST-030.
 
 **Description:**
 Pattern library (SSN, Luhn cards, API keys, password pairs, optional emails) masks matching boxes in stored frames and scrubs OCR/transcript text; tenant-custom regex.

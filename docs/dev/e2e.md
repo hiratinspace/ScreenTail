@@ -57,8 +57,9 @@ it starts the image's own PostgreSQL service (disabled by default; its credentia
 away after. It uploads only `*.log` and `*.txt` from the run, copied into a clean folder by name, as the
 laptop's jobs do; there is no image in the run's output to upload.
 
-**It is report-only for now**: `continue-on-error`, and not one of `ci-ok`'s needs. Once it has passed
-twice in a row on `main`, remove `continue-on-error` and add `e2e` to `ci-ok`'s needs in one pull request.
+**It is a required check**: one of `ci-ok`'s needs since 2026-11-17, after it had passed every `main` run
+that ran it from 2026-11-10 on. A pull request that touches the client, the backend or the scripts fails
+when the loop does.
 
 The hosted VM has a desktop but no input injection, so there the session is started and stopped over the
 pipe (the onboarding wizard's test session sends the same start) and its frames come from **mark
