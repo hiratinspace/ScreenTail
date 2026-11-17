@@ -63,7 +63,7 @@ public sealed class DeviceSession(HttpClient http, IDeviceCredentials credential
     public const string NotAnswered = "The backend did not answer, so this device could not sign in. Try again in a moment.";
 
     /// <summary>What the device card says, and a sign-in the backend refused, once access was revoked.</summary>
-    public const string RevokedStanding = "This device's access was revoked. Ask your admin for a new invite.";
+    public const string RevokedStanding = "This device's access was revoked. Ask your ScreenTrail owner for a new invite.";
 
     private readonly HttpClient _http = http ?? throw new ArgumentNullException(nameof(http));
     private readonly IDeviceCredentials _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));

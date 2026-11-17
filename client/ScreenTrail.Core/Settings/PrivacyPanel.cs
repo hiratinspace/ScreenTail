@@ -100,7 +100,11 @@ public sealed class PrivacyPanel(IPrivacyGateway gateway)
 
     public string PolicyVersion { get; private set; } = "default";
 
-    public string LockedBecause => $"Set by your admin (policy {PolicyVersion})";
+    /// <summary>Under a locked field (Spec v0.7.1): who set it, without the policy's id.</summary>
+    public string LockedBecause { get; } = PolicyLock.Line;
+
+    /// <summary>The locked line's tool tip, with the policy's id for support.</summary>
+    public string LockedDetail => PolicyLock.Detail(PolicyVersion);
 
     public bool Telemetry { get; set; }
 

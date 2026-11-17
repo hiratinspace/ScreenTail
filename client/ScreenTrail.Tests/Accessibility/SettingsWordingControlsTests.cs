@@ -33,10 +33,28 @@ public sealed class SettingsWordingControlsTests
         var box = Assert.Single(capture.Descendants(Wpf + "ComboBox"), c => (string?)c.Attribute("AutomationProperties.Name") == "Speech model");
         Assert.Equal("{Binding Models}", (string?)box.Attribute("ItemsSource"));
         Assert.Equal("{Binding SelectedModel}", (string?)box.Attribute("SelectedItem"));
-        Assert.Contains(box.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding Label}");
-        Assert.Contains(box.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding Hint}");
-        Assert.Contains(box.Descendants(Wpf + "Binding"), b => (string?)b.Attribute("Path") == "Label");
+
+        // Spec v0.7.1: the closed box shows only the choice's plain name, as the sensitivity's does; what
+        // the chosen line is goes in the helper line under it, and the items read out their name.
+        Assert.Equal("Label", (string?)box.Attribute("DisplayMemberPath"));
+        Assert.Empty(box.Descendants(Wpf + "TextBlock"));
+        Assert.Contains(box.Descendants(Wpf + "Setter"), s => (string?)s.Attribute("Property") == "AutomationProperties.Name" && (string?)s.Attribute("Value") == "{Binding Label}");
         Assert.DoesNotContain(box.Descendants(Wpf + "Binding"), b => (string?)b.Attribute("Path") == "Name");
+        Assert.Contains(capture.Descendants(Wpf + "TextBlock"), t => (string?)t.Attribute("Text") == "{Binding ModelHint}");
+    }
+
+    [Fact]
+    public void AnIntegrationCardWhoseLastCheckFailedShowsTheWarningBadgeNotConnected()
+    {
+        // Spec v0.7.1: Hudu showed a green Connected badge over a failed check. The card has two badges,
+        // each shown only in its own state, and the failed one is the warning tint.
+        var card = CardTemplate();
+        var badges = card.Descendants(Wpf + "ContentControl").ToList();
+
+        Assert.Contains(badges, b => (string?)b.Attribute("Content") == "Connected" && (string?)b.Attribute("Visibility") == "{Binding ConnectedBadgeVisibility}");
+        Assert.Contains(badges, b => (string?)b.Attribute("Content") == "Check failed"
+            && (string?)b.Attribute("Style") == "{StaticResource Badge.Unconfirmed}"
+            && (string?)b.Attribute("Visibility") == "{Binding CheckFailedBadgeVisibility}");
     }
 
     [Fact]
