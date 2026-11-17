@@ -8,6 +8,7 @@ using ScreenTrail.Core.Privacy;
 using ScreenTrail.Core.Sessions;
 using ScreenTrail.Core.Store;
 using ScreenTrail.Service.Detection;
+using ScreenTrail.Shared.Ipc;
 using ScreenTrail.Shared.Schema;
 
 namespace ScreenTrail.Tests.Windows.Detection;
@@ -151,6 +152,159 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
 
         Assert.False(await coordinator.StartFromForegroundAsync(ct));
         Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    // ---- the tray's Start capture (ST-071, spec v0.7.2, contract v13) -------------------------------
+
+    [Fact]
+    public async Task TheTraysStartBeginsInTheRemoteToolLastInFrontNotInTheMenu()
+    {
+        // Auto-start off, so the tool in front starts nothing. The technician opens the tray: the taskbar
+        // and then ScreenTrail's own window take the front. Start capture starts the session the chord
+        // would have started in the tool, attributed to it, not to "other" for the menu.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 555, process: "explorer", title: string.Empty) with { ClassName = "Shell_TrayWnd" }, ct);
+        await coordinator.HandleAsync(Window(handle: 666, process: "ScreenTrail.UI", title: string.Empty), ct);
+        Assert.Equal(SessionState.Idle, _machine!.State);
+
+        var result = await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 9, Origin = StartOrigins.Tray }, ct);
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(9, result.RequestId);
+        Assert.Equal(SessionState.Recording, _machine.State);
+        Assert.Equal("rdp", _machine.Snapshot.RemoteTool);
+        Assert.True(_trigger!.SessionRunning);
+        Assert.Equal("rdp", _trigger.RunningToolId);
+    }
+
+    [Fact]
+    public async Task WithNoRemoteToolInFrontRecentlyTheTraysStartStartsNothingAndSaysWhatToDo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct);
+
+        await coordinator.HandleAsync(Window(handle: 333, process: "outlook", title: "Inbox"), ct);
+        var result = await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct);
+
+        Assert.False(result.Ok);
+        Assert.Equal(HandStart.NoRemoteSession, result.Error);
+        Assert.Equal(SessionState.Idle, _machine!.State);
+        Assert.Null(_machine.SessionId);
+        Assert.False(_trigger!.SessionRunning);
+    }
+
+    [Fact]
+    public async Task ARemoteToolLeftLongerAgoThanTheWindowIsNotStartedIn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTime(At);
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false, time: clock);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 333, process: "outlook", title: "Inbox"), ct);
+        await TickForAsync(coordinator, clock, RecentRemoteTool.DefaultWithin + TimeSpan.FromSeconds(5), ct);
+
+        var result = await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct);
+
+        Assert.Equal(HandStart.NoRemoteSession, result.Error);
+        Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    [Fact]
+    public async Task AClosedRemoteToolWindowIsNotStartedIn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false, exists: handle => handle != 111);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 666, process: "ScreenTrail.UI", title: string.Empty), ct);
+
+        Assert.Equal(HandStart.NoRemoteSession, (await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct)).Error);
+        Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    [Fact]
+    public async Task AToolSwitchedOffSinceItWasInFrontIsNotStartedIn()
+    {
+        // INV-11, INV-5: the policy in force at the click decides.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 666, process: "ScreenTrail.UI", title: string.Empty), ct);
+        _policy!.Apply(new ScopeOptions { DisabledTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "rdp" } });
+
+        Assert.Equal(HandStart.NoRemoteSession, (await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct)).Error);
+        Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    [Fact]
+    public async Task TheTraysStartIsHeldWhileAnUpdateIsBeingInstalled()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false);
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        using var hold = await _machine!.HoldStartsAsync(ct);
+
+        var result = await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct);
+
+        Assert.Equal(ManualStart.Updating, result.Error);
+        Assert.Equal(SessionState.Idle, _machine.State);
+    }
+
+    [Fact]
+    public async Task TheTraysStartIsRefusedWhileNothingShowsThatCaptureIsOn()
+    {
+        // INV-4: the same gate as the chord and the automatic start.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, indicated: () => false);
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+
+        var result = await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct);
+
+        Assert.Equal(HandStart.NotIndicated, result.Error);
+        Assert.Equal(SessionState.Idle, _machine!.State);
+    }
+
+    [Fact]
+    public async Task ASessionTheTrayStartedIsKeptWhileItsToolIsInFrontAndEndsOnceItIsLeftForTheGrace()
+    {
+        // As if the chord had been pressed in the tool: the menu in front at the start does not run the
+        // grace out while the technician goes back to work in the tool, and leaving the tool does.
+        var ct = TestContext.Current.CancellationToken;
+        var clock = new ManualTime(At);
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false, time: clock);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 666, process: "ScreenTrail.UI", title: string.Empty), ct);
+        Assert.True((await coordinator.StartFromTrayAsync(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, ct)).Ok);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(300), ct);
+        Assert.Equal(SessionState.Recording, _machine!.State);
+
+        await coordinator.HandleAsync(Window(handle: 444, process: "notepad", title: "Untitled"), ct);
+        await TickForAsync(coordinator, clock, TimeSpan.FromSeconds(95), ct);
+
+        Assert.NotEqual(SessionState.Recording, _machine.State);
+        Assert.False(_trigger!.SessionRunning);
+    }
+
+    [Fact]
+    public async Task TheChordStillStartsInTheWindowInFront()
+    {
+        // The control: the chord's start is unchanged by the tray's, attributing to what is in front.
+        var ct = TestContext.Current.CancellationToken;
+        var coordinator = await CoordinatorAsync(ct, autoStart: () => false);
+
+        await coordinator.HandleAsync(Window(handle: 111), ct);
+        await coordinator.HandleAsync(Window(handle: 333, process: "outlook", title: "Inbox"), ct);
+
+        Assert.True(await coordinator.StartFromForegroundAsync(ct));
+        Assert.Equal("other", _machine!.Snapshot.RemoteTool);
     }
 
     // ---- an update being installed (ST-113) ---------------------------------------------------------
@@ -580,7 +734,8 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
         TimeProvider? time = null,
         ScopeOptions? options = null,
         Func<ForegroundWindowInfo?>? latest = null,
-        TimeProvider? machineTime = null)
+        TimeProvider? machineTime = null,
+        Func<nint, bool>? exists = null)
     {
         _store = await SqliteSessionStore.OpenAsync(_path, new FixedKey(RandomNumberGenerator.GetBytes(32)), ct: ct);
         _machine = new SessionMachine(_store, new NoCaptureSources(), new UnavailableDrafter(), time: machineTime);
@@ -596,7 +751,8 @@ public sealed class AutoSessionScopeTests : IAsyncDisposable
             clipboard,
             autoStart: autoStart,
             time: time,
-            latest: latest);
+            latest: latest,
+            exists: exists);
     }
 
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"st-scope-{Guid.NewGuid():N}.db");

@@ -5,7 +5,7 @@ namespace ScreenTrail.UI.Controls;
 
 /// <summary>
 /// Spec §3 Toggle. <see cref="IsLocked"/> is the admin-enforced variant (INV-11): shown with a lock,
-/// tooltip "Set by your admin", and not toggleable. Template in Theme/Components.xaml.
+/// tooltip "Set by your ScreenTrail owner", and not toggleable. Template in Theme/Components.xaml.
 /// </summary>
 public sealed class ToggleSwitch : ToggleButton
 {
@@ -38,7 +38,7 @@ public sealed class ToggleSwitch : ToggleButton
     {
         if (d is ToggleSwitch toggle && (bool)e.NewValue)
         {
-            toggle.ToolTip ??= "Set by your admin";
+            toggle.ToolTip ??= Core.Settings.PolicyLock.Line;
         }
     }
 }

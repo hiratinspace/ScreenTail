@@ -63,12 +63,16 @@ namespace ScreenTrail.Shared.Ipc;
 /// says an installed copy has no machine-wide backend address and that an administrator sets it. A new
 /// member on a reply both sides exchange, which a v11 UI would fail on, so the version moves.
 ///
+/// 13: ST-071, Spec v0.7.2 §5 S1, the tray's Start capture. <c>start</c> gains <c>origin</c>, optional:
+/// absent is the onboarding wizard's test session as before, <c>tray</c> starts the session as Ctrl+Alt+R
+/// would have in the remote tool window most recently in front. A new field on a command both sides
+/// exchange, which a v12 service would refuse as an unknown member, so the version moves.
+///
 /// 14: ST-079, the coverage banner on All sessions (spec v0.7.3 S4). <c>get_coverage</c> asks for the
 /// sessions captured and the remote sessions seen and not captured, by tool, from a time on, and the
 /// <c>coverage</c> reply carries them. New messages, which on their own have not moved the version; it
 /// moves because the banner's numbers depend on the service answering, and a UI paired with a service
 /// that cannot would lose the banner without a word. The handshake turns such a pair away instead.
-/// (13 is ST-071's tray Start capture, #345.)
 /// </summary>
 public static class IpcContract
 {

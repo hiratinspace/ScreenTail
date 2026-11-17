@@ -149,12 +149,20 @@ public sealed class IntegrationCard
     /// <summary>A card with nothing connected: who connects it, and where.</summary>
     public const string OwnerConnects = "Not connected. Your ScreenTrail owner connects it in the web admin.";
 
-    private readonly IIntegrationsGateway _gateway;
+    /// <summary>The badge of a connected card whose credential checks out, or has not been checked yet.</summary>
+    public const string ConnectedBadge = "Connected";
 
-    internal IntegrationCard(string provider, IIntegrationsGateway gateway)
+    /// <summary>The badge of a connected card whose last check failed: the reason is under Test connection.</summary>
+    public const string CheckFailedBadge = "Check failed";
+
+    private readonly IIntegrationsGateway _gateway;
+    private readonly TimeProvider _clock;
+
+    internal IntegrationCard(string provider, IIntegrationsGateway gateway, TimeProvider clock)
     {
         Provider = provider;
         _gateway = gateway;
+        _clock = clock;
     }
 
     public string Provider { get; }
@@ -185,11 +193,26 @@ public sealed class IntegrationCard
     /// <summary>Test connection checks what the backend holds, so there is something to check only once connected.</summary>
     public bool CanCheck => Connected && !Busy;
 
-    public string Status => Connected
-        ? LastError is null
-            ? LastCheckedAt is { } at ? $"Connected · checked {at.ToLocalTime():HH:mm}" : "Connected"
-            : "Connected · the last check failed"
-        : "Not connected";
+    /// <summary>
+    /// The last check failed: the badge says so (<see cref="CheckFailedBadge"/>) in place of Connected, so
+    /// the card never shows a green Connected over a credential that did not work (Spec v0.7.1).
+    /// </summary>
+    public bool CheckFailed => Connected && LastError is not null;
+
+    /// <summary>The badge beside the title: "Connected", "Check failed", or none with nothing connected.</summary>
+    public string? Badge => Connected ? CheckFailed ? CheckFailedBadge : ConnectedBadge : null;
+
+    /// <summary>
+    /// The line under the title. The badge already says connected or failed, so the line says only when it
+    /// was last checked ("Last checked 08:30"), or "Not checked yet"; with nothing connected the owner line
+    /// says it all and this one is not shown. A failed check with no time leaves it empty: the badge and the
+    /// reason under Test connection say it.
+    /// </summary>
+    public string Status => !Connected
+        ? "Not connected"
+        : LastCheckedAt is { } at
+            ? $"Last checked {at.ToLocalTime():HH:mm}"
+            : CheckFailed ? string.Empty : "Not checked yet";
 
     /// <summary>Who changes the connection, and where: the tenant owner, in the web admin.</summary>
     public string OwnerLine => Connected ? OwnerManages : OwnerConnects;
@@ -218,6 +241,9 @@ public sealed class IntegrationCard
             CheckOk = outcome.Ok;
             CheckResult = IntegrationNames.OnThisPage(outcome.Message);
             LastError = outcome.Ok ? null : CheckResult;
+
+            // Checked just now, either way: "Last checked" must not keep the time of an older check.
+            LastCheckedAt = _clock.GetUtcNow();
             return outcome;
         }
         finally
@@ -238,11 +264,13 @@ public sealed class IntegrationsPanel
 {
     private readonly IIntegrationsGateway _gateway;
 
-    public IntegrationsPanel(IIntegrationsGateway gateway)
+    /// <param name="clock">When a Test connection ran, for the card's "Last checked"; the system clock unless a test sets one.</param>
+    public IntegrationsPanel(IIntegrationsGateway gateway, TimeProvider? clock = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
-        ConnectWise = new IntegrationCard(IntegrationCard.ConnectWiseProvider, gateway);
-        Hudu = new IntegrationCard(IntegrationCard.HuduProvider, gateway);
+        clock ??= TimeProvider.System;
+        ConnectWise = new IntegrationCard(IntegrationCard.ConnectWiseProvider, gateway, clock);
+        Hudu = new IntegrationCard(IntegrationCard.HuduProvider, gateway, clock);
     }
 
     public IntegrationCard ConnectWise { get; }

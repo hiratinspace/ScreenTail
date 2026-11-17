@@ -1,6 +1,7 @@
 using System.Globalization;
 using ScreenTrail.Core.Hud;
 using ScreenTrail.Core.Input;
+using ScreenTrail.Core.Notifications;
 using ScreenTrail.Shared.Ipc;
 
 namespace ScreenTrail.Core.Shell;
@@ -8,8 +9,14 @@ namespace ScreenTrail.Core.Shell;
 /// <summary>What a row of the tray's quick menu does when it is chosen. Each is something the shell already does.</summary>
 public enum TrayCommand
 {
-    /// <summary>Not a command: the state line, the start hint and the separators.</summary>
+    /// <summary>Not a command: the state line and the separators.</summary>
     None,
+
+    /// <summary>
+    /// <c>start</c> with <c>origin: tray</c> (contract v13): a session in the remote tool window most recently
+    /// in front, as Ctrl+Alt+R would have started it there (Spec §5 S1, as built v0.7.2).
+    /// </summary>
+    Start,
 
     /// <summary><c>pause</c>, the same as the pill's Pause and Ctrl+Alt+P.</summary>
     Pause,
@@ -91,11 +98,14 @@ public sealed record TrayRow(TrayRowKind Kind, TrayCommand Command, string Text,
 public static class TrayMenu
 {
     /// <summary>
-    /// Between sessions the spec's "Start capture Ctrl+Alt+R" is this line. The UI has no command that
-    /// starts a session the way the hotkey does (the service reads what is in front and attributes the
-    /// session to its tool), so the menu says how to start rather than offering a button that cannot.
+    /// Between sessions the first block is the spec's "Start capture Ctrl+Alt+R" (v0.7.2). The service starts
+    /// it in the remote tool window most recently in front, since the menu itself is in front as it is
+    /// chosen, and the shell says why in a balloon when it starts nothing.
     /// </summary>
-    public static readonly string StartHint = $"Start capture: press {Chord(HotkeyAction.StartCapture)} in the remote session";
+    public const string StartText = "&Start capture";
+
+    /// <summary>The chord shown beside Start capture, as the other rows show theirs: the default binding.</summary>
+    public static readonly string StartHotkey = Chord(HotkeyAction.StartCapture);
 
     public const string DiscardText = "&Discard session…";
 
@@ -135,12 +145,14 @@ public static class TrayMenu
 
         // The first block. While a session is under way, or the UI does not know whether one is: Pause or
         // Resume, Stop and draft, Discard, each enabled only where the service accepts it now (the pill's
-        // own rule). Between sessions it is the start line, with Discard while there is a session to
-        // discard (a draft finishing, ready or failed).
+        // own rule). Between sessions it is Start capture, which the service accepts from every resting
+        // state as the hotkey's start does, with Discard while there is a session to discard (a draft
+        // finishing, ready or failed). Resting is known only from a connected service, so Start capture
+        // is never offered into a dropped pipe.
         var resting = capture?.State is CaptureStates.Idle or CaptureStates.DraftPending or CaptureStates.DraftReady or CaptureStates.DraftFailed;
         if (resting)
         {
-            rows.Add(TrayRow.Line(TrayRowKind.Hint, StartHint));
+            rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Start, StartText, StartHotkey, Enabled: true));
             if (capture!.State != CaptureStates.Idle)
             {
                 rows.Add(new TrayRow(TrayRowKind.Item, TrayCommand.Discard, DiscardText, null, Enabled: true));
@@ -212,6 +224,32 @@ public static class TrayMenu
         }
 
         await ask().ConfigureAwait(true);
+    }
+
+    /// <summary>What the balloon says when the service gives no reason of its own for starting nothing.</summary>
+    public const string StartRefused = "Nothing was started. Open the remote session, then choose Start capture or press Ctrl+Alt+R.";
+
+    /// <summary>
+    /// The tray's Start capture: sends the tray's <c>start</c> and says, in a balloon, why nothing started
+    /// when the service refused (Spec §5 S1, as built v0.7.2). A start that worked says nothing here: the
+    /// pill and the icon say it (INV-4). Nor does a refusal once a session is under way after all (a start
+    /// from elsewhere won the race), because nothing interrupts a recording (Spec §4); the pill says that too.
+    /// </summary>
+    /// <param name="send">Sends <c>start</c> with <c>origin: tray</c> and returns the service's answer.</param>
+    /// <param name="captureNow">What capture is doing once the answer is in.</param>
+    /// <returns>The balloon to show, or null for none.</returns>
+    public static async Task<Notification?> StartAsync(Func<Task<CommandResult>> send, Func<CaptureStateSnapshot?> captureNow)
+    {
+        ArgumentNullException.ThrowIfNull(send);
+        ArgumentNullException.ThrowIfNull(captureNow);
+        var result = await send().ConfigureAwait(true);
+        if (result.Ok || captureNow() is { State: CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed or CaptureStates.Finalizing })
+        {
+            return null;
+        }
+
+        var words = string.IsNullOrWhiteSpace(result.Error) ? StartRefused : result.Error;
+        return new Notification(words, NotificationAction.None, $"tray-start-refused:{words}");
     }
 
     /// <summary>The reason a row cannot be chosen while the service is not answering (the state line says "Capture service not running").</summary>

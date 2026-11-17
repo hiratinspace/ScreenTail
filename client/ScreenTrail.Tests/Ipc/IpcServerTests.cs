@@ -730,6 +730,22 @@ public sealed class IpcServerTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task TheTraysStartCarriesItsOriginOverThePipeAndTheWizardsCarriesNone()
+    {
+        // The wizard's start is the v12 start, with nothing added on the wire; the tray's names itself.
+        Assert.DoesNotContain("origin", JsonSerializer.Serialize<IpcCommand>(new StartCommand { RequestId = 1 }, IpcFraming.Json), StringComparison.Ordinal);
+        Assert.Contains("\"origin\":\"tray\"", JsonSerializer.Serialize<IpcCommand>(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray }, IpcFraming.Json), StringComparison.Ordinal);
+
+        await StartServerAsync();
+        await using var client = await ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+
+        Assert.True((await client.SendAsync(id => new StartCommand { RequestId = id, Origin = StartOrigins.Tray }, ct)).Ok);
+
+        Assert.Equal(StartOrigins.Tray, Assert.IsType<StartCommand>(_controller.Received[^1]).Origin);
+    }
+
+    [Fact]
     public async Task TheNameHookRefusalCountTravelsFromTheWatcherToThePanel()
     {
         // ST-031. The count the foreground watcher keeps when Windows refuses its narrow title hook, through

@@ -76,7 +76,25 @@ public sealed record HelloCommand : IpcCommand
     public string? ClientVersion { get; init; }
 }
 
-public sealed record StartCommand : IpcCommand;
+/// <summary>
+/// Start a session now. With no <see cref="Origin"/> it is the onboarding wizard's test session, attributed
+/// to <c>other</c>. With <see cref="StartOrigins.Tray"/> (contract v13) it is the tray's Start capture: the
+/// service starts it as Ctrl+Alt+R would have in the remote tool window most recently in front, or refuses
+/// with a sentence saying what to do.
+/// </summary>
+public sealed record StartCommand : IpcCommand
+{
+    [JsonPropertyName("origin")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Origin { get; init; }
+}
+
+/// <summary>Who sent a <see cref="StartCommand"/>. Absent is the onboarding wizard's test session.</summary>
+public static class StartOrigins
+{
+    /// <summary>The tray's "Start capture" (Spec §5 S1, as built v0.7.2).</summary>
+    public const string Tray = "tray";
+}
 
 public sealed record PauseCommand : IpcCommand;
 

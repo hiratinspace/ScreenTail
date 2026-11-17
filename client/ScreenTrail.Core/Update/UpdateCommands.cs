@@ -14,7 +14,7 @@ public sealed class UpdateCommands(
     Func<bool> sessionBusy,
     Action channelChanged)
 {
-    public const string ChannelLockedRefusal = "Your administrator chose the update channel, so it cannot be changed here.";
+    public const string ChannelLockedRefusal = "Your ScreenTrail owner chose the update channel, so it cannot be changed here.";
 
     private readonly UpdateService _updates = updates ?? throw new ArgumentNullException(nameof(updates));
     private readonly UpdateInstaller _installer = installer ?? throw new ArgumentNullException(nameof(installer));

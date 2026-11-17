@@ -56,8 +56,8 @@ waits for the owner's ST-027 recording. A stop in the middle of a transcription 
 memory test now waits for that (#339, #340). whisper.cpp cannot be stopped inside an encoder pass, so a
 stop during one lets go only when the pass ends (about 4.7 s on one thread; `docs/dev/performance.md`).
 
-**Pull `main` before the next run on the laptop.** The pipe contract is version 12 (v10 for "Not
-confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note), and the service and the UI
+**Pull `main` before the next run on the laptop.** The pipe contract is version 14 (v10 for "Not
+confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note, v13 for the tray's Start capture, v14 for the coverage banner), and the service and the UI
 must match it exactly. The demo scripts are unaffected by #326's machine-wide backend address: they run a
 development build from the clone, which still reads `SCREENTRAIL_BACKEND`.
 
@@ -228,7 +228,7 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 |---|---|---|
 | GitHub repo (**public**) | https://github.com/hiratinspace/ScreenTrail | `main` green at #334 (`480d53f9`, CI run 44116130950); no pull request open on 2026-11-17. Secret scanning, push protection and Dependabot security updates on; no Dependabot alert open |
 | Build plan | `Build Plan/` | Spec at **v0.7.0** on `main` (#336). v0.4.3 is accepted, and v0.6.0's brand and layout are the owner's choice; the amendment rows from v0.5.0 on mostly say **Awaiting owner review**. Backlog Part C is the ordered plan, Part D the amendments |
-| Client | `client/` | `.Shared` (schema and IPC, contract version 12), `.Core`, `.Platform` (ADR-0005), `.Service`, `.UI`, and `.Tests.AxeRunner`. **4,375 tests** in the suite that runs anywhere and **592** in the Windows-only suite (CI run 44116130950 on `480d53f9`; ten of the 592 skipped on the hosted runner by design, which is the skip budget). Store migrations to 0015 |
+| Client | `client/` | `.Shared` (schema and IPC, contract version 13), `.Core`, `.Platform` (ADR-0005), `.Service`, `.UI`, and `.Tests.AxeRunner`. **4,375 tests** in the suite that runs anywhere and **592** in the Windows-only suite (CI run 44116130950 on `480d53f9`; ten of the 592 skipped on the hosted runner by design, which is the skip budget). Store migrations to 0015 |
 | Backend | `backend/` | ASP.NET Core API: tenants, devices, device tokens, invites, policy, summarize (which now refuses a tenant that locks local-only) and publish (bounded and gated per device and tenant), the Gemini and Claude providers, the cost ledger, the credential vault (rows bound to tenant, provider and site), ConnectWise and Hudu clients with the PSA company lookup, the demo PSA, the web admin's routes including the owner's integrations and their change record. **1,596 tests** (two skipped; CI run 44026084042 on `a862b128`, the last `main` run that ran the backend job). Runs locally on PostgreSQL; not deployed (ST-007) |
 | Deployment | `deploy/`, `docs/dev/deploy.md` | Docker Compose for one Linux host: Caddy with automatic HTTPS, the API (memory ceiling `SCREENTRAIL_API_MEMORY`, 2 GB by default), PostgreSQL and the web admin from one origin. Checked by `deploy/smoke.sh` in CI's Backend job; no host or name yet |
 | Research | `research/` | Fixtures, note prompts v1 (kept) and **v2** (current) with their hardening cases, the shared validator rules, the WER script and the draft-quality harness. **255 tests** (CI run 43930259036 on `3626322f`, #328, the last change to `research/`) |
@@ -333,8 +333,8 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - Design tokens generate WPF dictionaries and web CSS from one source (v0.6.0, Iris), and the gallery
   and every screen render in CI in dark, light, Night sky and Desert.
 
-**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007); mail for invites;
-"Start capture" from the tray when idle (an IPC change, #306). **Built and switched off until the owner
+**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007); and mail for invites.
+**Built and switched off until the owner
 sets them up:** the installer's signature (ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner
 sign-in to the web admin (ST-099, ADR-0009).
 
@@ -423,7 +423,7 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
       processor budget, and word error is so far unchanged on synthetic speech only. Only if it fails on
       real speech, decide whether speech should count against the screenshot budget.
 - [ ] **Check the light window on the laptop** (#336): the rail, Settings and the title bar buttons.
-- [ ] **Pull `main` on the demo laptop before the next run** (contract v12), then
+- [ ] **Pull `main` on the demo laptop before the next run** (contract v14), then
       `scripts\windows\demo\start.cmd` from a plain PowerShell window.
 - [ ] **Review the spec amendments marked "Awaiting owner review"** (v0.5.0 to v0.7.0 in
       `Build Plan/01-UX-Design-Spec.md` §9), and the Appearance default (§5, decisions below).
@@ -486,8 +486,8 @@ chose it says so.
   error; with it on, a narrated session stays inside the processor budget.
 - **Appearance's default** (#312): it now follows Windows' app mode, where the project scope said dark
   by default. A one-line change if dark should stay the default.
-- **The tray** (#306, spec v0.6.10): "Start capture" when idle (needs a start that reads the tool in
-  front, an IPC change), a glyph for "service stopped" and a numbered draft badge (brand artwork).
+- **The tray** (#306, spec v0.6.10, v0.7.2): "Start capture" when idle starts in the remote tool window last
+  in front, or says to open the remote session first (v0.7.2, to check on the laptop); a glyph for "service stopped" and a numbered draft badge (brand artwork).
 - **The redesign's choices** recorded under "As built" in the spec, v0.6.1 to v0.6.15, all chosen by the
   friendliest-option rule and awaiting review. Two to note: the rail's rows carry the note's title and
   ticket (contract v11), and the pipe refuses any mixed UI and service versions.
@@ -559,7 +559,7 @@ chose it says so.
 | When | What | Who |
 |---|---|---|
 | **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
-| Then | **The Outbox and Iris leftovers:** the owner's review of the coverage banner (built in spec v0.7.3), the manual Narrator pass, the tray's "Start capture" when idle, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
+| Then | **The Outbox and Iris leftovers:** the owner's review of the coverage banner (built in spec v0.7.3) and the manual Narrator pass (the Settings copy pass is #344) | Agent, with the owner's decisions |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
 | In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |

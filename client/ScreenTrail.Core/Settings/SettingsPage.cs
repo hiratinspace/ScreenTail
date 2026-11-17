@@ -349,7 +349,7 @@ public sealed class UpdatesSection(UpdatesPanel panel) : ISettingsSection
             return null;
         }
 
-        return _panel.Problem ?? (_panel.ChannelLocked ? UpdatesPanel.LockedNote + "." : "The capture service did not change the channel. Try again.");
+        return _panel.Problem ?? (_panel.ChannelLocked ? Update.UpdateCommands.ChannelLockedRefusal : "The capture service did not change the channel. Try again.");
     }
 
     public void Undo() => Pending = null;

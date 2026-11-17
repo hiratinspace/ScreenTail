@@ -367,6 +367,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // A blur and a publish take turns over the frames' bytes, so a publish never sends a picture while
         // the technician's blur of it is being painted (ST-084 follow-up review).
         var frameEdits = new FrameEditGate();
+
+        // The tray's Start capture (contract v13) is the coordinator's, built further down with the
+        // foreground watcher; until then it starts nothing, and the pipe is not open before then anyway.
+        Func<StartCommand, CancellationToken, Task<CommandResult>> startFromTray = (start, _) =>
+            Task.FromResult(new CommandResult { RequestId = start.RequestId, Ok = false, Error = HandStart.Busy });
         var controller = new CaptureController(
             machine,
             // P2-7: a report is good for five seconds, so the wizard's "Check again" and a burst of pipe
@@ -412,8 +417,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             indicators,
             sessionPolicy,
             updateCommands,
+            trayStart: (start, ct) => startFromTray(start, ct),
             // ST-079: the coverage banner's counts, the misses kept as long as raw data (INV-12).
-            new Core.History.CoverageCommands(store, () => retentionOptions.Retention));
+            coverage: new Core.History.CoverageCommands(store, () => retentionOptions.Retention));
         await using var server = new IpcServer(
             // A pipe name another pipe already holds is logged, a warning at first (it may be this
             // service's previous run, still open in a UI) and an error if it stays held. The UI, which
@@ -491,10 +497,12 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             Platform.Clipboard.ClipboardText.ReadOnce,
             () => captureStore.Load().AutoStart,
             latest: () => foreground.Latest,
+            exists: WindowsForegroundWatcher.Exists,
             // ST-079: the remote sessions seen and not captured, the coverage banner's denominator. One
             // visit per stretch of remote work, by the trigger's own grace; kept in the store (INV-10, INV-12).
             visits: new Core.History.RemoteVisits(() => trigger.Grace),
             missed: store.RecordMissedVisitAsync);
+        startFromTray = coordinator.StartFromTrayAsync;
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
         // brings a new policy (ST-047) or the technician saves (ST-081, ST-080). The policy decides

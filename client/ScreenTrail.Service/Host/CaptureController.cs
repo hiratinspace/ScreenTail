@@ -39,6 +39,10 @@ namespace ScreenTrail.Service.Host;
 /// Local-only as it is in force now and the policy's version, for a start over the pipe: the same
 /// function the host gives the automatic start, so the two cannot start sessions under different rules.
 /// </param>
+/// <param name="trayStart">
+/// The tray's Start capture (<c>start</c> with <c>origin: tray</c>, contract v13): the coordinator's start by
+/// hand, the one Ctrl+Alt+R goes through, in the remote tool window most recently in front. Null refuses it.
+/// </param>
 /// <param name="coverage">
 /// The coverage banner's counts (<c>get_coverage</c>, contract v14, ST-079). Null answers nothing, and the
 /// UI then shows no banner.
@@ -57,6 +61,7 @@ internal sealed class CaptureController(
     IndicatorReports indicators,
     Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
     Core.Update.UpdateCommands? updates = null,
+    Func<StartCommand, CancellationToken, Task<CommandResult>>? trayStart = null,
     CoverageCommands? coverage = null) : IIpcCommandHandler
 {
     private readonly ManualStart _start = new(machine, () => indicators.Showing, sessionPolicy);
@@ -164,14 +169,20 @@ internal sealed class CaptureController(
             return updated;
         }
 
-        // A start over the pipe, whose only sender is the onboarding wizard's test session, waits for the
+        // A start over the pipe with no origin is the onboarding wizard's test session: it waits for the
         // indicator as an automatic start does (INV-4), and starts under the tenant's policy as it stands
         // now, with the same local-only flag and policy version (ST-047). ManualStart, in Core, holds both
-        // and says why when it refuses. Ctrl+Alt+R is the service's own hotkey and starts through the
-        // coordinator; the tray has no start item.
+        // and says why when it refuses. The tray's Start capture (contract v13) goes to the coordinator,
+        // through the start Ctrl+Alt+R takes, since only it knows which remote tool was in front. An origin
+        // this service does not know starts nothing.
         if (command is StartCommand start)
         {
-            return await _start.StartAsync(start, ct).ConfigureAwait(false);
+            return start.Origin switch
+            {
+                null => await _start.StartAsync(start, ct).ConfigureAwait(false),
+                StartOrigins.Tray when trayStart is not null => await trayStart(start, ct).ConfigureAwait(false),
+                _ => new CommandResult { RequestId = start.RequestId, Ok = false, Error = "This start is not one the capture service knows, so nothing was started." },
+            };
         }
 
         // Review's and History's discards by name: spent against the ids, then all of them or none.

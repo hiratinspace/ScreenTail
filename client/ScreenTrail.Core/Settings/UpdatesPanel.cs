@@ -31,7 +31,7 @@ public interface IUpdateGateway
 /// </summary>
 public sealed class UpdatesPanel(IUpdateGateway gateway)
 {
-    public const string LockedNote = "Set by your administrator";
+    public const string LockedNote = PolicyLock.Line;
 
     public const string WhatInstallDoes =
         "Windows asks for an administrator's approval. ScreenTrail closes while it installs, and capture starts again at your next sign-in.";

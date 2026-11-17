@@ -5,7 +5,7 @@ namespace ScreenTrail.Shared.Settings;
 /// <summary>
 /// The technician's own settings (ST-081, Spec §5 S6), as the service keeps them on disk. The admin's
 /// policy (ST-047) sits on top: a field the policy locked is applied from the policy whatever this says,
-/// and Settings shows it read-only with "Set by your admin".
+/// and Settings shows it read-only with "Set by your ScreenTrail owner".
 /// </summary>
 public sealed record ClientSettings
 {

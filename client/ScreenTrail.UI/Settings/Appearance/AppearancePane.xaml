@@ -20,7 +20,7 @@
             <TextBlock Margin="24,0,0,0"
                        Style="{StaticResource Text.Muted}"
                        TextWrapping="Wrap"
-                       Text="ScreenTrail follows it when it changes. It is in Windows Settings, Personalization, Colors, Choose your app mode." />
+                       Text="ScreenTrail follows it when it changes. Change it in Windows Settings &gt; Personalization &gt; Colors." />
             <RadioButton Margin="0,8,0,0" GroupName="AppearanceTheme" Content="Light" IsChecked="{Binding Light}" />
             <RadioButton Margin="0,4,0,0" GroupName="AppearanceTheme" Content="Dark" IsChecked="{Binding Dark}" />
             <TextBlock Margin="0,8,0,0"

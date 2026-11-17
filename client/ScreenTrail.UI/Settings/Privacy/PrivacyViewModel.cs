@@ -65,6 +65,10 @@ public sealed partial class PrivacyViewModel : ObservableObject
     [ObservableProperty]
     public partial string LockedBecause { get; set; } = string.Empty;
 
+    /// <summary>The locked line's tool tip: the policy's id, for support, kept out of the visible line (v0.7.1).</summary>
+    [ObservableProperty]
+    public partial string LockedDetail { get; set; } = string.Empty;
+
     [ObservableProperty]
     public partial Visibility LocalOnlyLockVisibility { get; set; } = Visibility.Collapsed;
 
@@ -306,6 +310,7 @@ public sealed partial class PrivacyViewModel : ObservableObject
         RetentionEditable = !_panel.RetentionLocked;
         RetentionLabel = Describe(days);
         LockedBecause = _panel.LockedBecause;
+        LockedDetail = _panel.LockedDetail;
         LocalOnlyLockVisibility = _panel.LocalOnlyLocked ? Visibility.Visible : Visibility.Collapsed;
         RetentionLockVisibility = _panel.RetentionLocked ? Visibility.Visible : Visibility.Collapsed;
         Telemetry = _panel.Telemetry;

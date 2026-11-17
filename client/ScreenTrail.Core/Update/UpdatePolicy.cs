@@ -20,7 +20,7 @@ public static class UpdatePolicies
 
     public const int MaxCheckHours = 168;
 
-    public const string UnknownChannel = "Your administrator chose an update channel this version of ScreenTrail does not know, so it does not check for updates.";
+    public const string UnknownChannel = "Your ScreenTrail owner chose an update channel this version of ScreenTrail does not know, so it does not check for updates.";
 
     /// <summary>
     /// The admin's policy where it says anything, the technician's channel otherwise. The interval and

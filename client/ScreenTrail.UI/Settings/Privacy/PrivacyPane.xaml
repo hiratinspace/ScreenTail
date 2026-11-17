@@ -22,8 +22,8 @@
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[LocalOnlyMode]}" />
                 </StackPanel>
                 <CheckBox Margin="0,8,0,0" Content="Send nothing for drafting; publish only what I ask" IsChecked="{Binding LocalOnly}" IsEnabled="{Binding LocalOnlyEditable}" />
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding LocalOnlyLockVisibility}" />
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots here. Notes are drafted on this device from what was said and shown: plainer than the model's, and marked as such in Review." />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" ToolTip="{Binding LockedDetail}" AutomationProperties.HelpText="{Binding LockedDetail}" Visibility="{Binding LocalOnlyLockVisibility}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Local-only keeps the screenshots on this device. Notes are drafted here from what was said and shown. They are plainer than a usual draft, and Review marks them." />
             </StackPanel>
         </Border>
 
@@ -105,7 +105,7 @@
                     <TextBlock Margin="12,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="{Binding RetentionDays}" />
                     <TextBlock Margin="4,0,0,0" VerticalAlignment="Center" Style="{StaticResource Text.Body}" Text="days" />
                 </StackPanel>
-                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" Visibility="{Binding RetentionLockVisibility}" />
+                <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" Text="{Binding LockedBecause}" ToolTip="{Binding LockedDetail}" AutomationProperties.HelpText="{Binding LockedDetail}" Visibility="{Binding RetentionLockVisibility}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="{Binding RetentionLabel}" />
             </StackPanel>
         </Border>
@@ -117,7 +117,7 @@
                     <TextBlock Style="{StaticResource Text.TileHeading}" Text="Usage telemetry" />
                     <ContentControl Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource Badge.Changed}" Content="Changed" Visibility="{Binding Changed[UsageTelemetry]}" />
                 </StackPanel>
-                <CheckBox Margin="0,8,0,0" Content="Send one metric per session so the pilot can count minutes saved" IsChecked="{Binding Telemetry}" />
+                <CheckBox Margin="0,8,0,0" Content="Send one usage record per session, to count the minutes ScreenTrail saves" IsChecked="{Binding Telemetry}" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Muted}" TextWrapping="Wrap" Text="Exactly these fields, and never any text from a session:" />
                 <TextBlock Margin="0,4,0,0" Style="{StaticResource Text.Mono}" TextWrapping="Wrap" Text="{Binding TelemetryFieldList}" />
             </StackPanel>
