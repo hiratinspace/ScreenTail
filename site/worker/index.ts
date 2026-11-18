@@ -12,14 +12,17 @@ export interface Env {
   PILOT_TO: string;
 }
 
-// The same headers the static pages get (public/_headers); a redirect or an error carries them too.
-const security: Record<string, string> = {
+// The same headers the static pages get (public/_headers), with a CSP for answers that are never
+// pages; a redirect or an error carries them too. tests/headers.test.ts holds the two sets together.
+export const security: Record<string, string> = {
   'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  'X-Frame-Options': 'DENY',
   'Cache-Control': 'no-store',
 };
 

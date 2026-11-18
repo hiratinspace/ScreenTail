@@ -63,6 +63,10 @@ test('the home page reads in full without JavaScript', async ({ browser }) => {
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/Fix the problem\./);
   await expect(page.getByRole('heading', { name: 'Become a pilot MSP' })).toBeVisible();
   await expect(page.locator('#clockpill')).toBeHidden();
+  // All four of the scene's messages read in order, not only the first.
+  for (const text of ['The notes don\'t get written', 'every session gets its note', 'a real ticket note', 'published in one press']) {
+    await expect(page.getByText(text, { exact: false }).first()).toBeVisible();
+  }
   await context.close();
 });
 
@@ -118,4 +122,12 @@ test('a visitor in dark mode still gets the light site, with Iris text that read
   const results = await new AxeBuilder({ page }).withTags(['wcag2aa']).analyze();
   expect(results.violations.map((v) => v.id)).toEqual([]);
   await context.close();
+});
+
+test('with reduced motion, all four scene messages show', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/');
+  for (const text of ['every session gets its note', 'a real ticket note', 'published in one press']) {
+    await expect(page.getByText(text, { exact: false }).first()).toBeVisible();
+  }
 });

@@ -49,7 +49,7 @@ export function clean(value: string, keepLineBreaks = false): string {
     const control = code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029;
     if (!control) stripped += ch;
     else if (ch === '\n' && keepLineBreaks) stripped += '\n';
-    else if (!keepLineBreaks) stripped += ' ';
+    else stripped += ' ';
   }
   const collapsed = keepLineBreaks
     ? stripped.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n')
@@ -59,7 +59,7 @@ export function clean(value: string, keepLineBreaks = false): string {
 
 export function check(form: URLSearchParams): Checked {
   // The honeypot: hidden from people and from screen readers, so only a bot fills it in.
-  if ((form.get('website') ?? '') !== '') return { kind: 'bot' };
+  if ((form.get('hp_trap') ?? '') !== '') return { kind: 'bot' };
 
   const text = (key: string, max: number, required: boolean, lines = false) => {
     const raw = form.get(key);
@@ -95,7 +95,8 @@ export function check(form: URLSearchParams): Checked {
 
 /** The email to the owner. Plain text only: nothing a visitor typed is ever put into HTML. */
 export function compose(pilot: Pilot): { subject: string; text: string } {
-  const subject = `Pilot enquiry: ${pilot.company}`.slice(0, 150);
+  // Company is at most limits.company characters, so the subject needs no cut.
+  const subject = `Pilot enquiry: ${pilot.company}`;
   const text = [
     'A pilot enquiry from the ScreenTrail site.',
     '',

@@ -50,8 +50,9 @@
 .scene { position: relative; border-top: 1px solid var(--line); padding: 96px 0 40px; }
 .scene-pin { position: relative; }
 .scene-copy { position: relative; display: grid; }
-.cap { grid-area: 1 / 1; display: grid; gap: 14px; align-content: start; }
-.cap:not(.on) { display: none; }
+.cap { display: grid; gap: 14px; align-content: start; }
+.cap + .cap { margin-top: 28px; }
+.js-scene .cap { grid-area: 1 / 1; margin-top: 0; }
 .h2-like { font-size: clamp(28px, 3.2vw, 40px); line-height: 1.12; letter-spacing: -0.025em; text-wrap: balance; color: var(--ink); }
 .h2-like strong { font-weight: 500; }
 .tally { margin-top: 18px; font: 500 12px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); display: flex; gap: 8px; align-items: baseline; }
@@ -266,7 +267,6 @@
 .pilot-form input, .pilot-form select, .pilot-form textarea { font: 400 15px/1.4 var(--sans); color: var(--ink); background: var(--white); border: 1px solid #8b84a8; border-radius: 6px; padding: 9px 11px; width: 100%; min-height: 42px; }
 .pilot-form textarea { min-height: 88px; resize: vertical; }
 .pilot-form input:focus-visible, .pilot-form select:focus-visible, .pilot-form textarea:focus-visible { outline: 2px solid var(--iris); outline-offset: 1px; border-color: var(--iris); }
-.pilot-form .hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
 .publish-btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--iris); color: #fff; border: 0; border-radius: 6px; padding: 13px 14px; font: 500 15px/1 var(--sans); cursor: pointer; width: 100%; }
 .publish-btn:hover { background: var(--iris-hover); }
 .publish-btn kbd { background: transparent; color: #e4dcff; border-color: #9b80e6; }

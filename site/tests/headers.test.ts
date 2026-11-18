@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { security as workerHeaders } from '../worker/index';
 
 // The static pages' headers (public/_headers) are the site's main defence; these tests keep them strict.
 const file = readFileSync(fileURLToPath(new URL('../public/_headers', import.meta.url).href), 'utf8');
@@ -46,5 +47,17 @@ describe('public/_headers', () => {
     expect(header('Cross-Origin-Opener-Policy')).toBe('same-origin');
     expect(header('X-Frame-Options')).toBe('DENY');
     expect(header('Permissions-Policy')).toMatch(/camera=\(\).*microphone=\(\)/);
+  });
+});
+
+describe('the Worker\'s answers', () => {
+  it('carry every header the static pages do, with the same value (the CSP aside, by design)', () => {
+    const names = (global ?? '').split('\n').slice(1).map((l) => l.trim()).filter(Boolean).map((l) => l.slice(0, l.indexOf(':')));
+    expect(names.length).toBeGreaterThan(5);
+    for (const name of names) {
+      if (name === 'Content-Security-Policy') continue;
+      expect(workerHeaders[name], name).toBe(header(name));
+    }
+    expect(workerHeaders['Content-Security-Policy']).toContain("default-src 'none'");
   });
 });

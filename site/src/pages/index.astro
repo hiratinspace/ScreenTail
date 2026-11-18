@@ -76,9 +76,9 @@ const tiles = widths.map((w, i) => {
     <div class="scene-pin">
       <div class="wrap scene-copy">
         <div class="cap on" data-cap="0"><h2 id="h-scene">Remote sessions end. The notes don't get written.</h2><p class="sub">A technician works thirty remote sessions a week. Notes get typed from memory at the end of the day, or not at all.</p></div>
-        <div class="cap" data-cap="1" aria-hidden="true"><p class="h2-like"><strong>With ScreenTrail, every session gets its note.</strong></p><p class="sub">Each draft is built from what was on screen and what the technician said, ready when the session ends.</p></div>
-        <div class="cap" data-cap="2" aria-hidden="true"><p class="h2-like"><strong>Each one is a real ticket note.</strong></p><p class="sub">Problem, steps and result, each step beside the screenshot it happened on.</p></div>
-        <div class="cap" data-cap="3" aria-hidden="true"><p class="h2-like"><strong>Checked by a person, published in one press.</strong></p><p class="sub">The note and time entry go to ConnectWise, the article to Hudu.</p></div>
+        <div class="cap" data-cap="1"><p class="h2-like"><strong>With ScreenTrail, every session gets its note.</strong></p><p class="sub">Each draft is built from what was on screen and what the technician said, ready when the session ends.</p></div>
+        <div class="cap" data-cap="2"><p class="h2-like"><strong>Each one is a real ticket note.</strong></p><p class="sub">Problem, steps and result, each step beside the screenshot it happened on.</p></div>
+        <div class="cap" data-cap="3"><p class="h2-like"><strong>Checked by a person, published in one press.</strong></p><p class="sub">The note and time entry go to ConnectWise, the article to Hudu.</p></div>
         <p class="tally" aria-hidden="true">Notes written this week <b id="tally">38</b> <span>of 46</span></p>
       </div>
       <div class="scene-stage" id="stage" aria-hidden="true">
@@ -378,7 +378,7 @@ const tiles = widths.map((w, i) => {
             </select>
           </label>
           <label><span>Anything else <span class="opt">(optional)</span></span><textarea name="message" maxlength={limits.message} rows="3"></textarea></label>
-          <div class="hp" aria-hidden="true"><label>Leave this empty<input name="website" tabindex="-1" autocomplete="off" /></label></div>
+          <div class="hp" hidden><label>Leave this empty<input name="hp_trap" tabindex="-1" autocomplete="off" /></label></div>
           <button class="publish-btn" type="submit">Send to ScreenTrail <kbd aria-hidden="true">Ctrl+Enter</kbd></button>
           <p class="form-fine">We use this only to reply about the pilot, and the site keeps no copy. <a href="/privacy/">Privacy</a></p>
         </form>

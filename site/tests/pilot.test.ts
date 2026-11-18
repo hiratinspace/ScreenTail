@@ -43,7 +43,7 @@ describe('check', () => {
   });
 
   it('treats a filled honeypot as a bot', () => {
-    expect(check(form({ website: 'http://spam' }))).toEqual({ kind: 'bot' });
+    expect(check(form({ hp_trap: 'http://spam' }))).toEqual({ kind: 'bot' });
   });
 
   it.each([
@@ -82,6 +82,7 @@ describe('clean', () => {
   });
   it('keeps paragraph breaks in the message, at most one blank line', () => {
     expect(clean('one\r\n\r\n\r\n\r\ntwo\u0007', true)).toBe('one\n\ntwo');
+    expect(clean('Server\tDown', true)).toBe('Server Down');
   });
 });
 
@@ -120,7 +121,7 @@ describe('handlePilot', () => {
 
   it('tells a bot thanks and sends nothing', async () => {
     const send = vi.fn();
-    const res = await handlePilot(post(form({ website: 'x' }).toString()), env(send));
+    const res = await handlePilot(post(form({ hp_trap: 'x' }).toString()), env(send));
     expect(res.headers.get('Location')).toContain('/pilot/thanks/');
     expect(send).not.toHaveBeenCalled();
   });

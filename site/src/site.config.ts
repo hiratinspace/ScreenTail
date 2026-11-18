@@ -6,7 +6,7 @@
 export const site = {
   name: 'ScreenTrail',
   /** The public address, with no trailing slash. Set SITE_URL when building for production. */
-  url: process.env.SITE_URL ?? 'https://screentrail.example',
+  url: (process.env.SITE_URL ?? 'https://screentrail.example').replace(/\/+$/, ''),
   /** Where pilot enquiries and security reports go. Set before the first production deploy. */
   contactEmail: process.env.SITE_CONTACT_EMAIL ?? 'hello@screentrail.example',
   securityEmail: process.env.SITE_SECURITY_EMAIL ?? 'security@screentrail.example',

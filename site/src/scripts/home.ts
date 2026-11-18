@@ -29,7 +29,12 @@ document.querySelectorAll('[data-replay]').forEach((el) => replay.observe(el));
 const mockClock = document.querySelector<HTMLElement>('[data-clock]');
 if (mockClock && !reduce) {
   let secs = 137;
-  setInterval(() => { secs += 1; mockClock.textContent = fmt(secs); }, 1000);
+  let timer = 0;
+  // Ticks only while its mock is on screen.
+  new IntersectionObserver(([e]) => {
+    if (e?.isIntersecting && !timer) timer = window.setInterval(() => { secs += 1; mockClock.textContent = fmt(secs); }, 1000);
+    else if (!e?.isIntersecting && timer) { clearInterval(timer); timer = 0; }
+  }).observe(mockClock);
 }
 
 /* ---------- Line-art figures: 1px Iris strokes on canvas, drifting slowly ---------- */
@@ -140,17 +145,26 @@ function paint(t: number) {
   });
 }
 figs.forEach(sizeFig);
-const figVisible = new IntersectionObserver((es) => es.forEach((e) => {
-  const o = figs.find((f) => f.el === e.target);
-  if (o) o.on = e.isIntersecting;
-}));
-figs.forEach((o) => figVisible.observe(o.el));
 paint(0);
-if (!reduce) {
-  let last = 0;
-  const loop = (t: number) => { if (t - last > 33) { paint(t); last = t; } requestAnimationFrame(loop); };
+// The loop runs only while a figure is on screen, and stops when none is.
+let looping = false;
+let last = 0;
+const loop = (t: number) => {
+  if (!figs.some((f) => f.on)) { looping = false; return; }
+  if (t - last > 33) { paint(t); last = t; }
   requestAnimationFrame(loop);
-}
+};
+const startLoop = () => { if (!reduce && !looping) { looping = true; requestAnimationFrame(loop); } };
+const figVisible = new IntersectionObserver((es) => {
+  es.forEach((e) => {
+    const o = figs.find((f) => f.el === e.target);
+    if (o) o.on = e.isIntersecting;
+  });
+  startLoop();
+});
+figs.forEach((o) => figVisible.observe(o.el));
+// A rotation or a resized window changes each canvas's box; its pixels follow.
+addEventListener('resize', () => { figs.forEach(sizeFig); paint(performance.now()); });
 
 /* ---------- The pinned scene: scroll runs four beats ----------
    0 to .22 the problem wall; .22 to .48 every tile gets its note (the tally runs 38 to 46);
@@ -166,6 +180,7 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
   const noteParts = Array.from(noteEl.querySelectorAll<HTMLElement>('.sn-body h3, .sn-body .ln'));
   const stamp = noteEl.querySelector<HTMLElement>('.sn-stamp');
   let offsets: [number, number][] = [];
+  let lastBeat = -1;
   const measure = () => {
     tiles.forEach((t) => { t.style.transform = ''; });
     const st = stageEl.getBoundingClientRect();
@@ -179,10 +194,14 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
     const r = sceneEl.getBoundingClientRect();
     const p = clamp(-r.top / Math.max(1, r.height - innerHeight + 60));
     const beat = p < 0.22 ? 0 : p < 0.48 ? 1 : p < 0.74 ? 2 : 3;
-    caps.forEach((c, i) => {
-      c.classList.toggle('on', i === beat);
-      c.setAttribute('aria-hidden', i === 0 ? 'false' : 'true');
-    });
+    if (beat !== lastBeat) {
+      lastBeat = beat;
+      // The caption on screen is the one assistive technology reads.
+      caps.forEach((c, i) => {
+        c.classList.toggle('on', i === beat);
+        if (i === beat) c.removeAttribute('aria-hidden'); else c.setAttribute('aria-hidden', 'true');
+      });
+    }
     tiles.forEach((t, i) => {
       const at = t.classList.contains('bad') ? 0.02 + (i % 8) * 0.018 : Number(t.dataset.r) * 0.2;
       t.classList.toggle('healed', p > 0.24 + at);

@@ -61,8 +61,9 @@ for (const file of htmlFiles) {
     }
   }
 
-  const text = html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ');
-  if (text.includes('\u2014')) problems.push(`${name}: an em dash in the page text`);
+  // Text and attributes both (alt, aria-label, meta descriptions are read too); script bodies aside.
+  const readable = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  if (readable.includes('\u2014')) problems.push(`${name}: an em dash in the page text or an attribute`);
 }
 
 for (const file of cssFiles) {
