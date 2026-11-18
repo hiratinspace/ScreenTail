@@ -110,8 +110,11 @@ public sealed class NarrationRecorder : IDisposable
     private TranscriptAssembler _assembler = new();
     private string? _assembling;
 
-    /// <summary>The session the detector last learned a room for, so a new one starts by listening to its own.</summary>
+    /// <summary>The session the detector last learned a room for, so a new one starts by listening to its own. Cleared when the device changes.</summary>
     private string? _heardSession;
+
+    /// <summary>Listens in a row that delivered nothing, for the back-off and for saying "unavailable" once.</summary>
+    private int _emptyLooks;
 
     /// <summary>
     /// The session a sentence still being said is counted against, or null when the gate is closed.
@@ -256,8 +259,9 @@ public sealed class NarrationRecorder : IDisposable
     public long MicrophoneSwitched { get; private set; }
 
     /// <summary>
-    /// Told when the microphone stopped under a session (<c>lost</c>) or a listen moved to another device
-    /// (<c>switched</c>), so the host can log it. Those words only, never a device's name (INV-10).
+    /// Told when the microphone stopped under a session (<c>lost</c>), a listen moved to another device
+    /// (<c>switched</c>), or a connected device gave nothing (<c>unavailable</c>, once per run of tries),
+    /// so the host can log it. Those words only, never a device's name (INV-10).
     /// </summary>
     public event Action<string>? MicrophoneChanged;
 
@@ -309,6 +313,20 @@ public sealed class NarrationRecorder : IDisposable
                 }
 
                 var end = await ListenWhileRecordingAsync(ct).ConfigureAwait(false);
+                if (end != ListenEnd.SessionEnded)
+                {
+                    // Another device, or the same one back, is another room as far as the detector is
+                    // concerned: a floor learned on a laptop's array in a noisy office would make a close
+                    // headset's quiet speech read as nothing, and the other way round would send the
+                    // room to the model (the 2026-10-12 review's reason for resetting per session).
+                    _heardSession = null;
+                }
+
+                if (end != ListenEnd.NothingToOpen)
+                {
+                    _emptyLooks = 0;
+                }
+
                 switch (end)
                 {
                     case ListenEnd.Moved:
@@ -338,7 +356,19 @@ public sealed class NarrationRecorder : IDisposable
                             MicrophoneChanged?.Invoke("lost");
                         }
 
-                        _ = await _wanted.WaitAsync(_options.Reopen, ct).ConfigureAwait(false);
+                        if (end == ListenEnd.NothingToOpen && _emptyLooks++ == 0 && _microphone.DeviceName is not null)
+                        {
+                            // A device is connected and gave nothing: blocked, held by another app, or
+                            // failing. Said once per run of empty looks, not once per look.
+                            MicrophoneChanged?.Invoke("unavailable");
+                        }
+
+                        // Two seconds, doubling while nothing opens, to thirty: a device that keeps
+                        // refusing is not opened and closed every two seconds for a whole session.
+                        var wait = end == ListenEnd.NothingToOpen
+                            ? TimeSpan.FromTicks(Math.Min(_options.Reopen.Ticks << Math.Min(_emptyLooks - 1, 4), TimeSpan.FromSeconds(30).Ticks))
+                            : _options.Reopen;
+                        _ = await _wanted.WaitAsync(wait, ct).ConfigureAwait(false);
                         break;
 
                     case ListenEnd.SessionEnded:

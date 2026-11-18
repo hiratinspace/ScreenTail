@@ -50,10 +50,7 @@ public sealed class MicrophoneComesAndGoesTests
         var microphone = new DeviceSource(
             DeviceSource.NothingConnected,
             DeviceSource.NothingConnected,
-            DeviceSource.Plays([.. Silence(20), .. NarrationRecorderTests.Speech(40), .. Silence(40)], staysOpen: true))
-        {
-            Connected = null,
-        };
+            DeviceSource.Plays([.. Silence(20), .. NarrationRecorderTests.Speech(40), .. Silence(40)], staysOpen: true));
         var kept = new List<TranscriptSegment>();
         using var recorder = Recorder(microphone, new FakeRecogniser("said"), kept);
 
@@ -98,6 +95,28 @@ public sealed class MicrophoneComesAndGoesTests
 
         // Whole: at least the forty frames of speech went to the model as one segment.
         Assert.True(recogniser.Handed[0].Samples >= 40 * Rate * 32 / 1000, $"the first sentence was cut to {recogniser.Handed[0].Samples} samples");
+    }
+
+    [Fact]
+    public async Task AConnectedDeviceThatGivesNothingIsTriedLessAndLessAndReportedOnce()
+    {
+        // Blocked, held by another app, or failing: connected, but every open gives nothing. Without the
+        // back-off it was opened and closed every two seconds for the whole session, and nothing said so.
+        var microphone = new DeviceSource { Otherwise = DeviceSource.Refuses };
+        var changes = new List<string>();
+        using var recorder = Recorder(microphone, new FakeRecogniser("x"), []);
+        recorder.MicrophoneChanged += changes.Add;
+
+        using var stop = new CancellationTokenSource();
+        var running = recorder.RunAsync(stop.Token);
+        await Task.Delay(400);
+        await stop.CancelAsync();
+        await running;
+
+        // 20, 40, 80, 160 ms waits fit about five looks in 400 ms; a fixed 20 ms would be twenty.
+        Assert.InRange(microphone.Looks, 2, 8);
+        Assert.Equal(["unavailable"], changes);
+        Assert.Equal(0, recorder.MicrophoneLost);
     }
 
     [Fact]
@@ -158,10 +177,19 @@ public sealed class MicrophoneComesAndGoesTests
     {
         private readonly Queue<Script> _opens = new(opens);
         private volatile bool _moving;
+        private volatile bool _present = opens.Length == 0 || opens[0].Present;
+        private Script _otherwise = NothingConnected;
 
-        public sealed record Script(short[][]? Frames, bool StaysOpen, int MovesAt);
+        /// <summary>What every open gives once the scripts have run out.</summary>
+        public Script Otherwise { init => _otherwise = value; }
 
-        public static Script NothingConnected { get; } = new(null, false, -1);
+        public sealed record Script(short[][]? Frames, bool StaysOpen, int MovesAt, bool Present = true);
+
+        /// <summary>Nothing plugged in: the listen gives nothing and the device name reads null, as WindowsMicrophone's does.</summary>
+        public static Script NothingConnected { get; } = new(null, false, -1, Present: false);
+
+        /// <summary>Plugged in but giving nothing: blocked, held by another app, or failing.</summary>
+        public static Script Refuses { get; } = new(null, false, -1);
 
         public static Script Plays(short[][] frames, bool staysOpen, int movesAt = -1) => new(frames, staysOpen, movesAt);
 
@@ -171,7 +199,10 @@ public sealed class MicrophoneComesAndGoesTests
 
         public int Closes { get; private set; }
 
-        public string? DeviceName => Connected;
+        /// <summary>Every listen asked for, whether or not anything opened.</summary>
+        public int Looks { get; private set; }
+
+        public string? DeviceName => _present ? Connected : null;
 
         public int SampleRate => Rate;
 
@@ -181,7 +212,9 @@ public sealed class MicrophoneComesAndGoesTests
 
         public async IAsyncEnumerable<ReadOnlyMemory<short>> ListenAsync([EnumeratorCancellation] CancellationToken ct = default)
         {
-            var script = _opens.Count > 0 ? _opens.Dequeue() : NothingConnected;
+            Looks++;
+            var script = _opens.Count > 0 ? _opens.Dequeue() : _otherwise;
+            _present = script.Present;
             if (script.Frames is null)
             {
                 yield break;

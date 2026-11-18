@@ -65,6 +65,18 @@ public sealed class WindowsMicrophone : IMicrophone
     /// <summary>Whether a look since that listen opened found another device to use. Kept until the next listen opens.</summary>
     private int _moved;
 
+    /// <summary>The last device that delivered audio to a session, tried when the chosen one will not open.</summary>
+    private string? _workingId;
+
+    /// <summary>The last device that would not open or gave nothing. Not moved to again until the connected devices change.</summary>
+    private string? _refusedId;
+
+    /// <summary>The connected devices as of the last look, so a change of set can forgive <see cref="_refusedId"/>.</summary>
+    private string _lastSet = "";
+
+    /// <summary>AUDCLNT_E_DEVICE_INVALIDATED: the endpoint was unplugged, disabled or reconfigured under the stream.</summary>
+    private const int DeviceInvalidated = unchecked((int)0x88890004);
+
     /// <param name="chosen">The device id saved in Settings, Capture, read when a listen begins; null (or none given) is Windows' default.</param>
     public WindowsMicrophone(Func<string?>? chosen = null)
     {
@@ -119,10 +131,21 @@ public sealed class WindowsMicrophone : IMicrophone
             {
                 var devices = Enumerate();
                 Remember(devices);
+                var set = string.Join('|', devices.Select(d => d.Id).Order(StringComparer.OrdinalIgnoreCase));
+                if (!string.Equals(set, _lastSet, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Something was plugged in or out: a device that refused before may work now.
+                    _lastSet = set;
+                    Volatile.Write(ref _refusedId, null);
+                }
+
                 var now = MicrophoneChoice.Resolve(devices, _chosen()).Device;
 
                 // Nothing connected is not a move: the open device stopping ends the listen on its own.
-                if (now is not null && !string.Equals(now.Id, open, StringComparison.OrdinalIgnoreCase))
+                // Nor is a device that just refused, until the devices change.
+                if (now is not null
+                    && !string.Equals(now.Id, open, StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(now.Id, Volatile.Read(ref _refusedId), StringComparison.OrdinalIgnoreCase))
                 {
                     Interlocked.Exchange(ref _moved, 1);
                 }
@@ -162,6 +185,14 @@ public sealed class WindowsMicrophone : IMicrophone
 
     private async IAsyncEnumerable<ReadOnlyMemory<short>> ListenCoreAsync(string? deviceId, bool communications, [EnumeratorCancellation] CancellationToken ct)
     {
+        if (communications)
+        {
+            // Cleared before the look, not after the open: a change Windows reports while the device is
+            // being opened (which can take a few hundred milliseconds) is then still there to be seen.
+            Interlocked.Exchange(ref _moved, 0);
+            Interlocked.Exchange(ref _changed, 0);
+        }
+
         var devices = Enumerate();
         var resolved = MicrophoneChoice.Resolve(devices, deviceId);
         Remember(devices);
@@ -174,14 +205,30 @@ public sealed class WindowsMicrophone : IMicrophone
         // the enumerator early: that last one is how the recorder ends a stretch, and how the meter
         // lets go when its lease runs out. Either must close the device whatever NAudio's capture loop
         // does about it. The endpoint outlives the recorder built on it.
-        using var endpoint = Find(resolved.Device.Id);
-        if (endpoint is null)
+        MMDevice? endpoint = null;
+        WasapiRecorder? recorder = null;
+        string? opened = null;
+        foreach (var id in Candidates(devices, resolved.Device.Id, communications))
         {
-            yield break;
+            endpoint = Find(id);
+            recorder = endpoint is null ? null : Open(endpoint, communications);
+            if (recorder is not null)
+            {
+                opened = id;
+                break;
+            }
+
+            endpoint?.Dispose();
+            endpoint = null;
+            if (communications)
+            {
+                // Would not open. Not moved to again until the devices change, and the last device
+                // that worked is tried in its place.
+                Volatile.Write(ref _refusedId, id);
+            }
         }
 
-        await using var recorder = Open(endpoint, communications);
-        if (recorder is null)
+        if (recorder is null || endpoint is null || opened is null)
         {
             yield break;
         }
@@ -189,11 +236,10 @@ public sealed class WindowsMicrophone : IMicrophone
         if (communications)
         {
             // The session's listen. Only it moves when the device does; the meter follows the picker.
-            Interlocked.Exchange(ref _moved, 0);
-            Interlocked.Exchange(ref _changed, 0);
-            Volatile.Write(ref _openId, resolved.Device.Id);
+            Volatile.Write(ref _openId, opened);
         }
 
+        var delivered = false;
         try
         {
             var format = Describe(recorder.WaveFormat);
@@ -207,11 +253,12 @@ public sealed class WindowsMicrophone : IMicrophone
                     {
                         more = await captured.MoveNextAsync().ConfigureAwait(false);
                     }
-                    catch (Exception ex) when (ex is COMException or InvalidOperationException)
+                    catch (COMException ex) when (ex.HResult == DeviceInvalidated)
                     {
-                        // The device went away under the capture (AUDCLNT_E_DEVICE_INVALIDATED): unplugged,
-                        // disabled, or taken exclusively. The listen ends as if the device had stopped,
-                        // and the recorder opens whatever is connected next. Thrown, it ended narration.
+                        // The device went away under the capture: unplugged, disabled, or taken
+                        // exclusively. The listen ends as if the device had stopped, and the recorder
+                        // opens whatever is connected next. Thrown, it ended narration. Any other fault
+                        // still reaches the recorder, which reports it by type.
                         more = false;
                     }
 
@@ -223,6 +270,12 @@ public sealed class WindowsMicrophone : IMicrophone
                     var samples = AudioConversion.ToMono16k(captured.Current.Data.Span, format);
                     if (!samples.IsEmpty)
                     {
+                        if (communications && !delivered)
+                        {
+                            delivered = true;
+                            Volatile.Write(ref _workingId, opened);
+                        }
+
                         yield return samples;
                     }
                 }
@@ -233,8 +286,40 @@ public sealed class WindowsMicrophone : IMicrophone
             if (communications)
             {
                 Volatile.Write(ref _openId, null);
+                if (!delivered)
+                {
+                    // Opened and gave nothing: treated like a device that would not open.
+                    Volatile.Write(ref _refusedId, opened);
+                }
             }
+
+            await recorder.DisposeAsync().ConfigureAwait(false);
+            endpoint.Dispose();
         }
+    }
+
+    /// <summary>
+    /// The devices to try, in order: the one the choice resolves to, then the last device that delivered
+    /// audio in a session if it is still connected. A device that just refused goes second, so a headset
+    /// that will not open does not cost a session its narration while the laptop's microphone works.
+    /// </summary>
+    private List<string> Candidates(IReadOnlyList<MicrophoneDevice> devices, string resolved, bool communications)
+    {
+        if (!communications)
+        {
+            return [resolved];
+        }
+
+        var working = Volatile.Read(ref _workingId);
+        var connected = working is not null && devices.Any(d => string.Equals(d.Id, working, StringComparison.OrdinalIgnoreCase));
+        if (!connected || string.Equals(working, resolved, StringComparison.OrdinalIgnoreCase))
+        {
+            return [resolved];
+        }
+
+        return string.Equals(Volatile.Read(ref _refusedId), resolved, StringComparison.OrdinalIgnoreCase)
+            ? [working!, resolved]
+            : [resolved, working!];
     }
 
     /// <summary>Stops Windows' device notifications. Each enumeration of <see cref="ListenAsync"/> closes its own device.</summary>

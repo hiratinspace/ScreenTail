@@ -762,7 +762,22 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                     return;
                 }
 
-                if (microphone.DeviceName is not null && !await whisper.PrepareAsync(stoppingToken).ConfigureAwait(false))
+                // A first session with no microphone waits for one: the recorder looks for a device while
+                // sessions record, and a headset plugged in later must find the model loaded, or all it
+                // hears is dropped as heard before the model was ready (2026-11-18 review).
+                try
+                {
+                    while (microphone.DeviceName is null)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+
+                if (!await whisper.PrepareAsync(stoppingToken).ConfigureAwait(false))
                 {
                     LogNoModel(logger, whisper.ModelName, whisper.Unavailable ?? "no reason given");
                 }
@@ -968,7 +983,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
     private static partial void LogUpdate(ILogger logger, UpdateState state);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone {Change} during a session; narration goes on with the device connected now")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone {Change} during a session; narration goes on with whichever device works")]
     private static partial void LogMicrophoneChanged(ILogger logger, string change);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Microphone}; speech model {Model}, encoder window {Encoder}")]
