@@ -36,6 +36,12 @@ internal sealed partial class AutoSessionCoordinator
     private readonly Func<bool>? _autoStart;
     private readonly TimeProvider _time;
     private readonly Func<ForegroundWindowInfo?>? _latest;
+    private readonly RecentRemoteTool _recent;
+    private readonly Func<nint, bool> _exists;
+
+    // The window a tray start is starting in, for the trigger to keep the session by (OnStateChanged), set
+    // only for the length of that start: the window in front then is the menu, not the remote session.
+    private volatile StartedIn? _startedIn;
 
     // The decision in force and what the timeline last said. Changed by the scope loop, by the auto-stop
     // timer and, when the policy moved, by whoever asks for the scope first. Never held across a wait.
@@ -59,6 +65,11 @@ internal sealed partial class AutoSessionCoordinator
     /// has decided on, <see cref="CurrentScope"/> decides again on it before answering (INV-6). Null keeps
     /// the decision on reports alone.
     /// </param>
+    /// <param name="exists">
+    /// Whether a window handle still names a window, so the tray's start does not begin a session in a
+    /// remote tool window that has closed. Null takes every remembered window as open (tests).
+    /// </param>
+    /// <param name="recent">The remote tool window most recently in front, for the tray's start. Null keeps one on the coordinator's clock.</param>
     public AutoSessionCoordinator(
         SessionMachine machine,
         ScopePolicy policy,
@@ -69,9 +80,13 @@ internal sealed partial class AutoSessionCoordinator
         Func<string?>? clipboard = null,
         Func<bool>? autoStart = null,
         TimeProvider? time = null,
-        Func<ForegroundWindowInfo?>? latest = null)
+        Func<ForegroundWindowInfo?>? latest = null,
+        Func<nint, bool>? exists = null,
+        RecentRemoteTool? recent = null)
     {
         _latest = latest;
+        _exists = exists ?? (_ => true);
+        _recent = recent ?? new RecentRemoteTool(time);
         _machine = machine ?? throw new ArgumentNullException(nameof(machine));
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
         _trigger = trigger ?? throw new ArgumentNullException(nameof(trigger));
@@ -159,7 +174,7 @@ internal sealed partial class AutoSessionCoordinator
 
     /// <summary>
     /// Starts a session for whatever is in front, for the Ctrl+Alt+R chord, a hotkey the service registers
-    /// itself (ST-029). The tray has no start item.
+    /// itself (ST-029). The tray's Start capture is <see cref="StartFromTrayAsync"/>, by the same start.
     ///
     /// The coordinator is asked rather than the machine directly, because starting needs a remote tool to
     /// attribute the session to and only this knows what the technician is looking at. A window it does not
@@ -167,28 +182,78 @@ internal sealed partial class AutoSessionCoordinator
     /// this is support work, and refusing because the tool is not in the registry would make the manual
     /// path useless exactly when the automatic one has already failed.
     /// </summary>
-    public async Task<bool> StartFromForegroundAsync(CancellationToken ct = default)
+    public async Task<bool> StartFromForegroundAsync(CancellationToken ct = default) =>
+        await StartByHandAsync(() => (_decided?.Window, CurrentScope), startedIn: false, ct).ConfigureAwait(false) == HandStartOutcome.Started;
+
+    /// <summary>
+    /// The tray's Start capture (ST-071, Spec §5 S1 as built v0.7.2, contract v13): the session Ctrl+Alt+R
+    /// would have started in the remote tool window most recently in front, by the same start as the chord.
+    ///
+    /// The menu is in front as it is chosen, so the window in front says nothing about where the technician
+    /// was working. The remote tool window last seen in front (<see cref="RecentRemoteTool"/>) is used
+    /// instead: within the last few minutes, still open, and still a remote tool under the policy in force
+    /// now. With none, nothing starts and the answer says to open the remote session first; a session
+    /// attributed to <c>other</c> and about nothing would be a draft nobody asked for. The session is kept
+    /// while that window is in front, as one started by the chord in it is.
+    /// </summary>
+    public async Task<CommandResult> StartFromTrayAsync(StartCommand command, CancellationToken ct = default)
     {
-        if (!CanStart(_machine.State))
+        ArgumentNullException.ThrowIfNull(command);
+        var outcome = await StartByHandAsync(
+            () => _recent.Pick(_policy, _exists) is { } recent ? (recent.Window, recent.Decision) : null,
+            startedIn: true,
+            ct).ConfigureAwait(false);
+        return HandStart.Result(command.RequestId, outcome);
+    }
+
+    /// <summary>
+    /// A start by hand, the chord's or the tray's: the rules in <see cref="HandStart"/>'s order, then the
+    /// indicator (INV-4), then the session under the tenant's policy as it stands now (ST-047), attributed
+    /// to the window's tool, <c>other</c> when the chord was pressed over a window no registry knows.
+    /// </summary>
+    /// <param name="target">The window to start in and its scope, read once the hold and the state allow a start; null for none.</param>
+    /// <param name="startedIn">
+    /// Whether the session is kept while <paramref name="target"/>'s window is in front, rather than the
+    /// window in front as the session starts. The tray's start says so, since the menu is in front then.
+    /// </param>
+    private async Task<HandStartOutcome> StartByHandAsync(Func<(ForegroundWindowInfo? Window, ScopeDecision? Scope)?> target, bool startedIn, CancellationToken ct)
+    {
+        if (HandStart.Before(_machine.StartsHeld, _machine.State) is { } refused)
         {
-            return false;
+            return refused;
+        }
+
+        if (target() is not { } aim)
+        {
+            LogNoRecentTool(_logger);
+            return HandStartOutcome.NoRemoteSession;
         }
 
         if (!_indicated())
         {
             LogNoIndicator(_logger);
-            return false;
+            return HandStartOutcome.NotIndicated;
         }
 
-        var scope = CurrentScope;
-        var tool = new RemoteTool { Kind = scope?.Tool ?? RemoteToolKind.Other };
-        var started = await StartUnderPolicyAsync(tool, Hint(_decided?.Window), ct).ConfigureAwait(false);
+        var tool = new RemoteTool { Kind = aim.Scope?.Tool ?? RemoteToolKind.Other };
+        _startedIn = startedIn ? new StartedIn(aim.Scope?.ToolId, aim.Window) : null;
+        bool started;
+        try
+        {
+            started = await StartUnderPolicyAsync(tool, Hint(aim.Window), ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _startedIn = null;
+        }
+
         if (started)
         {
-            LogManualStart(_logger, scope?.ToolId ?? "unknown");
+            LogManualStart(_logger, aim.Scope?.ToolId ?? "unknown");
+            return HandStartOutcome.Started;
         }
 
-        return started;
+        return _machine.StartsHeld ? HandStartOutcome.Held : HandStartOutcome.Busy;
     }
 
     /// <summary>Avoids Enum.ToString() on a path the log may not even be listening to.</summary>
@@ -269,6 +334,9 @@ internal sealed partial class AutoSessionCoordinator
             _decided = new Decided(decision, window, options, window);
             worthRecording = TakeRecording(decision);
         }
+
+        // The window the tray's Start capture would start in, once the menu has taken the front.
+        _recent.Saw(window, decision);
 
         if (triggered.Start && CanStart(_machine.State))
         {
@@ -356,6 +424,9 @@ internal sealed partial class AutoSessionCoordinator
                 worthRecording = TakeRecording(now.Decision);
             }
 
+            // A remote tool still in front stays the recent one, however long nothing moves.
+            _recent.Saw(now.Window, now.Decision);
+
             if (worthRecording)
             {
                 await RecordFocusAsync(now.Window, now.Decision, ct).ConfigureAwait(false);
@@ -396,6 +467,14 @@ internal sealed partial class AutoSessionCoordinator
     private void OnStateChanged(CaptureStateSnapshot snapshot)
     {
         var running = snapshot.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed;
+
+        // A tray start names the window it started in; any other start is in the window in front.
+        if (running && _startedIn is { } startedIn)
+        {
+            _ = _trigger.Follow(running, startedIn.ToolId, startedIn.Window);
+            return;
+        }
+
         var decided = running ? _decided : null;
         _ = _trigger.Follow(running, decided?.Decision.ToolId, decided?.Window);
     }
@@ -456,6 +535,14 @@ internal sealed partial class AutoSessionCoordinator
     /// window the watcher reported (the same as <paramref name="Window"/> unless a retitle is still settling).
     /// </summary>
     private sealed record Decided(ScopeDecision Decision, ForegroundWindowInfo Window, ScopeOptions Options, ForegroundWindowInfo Reported);
+
+    /// <summary>The window a tray start is starting in, and its tool's id.</summary>
+    private sealed record StartedIn(string? ToolId, ForegroundWindowInfo? Window);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Not starting a session from the tray: no remote tool window has been in front recently.")]
+    private static partial void LogNoRecentTool(ILogger logger);
 
     [LoggerMessage(
         Level = LogLevel.Warning,

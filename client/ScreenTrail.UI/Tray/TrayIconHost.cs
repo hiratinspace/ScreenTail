@@ -112,6 +112,9 @@ public sealed class TrayIconHost : IDisposable
     /// <summary>The menu's first row as drawn, for the same tests.</summary>
     internal string StateLine => _menu.Items.Count > 0 ? _menu.Items[0].Text ?? string.Empty : string.Empty;
 
+    /// <summary>"Start capture", between sessions (Spec §5 S1, as built v0.7.2).</summary>
+    public event Action? StartCapture;
+
     public event Action? Pause;
 
     public event Action? Resume;
@@ -588,6 +591,7 @@ public sealed class TrayIconHost : IDisposable
     {
         var handler = command switch
         {
+            TrayCommand.Start => StartCapture,
             TrayCommand.Pause => Pause,
             TrayCommand.Resume => Resume,
             TrayCommand.Stop => Stop,

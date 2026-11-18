@@ -181,6 +181,7 @@ public sealed class TrayIconHostTests
         {
             using var tray = new TrayIconHost(() => true);
             var said = new List<string>();
+            tray.StartCapture += () => said.Add("start");
             tray.Pause += () => said.Add("pause");
             tray.Resume += () => said.Add("resume");
             tray.History += () => said.Add("history");
@@ -193,11 +194,16 @@ public sealed class TrayIconHostTests
             Item(tray, "Session history").PerformClick();
             Item(tray, "Settings").PerformClick();
 
+            // Idle: Start capture (spec v0.7.2), with its hotkey as the description, as Pause has.
             tray.Update(Snapshot(CaptureStates.Idle));
+            var start = Item(tray, "Start capture");
+            Assert.True(start.Enabled);
+            Assert.Equal("Hotkey Ctrl+Alt+R", start.AccessibleDescription);
+            start.PerformClick();
             tray.SetPillHidden(true);
             Item(tray, "Show the recording pill").PerformClick();
 
-            Assert.Equal(["resume", "history", "settings", "show pill"], said);
+            Assert.Equal(["resume", "history", "settings", "start", "show pill"], said);
             return Task.CompletedTask;
         });
     }

@@ -62,8 +62,13 @@ namespace ScreenTrail.Shared.Ipc;
 /// 12: 2026-11-15 security review, the <c>diagnostics</c> reply gains <c>backend_note</c>, optional, which
 /// says an installed copy has no machine-wide backend address and that an administrator sets it. A new
 /// member on a reply both sides exchange, which a v11 UI would fail on, so the version moves.
+///
+/// 13: ST-071, Spec v0.7.2 §5 S1, the tray's Start capture. <c>start</c> gains <c>origin</c>, optional:
+/// absent is the onboarding wizard's test session as before, <c>tray</c> starts the session as Ctrl+Alt+R
+/// would have in the remote tool window most recently in front. A new field on a command both sides
+/// exchange, which a v12 service would refuse as an unknown member, so the version moves.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 12;
+    public const int Version = 13;
 }

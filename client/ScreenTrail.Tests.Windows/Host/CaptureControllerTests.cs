@@ -469,6 +469,67 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         Assert.Equal(SessionState.Recording, machine.State);
     }
 
+    [Fact]
+    public async Task TheTraysStartGoesToTheCoordinatorsStartAndNotTheWizards()
+    {
+        // Contract v13: origin tray is the start Ctrl+Alt+R takes, in the remote tool most recently in
+        // front, and its answer, refusal sentence included, is what the tray is told.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        StartCommand? asked = null;
+        var controller = Controller(store, machine: machine, trayStart: (start, _) =>
+        {
+            asked = start;
+            return Task.FromResult(HandStart.Result(start.RequestId, HandStartOutcome.NoRemoteSession));
+        });
+
+        var result = await controller.HandleAsync(new StartCommand { RequestId = 5, Origin = StartOrigins.Tray }, Window, ct);
+
+        Assert.Equal(5, asked?.RequestId);
+        Assert.False(result.Ok);
+        Assert.Equal(HandStart.NoRemoteSession, result.Error);
+        Assert.Equal(SessionState.Idle, machine.State);
+    }
+
+    [Fact]
+    public async Task TheWizardsStartDoesNotReachTheTraysStart()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var asked = false;
+        var controller = Controller(store, indicators: new IndicatorReports(), trayStart: (start, _) =>
+        {
+            asked = true;
+            return Task.FromResult(HandStart.Result(start.RequestId, HandStartOutcome.Started));
+        });
+
+        var result = await controller.HandleAsync(new StartCommand { RequestId = 1 }, Window, ct);
+
+        Assert.False(asked);
+        Assert.Equal(ManualStart.NotIndicated, result.Error);
+    }
+
+    [Theory]
+    [InlineData("tray", false)]
+    [InlineData("somewhere", true)]
+    public async Task AStartFromAnOriginNobodyWiredStartsNothing(string origin, bool wired)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await OpenAsync(ct);
+        var machine = Machine(store);
+        var controller = Controller(
+            store,
+            machine: machine,
+            trayStart: wired ? (start, _) => Task.FromResult(HandStart.Result(start.RequestId, HandStartOutcome.Started)) : null);
+
+        var result = await controller.HandleAsync(new StartCommand { RequestId = 1, Origin = origin }, Window, ct);
+
+        Assert.False(result.Ok);
+        Assert.False(string.IsNullOrWhiteSpace(result.Error));
+        Assert.Equal(SessionState.Idle, machine.State);
+    }
+
     [Theory]
     [InlineData(200, 40, true)]
     [InlineData(0, 0, false)]
@@ -540,7 +601,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
         Func<CancellationToken, Task<bool>>? erase = null,
         SessionMachine? machine = null,
         IndicatorReports? indicators = null,
-        Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null) =>
+        Func<(bool LocalOnly, string? PolicyVersion)>? sessionPolicy = null,
+        Func<StartCommand, CancellationToken, Task<CommandResult>>? trayStart = null) =>
         new(
             machine ?? new SessionMachine(store, new NoCaptureSources(), new UnavailableDrafter()),
             new AlwaysCapableProbe(),
@@ -563,7 +625,8 @@ public sealed class CaptureControllerTests : IAsyncDisposable
             diagnostics ?? (() => throw new InvalidOperationException("not expected")),
             erase ?? (_ => Task.FromResult(false)),
             indicators ?? new IndicatorReports(),
-            sessionPolicy ?? (() => (false, "default")));
+            sessionPolicy ?? (() => (false, "default")),
+            trayStart: trayStart);
 
     private sealed class NoCredentials : ScreenTrail.Core.Net.IDeviceCredentials
     {

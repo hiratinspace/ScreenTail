@@ -70,15 +70,113 @@ public sealed class TrayMenuTests
     [InlineData(CaptureStates.DraftPending, true)]
     [InlineData(CaptureStates.DraftReady, true)]
     [InlineData(CaptureStates.DraftFailed, true)]
-    public void BetweenSessionsTheFirstBlockSaysHowToStart(string state, bool discard)
+    public void BetweenSessionsTheFirstBlockIsStartCapture(string state, bool discard)
     {
+        // Spec §5 S1, as built v0.7.2: "When idle, the first block becomes Start capture Ctrl+Alt+R". It was
+        // a line saying to press the hotkey, because the pipe had no start that knew the remote tool.
         var rows = Rows(Capture(state));
 
-        Assert.Equal(TrayRowKind.Hint, rows[1].Kind);
-        Assert.Equal("Start capture: press Ctrl+Alt+R in the remote session", rows[1].Name);
-        Assert.False(rows[1].Enabled);
+        Assert.Equal(TrayRowKind.Item, rows[1].Kind);
+        Assert.Equal(TrayCommand.Start, rows[1].Command);
+        Assert.Equal("Start capture", rows[1].Name);
+        Assert.Equal('S', rows[1].AccessKey);
+        Assert.Equal("Ctrl+Alt+R", rows[1].Hotkey);
+        Assert.True(rows[1].Enabled);
         Assert.DoesNotContain(rows, r => r.Command is TrayCommand.Pause or TrayCommand.Resume or TrayCommand.Stop);
         Assert.Equal(discard, rows.Any(r => r.Command == TrayCommand.Discard));
+        Assert.DoesNotContain(rows, r => r.Kind == TrayRowKind.Hint);
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    [InlineData(CaptureStates.Finalizing)]
+    [InlineData("new_state")]
+    public void StartCaptureIsNotOfferedWhileASessionMayBeUnderWay(string state)
+    {
+        Assert.DoesNotContain(Rows(Capture(state)), r => r.Command == TrayCommand.Start);
+    }
+
+    [Theory]
+    [InlineData(ServiceConnection.Connecting)]
+    [InlineData(ServiceConnection.Unavailable)]
+    public void StartCaptureIsNotOfferedIntoADroppedPipe(ServiceConnection connection)
+    {
+        // The last state heard was idle, but with the service not answering nothing that sends is offered.
+        var rows = TrayMenu.For(new ShellSnapshot(connection, Capture(CaptureStates.Idle), ShellView.Review, null), pillHidden: false);
+
+        Assert.DoesNotContain(rows, r => r.Command == TrayCommand.Start && r.Enabled);
+    }
+
+    [Fact]
+    public void StartCaptureIsNamedForAScreenReaderAsTheOtherRowsAre()
+    {
+        // The name is the words without the marker and the hotkey is the description (TrayIconHost.Fill),
+        // as Pause's is; the idle menu reads the state line, Start capture, then the second block.
+        var rows = Rows(Capture(CaptureStates.Idle));
+        var start = Row(rows, TrayCommand.Start);
+        var pause = Row(Rows(Capture(CaptureStates.Recording)), TrayCommand.Pause);
+
+        Assert.Equal("&Start capture", start.Text);
+        Assert.Equal(pause.Kind, start.Kind);
+        Assert.Equal(
+            ["Start capture", "-", "Open ScreenTrail", "Session history", "What's being captured right now?", "Hide the recording pill until the next session", "-", "Settings", "Set up ScreenTrail…", "Quit ScreenTrail"],
+            rows.Skip(1).Select(r => r.Kind == TrayRowKind.Separator ? "-" : r.Name));
+    }
+
+    [Fact]
+    public async Task AStartThatWorkedSaysNothingThePillSaysIt()
+    {
+        var sent = new List<StartCommand>();
+        var notice = await TrayMenu.StartAsync(
+            () =>
+            {
+                sent.Add(new StartCommand { RequestId = 1, Origin = StartOrigins.Tray });
+                return Task.FromResult(new CommandResult { RequestId = 1, Ok = true });
+            },
+            () => Capture(CaptureStates.Recording));
+
+        Assert.Null(notice);
+        Assert.Single(sent);
+    }
+
+    [Fact]
+    public async Task ARefusedStartSaysTheServicesSentenceInABalloonWithNothingToPress()
+    {
+        var notice = await TrayMenu.StartAsync(
+            () => Task.FromResult(new CommandResult { RequestId = 1, Ok = false, Error = Core.Sessions.HandStart.NoRemoteSession }),
+            () => Capture(CaptureStates.Idle));
+
+        Assert.NotNull(notice);
+        Assert.Equal(Core.Sessions.HandStart.NoRemoteSession, notice.Text);
+        Assert.Equal(Core.Notifications.NotificationAction.None, notice.Action);
+    }
+
+    [Fact]
+    public async Task ARefusalWithNoReasonStillSaysWhatToDo()
+    {
+        var notice = await TrayMenu.StartAsync(
+            () => Task.FromResult(new CommandResult { RequestId = 1, Ok = false }),
+            () => Capture(CaptureStates.DraftReady));
+
+        Assert.Equal(TrayMenu.StartRefused, notice?.Text);
+    }
+
+    [Theory]
+    [InlineData(CaptureStates.Recording)]
+    [InlineData(CaptureStates.Paused)]
+    [InlineData(CaptureStates.Suppressed)]
+    [InlineData(CaptureStates.Finalizing)]
+    public async Task ARefusalOnceASessionIsUnderWayIsNotABalloonOverTheRecording(string state)
+    {
+        // A start from elsewhere (the chord, auto-start) won the race. Spec §4: nothing interrupts a
+        // recording, and the pill already says a session is under way.
+        var notice = await TrayMenu.StartAsync(
+            () => Task.FromResult(new CommandResult { RequestId = 1, Ok = false, Error = Core.Sessions.HandStart.Busy }),
+            () => Capture(state));
+
+        Assert.Null(notice);
     }
 
     [Theory]

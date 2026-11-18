@@ -367,6 +367,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // A blur and a publish take turns over the frames' bytes, so a publish never sends a picture while
         // the technician's blur of it is being painted (ST-084 follow-up review).
         var frameEdits = new FrameEditGate();
+
+        // The tray's Start capture (contract v13) is the coordinator's, built further down with the
+        // foreground watcher; until then it starts nothing, and the pipe is not open before then anyway.
+        Func<StartCommand, CancellationToken, Task<CommandResult>> startFromTray = (start, _) =>
+            Task.FromResult(new CommandResult { RequestId = start.RequestId, Ok = false, Error = HandStart.Busy });
         var controller = new CaptureController(
             machine,
             // P2-7: a report is good for five seconds, so the wizard's "Check again" and a burst of pipe
@@ -411,7 +416,8 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             },
             indicators,
             sessionPolicy,
-            updateCommands);
+            updateCommands,
+            (start, ct) => startFromTray(start, ct));
         await using var server = new IpcServer(
             // A pipe name another pipe already holds is logged, a warning at first (it may be this
             // service's previous run, still open in a UI) and an error if it stays held. The UI, which
@@ -488,7 +494,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             sessionPolicy,
             Platform.Clipboard.ClipboardText.ReadOnce,
             () => captureStore.Load().AutoStart,
-            latest: () => foreground.Latest);
+            latest: () => foreground.Latest,
+            exists: WindowsForegroundWatcher.Exists);
+        startFromTray = coordinator.StartFromTrayAsync;
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch
         // brings a new policy (ST-047) or the technician saves (ST-081, ST-080). The policy decides
