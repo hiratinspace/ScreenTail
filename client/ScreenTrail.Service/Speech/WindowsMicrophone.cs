@@ -35,6 +35,15 @@ namespace ScreenTrail.Service.Speech;
 /// left the previous device open with its capture thread running and the indicator lit, and only the last
 /// one was ever closed (2026-10-12 review). It is a local of the enumeration now, released however the
 /// enumeration ends. Settings' level meter listens the same way, through <see cref="ListenToAsync"/>.
+///
+/// <b>Devices come and go during a session (2026-11-18).</b> Windows tells this class when a capture
+/// device is added, removed, enabled or disabled, or the default communications device changes; it only
+/// notes that something changed, because the notification arrives on Windows' own thread, where looking
+/// at the devices is not safe. The recorder asks <see cref="DeviceMoved"/> with each chunk, which looks
+/// then, on the recorder's thread, and only after a change. A device that is unplugged mid-listen ends
+/// the listen rather than throwing, and the recorder opens whatever is connected a moment later
+/// (<see cref="Reopens"/>). Before this, an unplugged headset ended narration until the service
+/// restarted, and a headset plugged in was not used until the session paused.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsMicrophone : IMicrophone
@@ -43,11 +52,84 @@ public sealed class WindowsMicrophone : IMicrophone
     private string? _deviceName;
     private string? _deviceId;
 
+    /// <summary>Windows' device notifications, or null where they could not be had (then nothing moves mid-listen; a stop still reopens).</summary>
+    private readonly MMDeviceEnumerator? _watching;
+    private readonly MMDeviceNotificationClient? _notifications;
+
+    /// <summary>Set by a notification or <see cref="Recheck"/>, cleared when <see cref="DeviceMoved"/> looks.</summary>
+    private int _changed;
+
+    /// <summary>The device the session's listen opened, or null while none is open.</summary>
+    private string? _openId;
+
+    /// <summary>Whether a look since that listen opened found another device to use. Kept until the next listen opens.</summary>
+    private int _moved;
+
     /// <param name="chosen">The device id saved in Settings, Capture, read when a listen begins; null (or none given) is Windows' default.</param>
     public WindowsMicrophone(Func<string?>? chosen = null)
     {
         _chosen = chosen ?? (static () => null);
         _ = Devices();
+        try
+        {
+            _watching = new MMDeviceEnumerator();
+
+            // Not marshalled to a synchronisation context: the service has none, and the handlers only set a flag.
+            _notifications = _watching.CreateNotificationClient(false);
+            _notifications.DeviceAdded += (_, _) => Recheck();
+            _notifications.DeviceRemoved += (_, _) => Recheck();
+            _notifications.DeviceStateChanged += (_, _) => Recheck();
+            _notifications.DefaultDeviceChanged += (_, e) =>
+            {
+                if (e.Flow == DataFlow.Capture && e.Role == Role.Communications)
+                {
+                    Recheck();
+                }
+            };
+        }
+        catch (Exception ex) when (ex is COMException or InvalidOperationException or NotSupportedException or ArgumentException)
+        {
+            // No notifications: a device change mid-listen waits for the next listen, as it did before.
+            _notifications?.Dispose();
+            _watching?.Dispose();
+            _notifications = null;
+            _watching = null;
+        }
+    }
+
+    /// <summary>A device can come back: the recorder opens whatever is connected after one stops, or when there was none.</summary>
+    public bool Reopens => true;
+
+    /// <summary>
+    /// Look again at which device a listen would open, on the next <see cref="DeviceMoved"/>. Called by a
+    /// device notification, and by the host when the choice in Settings changes, so a new choice is used
+    /// at the next pause rather than the next session.
+    /// </summary>
+    public void Recheck() => Interlocked.Exchange(ref _changed, 1);
+
+    /// <summary>
+    /// Whether the session's open listen should move to another device. Cheap until something changed:
+    /// then one look at the connected devices, on the caller's thread.
+    /// </summary>
+    public bool DeviceMoved
+    {
+        get
+        {
+            if (Interlocked.Exchange(ref _changed, 0) != 0 && Volatile.Read(ref _openId) is { } open)
+            {
+                var devices = Enumerate();
+                Remember(devices);
+                var now = MicrophoneChoice.Resolve(devices, _chosen()).Device;
+
+                // Nothing connected is not a move: the open device stopping ends the listen on its own.
+                if (now is not null && !string.Equals(now.Id, open, StringComparison.OrdinalIgnoreCase))
+                {
+                    Interlocked.Exchange(ref _moved, 1);
+                }
+            }
+
+            return Volatile.Read(ref _moved) != 0;
+        }
     }
 
     public int SampleRate => AudioConversion.TargetRate;
@@ -104,19 +186,64 @@ public sealed class WindowsMicrophone : IMicrophone
             yield break;
         }
 
-        var format = Describe(recorder.WaveFormat);
-        await foreach (var buffer in recorder.CaptureAsync(ct).ConfigureAwait(false))
+        if (communications)
         {
-            var samples = AudioConversion.ToMono16k(buffer.Data.Span, format);
-            if (!samples.IsEmpty)
+            // The session's listen. Only it moves when the device does; the meter follows the picker.
+            Interlocked.Exchange(ref _moved, 0);
+            Interlocked.Exchange(ref _changed, 0);
+            Volatile.Write(ref _openId, resolved.Device.Id);
+        }
+
+        try
+        {
+            var format = Describe(recorder.WaveFormat);
+            var captured = recorder.CaptureAsync(ct).GetAsyncEnumerator(ct);
+            await using (captured.ConfigureAwait(false))
             {
-                yield return samples;
+                while (true)
+                {
+                    bool more;
+                    try
+                    {
+                        more = await captured.MoveNextAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is COMException or InvalidOperationException)
+                    {
+                        // The device went away under the capture (AUDCLNT_E_DEVICE_INVALIDATED): unplugged,
+                        // disabled, or taken exclusively. The listen ends as if the device had stopped,
+                        // and the recorder opens whatever is connected next. Thrown, it ended narration.
+                        more = false;
+                    }
+
+                    if (!more)
+                    {
+                        break;
+                    }
+
+                    var samples = AudioConversion.ToMono16k(captured.Current.Data.Span, format);
+                    if (!samples.IsEmpty)
+                    {
+                        yield return samples;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (communications)
+            {
+                Volatile.Write(ref _openId, null);
             }
         }
     }
 
-    /// <summary>Nothing held between listens: each enumeration of <see cref="ListenAsync"/> closes its own device.</summary>
-    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    /// <summary>Stops Windows' device notifications. Each enumeration of <see cref="ListenAsync"/> closes its own device.</summary>
+    public ValueTask DisposeAsync()
+    {
+        _notifications?.Dispose();
+        _watching?.Dispose();
+        return ValueTask.CompletedTask;
+    }
 
     private void Remember(IReadOnlyList<MicrophoneDevice> devices)
     {

@@ -351,8 +351,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
         // ST-027, ST-080 AC3: the technician's microphone, built here rather than with the recorder below
         // because Settings, Capture lists its devices and shows its level. It opens the device saved in
         // Settings when that is connected and Windows' default otherwise, read each time a listen begins,
-        // so a save takes effect the next time the microphone opens (the next session, or sooner within a
-        // session: a resume, or the end of a suppression) and a device left at home never stops a session.
+        // and a device left at home never stops a session. A save, a headset plugged in or unplugged, and
+        // a new Windows default all move a session's listen to the device that should be used now, at the
+        // next pause in speech (2026-11-18; it used to wait for the next session or a resume).
         //
         // The level meter is the one place the microphone opens outside a session, and only while the
         // card keeps asking: each request is a short lease, it is open five minutes at most at a stretch,
@@ -397,6 +398,7 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
                 capture =>
                 {
                     chosenMicrophone = capture.MicrophoneId;
+                    microphone.Recheck();
                     _ = applyCapture(capture);
                 },
                 meter),
@@ -725,6 +727,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             }
         };
         narration.Failed += failure => LogGuardFailed(logger, "narration", failure.GetType().Name);
+
+        // "lost" or "switched", never the device's name (INV-10).
+        narration.MicrophoneChanged += change => LogMicrophoneChanged(logger, change);
         // Which way the choice went, never the device's name: a name can be personal ("Sam's headset").
         var choiceAtStart = MicrophoneChoice.Resolve(microphone.Devices(), chosenMicrophone).ForLog;
         LogMicrophone(logger, choiceAtStart, whisper.ModelName, whisper.SizesContext ? "sized to each segment" : "full");
@@ -962,6 +967,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
     // The state's name only: never a version or a URL from a manifest (INV-10).
     [LoggerMessage(Level = LogLevel.Information, Message = "Update status: {State}")]
     private static partial void LogUpdate(ILogger logger, UpdateState state);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Microphone {Change} during a session; narration goes on with the device connected now")]
+    private static partial void LogMicrophoneChanged(ILogger logger, string change);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Microphone: {Microphone}; speech model {Model}, encoder window {Encoder}")]
     private static partial void LogMicrophone(ILogger logger, string microphone, string model, string encoder);
