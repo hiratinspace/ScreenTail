@@ -9,6 +9,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 3
+    ignore:
+      # The site builds and runs on Node 24 (.nvmrc). Types for a newer Node would let code compile
+      # that Node 24 cannot run; this moves with .nvmrc, by hand.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       site:
         patterns: ['*']

@@ -1254,8 +1254,15 @@ jobs:
       - env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          # Who opened the pull request, as GitHub records it. A commit's author line can say anything;
+          # this cannot be set by a contributor.
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           pattern='^(feat|fix|docs|test|ci|chore|refactor|perf|build|style|revert)(\([a-z0-9._/-]+\))?!?: .+'
+          # Dependabot's site updates (.github/dependabot.yml) cannot carry a ticket footer. Their subject
+          # is still checked; only the footer is waived, and only for pull requests Dependabot opened.
+          needs_ref=1
+          if [ "$PR_AUTHOR" = 'dependabot[bot]' ]; then needs_ref=0; fi
           bad=0
           for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
             subject=$(git log -1 --format=%s "$sha")
@@ -1264,7 +1271,7 @@ jobs:
               printf '  subject: %s\n' "$subject"
               bad=1
             fi
-            if ! git log -1 --format=%B "$sha" | grep -Eq '^Refs: ST-[0-9]{3}'; then
+            if [ "$needs_ref" = 1 ] && ! git log -1 --format=%B "$sha" | grep -Eq '^Refs: ST-[0-9]{3}'; then
               echo "::error::Commit $sha has no 'Refs: ST-###' footer (Guide §5)."
               bad=1
             fi
