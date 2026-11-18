@@ -1,0 +1,13 @@
+---
+/** A strip of redaction bars that paint in as it scrolls past. Decorative. */
+interface Props { label: string }
+const { label } = Astro.props;
+const bars: [string, number][] = [
+  ['i', 64], ['t', 128], ['i', 40], ['r', 96], ['i', 176], ['t', 56], ['i', 112],
+  ['r', 72], ['t', 148], ['i', 48], ['r', 88], ['i', 132], ['t', 60], ['i', 104],
+];
+---
+<div class="maskband wrap" aria-hidden="true">
+  <span class="mb-label">{label}</span>
+  <div class="mb-bars">{bars.map(([kind, width], i) => <i class={`${kind} b${width} i${i}`}></i>)}</div>
+</div>

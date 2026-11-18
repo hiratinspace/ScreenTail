@@ -1,0 +1,72 @@
+---
+/**
+ * How ScreenTrail handles data, for an MSP's security lead. Every statement here is held to the
+ * repository (docs/STATUS.md, docs/security/*, the build guide's invariants) as of 2026-11-18, and the
+ * limits are stated as plainly as the protections.
+ */
+import Base from '../layouts/Base.astro';
+import { site } from '../site.config';
+
+const docs = `${site.repo}/tree/main/docs/security`;
+---
+<Base title="Security and privacy" description="How ScreenTrail captures, masks, stores and sends session data, what it does not protect against yet, and how to report a vulnerability.">
+  <div class="page wrap">
+    <header class="page-head">
+      <h1>What ScreenTrail captures, and what it does with it.</h1>
+      <p class="sub">Written for the security review your clients will ask for. Where something is not built or not measured yet, this page says so.</p>
+    </header>
+
+    <div class="prose">
+      <div class="callout warn">
+        <strong>ScreenTrail is in development and not yet released.</strong> Nothing here is ready for production use or customer data
+        outside a pilot agreement. The pilot is where the protections below are checked on real sessions.
+      </div>
+
+      <h2>When it captures</h2>
+      <ul>
+        <li>Only while a remote-support tool (ScreenConnect, Remote Desktop, Splashtop, TeamViewer, AnyDesk) is the window in front, or when the technician starts a session by hand.</li>
+        <li>Only that tool's windows, plus admin tools such as PowerShell, Event Viewer or Services if the MSP allows them. Capturing every window is off unless turned on and confirmed.</li>
+        <li>A recording pill is on screen for the whole session. If the app showing it stops responding, the capture service stops capturing within seconds.</li>
+        <li>Capture pauses while a password field has focus, and apps on the exclusion list are not captured.</li>
+      </ul>
+
+      <h2>What is masked, and where</h2>
+      <p>Each screenshot waits in memory on the technician's PC while its text is read (OCR, on the PC). Passwords, card numbers, keys and similar values that are found are painted out of the image before it is written to disk or sent anywhere. A frame that cannot be read in time is dropped and counted, not stored unmasked.</p>
+      <p><strong>This is not a guarantee.</strong> Masking depends on the text being read correctly. On synthetic test pages, 97% of secrets were masked whole at normal display scaling, and 83% when viewed through a scaled, compressed remote viewer. The target before release is 98% on real, labelled sessions, measured in the pilot. The cases the rules do not yet cover are listed in the <a href={`${docs}/data-flow.md`}>data-flow document</a>. Every draft says how many items were masked so the technician can check them before publishing.</p>
+
+      <h2>Voice</h2>
+      <p>Only the technician's own microphone is used, and speech is transcribed on the PC. The end user's voice is not recorded.</p>
+
+      <h2>What leaves the PC</h2>
+      <table class="facts">
+        <tbody>
+          <tr><th scope="row">For drafting</th><td>The masked screenshots, the click and window timeline, and the technician's transcribed words go to the ScreenTrail backend, which asks the drafting model (Gemini or Claude, as the MSP chooses) for the note. Raw audio never leaves the PC.</td></tr>
+          <tr><th scope="row">On publish</th><td>Only what the technician approved: the note and time entry to the ConnectWise ticket, the article to Hudu. Nothing is published without the technician pressing Publish.</td></tr>
+          <tr><th scope="row">Local-only mode</th><td>Nothing is sent for drafting. The only traffic left is the publish the technician asks for and the policy check. Your ScreenTrail owner can lock it on for every technician.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Storage</h2>
+      <ul>
+        <li>Sessions are kept in an encrypted database on the PC, keyed to the Windows account.</li>
+        <li>PSA and documentation credentials are held by the backend in an encrypted vault, and only your ScreenTrail owner can add or change them, in the web admin.</li>
+        <li>Screenshots and audio are deleted after the retention period the MSP sets (seven days by default). Discarding a session deletes its captures.</li>
+        <li>Logs record what happened, never what was on screen or said.</li>
+      </ul>
+
+      <h2>What is not protected yet</h2>
+      <ul>
+        <li>Masking misses some values: an unlabelled run of only one kind of character, mirrored layouts, and text split across rows at some display scales.</li>
+        <li>Some window effects in remote tools can let a few pixels of what is behind them into a screenshot. Capturing single windows is the full fix and is planned.</li>
+        <li>The ConnectWise and Hudu connections have been tested against recorded responses, not live accounts yet.</li>
+      </ul>
+      <p>The full list, with reasons, is in the <a href={`${docs}/threat-model.md`}>threat model</a>.</p>
+
+      <h2>The privacy pack</h2>
+      <p>The data-flow description, threat model, security questionnaire answers and consent guidance are public in the <a href={docs}>repository's security folder</a>. They have not yet been reviewed by an outside security lead, and say so.</p>
+
+      <h2 id="report">Report a vulnerability</h2>
+      <p>Email <a href={`mailto:${site.securityEmail}`}>{site.securityEmail}</a> with what you found and how to reproduce it. Please give us a reasonable time to fix it before telling anyone else, and do not access data that is not yours or degrade the service while testing. We will answer within three working days, keep you told of progress, and credit you if you want to be named. Our <a href="/.well-known/security.txt">security.txt</a> has the same details.</p>
+    </div>
+  </div>
+</Base>

@@ -452,6 +452,9 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
 - [ ] **The Narrator listening pass and an Accessibility Insights FastPass report** (ST-084):
       `docs/ux/a11y-audit.md`, "Needs a person".
 - [ ] **A Google OAuth client id, and one sign-in with a real Google account under the CSP** (ST-099).
+- [ ] **Publish the website** (ST-124, built in `site/`): read its copy, then follow `docs/dev/site.md`,
+      "First deploy": a domain and Cloudflare account, the DNS hardening, the pilot form's inbox, and the
+      `site-production` environment.
 - [ ] **Choose a host and a domain name** (ST-007). `docs/dev/deploy.md` takes any Linux host with
       Docker from there to HTTPS; set `SCREENTRAIL_API_MEMORY` if the host has more than 2 GB.
 - [ ] **Choose a mail provider** (ST-007, ST-010) for invites and the offboarding receipt.
@@ -560,6 +563,7 @@ chose it says so.
 |---|---|---|
 | **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
 | Then | **The Outbox and Iris leftovers:** the owner's review of the coverage banner (built in spec v0.7.3) and the manual Narrator pass (the Settings copy pass is #344) | Agent, with the owner's decisions |
+| When the owner has a domain | **Publish the website** (ST-124, built in `site/`; `docs/dev/site.md`) | Owner sets up the domain and Cloudflare; the deploy is automatic from `main` |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
 | In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |

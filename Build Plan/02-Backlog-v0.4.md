@@ -2226,6 +2226,38 @@ Implements Spec §5 S10; `end_user` diarization; redaction extended; off by defa
 - Verify: `ConsentTests`
 ---
 
+### **ST-124 · The public website**
+- **Epic/Feature:** RELEASE
+- **Priority:** Medium
+- **Estimate:** 3
+- **Status:** Built (2026-11-18): `site/`, Astro static pages on Cloudflare Workers with static assets, the
+  pilot form as the one Worker route (`docs/dev/site.md`). Not yet deployed: needs the domain and a
+  Cloudflare account (ST-007), the pilot inbox, and the owner's read of the copy.
+
+**Description:**
+The draft landing page (artifact 740bacdb, the owner's direction of 2026-11-13) as the real public site,
+with the pages a security lead looks for (security and privacy, vulnerability disclosure and
+`security.txt`, privacy notice, accessibility statement) and a pilot form. Decided 2026-11-18 after a
+weakness review: no cookies, analytics or third-party requests; a Content-Security-Policy with no inline
+code and Trusted Types; the copy held to the product as built.
+
+**Dependencies & Blockers:**
+- 🛑 **Blocks:** ST-110 (pilot recruiting has a page to point at)
+- ⛓️ **Blocked By:** ST-007 (domain, Cloudflare account) for deployment only
+
+**Acceptance Criteria:**
+- [x] Every page passes axe for WCAG 2.2 AA, reflows at 400% zoom and works without JavaScript
+- [x] The build fails if a page needs an inline script or style or loads anything from another site
+- [x] The pilot form sends one plain-text email to a fixed inbox, stores nothing and logs no content
+- [x] No claim on the site goes beyond `docs/STATUS.md` (no redaction guarantee, no results before the pilot)
+- [ ] Deployed on the owner's domain from `main` only, with DNSSEC, CAA and DMARC records (`docs/dev/site.md`)
+
+**Agent brief**
+- Read: `docs/dev/site.md`, `docs/STATUS.md`, Spec §2.0 (brand)
+- Write: `/site/*`, `/.github/workflows/site-deploy.yml`
+- Verify: the Site job in CI (`npm test`, `npm run build`, `npm run e2e` in `site/`)
+---
+
 ## Part C: Ordered plan (replaces the sprint plan, 2026-09-15)
 
 The v0.4 sprint plan stopped describing the build once tickets were taken out of order (ST-079 in "Sprint 14"

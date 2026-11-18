@@ -11,6 +11,7 @@ ScreenTrail turns a remote-support session into a ticket note. A Windows app rec
 | `client/` | Windows app: capture service, UI, and shared logic (.NET 10, WPF) |
 | `backend/` | API (ASP.NET Core, .NET 10) |
 | `web/` | Admin web app (React, TypeScript) |
+| `site/` | The public website (Astro, static, on Cloudflare; `docs/dev/site.md`) |
 | `shared/` | Session schema and design tokens |
 | `research/` | Drafting prompts and evaluation (Python) |
 | `docs/` | Architecture decisions, UX and design notes |

@@ -1,0 +1,5 @@
+{
+  "extends": "../worker/tsconfig.json",
+  "compilerOptions": { "types": ["@cloudflare/workers-types", "node"], "module": "es2022" },
+  "include": ["./**/*.ts", "../worker/**/*.ts"]
+}

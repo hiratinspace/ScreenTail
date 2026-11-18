@@ -1,0 +1,30 @@
+---
+import Base from '../layouts/Base.astro';
+import { site } from '../site.config';
+---
+<Base title="Accessibility" description="The ScreenTrail website's accessibility statement: the standard it aims for, how it is checked, and how to report a problem.">
+  <div class="page wrap">
+    <header class="page-head">
+      <h1>A site everyone can read and use.</h1>
+      <p class="updated">Last updated 18 November 2026</p>
+    </header>
+    <div class="prose">
+      <p>We aim for the website to meet the Web Content Accessibility Guidelines (WCAG) 2.2 at level AA.</p>
+      <h2>How it is checked</h2>
+      <ul>
+        <li>Every change to the site is tested automatically with axe for WCAG 2.2 A and AA rules before it can be published.</li>
+        <li>Every page works with a keyboard alone, with a visible focus outline and a link to skip to the content.</li>
+        <li>The moving parts of the home page stop when your system asks for reduced motion, and the page reads in full without them or without JavaScript.</li>
+        <li>Text and controls meet the contrast the guidelines ask for, and the page reflows at 400% zoom.</li>
+      </ul>
+      <h2>What we know is not right yet</h2>
+      <ul>
+        <li>The home page's illustrations of the app are decorative and hidden from screen readers; the same information is in the text beside them.</li>
+        <li>The site has not yet been reviewed by people who use assistive technology every day. That review is planned with the pilot.</li>
+      </ul>
+      <h2>Tell us about a problem</h2>
+      <p>If something on the site is hard to use, email <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a> with the page and what happened. We aim to answer within three working days.</p>
+      <p>This statement covers the website. The ScreenTrail app's accessibility work (screen readers, high contrast, keyboard use) is tracked in its <a href={`${site.repo}/blob/main/docs/ux/a11y-audit.md`}>audit</a>.</p>
+    </div>
+  </div>
+</Base>

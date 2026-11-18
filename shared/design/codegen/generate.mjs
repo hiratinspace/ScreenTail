@@ -14,6 +14,8 @@ const targets = {
   wpfLight: resolve(repoRoot, 'client/ScreenTrail.UI/Theme/Tokens.Light.g.xaml'),
   wpfCommon: resolve(repoRoot, 'client/ScreenTrail.UI/Theme/Tokens.Common.g.xaml'),
   css: resolve(repoRoot, 'web/src/styles/tokens.g.css'),
+  // The public site (site/) reads the same variables, so its Iris and state colours never drift from the app's.
+  siteCss: resolve(repoRoot, 'site/src/styles/tokens.g.css'),
 };
 const banner = 'Generated from shared/design/tokens.json by shared/design/codegen/generate.mjs. Do not edit by hand.';
 
@@ -22,6 +24,7 @@ await emit(targets.wpfDark, wpfColors(tokens, 'dark'));
 await emit(targets.wpfLight, wpfColors(tokens, 'light'));
 await emit(targets.wpfCommon, wpfCommon(tokens));
 await emit(targets.css, css(tokens));
+await emit(targets.siteCss, css(tokens));
 
 async function emit(file, text) {
   await mkdir(dirname(file), { recursive: true });
