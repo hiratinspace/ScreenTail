@@ -1,0 +1,61 @@
+---
+/**
+ * Every page's frame: head, skip link, header, footer. No inline script or style anywhere, so the
+ * Content-Security-Policy in public/_headers can forbid both (scripts/check-dist.mjs checks the build).
+ */
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { site } from '../site.config';
+import ogImage from '../assets/og.png';
+
+interface Props {
+  title: string;
+  description?: string;
+  /** Set on pages that should not be in search results (the form's answers, the 404). */
+  noindex?: boolean;
+  notice?: boolean;
+}
+const { title, description = site.description, noindex = false, notice = true } = Astro.props;
+const canonical = new URL(Astro.url.pathname, site.url).toString();
+const fullTitle = title === site.name ? `${site.name}: the ticket note is written while you fix the problem` : `${title} · ${site.name}`;
+const og = new URL(ogImage.src, site.url).toString();
+---
+<!doctype html>
+<html lang="en-US" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <meta name="theme-color" content="#f7f5fe" />
+    <meta name="color-scheme" content="light" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={site.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={og} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="ScreenTrail: the ticket note is written while you fix the problem." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to the content</a>
+    {notice && (
+      <aside class="notice" aria-label="Announcement">ScreenTrail is looking for its first pilot MSPs. <a href="/#pilot">See what the pilot involves</a></aside>
+    )}
+    <Header />
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

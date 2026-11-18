@@ -1,0 +1,35 @@
+---
+/**
+ * The site's privacy notice: what this website collects (almost nothing). The product's own data
+ * handling is on /security/; its privacy policy and DPA come with the pilot agreement (ST-111).
+ */
+import Base from '../layouts/Base.astro';
+import { site } from '../site.config';
+---
+<Base title="Privacy" description="What the ScreenTrail website collects: no cookies, no analytics, and only what you send in the pilot form.">
+  <div class="page wrap">
+    <header class="page-head">
+      <h1>This website collects almost nothing.</h1>
+      <p class="updated">Last updated 18 November 2026</p>
+    </header>
+    <div class="prose">
+      <p>This notice covers the ScreenTrail website. How the ScreenTrail app handles session data is described on the <a href="/security/">security page</a>; its privacy policy and data processing agreement come with the pilot agreement.</p>
+
+      <h2>No cookies, analytics or trackers</h2>
+      <p>The site sets no cookies, runs no analytics, and loads nothing from other companies: its fonts, images and code are all served from this site. There is nothing to consent to, so there is no cookie banner.</p>
+
+      <h2>The pilot form</h2>
+      <p>If you send the pilot form, we receive your name, work email, company, team size, PSA, remote tool and anything you write. It is sent to us as one email and used only to reply to you about the pilot. The website keeps no copy of it. The email is kept in our inbox for as long as the conversation about the pilot needs it, and deleted when you ask.</p>
+      <p>The form is limited to a few sends a minute from one network address, to stop abuse. That limit is counted in memory by our host and not stored with your details.</p>
+
+      <h2>Our host</h2>
+      <p>The site is served by Cloudflare, which processes visitors' network addresses to deliver pages and protect against attacks, under its own <a href="https://www.cloudflare.com/privacypolicy/">privacy policy</a>. We have turned off Cloudflare's request logging for the site.</p>
+
+      <h2>Your rights</h2>
+      <p>You can ask what we hold about you, have it corrected or deleted, or object to how it is used, by emailing <a href={`mailto:${site.contactEmail}`}>{site.contactEmail}</a>. If you are in the EU or UK you can also complain to your data protection authority.</p>
+
+      <h2>Changes</h2>
+      <p>If this notice changes, the date at the top changes with it. The history of every change is public in the site's <a href={`${site.repo}/commits/main/site/src/pages/privacy.astro`}>source</a>.</p>
+    </div>
+  </div>
+</Base>

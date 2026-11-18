@@ -8,6 +8,6 @@
   },
   "scripts": {
     "codegen": "node codegen/generate.mjs",
-    "check": "npm run codegen && git diff --exit-code -- ../../client/ScreenTrail.UI/Theme/*.g.xaml ../../web/src/styles/tokens.g.css"
+    "check": "npm run codegen && git diff --exit-code -- ../../client/ScreenTrail.UI/Theme/*.g.xaml ../../web/src/styles/tokens.g.css ../../site/src/styles/tokens.g.css"
   }
 }

@@ -1,0 +1,28 @@
+---
+import lockup from '../assets/brand/lockup.svg';
+import { site } from '../site.config';
+
+const year = new Date().getUTCFullYear();
+---
+<footer>
+  <div class="wrap foot">
+    <div>
+      <img src={lockup.src} alt="ScreenTrail" width="100" height="22" />
+      <p>A Windows app for MSP technicians, in development. Screens on this site use sample data.</p>
+    </div>
+    <nav aria-label="Footer">
+      <ul>
+        <li><a href="/security/">Security</a></li>
+        <li><a href="/privacy/">Privacy</a></li>
+        <li><a href="/security/#report">Report a vulnerability</a></li>
+        <li><a href="/accessibility/">Accessibility</a></li>
+        <li><a href={`${site.repo}/tree/main/docs/security`}>Privacy pack</a></li>
+        <li><a href="/#pilot">Pilot</a></li>
+      </ul>
+    </nav>
+    <div class="fine">
+      <span>© {year} ScreenTrail</span>
+      <span>No cookies, no trackers, no third-party requests.</span>
+    </div>
+  </div>
+</footer>

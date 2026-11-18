@@ -1,0 +1,16 @@
+# Dependency updates for the public site only (docs/dev/site.md, "Dependencies"). Not the workflows:
+# an update to hardware-checks.yml would put a bot's branch on the laptop runner. Weekly and grouped,
+# so a review is one pull request, which the Site job builds and tests like any other.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      site:
+        patterns: ['*']
+    commit-message:
+      prefix: 'chore(site)'

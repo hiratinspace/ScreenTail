@@ -1,0 +1,20 @@
+---
+import lockup from '../assets/brand/lockup.svg';
+
+const path = Astro.url.pathname;
+const links = [
+  { href: '/#how', label: 'How it works' },
+  { href: '/#stack', label: 'Works with' },
+  { href: '/security/', label: 'Security' },
+  { href: '/#pilot', label: 'Pilot' },
+];
+---
+<header class="top">
+  <div class="wrap">
+    <a class="home" href="/" aria-label="ScreenTrail home"><img src={lockup.src} alt="" width="118" height="26" /></a>
+    <nav class="links" aria-label="Main">
+      {links.map((l) => <a href={l.href} aria-current={l.href === path ? 'page' : undefined}>{l.label}</a>)}
+    </nav>
+    <a class="btn btn-dark" href="/#pilot">Become a pilot MSP</a>
+  </div>
+</header>

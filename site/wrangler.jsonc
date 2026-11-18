@@ -1,0 +1,36 @@
+// Cloudflare Workers with static assets (docs/dev/site.md). Every page is a static file; the Worker
+// runs first only for /api/*, which is the pilot form. Nothing is stored anywhere.
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "screentrail-site",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-11-18",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "html_handling": "force-trailing-slash",
+    "run_worker_first": ["/api/*"]
+  },
+  // No request logs with bodies: the Worker never logs what a visitor typed (INV-10's rule, kept here).
+  "observability": { "enabled": false },
+  "workers_dev": false,
+  "preview_urls": false,
+  // Five form posts a minute per visitor address. The namespace id is any number unique in the account.
+  "ratelimits": [
+    { "name": "PILOT_LIMIT", "namespace_id": "4801", "simple": { "limit": 5, "period": 60 } }
+  ],
+  // The pilot form's mail. destination_address pins the binding to the owner's inbox, so even a bug in
+  // the Worker cannot send mail anywhere else. Fill both in once the domain is on Email Service.
+  "send_email": [
+    {
+      "name": "PILOT_MAIL",
+      "destination_address": "pilot-inbox@screentrail.example",
+      "allowed_sender_addresses": ["pilot-form@screentrail.example"]
+    }
+  ],
+  "vars": {
+    "PILOT_FROM": "pilot-form@screentrail.example",
+    "PILOT_TO": "pilot-inbox@screentrail.example"
+  }
+}

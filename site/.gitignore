@@ -1,0 +1,7 @@
+.astro/
+.wrangler/
+dist/
+e2e-results/
+e2e-report/
+.dev.vars*
+wrangler.deploy.json

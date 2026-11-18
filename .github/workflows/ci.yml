@@ -39,6 +39,7 @@ jobs:
       backend: ${{ steps.areas.outputs.backend }}
       deploy: ${{ steps.areas.outputs.deploy }}
       web: ${{ steps.areas.outputs.web }}
+      site: ${{ steps.areas.outputs.site }}
       research: ${{ steps.areas.outputs.research }}
       schema: ${{ steps.areas.outputs.schema }}
       design: ${{ steps.areas.outputs.design }}
@@ -109,9 +110,12 @@ jobs:
             # The Web job's browser tests run the real backend (ADR-0009, "Testing in a real browser"), so a
             # change to the backend's code or its build settings runs them too (owner, 2026-11-04).
             flag '^(web/|\.nvmrc|deploy/web/|backend/src/|backend/Directory\.(Build|Packages)\.props)' web
+            # The public site (site/, docs/dev/site.md). shared/ is in the common pattern, so a token change
+            # rebuilds it too.
+            flag '^(site/|\.nvmrc|\.github/workflows/site-deploy\.yml)' site
             flag '^(research/|client/ScreenTrail\.Core/Privacy/PatternLibrary\.cs|backend/tests/ScreenTrail\.Api\.Tests/Summarize/DifferentialCasesTests\.cs)' research
             flag '^(shared/schema/|client/ScreenTrail\.Shared/Generated/|web/src/generated/)' schema
-            flag '^(shared/design/|client/ScreenTrail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
+            flag '^(shared/design/|client/ScreenTrail\.UI/Theme/.*\.g\.xaml|web/src/styles/tokens\.g\.css|site/src/styles/tokens\.g\.css|docs/ux/review-hifi/)' design
             # Whether this PR needs an answer from a real machine. Must stay in step with the paths in
             # hardware-checks.yml: if this says yes and that workflow does not run, the gate below waits
             # for evidence that is never coming.
@@ -803,6 +807,50 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  # The public marketing site (site/, docs/dev/site.md): static pages and one form Worker. The build
+  # itself fails if a page needs anything the Content-Security-Policy forbids (scripts/check-dist.mjs),
+  # and the browser tests run it on Cloudflare's local runtime with the real headers and Worker. No
+  # secrets: deploying is site-deploy.yml, from main only.
+  site:
+    name: Site
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: site
+    env:
+      ASTRO_TELEMETRY_DISABLED: '1'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit -p worker && npx tsc --noEmit -p tests
+      - run: npm test
+      - run: npm run build
+      - name: Browser tests (Playwright, Chromium, on wrangler dev)
+        timeout-minutes: 8
+        run: |
+          npx playwright install --only-shell chromium
+          npm run e2e
+      - name: Upload the browser tests' traces (failures only)
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: site-e2e-failures
+          path: |
+            site/e2e-results/
+            site/e2e-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
   research:
     name: Research
     needs: changes
@@ -1403,7 +1451,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [changes, client, installer, installer-sign, installer-signed-check, backend, web, research, schema, design, scripts, commits, workflows, e2e, hardware-gate]
+    needs: [changes, client, installer, installer-sign, installer-signed-check, backend, web, site, research, schema, design, scripts, commits, workflows, e2e, hardware-gate]
     runs-on: ubuntu-latest
     steps:
       - env:
