@@ -43,6 +43,10 @@ namespace ScreenTrail.Service.Host;
 /// The tray's Start capture (<c>start</c> with <c>origin: tray</c>, contract v13): the coordinator's start by
 /// hand, the one Ctrl+Alt+R goes through, in the remote tool window most recently in front. Null refuses it.
 /// </param>
+/// <param name="coverage">
+/// The coverage banner's counts (<c>get_coverage</c>, contract v14, ST-079). Null answers nothing, and the
+/// UI then shows no banner.
+/// </param>
 internal sealed class CaptureController(
     SessionMachine machine,
     ICapabilityProbe capabilities,
@@ -57,7 +61,8 @@ internal sealed class CaptureController(
     IndicatorReports indicators,
     Func<(bool LocalOnly, string? PolicyVersion)> sessionPolicy,
     Core.Update.UpdateCommands? updates = null,
-    Func<StartCommand, CancellationToken, Task<CommandResult>>? trayStart = null) : IIpcCommandHandler
+    Func<StartCommand, CancellationToken, Task<CommandResult>>? trayStart = null,
+    CoverageCommands? coverage = null) : IIpcCommandHandler
 {
     private readonly ManualStart _start = new(machine, () => indicators.Showing, sessionPolicy);
 
@@ -108,6 +113,9 @@ internal sealed class CaptureController(
         {
             GetDiagnosticsCommand => diagnostics(),
             ListSessionsCommand list => await ListAsync(list, ct).ConfigureAwait(false),
+
+            // The coverage banner's counts over the period the filters chose (contract v14).
+            GetCoverageCommand asked when coverage is not null => await coverage.ReplyAsync(asked, ct).ConfigureAwait(false),
 
             // Named sessions are Review's and History's; none named is the tray's or erase's, as before.
             RequestConfirmationCommand { SessionIds: not null } named => _discards.Confirm(named, caller),

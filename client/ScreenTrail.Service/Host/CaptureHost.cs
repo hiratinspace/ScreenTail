@@ -417,7 +417,9 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             indicators,
             sessionPolicy,
             updateCommands,
-            (start, ct) => startFromTray(start, ct));
+            trayStart: (start, ct) => startFromTray(start, ct),
+            // ST-079: the coverage banner's counts, the misses kept as long as raw data (INV-12).
+            coverage: new Core.History.CoverageCommands(store, () => retentionOptions.Retention));
         await using var server = new IpcServer(
             // A pipe name another pipe already holds is logged, a warning at first (it may be this
             // service's previous run, still open in a UI) and an error if it stays held. The UI, which
@@ -495,7 +497,11 @@ internal sealed partial class CaptureHost(ILogger<CaptureHost> logger, IHostAppl
             Platform.Clipboard.ClipboardText.ReadOnce,
             () => captureStore.Load().AutoStart,
             latest: () => foreground.Latest,
-            exists: WindowsForegroundWatcher.Exists);
+            exists: WindowsForegroundWatcher.Exists,
+            // ST-079: the remote sessions seen and not captured, the coverage banner's denominator. One
+            // visit per stretch of remote work, by the trigger's own grace; kept in the store (INV-10, INV-12).
+            visits: new Core.History.RemoteVisits(() => trigger.Grace),
+            missed: store.RecordMissedVisitAsync);
         startFromTray = coordinator.StartFromTrayAsync;
 
         // Applied now from the last synced copy and the settings on disk, and again whenever a fetch

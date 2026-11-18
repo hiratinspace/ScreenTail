@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using System.Threading.Channels;
 using ScreenTrail.Core.Detection;
+using ScreenTrail.Core.History;
 using ScreenTrail.Core.Intel;
 using ScreenTrail.Core.Privacy;
 using ScreenTrail.Core.Sessions;
@@ -43,6 +44,10 @@ internal sealed partial class AutoSessionCoordinator
     // only for the length of that start: the window in front then is the menu, not the remote session.
     private volatile StartedIn? _startedIn;
 
+    // ST-079: the remote sessions seen and not captured, for the coverage banner. Null counts nothing.
+    private readonly RemoteVisits? _visits;
+    private readonly Func<MissedVisit, CancellationToken, Task>? _missed;
+
     // The decision in force and what the timeline last said. Changed by the scope loop, by the auto-stop
     // timer and, when the policy moved, by whoever asks for the scope first. Never held across a wait.
     private readonly Lock _gate = new();
@@ -70,6 +75,11 @@ internal sealed partial class AutoSessionCoordinator
     /// remote tool window that has closed. Null takes every remembered window as open (tests).
     /// </param>
     /// <param name="recent">The remote tool window most recently in front, for the tray's start. Null keeps one on the coordinator's clock.</param>
+    /// <param name="visits">
+    /// Counts the remote sessions the service sees (ST-079): told of every look at the window in front and
+    /// of every session that starts. Null counts nothing.
+    /// </param>
+    /// <param name="missed">Keeps a remote session that was seen and not captured (the store's). Null keeps nothing.</param>
     public AutoSessionCoordinator(
         SessionMachine machine,
         ScopePolicy policy,
@@ -82,11 +92,15 @@ internal sealed partial class AutoSessionCoordinator
         TimeProvider? time = null,
         Func<ForegroundWindowInfo?>? latest = null,
         Func<nint, bool>? exists = null,
-        RecentRemoteTool? recent = null)
+        RecentRemoteTool? recent = null,
+        RemoteVisits? visits = null,
+        Func<MissedVisit, CancellationToken, Task>? missed = null)
     {
         _latest = latest;
         _exists = exists ?? (_ => true);
         _recent = recent ?? new RecentRemoteTool(time);
+        _visits = visits;
+        _missed = missed;
         _machine = machine ?? throw new ArgumentNullException(nameof(machine));
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
         _trigger = trigger ?? throw new ArgumentNullException(nameof(trigger));
@@ -275,19 +289,49 @@ internal sealed partial class AutoSessionCoordinator
         // stays in force for every window that follows, and if that decision was "remote tool", typing
         // anywhere is recorded from then on. It used to end on the first exception of any kind.
         var windows = _windows.Reader;
-        await ResilientLoop.RunAsync(
-            next: async token => await windows.WaitToReadAsync(token).ConfigureAwait(false),
-            step: async token =>
-            {
-                while (windows.TryRead(out var window))
+        try
+        {
+            await ResilientLoop.RunAsync(
+                next: async token => await windows.WaitToReadAsync(token).ConfigureAwait(false),
+                step: async token =>
                 {
-                    await HandleAsync(window, token).ConfigureAwait(false);
-                }
-            },
-            onFailure: failure => LogLoopFailed(_logger, "scope", failure.GetType().Name),
-            ct).ConfigureAwait(false);
+                    while (windows.TryRead(out var window))
+                    {
+                        await HandleAsync(window, token).ConfigureAwait(false);
+                    }
+                },
+                onFailure: failure => LogLoopFailed(_logger, "scope", failure.GetType().Name),
+                ct).ConfigureAwait(false);
 
-        await ticking.ConfigureAwait(false);
+            await ticking.ConfigureAwait(false);
+        }
+        finally
+        {
+            // The service is stopping: the remote session the technician is in ends here, so a miss is not
+            // lost with the process. Past the stopping token, since that is what ended the loops.
+            await NoteVisitAsync(_visits?.End(), CancellationToken.None).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Keeps a remote session that was seen and not captured (ST-079). A store that refuses costs that one
+    /// count, never the scope loop: logged by the fault's type alone (INV-10).
+    /// </summary>
+    private async Task NoteVisitAsync(MissedVisit? visit, CancellationToken ct)
+    {
+        if (visit is null || _missed is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _missed(visit, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogLoopFailed(_logger, "coverage", ex.GetType().Name);
+        }
     }
 
     /// <summary>
@@ -338,6 +382,8 @@ internal sealed partial class AutoSessionCoordinator
         // The window the tray's Start capture would start in, once the menu has taken the front.
         _recent.Saw(window, decision);
 
+        // Why a start the trigger asked for did not happen, for the coverage banner's count (ST-079).
+        MissReason? refused = null;
         if (triggered.Start && CanStart(_machine.State))
         {
             var tool = new RemoteTool { Kind = decision.Tool ?? RemoteToolKind.Other };
@@ -345,15 +391,26 @@ internal sealed partial class AutoSessionCoordinator
             {
                 // Settings → Capture "Auto-start" off (ST-080): the tool is in scope, the session waits for Ctrl+Alt+R.
                 LogAutoStartOff(_logger, triggered.ToolId ?? "unknown");
+                refused = MissReason.AutoStartOff;
             }
             else if (!_indicated())
             {
                 LogNoIndicator(_logger);
+                refused = MissReason.NoIndicator;
             }
             else if (await StartUnderPolicyAsync(tool, Hint(window), ct).ConfigureAwait(false))
             {
                 LogAutoStart(_logger, triggered.ToolId ?? "unknown");
             }
+            else
+            {
+                refused = _machine.StartsHeld ? MissReason.StartHeld : MissReason.Busy;
+            }
+        }
+        else if (triggered.Start)
+        {
+            // The session before is still finishing, so nothing could start.
+            refused = MissReason.Busy;
         }
         else if (triggered.Stop && IsRunning(_machine.State))
         {
@@ -367,6 +424,10 @@ internal sealed partial class AutoSessionCoordinator
         {
             _ = _trigger.Follow(running: false);
         }
+
+        // One look at the front for the coverage count: a remote tool's window is part of a visit, and a
+        // visit that ended uncaptured is kept (ST-079).
+        await NoteVisitAsync(_visits?.Observe(decision, IsRunning(_machine.State), refused), ct).ConfigureAwait(false);
 
         // The timeline records where the technician went and whether it was in scope, even when no frame is
         // taken. That is what makes "clicks logged, no frames" visible in Review rather than a silent gap.
@@ -433,6 +494,10 @@ internal sealed partial class AutoSessionCoordinator
             }
         }
 
+        // The coverage count's look at the front: time in a remote tool adds up, and a visit the
+        // technician left for the grace ends here even when nothing else moves (ST-079).
+        await NoteVisitAsync(_visits?.Observe(_decided?.Decision, IsRunning(_machine.State)), ct).ConfigureAwait(false);
+
         // The window in front keeps the session when it is a remote tool or the one a session started by
         // hand was started in, so the grace runs from when the technician left it rather than from when
         // they arrived. A technician working in one window makes no foreground change to say so.
@@ -467,6 +532,11 @@ internal sealed partial class AutoSessionCoordinator
     private void OnStateChanged(CaptureStateSnapshot snapshot)
     {
         var running = snapshot.State is CaptureStates.Recording or CaptureStates.Paused or CaptureStates.Suppressed;
+        if (running)
+        {
+            // Whoever started it, the remote session in front now was captured (ST-079).
+            _visits?.SessionRunning();
+        }
 
         // A tray start names the window it started in; any other start is in the window in front.
         if (running && _startedIn is { } startedIn)

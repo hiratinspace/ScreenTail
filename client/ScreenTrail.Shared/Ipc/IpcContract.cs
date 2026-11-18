@@ -67,8 +67,14 @@ namespace ScreenTrail.Shared.Ipc;
 /// absent is the onboarding wizard's test session as before, <c>tray</c> starts the session as Ctrl+Alt+R
 /// would have in the remote tool window most recently in front. A new field on a command both sides
 /// exchange, which a v12 service would refuse as an unknown member, so the version moves.
+///
+/// 14: ST-079, the coverage banner on All sessions (spec v0.7.3 S4). <c>get_coverage</c> asks for the
+/// sessions captured and the remote sessions seen and not captured, by tool, from a time on, and the
+/// <c>coverage</c> reply carries them. New messages, which on their own have not moved the version; it
+/// moves because the banner's numbers depend on the service answering, and a UI paired with a service
+/// that cannot would lose the banner without a word. The handshake turns such a pair away instead.
 /// </summary>
 public static class IpcContract
 {
-    public const int Version = 13;
+    public const int Version = 14;
 }

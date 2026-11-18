@@ -56,8 +56,8 @@ waits for the owner's ST-027 recording. A stop in the middle of a transcription 
 memory test now waits for that (#339, #340). whisper.cpp cannot be stopped inside an encoder pass, so a
 stop during one lets go only when the pass ends (about 4.7 s on one thread; `docs/dev/performance.md`).
 
-**Pull `main` before the next run on the laptop.** The pipe contract is version 13 (v10 for "Not
-confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note, v13 for the tray's Start capture), and the service and the UI
+**Pull `main` before the next run on the laptop.** The pipe contract is version 14 (v10 for "Not
+confirmed", v11 for the rail's rows, v12 for the diagnostics' backend note, v13 for the tray's Start capture, v14 for the coverage banner), and the service and the UI
 must match it exactly. The demo scripts are unaffected by #326's machine-wide backend address: they run a
 development build from the clone, which still reads `SCREENTRAIL_BACKEND`.
 
@@ -323,13 +323,17 @@ Phases A and B of the ordered plan (backlog Part C) are complete apart from what
 - **Every HTTP call the service makes goes through the egress allowlist**, by purpose (INV-8):
   `Publish` goes; `Policy` goes; `DeviceAuth` (activation, renewal) goes only on behalf of a publish or
   the policy fetch under local-only, never on the renewal timer (#326); everything else is refused.
+- **The coverage banner on All sessions** (ST-079, spec v0.7.3, awaiting owner review): "Captured 46 of
+  52 remote sessions in the last 7 days (88%).", with the reasons for the misses under it, over the When
+  and Tool filters. The service now counts the remote sessions it saw and did not capture, one per visit
+  within the grace, as tool kind, times and a reason word (store migration 0016, purged with raw data);
+  brief pass-throughs are in neither number.
 - The audit log is hash-chained with a head anchor. Every process logs through one scrubbing sink
   (ST-011). A crash leaves a stack-only report, and only when opted in.
 - Design tokens generate WPF dictionaries and web CSS from one source (v0.6.0, Iris), and the gallery
   and every screen render in CI in dark, light, Night sky and Desert.
 
-**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007); mail for invites; and the
-coverage banner on All sessions (placed in the spec; nothing counts the uncaptured sessions yet, #305).
+**Not built:** the local text model (ST-065); the cloud half of hosting (ST-007); and mail for invites.
 **Built and switched off until the owner
 sets them up:** the installer's signature (ST-112, ADR-0007), auto-update (ST-113, ADR-0008) and owner
 sign-in to the web admin (ST-099, ADR-0009).
@@ -419,7 +423,7 @@ the idle hooks, the accessibility suite at a scaled display, the stop times, ST-
       processor budget, and word error is so far unchanged on synthetic speech only. Only if it fails on
       real speech, decide whether speech should count against the screenshot budget.
 - [ ] **Check the light window on the laptop** (#336): the rail, Settings and the title bar buttons.
-- [ ] **Pull `main` on the demo laptop before the next run** (contract v13), then
+- [ ] **Pull `main` on the demo laptop before the next run** (contract v14), then
       `scripts\windows\demo\start.cmd` from a plain PowerShell window.
 - [ ] **Review the spec amendments marked "Awaiting owner review"** (v0.5.0 to v0.7.0 in
       `Build Plan/01-UX-Design-Spec.md` §9), and the Appearance default (§5, decisions below).
@@ -555,7 +559,7 @@ chose it says so.
 | When | What | Who |
 |---|---|---|
 | **Now** | **ST-027's recorded narration**, then the sized encoder context's default (#334, ST-031): narration as shipped still trips the throttle, and the sized context, which does not, waits for word error on real speech | Owner records and decides; agent measures |
-| Then | **The Outbox and Iris leftovers:** the coverage banner (not built), the manual Narrator pass, and the Settings copy issues found in the #290 gallery | Agent, with the owner's decisions |
+| Then | **The Outbox and Iris leftovers:** the owner's review of the coverage banner (built in spec v0.7.3) and the manual Narrator pass (the Settings copy pass is #344) | Agent, with the owner's decisions |
 | Phase C proper | The real ConnectWise and Hudu checks (ST-091 to ST-097), with #332's company lookup | Agent, once there is a ConnectWise sandbox and a Hudu key |
 | Go-live prerequisites | Hosting (ST-007), a code-signing certificate (ST-112), a legal privacy policy and DPA (ST-111), drafting billing, a ConnectWise sandbox, a Hudu key, the first deployment's vault upgrade, and the laptop runner's hardening (§5) | Owner |
 | In parallel, when the inputs exist | ST-030 and ST-062, ST-063's measurements | Owner supplies; agent runs |

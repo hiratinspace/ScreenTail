@@ -35,16 +35,31 @@ public sealed record HistoryFilter
     public IReadOnlySet<string> Tools { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 }
 
-/// <param name="Captured">Sessions ScreenTrail recorded.</param>
-/// <param name="Total">Remote sessions that happened, captured or not.</param>
-public sealed record Coverage(int Captured, int Total)
+/// <param name="Captured">Sessions ScreenTrail recorded, brief pass-throughs left out.</param>
+/// <param name="Total">Remote sessions the device saw, captured or not, brief pass-throughs left out.</param>
+/// <param name="Missed">The ones not captured, by reason, most first.</param>
+public sealed record Coverage(int Captured, int Total, IReadOnlyList<(MissReason Reason, int Count)> Missed)
 {
-    public int Percent => Total == 0 ? 0 : (int)Math.Round(Captured * 100.0 / Total, MidpointRounding.AwayFromZero);
+    /// <summary>
+    /// Rounded, but never 100 while any session was missed and never 0 while any was captured: "199 of 200
+    /// (100%)" would say nothing was missed, which is the one thing the banner exists to say.
+    /// </summary>
+    public int Percent
+    {
+        get
+        {
+            if (Total == 0)
+            {
+                return 0;
+            }
 
-    /// <summary>Spec §5 S4's banner. Null when there is nothing to report rather than "0 of 0 (0%)".</summary>
-    public string? Banner => Total == 0
-        ? null
-        : string.Create(CultureInfo.InvariantCulture, $"Captured {Captured} of {Total} remote sessions ({Percent}%)");
+            var rounded = (int)Math.Round(Captured * 100.0 / Total, MidpointRounding.AwayFromZero);
+            return Captured == Total ? 100 : Math.Clamp(rounded, Captured > 0 ? 1 : 0, 99);
+        }
+    }
+
+    /// <summary>How many were not captured.</summary>
+    public int NotCaptured => Total - Captured;
 }
 
 /// <summary>
@@ -160,19 +175,33 @@ public static class SessionHistory
     }
 
     /// <summary>
-    /// The coverage banner, over whatever the filters left.
+    /// The coverage banner's numbers, over whatever the filters left (ST-079 "reflects filters", spec
+    /// v0.7.3 S4): the service's counts from the period's start, for the tool chosen or every tool.
     ///
     /// Spec §5 S4 puts it above a filtered table, so it has to describe that table: a banner still
     /// reporting the week while the technician is looking at one day is a number that answers a question
-    /// nobody asked, and it is the kind of number people quote in a QBR.
+    /// nobody asked, and it is the kind of number people quote in a QBR. The denominator is the remote
+    /// sessions the device saw (<see cref="RemoteVisits"/>), not the captured ones against themselves,
+    /// which would always say 100%.
     /// </summary>
-    /// <param name="observed">Remote sessions detected, captured or not (ST-023). Null when unknown, and
-    /// the banner then reports what was captured against itself rather than inventing a denominator.</param>
-    public static Coverage CoverageOf(IReadOnlyList<SessionSummary> shown, int? observed = null)
+    /// <param name="tool">The tool filter's kind, or null for every tool.</param>
+    public static Coverage CoverageOf(Shared.Ipc.CoverageReported reported, string? tool = null)
     {
-        ArgumentNullException.ThrowIfNull(shown);
-        var captured = shown.Count;
-        return new Coverage(captured, Math.Max(observed ?? captured, captured));
+        ArgumentNullException.ThrowIfNull(reported);
+        var rows = reported.Tools.Where(t => tool is null || string.Equals(t.Tool, tool, StringComparison.OrdinalIgnoreCase)).ToList();
+        var captured = rows.Sum(t => Math.Max(0, t.Captured));
+
+        // A word this build does not know is still a session that was missed; it is counted as Busy, the
+        // reason that says least, rather than dropped from the denominator.
+        var missed = rows
+            .SelectMany(t => t.Missed)
+            .Where(m => m.Count > 0)
+            .GroupBy(m => MissReasons.Parse(m.Reason) ?? MissReason.Busy)
+            .Select(g => (Reason: g.Key, Count: g.Sum(m => m.Count)))
+            .OrderByDescending(m => m.Count)
+            .ThenBy(m => m.Reason)
+            .ToList();
+        return new Coverage(captured, captured + missed.Sum(m => m.Count), missed);
     }
 
     /// <summary>

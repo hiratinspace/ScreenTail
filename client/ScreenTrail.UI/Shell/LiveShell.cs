@@ -344,7 +344,8 @@ public sealed class LiveShell : IAsyncDisposable
                     confirm: (confirmation, count) => OnUiThread(() => ConfirmWindow.AskToDiscardSessions(_window, confirmation, count)),
                     discard: _discards.BulkAsync,
                     discardBlocked: _discards.BulkBlockedBecause,
-                    markPublished: (sessionId, described, ct) => _marks.RunAsync(sessionId, () => OnUiThread(() => ConfirmMarkAsPublished(described)), ct)),
+                    markPublished: (sessionId, described, ct) => _marks.RunAsync(sessionId, () => OnUiThread(() => ConfirmMarkAsPublished(described)), ct),
+                    coverage: CoverageAsync),
                 () => new SettingsViewModel(
                     new ActivationViewModel(new ActivationPanel(new PipeDevice(_connection), Environment.MachineName)),
                     new CaptureViewModel(
@@ -579,6 +580,10 @@ public sealed class LiveShell : IAsyncDisposable
 
     private async Task<IReadOnlyList<SessionRow>?> ListSessionsAsync(CancellationToken ct) =>
         (await _connection.RequestAsync<SessionsListed>(id => new ListSessionsCommand { RequestId = id }, ct).ConfigureAwait(true))?.Sessions;
+
+    /// <summary>The coverage banner's counts from the period's start (contract v14), or null when the service would not say.</summary>
+    private async Task<CoverageReported?> CoverageAsync(DateTimeOffset? from, CancellationToken ct) =>
+        await _connection.RequestAsync<CoverageReported>(id => new GetCoverageCommand { RequestId = id, From = from }, ct).ConfigureAwait(true);
 
     /// <summary>
     /// Asks the service for a confirmation token, asks the technician to type the word, and sends both.

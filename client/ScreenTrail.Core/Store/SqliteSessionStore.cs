@@ -13,7 +13,7 @@ namespace ScreenTrail.Core.Store;
 /// <see cref="ISessionStore"/> on SQLite + SQLCipher. One connection, commands serialized, WAL journal.
 /// Open with <see cref="OpenAsync"/>; it keys the connection and applies pending migrations.
 /// </summary>
-public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
+public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore, ICoverageStore
 {
     private static readonly Lock BatteriesLock = new();
     private static readonly Lazy<int> LatestVersion = new(() => LoadMigrations().Max(m => m.Version));
@@ -1411,6 +1411,86 @@ public sealed class SqliteSessionStore : ISessionStore, IAuditLog, IOutboxStore
 
     public Task<int> GetSchemaVersionAsync(CancellationToken ct = default) =>
         ScalarAsync<int>("SELECT COALESCE(MAX(version), 0) FROM schema_migrations", ct);
+
+    // ---- coverage (ST-079, migration 0016) -------------------------------------------------------------
+
+    /// <summary>The migration that began counting missed visits; when it was applied is when counting began.</summary>
+    private const int CoverageMigration = 16;
+
+    public Task RecordMissedVisitAsync(History.MissedVisit visit, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(visit);
+        return RunAsync(
+            "INSERT INTO missed_visits (remote_tool_kind, started_at, ended_at, reason) VALUES (@tool, @started, @ended, @reason)",
+            ct,
+            ("@tool", EnumName(visit.Tool)),
+            ("@started", Iso(visit.StartedAt.ToUniversalTime())),
+            ("@ended", Iso((visit.EndedAt < visit.StartedAt ? visit.StartedAt : visit.EndedAt).ToUniversalTime())),
+            ("@reason", History.MissReasons.Wire(visit.Reason)));
+    }
+
+    public async Task<bool> MarkPassThroughAsync(string sessionId, CancellationToken ct = default) =>
+        await RunAsync(
+            "INSERT OR IGNORE INTO pass_through_sessions (session_id) SELECT id FROM sessions WHERE id = @id",
+            ct,
+            ("@id", sessionId)).ConfigureAwait(false) > 0
+        || await ScalarAsync<int>("SELECT COUNT(*) FROM pass_through_sessions WHERE session_id = @id", ct, ("@id", sessionId)).ConfigureAwait(false) > 0;
+
+    public async Task<CoverageCounts> CountCoverageAsync(DateTimeOffset from, CancellationToken ct = default)
+    {
+        // Sessions keep the offset they were started with, so they are compared as times, not as text.
+        // Missed visits are written in UTC, and compare as text on their index.
+        var since = Iso(from.ToUniversalTime());
+        var captured = await QueryAsync<IReadOnlyDictionary<string, int>>(
+            """
+            SELECT s.remote_tool_kind, COUNT(*) FROM sessions s
+            WHERE julianday(s.started_at) >= julianday(@from) AND NOT EXISTS (SELECT 1 FROM pass_through_sessions p WHERE p.session_id = s.id)
+            GROUP BY s.remote_tool_kind
+            """,
+            async reader =>
+            {
+                var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    counts[reader.GetString(0)] = reader.GetInt32(1);
+                }
+
+                return counts;
+            },
+            ct,
+            ("@from", since)).ConfigureAwait(false);
+
+        var missed = await QueryAsync<IReadOnlyDictionary<(string, History.MissReason), int>>(
+            "SELECT remote_tool_kind, reason, COUNT(*) FROM missed_visits WHERE started_at >= @from GROUP BY remote_tool_kind, reason",
+            async reader =>
+            {
+                var counts = new Dictionary<(string, History.MissReason), int>();
+                while (await reader.ReadAsync(ct).ConfigureAwait(false))
+                {
+                    // The CHECK holds the word to the list; one this build does not know is not counted as another.
+                    if (History.MissReasons.Parse(reader.GetString(1)) is { } reason)
+                    {
+                        counts[(reader.GetString(0), reason)] = reader.GetInt32(2);
+                    }
+                }
+
+                return counts;
+            },
+            ct,
+            ("@from", since)).ConfigureAwait(false);
+
+        return new CoverageCounts(captured, missed);
+    }
+
+    public Task<DateTimeOffset> CoverageCountedSinceAsync(CancellationToken ct = default) =>
+        QueryAsync(
+            "SELECT applied_at FROM schema_migrations WHERE version = @v",
+            async reader => await reader.ReadAsync(ct).ConfigureAwait(false) ? ParseIso(reader.GetString(0)) : _time.GetUtcNow(),
+            ct,
+            ("@v", CoverageMigration));
+
+    public Task<int> PurgeMissedVisitsBeforeAsync(DateTimeOffset cutoff, CancellationToken ct = default) =>
+        RunAsync("DELETE FROM missed_visits WHERE ended_at < @cutoff", ct, ("@cutoff", Iso(cutoff.ToUniversalTime())));
 
     // ---- outbox (ST-064) -------------------------------------------------------------------------------
 
