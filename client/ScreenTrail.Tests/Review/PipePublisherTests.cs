@@ -331,7 +331,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         // S-135: the activation card had the same second ask. A used or expired code costs one call.
         var backend = new ActivationBackend(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
         {
-            Content = JsonContent.Create(new { error = "invite_expired", message = "That code has expired. Ask your admin for a new invite." }),
+            Content = JsonContent.Create(new { error = "invite_expired", message = "That code has expired. Ask your ScreenTrail owner for a new invite." }),
         });
         _ = await PublisherAsync(backend.Commands());
         var device = new PipeDevice(_connection!);
@@ -339,7 +339,7 @@ public sealed class PipePublisherTests : IAsyncDisposable
         var answer = await device.ActivateAsync("KX7PM-4R2WQ", "TECH", TestContext.Current.CancellationToken);
 
         Assert.Null(answer.TenantName);
-        Assert.Equal("That code has expired. Ask your admin for a new invite.", answer.Refusal);
+        Assert.Equal("That code has expired. Ask your ScreenTrail owner for a new invite.", answer.Refusal);
         Assert.Equal(1, backend.Calls);
     }
 

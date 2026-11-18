@@ -40,7 +40,7 @@ public sealed class OnboardingViewModelTests
     [Fact]
     public async Task ARefusedActivationLeavesContinueOff()
     {
-        var screen = new OnboardingViewModel(Wizard(new FakeDevice { Refusal = "That code has expired. Ask your admin for a new invite." }), () => { });
+        var screen = new OnboardingViewModel(Wizard(new FakeDevice { Refusal = "That code has expired. Ask your ScreenTrail owner for a new invite." }), () => { });
         await screen.NextCommand.ExecuteAsync(null);
 
         screen.Activation.Code = InviteCodes.Example;

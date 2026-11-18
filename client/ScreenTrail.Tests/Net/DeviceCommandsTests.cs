@@ -35,7 +35,7 @@ public sealed class DeviceCommandsTests
     [Fact]
     public async Task ARefusedActivationComesBackAsTheFailedResultWithTheReason()
     {
-        var handler = new OneReply(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { error = "invite_expired", message = "That code has expired. Ask your admin for a new invite." }) });
+        var handler = new OneReply(new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = JsonContent.Create(new { error = "invite_expired", message = "That code has expired. Ask your ScreenTrail owner for a new invite." }) });
         var session = new DeviceSession(new HttpClient(handler) { BaseAddress = new Uri("https://api.screentrail.example/") }, new DeviceSessionTests.InMemoryCredentials(), time: new ManualTime(DateTimeOffset.UtcNow));
         var commands = new DeviceCommands(session);
 
@@ -43,7 +43,7 @@ public sealed class DeviceCommandsTests
         var result = await commands.HandleAsync(new ActivateDeviceCommand { RequestId = 5, Code = "OLD", DeviceName = "TECH" });
 
         Assert.False(result!.Ok);
-        Assert.Equal("That code has expired. Ask your admin for a new invite.", result.Error);
+        Assert.Equal("That code has expired. Ask your ScreenTrail owner for a new invite.", result.Error);
     }
 
     private sealed class OneReply(HttpResponseMessage reply) : HttpMessageHandler
