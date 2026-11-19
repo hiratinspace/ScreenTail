@@ -76,7 +76,7 @@ export function PolicyPage({ api }: Props) {
     <form className="stack" onSubmit={(e) => void submit(e)} noValidate>
       <p className="secondary">
         Current version <code>{saved.version === 'default' ? 'default (never set)' : saved.version}</code>. Locked
-        settings show on each PC as "Set by your admin" and cannot be changed there.
+        settings show on each PC as "Set by your ScreenTrail owner" and cannot be changed there.
       </p>
 
       <fieldset className="card">

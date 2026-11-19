@@ -230,7 +230,7 @@ public sealed class EgressGuardTests
         var chosen = new EgressPolicy(Tenant(localOnly: true));
 
         Assert.False(enforced.CanChangeLocally);
-        Assert.Equal("Local-only (set by your administrator)", enforced.Badge);
+        Assert.Equal("Local-only (set by your ScreenTrail owner)", enforced.Badge);
         Assert.True(chosen.CanChangeLocally);
         Assert.Equal("Local-only", chosen.Badge);
     }

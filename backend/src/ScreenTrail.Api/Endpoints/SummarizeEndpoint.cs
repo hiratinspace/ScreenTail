@@ -37,7 +37,7 @@ public static class SummarizeEndpoint
     private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromDays(1);
 
     /// <summary>What a device of a tenant whose policy locks local-only is told, in place of a draft.</summary>
-    public const string LocalOnlyReason = "Your administrator keeps sessions on this device, so ScreenTrail drafts them here.";
+    public const string LocalOnlyReason = "Your ScreenTrail owner keeps sessions on this device, so ScreenTrail drafts them here.";
 
     /// <summary>
     /// Gates the drafting endpoint before its body is read: at most

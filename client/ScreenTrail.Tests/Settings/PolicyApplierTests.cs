@@ -146,7 +146,7 @@ public sealed class PolicyApplierTests : IAsyncDisposable
         Assert.Contains("Local-only", after.Message, StringComparison.Ordinal);
         Assert.Equal(1, rig.Backend.Asked("/v1/sessions/summarize"));
         Assert.False(rig.Egress.CanChangeLocally);
-        Assert.Equal("Local-only (set by your administrator)", rig.Egress.Badge);
+        Assert.Equal("Local-only (set by your ScreenTrail owner)", rig.Egress.Badge);
 
         // INV-11: the technician saving local-only off does not lift a lock the admin set.
         _ = rig.Applier.Apply(new ClientSettings { LocalOnly = false });

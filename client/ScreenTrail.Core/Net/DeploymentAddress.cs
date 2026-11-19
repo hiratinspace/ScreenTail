@@ -62,7 +62,7 @@ public static class DeploymentAddresses
 
     /// <summary>An installed build with no machine-wide address: the technician cannot fix it, an administrator can.</summary>
     public const string NoMachineAddress =
-        "This computer has no backend address set, so sessions are drafted here and nothing can be published. Ask your administrator to set it (BACKENDURL when installing ScreenTrail).";
+        "This computer has no backend address set, so sessions are drafted here and nothing can be published. Ask your ScreenTrail owner to set it (BACKENDURL when installing ScreenTrail).";
 
     /// <summary>Added when the same build also found SCREENTRAIL_BACKEND set, which it does not read.</summary>
     public const string EnvironmentNotRead = " An installed copy does not read SCREENTRAIL_BACKEND.";

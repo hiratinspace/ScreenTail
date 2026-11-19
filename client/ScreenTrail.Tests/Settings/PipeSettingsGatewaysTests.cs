@@ -170,14 +170,14 @@ public sealed class PipeSettingsGatewaysTests : IAsyncDisposable
         // them would make a second activation call to the backend, and one that went through after a
         // timeout would enrol the device while the card said it had not (INV-11).
         _service.Result = command => command is ActivateDeviceCommand
-            ? new CommandResult { RequestId = command.RequestId, Ok = false, Error = "That code has expired. Ask your admin for a new invite." }
+            ? new CommandResult { RequestId = command.RequestId, Ok = false, Error = "That code has expired. Ask your ScreenTrail owner for a new invite." }
             : null;
         var device = new PipeDevice(await ConnectAsync());
 
         var answer = await device.ActivateAsync("KX7PM-4R2WQ", "TECH", TestContext.Current.CancellationToken);
 
         Assert.Null(answer.TenantName);
-        Assert.Equal("That code has expired. Ask your admin for a new invite.", answer.Refusal);
+        Assert.Equal("That code has expired. Ask your ScreenTrail owner for a new invite.", answer.Refusal);
         var sent = Assert.Single(_service.Received.OfType<ActivateDeviceCommand>());
         Assert.Equal(("KX7PM-4R2WQ", "TECH"), (sent.Code, sent.DeviceName));
     }

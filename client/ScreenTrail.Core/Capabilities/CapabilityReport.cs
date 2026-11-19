@@ -89,7 +89,7 @@ public static class CapabilityCopy
         Capability.Microphone,
         CapabilityState.Blocked,
         "Microphone is blocked by your organization's policy.",
-        "Your admin controls this setting. Sessions will be captured without narration.");
+        "Your ScreenTrail owner controls this setting. Sessions will be captured without narration.");
 
     public static CapabilityCheck NoMicrophone() => new(
         Capability.Microphone,

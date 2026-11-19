@@ -144,7 +144,7 @@ public sealed class EgressPolicy(EgressSettings? settings = null)
 
     /// <summary>What the tray tooltip and the HUD show (ST-046, Spec §5 S1/S2).</summary>
     public string? Badge => _settings.LocalOnly
-        ? _settings.PolicyEnforced ? "Local-only (set by your administrator)" : "Local-only"
+        ? _settings.PolicyEnforced ? "Local-only (set by your ScreenTrail owner)" : "Local-only"
         : null;
 
     public EgressDecision Decide(EgressPurpose purpose, Uri destination) => Decide(purpose, destination, onBehalfOf: null);

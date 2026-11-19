@@ -24,14 +24,14 @@ public sealed record AccessTokenResponse(string AccessToken, DateTimeOffset Expi
 /// </summary>
 public static class DevicesEndpoint
 {
-    public const string SeatLimitMessage = "Seat limit reached. Contact your admin.";
+    public const string SeatLimitMessage = "Seat limit reached. Ask your ScreenTrail owner for another seat.";
 
     /// <summary>The answer to any code that is not one we issued, malformed or well-formed: it names no tenant and says nothing about which.</summary>
     public const string UnknownCodeMessage = "That code is not one we issued. Check it against the invite.";
 
-    public const string UsedCodeMessage = "That code has already been used. Ask your admin for a new invite.";
+    public const string UsedCodeMessage = "That code has already been used. Ask your ScreenTrail owner for a new invite.";
 
-    public const string ExpiredCodeMessage = "That code has expired. Ask your admin for a new invite.";
+    public const string ExpiredCodeMessage = "That code has expired. Ask your ScreenTrail owner for a new invite.";
 
     public static RouteGroupBuilder MapDevices(this RouteGroupBuilder group)
     {
@@ -101,7 +101,7 @@ public static class DevicesEndpoint
             if (tenant.DisabledAt is not null)
             {
                 await transaction.RollbackAsync(ct).ConfigureAwait(false);
-                return Results.Json(new { error = "tenant_disabled", message = "This organisation's ScreenTrail is switched off. Contact your admin." }, statusCode: StatusCodes.Status403Forbidden);
+                return Results.Json(new { error = "tenant_disabled", message = "This organisation's ScreenTrail is switched off. Contact your ScreenTrail owner." }, statusCode: StatusCodes.Status403Forbidden);
             }
 
             // The invite is claimed only if it is still unclaimed and unexpired when this write runs, not
