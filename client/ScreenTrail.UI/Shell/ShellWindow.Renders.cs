@@ -595,6 +595,37 @@ public partial class ShellWindow
     }
 
     /// <summary>
+    /// The screens the public website shows (site/src/assets/screens, docs/dev/site.md): Review, the
+    /// receipt, All sessions and Settings, in light, at 200%, so they stay sharp on a high-density display.
+    /// One window size for all four, so the site can set them side by side.
+    /// </summary>
+    private async Task SiteAsync(ShellState state)
+    {
+        RenderThemeApplier.Apply(RenderTheme.Light, Application.Current.Resources);
+        foreach (var (name, arrange) in new (string, Action)[]
+        {
+            ("review", () => state.OpenSession("preview")),
+            ("review-published", () => state.OpenSession("preview-published")),
+            ("history", () => state.Navigate(ShellView.History)),
+            ("settings", () => state.Navigate(ShellView.Settings)),
+        })
+        {
+            arrange();
+            await ThumbnailsAsync();
+            await SettleAsync();
+            AtRest($"site-{name}");
+            WindowRenderer.Save(this, Shot($"site-{name}", RenderTheme.Light), scale: 2);
+        }
+    }
+
+    /// <summary>The diagnostics panel for the website, in light at 200%, as <see cref="SiteAsync"/> draws the shell.</summary>
+    private Task SitePanelAsync(Func<Window> build)
+    {
+        RenderThemeApplier.Apply(RenderTheme.Light, Application.Current.Resources);
+        return ShotOfAsync(build(), Shot("site-panel", RenderTheme.Light), scale: 2);
+    }
+
+    /// <summary>
     /// ST-083's wizard, every step, over the sample gateways: a binding that breaks in a step fails this
     /// harness rather than the technician's first five minutes. Each step in all four themes at the size
     /// the window opens at, then in dark and light at 150%, and in light at the window's own minimum
