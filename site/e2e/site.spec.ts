@@ -158,3 +158,10 @@ test('the sample-session pill stays out of the pinned scene and off the form', a
   await page.locator('#pilot-form').evaluate((el) => scrollTo({ top: el.getBoundingClientRect().top + scrollY - 200, behavior: 'instant' }));
   await expect(pill).toBeHidden();
 });
+
+test('the first screen is the hero alone: the next section starts below the fold', async ({ page }) => {
+  await page.goto('/');
+  const sceneTop = await page.locator('#scene').evaluate((el) => el.getBoundingClientRect().top);
+  const viewport = page.viewportSize();
+  expect(sceneTop).toBeGreaterThanOrEqual((viewport?.height ?? 0) - 1);
+});
