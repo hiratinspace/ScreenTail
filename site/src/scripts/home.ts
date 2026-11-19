@@ -98,13 +98,22 @@ const draw: Record<string, Draw> = {
     c.fillStyle = INK; c.beginPath(); c.moveTo(px, py); c.lineTo(px + 7, py + 11); c.lineTo(px + 2, py + 9); c.lineTo(px, py + 14); c.closePath(); c.fill();
     c.strokeStyle = IRIS; c.beginPath(); c.arc(px, py, 6 + (t * 6 % 6), 0, Math.PI * 2); c.stroke();
   },
-  frames(c) {
-    for (let k = 0; k < 5; k++) {
-      const x = 18 + k * 30, y = 40 + k * 14, fw = 70, fh = 50;
-      c.strokeStyle = k === 2 ? IRIS : FAINT;
-      c.beginPath(); c.moveTo(x, y); c.lineTo(x + fw, y - 14); c.lineTo(x + fw, y - 14 + fh); c.lineTo(x, y + fh); c.closePath(); c.stroke();
-      if (k === 2) { c.fillStyle = INK; c.beginPath(); c.moveTo(x + 14, y + 16); c.lineTo(x + 52, y + 8); c.lineTo(x + 52, y + 16); c.lineTo(x + 14, y + 24); c.closePath(); c.fill(); }
+  note(c, w, h, t) {
+    // The output: a ticket note being written, three steps beside their screenshots, then stamped.
+    const x = 22, y = 30, nw = w - 44, nh = h - 46;
+    c.strokeStyle = FAINT; c.strokeRect(x + 5.5, y + 5.5, nw, nh);
+    c.clearRect(x, y, nw, nh);
+    c.strokeStyle = IRIS; c.strokeRect(x + 0.5, y + 0.5, nw, nh);
+    c.beginPath(); c.moveTo(x, y + 14.5); c.lineTo(x + nw, y + 14.5); c.stroke();
+    c.fillStyle = IRIS; c.fillRect(x + 8, y + 6, nw * 0.34, 3);
+    const cycle = (t * 0.22 + 1.2) % 1.5, rows = 3, gap = (nh - 46) / rows;
+    for (let k = 0; k < rows; k++) {
+      const ly = y + 24 + k * gap, p = clamp(cycle * 3.4 - k * 0.9);
+      c.fillStyle = FAINT; c.fillRect(x + 8, ly, (nw - 50) * p, 2);
+      c.fillRect(x + 8, ly + 6, (nw - 76) * clamp(p * 1.6 - 0.6), 2);
+      if (p > 0.5) { c.strokeStyle = IRIS; c.strokeRect(x + nw - 30.5, ly - 2.5, 20, 13); }
     }
+    if (cycle > 1) { c.fillStyle = INK; c.fillRect(x + 8, y + nh - 16, nw - 16, 9); c.fillStyle = '#fff'; c.fillRect(x + 13, y + nh - 12.5, 14, 2); }
   },
   mask(c, w, _h, t) {
     const gx = 16, gy = 12;
@@ -167,8 +176,9 @@ figs.forEach((o) => figVisible.observe(o.el));
 addEventListener('resize', () => { figs.forEach(sizeFig); paint(performance.now()); });
 
 /* ---------- The pinned scene: scroll runs four beats ----------
-   0 to .22 the problem wall; .22 to .48 every tile gets its note (the tally runs 38 to 46);
-   .48 to .70 the tiles fly together; .62 to .92 they become the note for #48213; .88 published. */
+   0 to .2 the problem wall; .2 to .44 every tile gets its note (the tally counts them, 38 to 46);
+   .46 to .66 the tiles fly together while the note for #48213 comes up and is written; .84 published.
+   With reduced motion, or without this script, the section is the still layout in home.css. */
 const sceneEl = byId('scene');
 const wall = byId('wall');
 const stageEl = byId('stage');
@@ -193,34 +203,35 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
   const tick = () => {
     const r = sceneEl.getBoundingClientRect();
     const p = clamp(-r.top / Math.max(1, r.height - innerHeight + 60));
-    const beat = p < 0.22 ? 0 : p < 0.48 ? 1 : p < 0.74 ? 2 : 3;
+    const beat = p < 0.2 ? 0 : p < 0.5 ? 1 : p < 0.82 ? 2 : 3;
     if (beat !== lastBeat) {
       lastBeat = beat;
-      // The caption on screen is the one assistive technology reads.
-      caps.forEach((c, i) => {
-        c.classList.toggle('on', i === beat);
-        if (i === beat) c.removeAttribute('aria-hidden'); else c.setAttribute('aria-hidden', 'true');
-      });
+      // Only what is seen changes: all four captions stay readable to assistive technology.
+      caps.forEach((c, i) => c.classList.toggle('on', i === beat));
     }
-    tiles.forEach((t, i) => {
-      const at = t.classList.contains('bad') ? 0.02 + (i % 8) * 0.018 : Number(t.dataset.r) * 0.2;
-      t.classList.toggle('healed', p > 0.24 + at);
+    // The tally is the count of tiles that have their note, so the number and the wall always agree.
+    let written = 0;
+    let order = 0;
+    tiles.forEach((t) => {
+      const isBad = t.classList.contains('bad');
+      const healed = p > 0.22 + (isBad ? 0.03 + order++ * 0.024 : Number(t.dataset.r) * 0.16);
+      t.classList.toggle('healed', healed);
+      if (!isBad || healed) written++;
     });
-    const target = Math.round(38 + 8 * clamp((p - 0.24) / 0.2));
-    tallyEl.textContent = String(target);
-    tallyEl.classList.toggle('full', target === 46);
+    tallyEl.textContent = String(written);
+    tallyEl.classList.toggle('full', written === tiles.length);
     tiles.forEach((t, i) => {
-      const q = ease(clamp((p - 0.48 - Number(t.dataset.r) * 0.06) / 0.18));
+      const q = ease(clamp((p - 0.46 - Number(t.dataset.r) * 0.05) / 0.15));
       const off = offsets[i];
       if (!off) return;
       t.style.transform = q ? `translate(${off[0] * q}px, ${off[1] * q}px) scale(${1 - 0.75 * q})` : '';
       t.style.opacity = q ? String(1 - q) : '';
     });
-    const n = ease(clamp((p - 0.62) / 0.12));
+    const n = ease(clamp((p - 0.52) / 0.1));
     noteEl.style.opacity = String(n);
     noteEl.style.transform = `scale(${0.6 + 0.4 * n})`;
-    noteParts.forEach((el, i) => el.style.setProperty('--o', clamp((p - 0.72 - i * 0.022) / 0.04).toFixed(3)));
-    stamp?.classList.toggle('on', p > 0.88);
+    noteParts.forEach((el, i) => el.style.setProperty('--o', clamp((p - 0.58 - i * 0.02) / 0.04).toFixed(3)));
+    stamp?.classList.toggle('on', p > 0.84);
   };
   if (!reduce) {
     document.documentElement.classList.add('js-scene');
@@ -234,10 +245,6 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
     addEventListener('resize', () => { measure(); tick(); });
     void document.fonts?.ready.then(() => { measure(); tick(); });
     tick();
-  } else {
-    tiles.forEach((t) => t.classList.add('healed'));
-    tallyEl.textContent = '46';
-    tallyEl.classList.add('full');
   }
 }
 
@@ -245,30 +252,26 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
 const pill = byId('clockpill');
 const pillLabel = byId('cp-label');
 const pillClock = byId('cp-clock');
-const noteClock = byId('note-clock');
 const lastRow = document.querySelector<HTMLElement>('.feature[data-pill="published"]');
 if (pill && pillLabel && pillClock && lastRow) {
   const names: Record<string, string> = { rec: 'Recording', paused: 'Paused: sensitive field', drafting: 'Drafting', published: 'Published to #48213' };
   const marks = Array.from(document.querySelectorAll<HTMLElement>('[data-pill]'));
-  const hero = document.querySelector<HTMLElement>('.hero');
-  const form = document.getElementById('pilot-form');
-  const narrow = matchMedia('(max-width: 960px)');
+  const session = byId('session');
   let raf = 0;
   const tick = () => {
     raf = 0;
     const endY = lastRow.getBoundingClientRect().top + scrollY - innerHeight * 0.5;
     const t = fmt(clamp(scrollY / Math.max(1, endY)) * 600);
     pillClock.textContent = t;
-    if (noteClock) noteClock.textContent = t;
     let s = 'rec';
     for (const m of marks) if (m.getBoundingClientRect().top <= innerHeight * 0.55) s = m.dataset.pill ?? s;
     if (pill.dataset.s !== s) { pill.dataset.s = s; pillLabel.textContent = names[s] ?? ''; }
-    // Shown once the hero is passed, so it never covers the hero's buttons; on narrow screens it steps
-    // aside while the form is in view, so it never covers a field.
-    const heroBottom = hero ? hero.getBoundingClientRect().bottom : 0;
-    const formRect = form?.getBoundingClientRect();
-    const formInView = !!formRect && formRect.top < innerHeight && formRect.bottom > 0;
-    pill.classList.toggle('shown', heroBottom < innerHeight * 0.4 && !(narrow.matches && formInView));
+    // Shown for the session it narrates: from "One session, start to ticket" to the end of the four
+    // stages. It stays out of the hero, out of the pinned scene, and off everything after the stages,
+    // so it never sits on a button, a disclaimer or a form field.
+    const from = session ? session.getBoundingClientRect().top : 0;
+    const until = lastRow.getBoundingClientRect().bottom;
+    pill.classList.toggle('shown', from < innerHeight * 0.7 && until > innerHeight * 0.6);
   };
   addEventListener('scroll', () => { if (!raf) raf = requestAnimationFrame(tick); }, { passive: true });
   addEventListener('resize', tick);
@@ -314,6 +317,27 @@ if (eventsBox && ribbon) {
   drawRibbon();
   void document.fonts?.ready.then(drawRibbon);
 }
+
+/* ---------- App screenshots that pan on a narrow screen can be panned from the keyboard ---------- */
+const pans = Array.from(document.querySelectorAll<HTMLElement>('.pan'));
+const markPans = () => pans.forEach((el) => {
+  if (el.scrollWidth > el.clientWidth + 1) {
+    el.tabIndex = 0;
+    el.setAttribute('role', 'group');
+    el.setAttribute('aria-label', 'Screenshot, scrolls sideways');
+  } else {
+    el.removeAttribute('tabindex');
+    el.removeAttribute('role');
+    el.removeAttribute('aria-label');
+  }
+});
+addEventListener('resize', markPans);
+addEventListener('load', markPans);
+markPans();
+
+/* ---------- The small-screen menu closes when one of its links is followed ---------- */
+const menu = document.querySelector<HTMLDetailsElement>('details.menu');
+menu?.addEventListener('click', (e) => { if ((e.target as Element).closest('a')) menu.open = false; });
 
 /* ---------- Ctrl+Enter sends the form, as Publish does in the app ---------- */
 const form = byId<HTMLFormElement>('pilot-form');

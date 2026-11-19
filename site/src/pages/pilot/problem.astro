@@ -7,9 +7,9 @@ import { site } from '../../site.config';
     <header class="page-head">
       <span class="tag">Not sent</span>
       <h1>Your note was not sent.</h1>
-      <p class="sub">A field may have been missing, or too many were sent from your network in the last minute. Go back and try again, or email us directly.</p>
+      <p class="sub">A field was missing or not in the shape the form expects, or the message could not be passed on. Nothing you typed was kept. Go back and try again, or email us directly.</p>
     </header>
     <p class="prose"><span>Email <a href={`mailto:${site.contactEmail}?subject=ScreenTrail%20pilot`}>{site.contactEmail}</a> with your team size, PSA and remote tool.</span></p>
-    <p><a class="btn btn-dark" href="/#pilot">Back to the form</a></p>
+    <p class="page-actions"><a class="btn btn-dark" href="/#pilot">Back to the form</a></p>
   </div>
 </Base>

@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-const pages = ['/', '/security/', '/privacy/', '/accessibility/', '/pilot/thanks/', '/pilot/problem/', '/does-not-exist/'];
+const pages = ['/', '/security/', '/privacy/', '/accessibility/', '/pilot/thanks/', '/pilot/problem/', '/pilot/busy/', '/does-not-exist/'];
 
 /** Collects console errors (a CSP or Trusted Types violation lands here) and any request off the site. */
 function watch(page: Page) {
@@ -76,7 +76,7 @@ test('the pilot form sends and lands on the thanks page', async ({ page }) => {
   await page.getByLabel('Work email').fill('ada@example.com');
   await page.getByLabel('Company').fill('Analytical MSP');
   await page.getByLabel('Technicians').selectOption('3 to 10');
-  await page.getByLabel('PSA').selectOption('ConnectWise Manage');
+  await page.getByLabel('PSA').selectOption('ConnectWise PSA');
   await page.getByLabel('Main remote tool').selectOption('ScreenConnect');
   await page.getByRole('button', { name: /Send to ScreenTrail/ }).click();
   await expect(page).toHaveURL(/\/pilot\/thanks\/$/);
@@ -130,4 +130,31 @@ test('with reduced motion, all four scene messages show', async ({ page }) => {
   for (const text of ['every session gets its note', 'a real ticket note', 'published in one press']) {
     await expect(page.getByText(text, { exact: false }).first()).toBeVisible();
   }
+});
+
+test('a text page keeps its side margins', async ({ page }) => {
+  await page.goto('/security/');
+  const left = await page.locator('.page-head h1').evaluate((el) => el.getBoundingClientRect().left);
+  expect(left).toBeGreaterThanOrEqual(18);
+});
+
+test('on a small screen the menu reaches the security page', async ({ page }, info) => {
+  test.skip(info.project.name !== 'phone', 'the menu replaces the link row on small screens only');
+  await page.goto('/');
+  await page.locator('details.menu summary').click();
+  await page.getByRole('navigation', { name: 'Main, small screen' }).getByRole('link', { name: 'Security' }).click();
+  await expect(page).toHaveURL(/\/security\/$/);
+});
+
+test('the sample-session pill stays out of the pinned scene and off the form', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop', 'one size is enough');
+  await page.goto('/');
+  const pill = page.locator('#clockpill');
+  await page.locator('#scene').evaluate((el) => scrollTo({ top: el.getBoundingClientRect().top + scrollY + 400, behavior: 'instant' }));
+  await expect(pill).toBeHidden();
+  await page.locator('#h-f1').evaluate((el) => scrollTo({ top: el.getBoundingClientRect().top + scrollY - 200, behavior: 'instant' }));
+  await expect(pill).toBeVisible();
+  await expect(pill.getByRole('link', { name: 'Pilot form' })).toBeVisible();
+  await page.locator('#pilot-form').evaluate((el) => scrollTo({ top: el.getBoundingClientRect().top + scrollY - 200, behavior: 'instant' }));
+  await expect(pill).toBeHidden();
 });

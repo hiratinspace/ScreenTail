@@ -69,7 +69,7 @@ export async function handlePilot(request: Request, env: Env): Promise<Response>
 
   const visitor = request.headers.get('CF-Connecting-IP') ?? 'unknown';
   const { success } = await env.PILOT_LIMIT.limit({ key: `pilot:${visitor}` });
-  if (!success) return seeOther(request, '/pilot/problem/');
+  if (!success) return seeOther(request, '/pilot/busy/');
 
   const body = await readCapped(request, limits.bodyBytes);
   if (body === null) return plain(413, 'That was more than the form sends.');

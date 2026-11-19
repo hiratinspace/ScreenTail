@@ -44,21 +44,20 @@ const tiles = widths.map((w, i) => {
 ---
 <Base title={site.name}>
   <div class="clockpill" id="clockpill" data-s="rec" role="presentation">
-    <span class="st" aria-hidden="true"><span class="sig"></span><span id="cp-label">Recording</span><span class="clk" id="cp-clock">00:00</span></span>
-    <a href="#session" aria-label="Go to the session, start to ticket"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg></a>
-    <a href="#pilot" aria-label="Go to the note this page wrote"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg></a>
+    <span class="st" aria-hidden="true"><span class="sig"></span><span class="pre">Sample session</span><span class="lab" id="cp-label">Recording</span><span class="clk" id="cp-clock">00:00</span></span>
+    <a href="#pilot">Pilot form</a>
   </div>
 
   <section class="hero" data-pill="rec" aria-labelledby="h-hero">
     <div class="fig f1" aria-hidden="true"><canvas data-draw="windows"></canvas><span class="tag">#48213 · window</span></div>
     <div class="fig f2" aria-hidden="true"><canvas data-draw="voice"></canvas><span class="tag">14:02:11 · voice</span></div>
     <div class="fig f3" aria-hidden="true"><canvas data-draw="ribbon"></canvas><span class="tag">mark · drafting</span></div>
-    <div class="fig f4" aria-hidden="true"><canvas data-draw="frames"></canvas><span class="tag">frames · 3 of 3</span></div>
+    <div class="fig f4" aria-hidden="true"><canvas data-draw="note"></canvas><span class="tag">note · drafted</span></div>
     <div class="fig f5" aria-hidden="true"><canvas data-draw="mask"></canvas><span class="tag">2 masked</span></div>
     <div class="fig f6" aria-hidden="true"><canvas data-draw="clicks"></canvas><span class="tag">clicks</span></div>
 
     <div class="hero-copy">
-      <span class="stage"><img src={glyphLight.src} alt="" width="16" height="16" />In development · looking for pilot MSPs</span>
+      <span class="stage"><img src={glyphLight.src} alt="" width="16" height="16" />In development</span>
       <h1 id="h-hero">Fix the problem. <span>The note is already written.</span></h1>
       <p class="sub">ScreenTrail follows a technician's remote session on their PC, masks the passwords and keys it reads on screen before anything is stored, and has the note, the time entry and the KB article drafted when the session ends.</p>
       <div class="actions">
@@ -68,14 +67,14 @@ const tiles = widths.map((w, i) => {
     </div>
     <div class="hero-figs" aria-hidden="true">
       <div class="fig"><canvas data-draw="ribbon"></canvas><span class="tag">mark · drafting</span></div>
-      <div class="fig"><canvas data-draw="voice"></canvas><span class="tag">14:02:11 · voice</span></div>
+      <div class="fig"><canvas data-draw="note"></canvas><span class="tag">note · drafted</span></div>
     </div>
   </section>
 
   <section class="scene" id="scene" data-pill="rec" aria-labelledby="h-scene">
     <div class="scene-pin">
       <div class="wrap scene-copy">
-        <div class="cap on" data-cap="0"><h2 id="h-scene">Remote sessions end. The notes don't get written.</h2><p class="sub">A technician works thirty remote sessions a week. Notes get typed from memory at the end of the day, or not at all.</p></div>
+        <div class="cap on" data-cap="0"><h2 id="h-scene">Remote sessions end. The notes don't get written.</h2><p class="sub">A technician can work dozens of remote sessions a week. Notes get typed from memory at the end of the day, or not at all.</p></div>
         <div class="cap" data-cap="1"><p class="h2-like"><strong>With ScreenTrail, every session gets its note.</strong></p><p class="sub">Each draft is built from what was on screen and what the technician said, ready when the session ends.</p></div>
         <div class="cap" data-cap="2"><p class="h2-like"><strong>Each one is a real ticket note.</strong></p><p class="sub">Problem, steps and result, each step beside the screenshot it happened on.</p></div>
         <div class="cap" data-cap="3"><p class="h2-like"><strong>Checked by a person, published in one press.</strong></p><p class="sub">The note and time entry go to ConnectWise, the article to Hudu.</p></div>
@@ -109,8 +108,6 @@ const tiles = widths.map((w, i) => {
     </div>
   </section>
 
-  <MaskBand label="masked before it is kept" />
-
   <section class="session wrap" data-pill="rec" id="session" aria-labelledby="h-session">
     <h2 id="h-session">One session, start to ticket.</h2>
     <p class="sub mt">Ten minutes on a stuck print queue at Acme Dental. Everything ScreenTrail keeps is tied to the moment it happened, and threads through to the note.</p>
@@ -130,7 +127,7 @@ const tiles = widths.map((w, i) => {
   </section>
 
   <section class="stages wrap" id="how" aria-labelledby="h-how">
-    <h2 id="h-how" class="visually-hidden">How it works</h2>
+    <h2 id="h-how">How it works, stage by stage.</h2>
 
     <article class="feature" data-pill="rec" aria-labelledby="h-f1">
       <div class="copy">
@@ -249,46 +246,58 @@ const tiles = widths.map((w, i) => {
     <p class="sub">The screens a technician works in, shown here with sample tickets and companies.</p>
     <figure class="frame-fig">
       <span class="tag">review · sample data</span>
-      <Image src={review} widths={[640, 960, 1264]} sizes="(max-width: 1264px) 100vw, 1136px" loading="lazy" alt="The ScreenTrail Review screen: the drafted note for ticket 48213, Printer offline: print spooler stopped, with Problem and Steps beside their screenshots, the ticket matched from the ScreenConnect window title, a 15-minute time entry and a Publish button." />
+      <div class="pan"><Image src={review} widths={[640, 960, 1264]} sizes="(max-width: 700px) 900px, (max-width: 1264px) 100vw, 1136px" loading="lazy" alt="The ScreenTrail Review screen: the drafted note for ticket 48213, Printer offline: print spooler stopped, with Problem and Steps beside their screenshots, the ticket matched from the ScreenConnect window title, a 15-minute time entry and a Publish button." /></div>
     </figure>
+    <p class="pan-hint">Swipe a screen sideways to see all of it.</p>
     <div class="realapp-row">
-      <figure><div class="frame-fig"><Image src={published} widths={[400, 640]} sizes="(max-width: 960px) 100vw, 360px" loading="lazy" alt="The receipt after publishing to ticket 48213, with the ticket note, time entry and KB article sent." /></div><figcaption>The receipt, with the next session to check.</figcaption></figure>
-      <figure><div class="frame-fig"><Image src={history} widths={[400, 640]} sizes="(max-width: 960px) 100vw, 360px" loading="lazy" alt="All sessions: six sessions with their start time, duration, status (Partial capture, Draft, Published, Discarded, Not confirmed), remote tool and screenshot count." /></div><figcaption>All sessions, by status and remote tool.</figcaption></figure>
-      <figure><div class="frame-fig"><Image src={tray} widths={[353]} loading="lazy" alt="The tray menu while recording: Pause, Stop and draft, Discard session, Open ScreenTrail, Session history, What's being captured right now, Settings, Set up ScreenTrail and Quit." /></div><figcaption>The tray menu during a session.</figcaption></figure>
+      <figure><div class="frame-fig"><div class="pan"><Image src={published} widths={[400, 640, 960]} sizes="(max-width: 700px) 720px, (max-width: 960px) 100vw, 360px" loading="lazy" alt="The receipt after publishing to ticket 48213, with the ticket note, time entry and KB article sent." /></div></div><figcaption>The receipt, with the next session to check.</figcaption></figure>
+      <figure><div class="frame-fig"><div class="pan"><Image src={history} widths={[400, 640, 960]} sizes="(max-width: 700px) 720px, (max-width: 960px) 100vw, 360px" loading="lazy" alt="All sessions: six sessions with their start time, duration, status (Partial capture, Draft, Published, Discarded, Not confirmed), remote tool and screenshot count." /></div></div><figcaption>All sessions, by status and remote tool.</figcaption></figure>
+      <figure class="small-shot"><div class="frame-fig"><Image src={tray} widths={[353]} loading="lazy" alt="The tray menu while recording: Pause, Stop and draft, Discard session, Open ScreenTrail, Session history, What's being captured right now, Settings, Set up ScreenTrail and Quit." /></div><figcaption>The tray menu during a session.</figcaption></figure>
     </div>
   </section>
 
   <section class="stack wrap" id="stack" aria-labelledby="h-stack">
     <h2 id="h-stack">Fits the stack you already run.</h2>
     <p class="sub mt">It starts on its own in the remote tool your technicians open, and publishes into the PSA and documentation you already use.</p>
-    <ul class="grid">
-      <li class="cell">ScreenConnect<small>remote tool</small></li>
-      <li class="cell">Splashtop<small>remote tool</small></li>
-      <li class="cell">Remote Desktop<small>remote tool</small></li>
-      <li class="cell">TeamViewer<small>remote tool</small></li>
-      <li class="cell">AnyDesk<small>remote tool</small></li>
-      <li class="cell center">Built for MSPs on ConnectWise and Hudu</li>
-      <li class="cell">ConnectWise PSA<small>note · time entry</small></li>
-      <li class="cell">Hudu<small>KB article</small></li>
-      <li class="cell later">HaloPSA<small>planned</small></li>
-      <li class="cell later">Your next tool<small>tell us in the pilot</small></li>
-      <li class="cell">Windows<small>desktop app</small></li>
-      <li class="cell">Gemini or Claude<small>drafting model</small></li>
-    </ul>
-    <p class="stack-note">The ConnectWise and Hudu connections are built to their published APIs; their first checks against live accounts are part of the pilot. Product names belong to their owners, and no endorsement is implied.</p>
+    <div class="srows">
+      <div class="srow"><h3>Starts in</h3>
+        <ul>
+          <li>ScreenConnect</li>
+          <li>Splashtop</li>
+          <li>Remote Desktop</li>
+          <li>TeamViewer</li>
+          <li>AnyDesk</li>
+        </ul>
+      </div>
+      <div class="srow"><h3>Publishes to</h3>
+        <ul>
+          <li>ConnectWise PSA<small>note and time entry</small></li>
+          <li>Hudu<small>KB article</small></li>
+          <li class="later">HaloPSA<small>planned</small></li>
+          <li class="later">Your next tool<small>tell us in the pilot</small></li>
+        </ul>
+      </div>
+      <div class="srow"><h3>Runs on</h3>
+        <ul>
+          <li>Windows<small>desktop app</small></li>
+          <li>Gemini or Claude<small>drafting model</small></li>
+        </ul>
+      </div>
+    </div>
+    <p class="stack-note">Built for MSPs on ConnectWise and Hudu. The ConnectWise and Hudu connections are built to their published APIs; their first checks against live accounts are part of the pilot. Product names belong to their owners, and no endorsement is implied.</p>
   </section>
 
   <section class="setup wrap" aria-labelledby="h-setup">
     <div class="setup-copy">
       <h2 id="h-setup">Three steps per technician.</h2>
-      <p class="sub">One installer per technician PC. Your ScreenTrail owner connects ConnectWise and Hudu once in the web admin, and a seven-step setup walks each technician through the rest.</p>
+      <p class="sub">One installer per technician PC. Your ScreenTrail owner connects ConnectWise and Hudu once in the web admin, and the app's setup guide walks each technician through the rest.</p>
     </div>
     <ol class="steps">
       <li class="stepbox"><span class="num" aria-hidden="true">1</span><div><h3>Install on each technician's PC</h3><p>One installer for the app and its capture service.</p></div></li>
       <li class="stepbox"><span class="num" aria-hidden="true">2</span><div><h3>Activate with an invite code</h3><p>Your ScreenTrail owner invites each technician; the code works once, on one PC.</p>
         <div class="code"><span class="fn">Setup · Activate</span>Invite code <em>XXXXX-XXXXX-XXXXX-XXXXX</em></div></div></li>
       <li class="stepbox"><span class="num" aria-hidden="true">3</span><div><h3>Pick the remote tools</h3><p>Choose which tools start a session. The ConnectWise and Hudu connection is already there.</p>
-        <div class="code"><span class="fn">Setup · Remote tools</span>[x] ScreenConnect&nbsp;&nbsp;[x] Remote Desktop&nbsp;&nbsp;[ ] AnyDesk</div></div></li>
+        <div class="code"><span class="fn">Setup · Remote tools</span><span class="cb on"></span>ScreenConnect <span class="cb on"></span>Remote Desktop <span class="cb"></span>AnyDesk</div></div></li>
     </ol>
   </section>
 
@@ -308,7 +317,7 @@ const tiles = widths.map((w, i) => {
         </ul>
         <div class="privacy-more">
           <a class="btn btn-line" href="/security/">How ScreenTrail handles data</a>
-          <a class="btn btn-line" href={`${site.repo}/tree/main/docs/security`}>Read the privacy pack</a>
+          <a class="btn btn-line" href={`${site.repo}/tree/main/docs/security`}>Read the privacy pack on GitHub</a>
         </div>
       </div>
       <figure class="plain-fig">
@@ -333,14 +342,14 @@ const tiles = widths.map((w, i) => {
             <li>Waited for a person to check it and publish.</li>
           </ol>
         </div>
-        <div class="fn-sec"><h4>Result</h4>
+        <div class="fn-sec"><h4>Targets for the pilot</h4>
+          <span class="flagnote">Not measured yet: these are the pilot's targets, not results.</span>
           <dl class="targets">
             <div><dt>60%</dt><dd>less time writing notes, at least</dd></div>
             <div><dt>&lt;25%</dt><dd>of a draft's words changed before publishing, at most</dd></div>
             <div><dt>80%</dt><dd>of remote sessions captured without starting one by hand</dd></div>
             <div><dt>0</dt><dd>passwords or personal data in a published note</dd></div>
           </dl>
-          <span class="flagnote">Not measured yet: these are the pilot's targets, not results.</span>
         </div>
         <div class="fn-sec"><h4>Follow-ups</h4>
           <p>A small number of MSPs, real tickets, and a plain account of where it falls short.</p>
@@ -353,11 +362,10 @@ const tiles = widths.map((w, i) => {
         </div>
       </div>
       <aside class="fn-side" aria-labelledby="h-form">
-        <div aria-hidden="true"><span class="lbl">Captured on this page</span><span class="clockv" id="note-clock">10:00</span></div>
-        <div><span class="lbl" id="h-form">Tell us about your team</span></div>
+        <h3 class="form-h" id="h-form">Tell us about your team</h3>
         <form class="pilot-form" method="post" action="/api/pilot" id="pilot-form">
           <label>Your name<input name="name" autocomplete="name" required maxlength={limits.name} /></label>
-          <label>Work email<input name="email" type="email" autocomplete="email" required maxlength={limits.email} /></label>
+          <label>Work email<input name="email" type="email" autocomplete="email" required pattern="[^\s@]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+" title="An email address like name@company.com" maxlength={limits.email} /></label>
           <label>Company<input name="company" autocomplete="organization" required maxlength={limits.company} /></label>
           <label>Technicians
             <select name="technicians" required>
@@ -379,6 +387,7 @@ const tiles = widths.map((w, i) => {
           </label>
           <label><span>Anything else <span class="opt">(optional)</span></span><textarea name="message" maxlength={limits.message} rows="3"></textarea></label>
           <div class="hp" hidden><label>Leave this empty<input name="hp_trap" tabindex="-1" autocomplete="off" /></label></div>
+          <p class="form-reply">We usually reply within two working days.</p>
           <button class="publish-btn" type="submit">Send to ScreenTrail <kbd aria-hidden="true">Ctrl+Enter</kbd></button>
           <p class="form-fine">We use this only to reply about the pilot, and the site keeps no copy. <a href="/privacy/">Privacy</a></p>
         </form>
