@@ -17,7 +17,7 @@ export const limits = {
 
 export const choices = {
   technicians: ['1 to 2', '3 to 10', '11 to 30', 'More than 30'],
-  psa: ['ConnectWise Manage', 'HaloPSA', 'Autotask', 'Other or none'],
+  psa: ['ConnectWise PSA', 'HaloPSA', 'Autotask', 'Other or none'],
   tool: ['ScreenConnect', 'Remote Desktop', 'Splashtop', 'TeamViewer', 'AnyDesk', 'Other'],
 } as const;
 

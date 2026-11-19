@@ -7,7 +7,7 @@ const good = {
   email: 'ada@example.com',
   company: 'Analytical MSP',
   technicians: '3 to 10',
-  psa: 'ConnectWise Manage',
+  psa: 'ConnectWise PSA',
   tool: 'ScreenConnect',
   message: 'We run about 200 sessions a week.',
 };
@@ -136,7 +136,7 @@ describe('handlePilot', () => {
   it('sends nothing past the rate limit', async () => {
     const send = vi.fn();
     const res = await handlePilot(post(form().toString()), env(send, false));
-    expect(res.headers.get('Location')).toContain('/pilot/problem/');
+    expect(res.headers.get('Location')).toContain('/pilot/busy/');
     expect(send).not.toHaveBeenCalled();
   });
 

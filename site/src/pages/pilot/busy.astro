@@ -1,0 +1,15 @@
+---
+import Base from '../../layouts/Base.astro';
+import { site } from '../../site.config';
+---
+<Base title="Try again in a minute" noindex notice={false}>
+  <div class="page wrap">
+    <header class="page-head">
+      <span class="tag">Not sent</span>
+      <h1>Too many notes at once. Yours was not sent.</h1>
+      <p class="sub">Several were sent from your network in the last minute, so the form paused. Nothing you typed was kept. Wait a minute and send it again, or email us directly.</p>
+    </header>
+    <p class="prose"><span>Email <a href={`mailto:${site.contactEmail}?subject=ScreenTrail%20pilot`}>{site.contactEmail}</a> with your team size, PSA and remote tool.</span></p>
+    <p class="page-actions"><a class="btn btn-dark" href="/#pilot">Back to the form</a></p>
+  </div>
+</Base>

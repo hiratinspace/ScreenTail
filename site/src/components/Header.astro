@@ -11,10 +11,18 @@ const links = [
 ---
 <header class="top">
   <div class="wrap">
-    <a class="home" href="/" aria-label="ScreenTrail home"><img src={lockup.src} alt="" width="118" height="26" /></a>
+    <a class="home" href="/" aria-label="ScreenTrail home"><img src={lockup.src} alt="" width="126" height="26" /></a>
     <nav class="links" aria-label="Main">
       {links.map((l) => <a href={l.href} aria-current={l.href === path ? 'page' : undefined}>{l.label}</a>)}
     </nav>
-    <a class="btn btn-dark" href="/#pilot">Become a pilot MSP</a>
+    <div class="top-end">
+      <a class="btn btn-dark" href="/#pilot">Become a pilot MSP</a>
+      <details class="menu">
+        <summary><span class="visually-hidden">Menu</span><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 5h12M3 9h12M3 13h12"/></svg></summary>
+        <nav aria-label="Main, small screen">
+          {links.map((l) => <a href={l.href} aria-current={l.href === path ? 'page' : undefined}>{l.label}</a>)}
+        </nav>
+      </details>
+    </div>
   </div>
 </header>
