@@ -11,6 +11,7 @@ import MaskBand from '../components/MaskBand.astro';
 import '../styles/home.css';
 import glyphLight from '../assets/brand/glyph-small-light.svg';
 import glyphDark from '../assets/brand/glyph-small-dark.svg';
+import mark from '../assets/brand/mark-primary-on-white.svg';
 import review from '../assets/screens/shell-review-light.png';
 import published from '../assets/screens/shell-review-published-light.png';
 import history from '../assets/screens/shell-history-light.png';
@@ -259,30 +260,33 @@ const tiles = widths.map((w, i) => {
   <section class="stack wrap" id="stack" aria-labelledby="h-stack">
     <h2 id="h-stack">Fits the stack you already run.</h2>
     <p class="sub mt">It starts on its own in the remote tool your technicians open, and publishes into the PSA and documentation you already use.</p>
-    <div class="srows">
-      <div class="srow"><h3>Starts in</h3>
-        <ul>
-          <li>ScreenConnect</li>
-          <li>Splashtop</li>
-          <li>Remote Desktop</li>
-          <li>TeamViewer</li>
-          <li>AnyDesk</li>
-        </ul>
-      </div>
-      <div class="srow"><h3>Publishes to</h3>
-        <ul>
-          <li>ConnectWise PSA<small>note and time entry</small></li>
-          <li>Hudu<small>KB article</small></li>
-          <li class="later">HaloPSA<small>planned</small></li>
-          <li class="later">Your next tool<small>tell us in the pilot</small></li>
-        </ul>
-      </div>
-      <div class="srow"><h3>Runs on</h3>
+    <div class="flow">
+      <h3 class="flow-h in">Starts in</h3>
+      <h3 class="flow-h core">Runs on</h3>
+      <h3 class="flow-h out">Publishes to</h3>
+      <ul class="flow-list in">
+        <li>ScreenConnect</li>
+        <li>Splashtop</li>
+        <li>Remote Desktop</li>
+        <li>TeamViewer</li>
+        <li>AnyDesk</li>
+      </ul>
+      <svg class="wires in" viewBox="0 0 100 320" preserveAspectRatio="none" fill="none" aria-hidden="true"><path d="M0 28 C 55 28, 45 160, 100 160"/><path d="M0 94 C 55 94, 45 160, 100 160"/><path d="M0 160 C 55 160, 45 160, 100 160"/><path d="M0 226 C 55 226, 45 160, 100 160"/><path d="M0 292 C 55 292, 45 160, 100 160"/></svg>
+      <div class="flow-core">
+        <img src={mark.src} alt="" width="44" height="44" />
+        <p class="flow-name">ScreenTrail</p>
         <ul>
           <li>Windows<small>desktop app</small></li>
           <li>Gemini or Claude<small>drafting model</small></li>
         </ul>
       </div>
+      <svg class="wires out" viewBox="0 0 100 320" preserveAspectRatio="none" fill="none" aria-hidden="true"><path d="M0 160 C 55 160, 45 36.25, 100 36.25"/><path d="M0 160 C 55 160, 45 118.75, 100 118.75"/><path class="later" d="M0 160 C 55 160, 45 201.25, 100 201.25"/><path class="later" d="M0 160 C 55 160, 45 283.75, 100 283.75"/></svg>
+      <ul class="flow-list out">
+        <li>ConnectWise PSA<small>note and time entry</small></li>
+        <li>Hudu<small>KB article</small></li>
+        <li class="later">HaloPSA<small>planned</small></li>
+        <li class="later">Your next tool<small>tell us in the pilot</small></li>
+      </ul>
     </div>
     <p class="stack-note">Built for MSPs on ConnectWise and Hudu. The ConnectWise and Hudu connections are built to their published APIs; their first checks against live accounts are part of the pilot. Product names belong to their owners, and no endorsement is implied.</p>
   </section>
