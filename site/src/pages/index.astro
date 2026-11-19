@@ -12,11 +12,11 @@ import '../styles/home.css';
 import glyphLight from '../assets/brand/glyph-small-light.svg';
 import glyphDark from '../assets/brand/glyph-small-dark.svg';
 import mark from '../assets/brand/mark-primary-on-white.svg';
-import review from '../assets/screens/shell-review-light.png';
-import published from '../assets/screens/shell-review-published-light.png';
-import history from '../assets/screens/shell-history-light.png';
-import tray from '../assets/screens/tray-menu-recording-light.png';
-import panel from '../assets/screens/panel-light.png';
+import review from '../assets/screens/review.png';
+import receipt from '../assets/screens/detail-receipt.png';
+import sessions from '../assets/screens/detail-sessions.png';
+import settings from '../assets/screens/detail-settings.png';
+import panel from '../assets/screens/panel.png';
 import { site } from '../site.config';
 import { choices, limits } from '../../worker/pilot';
 
@@ -247,13 +247,13 @@ const tiles = widths.map((w, i) => {
     <p class="sub">The screens a technician works in, shown here with sample tickets and companies.</p>
     <figure class="frame-fig">
       <span class="tag">review · sample data</span>
-      <div class="pan"><Image src={review} widths={[640, 960, 1264]} sizes="(max-width: 700px) 900px, (max-width: 1264px) 100vw, 1136px" loading="lazy" alt="The ScreenTrail Review screen: the drafted note for ticket 48213, Printer offline: print spooler stopped, with Problem and Steps beside their screenshots, the ticket matched from the ScreenConnect window title, a 15-minute time entry and a Publish button." /></div>
+      <div class="pan"><Image src={review} widths={[760, 1136, 1520, 2272, 2528]} sizes="(max-width: 700px) 760px, (max-width: 1264px) calc(100vw - 94px), 1106px" loading="lazy" alt="The ScreenTrail Review screen: the drafted note for ticket 48213, Printer offline: print spooler stopped, with Problem and Steps beside their screenshots, the ticket matched from the ScreenConnect window title, a 15-minute time entry and a Publish button." /></div>
     </figure>
-    <p class="pan-hint">Swipe a screen sideways to see all of it.</p>
+    <p class="pan-hint">Swipe the screen sideways to see all of it.</p>
     <div class="realapp-row">
-      <figure><div class="frame-fig"><div class="pan"><Image src={published} widths={[400, 640, 960]} sizes="(max-width: 700px) 720px, (max-width: 960px) 100vw, 360px" loading="lazy" alt="The receipt after publishing to ticket 48213, with the ticket note, time entry and KB article sent." /></div></div><figcaption>The receipt, with the next session to check.</figcaption></figure>
-      <figure><div class="frame-fig"><div class="pan"><Image src={history} widths={[400, 640, 960]} sizes="(max-width: 700px) 720px, (max-width: 960px) 100vw, 360px" loading="lazy" alt="All sessions: six sessions with their start time, duration, status (Partial capture, Draft, Published, Discarded, Not confirmed), remote tool and screenshot count." /></div></div><figcaption>All sessions, by status and remote tool.</figcaption></figure>
-      <figure class="small-shot"><div class="frame-fig"><Image src={tray} widths={[353]} loading="lazy" alt="The tray menu while recording: Pause, Stop and draft, Discard session, Open ScreenTrail, Session history, What's being captured right now, Settings, Set up ScreenTrail and Quit." /></div><figcaption>The tray menu during a session.</figcaption></figure>
+      <figure><div class="frame-fig"><span class="tag">receipt</span><Image src={receipt} widths={[334, 668, 1002, 1240]} sizes="(max-width: 960px) calc(100vw - 94px), 334px" loading="lazy" alt="The receipt after publishing to ticket 48213: the ticket note, the time entry and the KB article each marked Sent, with a link to open each one." /></div><figcaption>The receipt: what landed, with a link to each.</figcaption></figure>
+      <figure><div class="frame-fig"><span class="tag">all sessions</span><Image src={sessions} widths={[334, 668, 1002, 1240]} sizes="(max-width: 960px) calc(100vw - 94px), 334px" loading="lazy" alt="All sessions: each session's start time, duration and status (Partial capture, Draft, Published, Discarded, Not confirmed), with filters for status, tool and time." /></div><figcaption>Every session, by status, tool and time.</figcaption></figure>
+      <figure><div class="frame-fig"><span class="tag">settings</span><Image src={settings} widths={[334, 668, 1002, 1240]} sizes="(max-width: 960px) calc(100vw - 94px), 334px" loading="lazy" alt="Settings: the device activated, the remote tools that start a session (ScreenConnect and Remote Desktop on, AnyDesk off)." /></div><figcaption>Settings: which remote tools start a session.</figcaption></figure>
     </div>
   </section>
 
@@ -325,7 +325,7 @@ const tiles = widths.map((w, i) => {
         </div>
       </div>
       <figure class="plain-fig">
-        <div class="frame-fig"><Image src={panel} widths={[404]} loading="lazy" alt="What's being captured right now: capturing ScreenConnect, local-only on, nothing suppressed, the redaction queue, frames dropped, egress blocked, the policy in force, and a Copy diagnostics button." /></div>
+        <div class="frame-fig"><Image src={panel} width={404} height={585} widths={[404, 808]} sizes="404px" loading="lazy" alt="What's being captured right now: capturing ScreenConnect, local-only on, nothing suppressed, the redaction queue, frames dropped, egress blocked, the policy in force, and a Copy diagnostics button." /></div>
         <figcaption>Any technician can open "What's being captured right now?" from the tray.</figcaption>
       </figure>
     </div>
