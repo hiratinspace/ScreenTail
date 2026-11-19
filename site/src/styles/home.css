@@ -309,18 +309,31 @@ html:not(.js-scene) .scene-note { grid-column: 2; grid-row: 5 / span 4; margin-t
 .fn-side { background: var(--paper); border-left: 1px solid var(--line-2); padding: 36px 30px; display: flex; flex-direction: column; gap: 18px; }
 .form-h { font: 500 20px/1.2 var(--sans); letter-spacing: -0.015em; }
 .pilot-form { display: grid; gap: 14px; }
-.pilot-form label { display: grid; gap: 6px; font-size: 14px; font-weight: 500; color: var(--ink); }
+.pilot-form > label { display: grid; gap: 6px; font-size: 14px; font-weight: 500; color: var(--ink); }
 .pilot-form .opt { font-weight: 400; color: var(--ink-3); }
-.pilot-form input, .pilot-form select, .pilot-form textarea { font: 400 15px/1.4 var(--sans); color: var(--ink); background: var(--white); border: 1px solid #8b84a8; border-radius: 6px; padding: 9px 11px; width: 100%; min-height: 42px; }
+.pilot-form > label input, .pilot-form textarea { font: 400 15px/1.4 var(--sans); color: var(--ink); background: var(--white); border: 1px solid #8b84a8; border-radius: 6px; padding: 9px 11px; width: 100%; min-height: 42px; }
 .pilot-form textarea { min-height: 88px; resize: vertical; }
-.pilot-form input:focus-visible, .pilot-form select:focus-visible, .pilot-form textarea:focus-visible { outline: 2px solid var(--iris); outline-offset: 1px; border-color: var(--iris); }
+.pilot-form > label input:focus-visible, .pilot-form textarea:focus-visible { outline: 2px solid var(--iris); outline-offset: 1px; border-color: var(--iris); }
 .publish-btn { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--iris); color: #fff; border: 0; border-radius: 6px; padding: 13px 14px; font: 500 15px/1 var(--sans); cursor: pointer; width: 100%; }
 .publish-btn:hover { background: var(--iris-hover); }
 .publish-btn:active { transform: translateY(1px); }
-.pilot-form :user-invalid { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
-.pilot-form label:has(:user-invalid)::after { content: 'Please fill this in.'; font-weight: 400; font-size: 13px; color: var(--danger); }
-.pilot-form label:has(input[type='email']:user-invalid)::after { content: 'Use an address like name@company.com.'; }
-.pilot-form label:has(select:user-invalid)::after { content: 'Please choose one.'; }
+.pilot-form > label :user-invalid { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.pilot-form > label:has(:user-invalid)::after { content: 'Please fill this in.'; font-weight: 400; font-size: 13px; color: var(--danger); }
+.pilot-form > label:has(input[type='email']:user-invalid)::after { content: 'Use an address like name@company.com.'; }
+/* A choice is a row of the app's own chips rather than the browser's drop-down, which no stylesheet
+   reaches: one tap, every option in view, and the same look in every browser. */
+.choice { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 8px; }
+.choice legend { padding: 0; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--ink); }
+.choice .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice label { position: relative; display: block; cursor: pointer; }
+.choice input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.choice span { display: block; padding: 9px 12px; border: 1px solid #8b84a8; border-radius: 6px; background: var(--white); font: 400 14px/1.3 var(--sans); color: var(--ink); transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+.choice label:hover span { border-color: var(--iris); }
+.choice input:checked + span { background: var(--iris-tint); border-color: var(--iris); color: var(--iris); font-weight: 500; box-shadow: inset 0 0 0 1px var(--iris); }
+.choice input:focus-visible + span { outline: 2px solid var(--iris); outline-offset: 2px; }
+.choice:has(:user-invalid) span { border-color: var(--danger); }
+.choice:has(:user-invalid)::after { content: 'Please choose one.'; font-size: 13px; color: var(--danger); }
+@media (forced-colors: active) { .choice input:checked + span { outline: 2px solid Highlight; } }
 .form-reply { font-size: 14px; color: var(--ink-2); }
 @media (pointer: coarse) { .publish-btn kbd { display: none; } .publish-btn { justify-content: center; } }
 .publish-btn kbd { background: transparent; color: #e4dcff; border-color: #9b80e6; }

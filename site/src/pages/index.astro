@@ -367,24 +367,18 @@ const tiles = widths.map((w, i) => {
           <label>Your name<input name="name" autocomplete="name" required maxlength={limits.name} /></label>
           <label>Work email<input name="email" type="email" autocomplete="email" required pattern="[^\s@]+@[A-Za-z0-9\-]+(\.[A-Za-z0-9\-]+)+" title="An email address like name@company.com" maxlength={limits.email} /></label>
           <label>Company<input name="company" autocomplete="organization" required maxlength={limits.company} /></label>
-          <label>Technicians
-            <select name="technicians" required>
-              <option value="" selected disabled>Choose one</option>
-              {choices.technicians.map((c) => <option>{c}</option>)}
-            </select>
-          </label>
-          <label>PSA
-            <select name="psa" required>
-              <option value="" selected disabled>Choose one</option>
-              {choices.psa.map((c) => <option>{c}</option>)}
-            </select>
-          </label>
-          <label>Main remote tool
-            <select name="tool" required>
-              <option value="" selected disabled>Choose one</option>
-              {choices.tool.map((c) => <option>{c}</option>)}
-            </select>
-          </label>
+          <fieldset class="choice">
+            <legend>Technicians</legend>
+            <div class="opts">{choices.technicians.map((c) => <label><input type="radio" name="technicians" value={c} required /><span>{c}</span></label>)}</div>
+          </fieldset>
+          <fieldset class="choice">
+            <legend>PSA</legend>
+            <div class="opts">{choices.psa.map((c) => <label><input type="radio" name="psa" value={c} required /><span>{c}</span></label>)}</div>
+          </fieldset>
+          <fieldset class="choice">
+            <legend>Main remote tool</legend>
+            <div class="opts">{choices.tool.map((c) => <label><input type="radio" name="tool" value={c} required /><span>{c}</span></label>)}</div>
+          </fieldset>
           <label><span>Anything else <span class="opt">(optional)</span></span><textarea name="message" maxlength={limits.message} rows="3"></textarea></label>
           <div class="hp" hidden><label>Leave this empty<input name="hp_trap" tabindex="-1" autocomplete="off" /></label></div>
           <p class="form-reply">We usually reply within two working days.</p>
