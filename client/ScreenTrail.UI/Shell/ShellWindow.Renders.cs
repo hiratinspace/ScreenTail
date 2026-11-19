@@ -602,19 +602,36 @@ public partial class ShellWindow
     private async Task SiteAsync(ShellState state)
     {
         RenderThemeApplier.Apply(RenderTheme.Light, Application.Current.Resources);
-        foreach (var (name, arrange) in new (string, Action)[]
+
+        // The size the window opens at, said again: the small-window pass before this one leaves the
+        // window at whatever the runner's screen allowed (1028 by 749 inside), and a render follows that.
+        var (width, height) = (Width, Height);
+        Width = 1280;
+        Height = 800;
+        _ = WindowRenderer.Intend(this);
+        try
         {
-            ("review", () => state.OpenSession("preview")),
-            ("review-published", () => state.OpenSession("preview-published")),
-            ("history", () => state.Navigate(ShellView.History)),
-            ("settings", () => state.Navigate(ShellView.Settings)),
-        })
+            foreach (var (name, arrange) in new (string, Action)[]
+            {
+                ("review", () => state.OpenSession("preview")),
+                ("review-published", () => state.OpenSession("preview-published")),
+                ("history", () => state.Navigate(ShellView.History)),
+                ("settings", () => state.Navigate(ShellView.Settings)),
+            })
+            {
+                arrange();
+                await ThumbnailsAsync();
+                await SettleAsync();
+                AtRest($"site-{name}");
+                WindowRenderer.Save(this, Shot($"site-{name}", RenderTheme.Light), scale: 2);
+            }
+        }
+        finally
         {
-            arrange();
-            await ThumbnailsAsync();
+            Width = width;
+            Height = height;
+            _ = WindowRenderer.Intend(this);
             await SettleAsync();
-            AtRest($"site-{name}");
-            WindowRenderer.Save(this, Shot($"site-{name}", RenderTheme.Light), scale: 2);
         }
     }
 
