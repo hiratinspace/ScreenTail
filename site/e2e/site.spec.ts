@@ -75,9 +75,9 @@ test('the pilot form sends and lands on the thanks page', async ({ page }) => {
   await page.getByLabel('Your name').fill('Ada Lovelace');
   await page.getByLabel('Work email').fill('ada@example.com');
   await page.getByLabel('Company').fill('Analytical MSP');
-  await page.getByLabel('Technicians').selectOption('3 to 10');
-  await page.getByLabel('PSA').selectOption('ConnectWise PSA');
-  await page.getByLabel('Main remote tool').selectOption('ScreenConnect');
+  await page.getByRole('group', { name: 'Technicians' }).getByLabel('3 to 10').check();
+  await page.getByRole('group', { name: 'PSA' }).getByLabel('ConnectWise PSA').check();
+  await page.getByRole('group', { name: 'Main remote tool' }).getByLabel('ScreenConnect').check();
   await page.getByRole('button', { name: /Send to ScreenTrail/ }).click();
   await expect(page).toHaveURL(/\/pilot\/thanks\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/reached the ScreenTrail team/);
