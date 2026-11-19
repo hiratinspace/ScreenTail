@@ -75,9 +75,9 @@ test('the pilot form sends and lands on the thanks page', async ({ page }) => {
   await page.getByLabel('Your name').fill('Ada Lovelace');
   await page.getByLabel('Work email').fill('ada@example.com');
   await page.getByLabel('Company').fill('Analytical MSP');
-  await page.getByLabel('Technicians').selectOption('3 to 10');
-  await page.getByLabel('PSA').selectOption('ConnectWise PSA');
-  await page.getByLabel('Main remote tool').selectOption('ScreenConnect');
+  await page.getByRole('group', { name: 'Technicians' }).getByLabel('3 to 10').check();
+  await page.getByRole('group', { name: 'PSA' }).getByLabel('ConnectWise PSA').check();
+  await page.getByRole('group', { name: 'Main remote tool' }).getByLabel('ScreenConnect').check();
   await page.getByRole('button', { name: /Send to ScreenTrail/ }).click();
   await expect(page).toHaveURL(/\/pilot\/thanks\/$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(/reached the ScreenTrail team/);
@@ -157,4 +157,11 @@ test('the sample-session pill stays out of the pinned scene and off the form', a
   await expect(pill.getByRole('link', { name: 'Pilot form' })).toBeVisible();
   await page.locator('#pilot-form').evaluate((el) => scrollTo({ top: el.getBoundingClientRect().top + scrollY - 200, behavior: 'instant' }));
   await expect(pill).toBeHidden();
+});
+
+test('the first screen is the hero alone: the next section starts below the fold', async ({ page }) => {
+  await page.goto('/');
+  const sceneTop = await page.locator('#scene').evaluate((el) => el.getBoundingClientRect().top);
+  const viewport = page.viewportSize();
+  expect(sceneTop).toBeGreaterThanOrEqual((viewport?.height ?? 0) - 1);
 });
