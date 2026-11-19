@@ -36,9 +36,12 @@ npx wrangler dev   # the built site with the real headers and the Worker, on htt
 - **Brand colours** come from `shared/design/tokens.json`: `npm run codegen` in `shared/design` writes
   `src/styles/tokens.g.css` here as well as the app's files, and CI fails if it is stale.
 - **The site's facts** (address, contact and security emails, repository) are in `src/site.config.ts`.
-- **Screenshots** of the app are in `src/assets/screens/`, copied from the render gallery CI builds
-  (the `gallery-screenshots` artifact of a `main` run). They use sample data only. Replace them when the
-  screens change.
+- **Screenshots** of the app are in `src/assets/screens/`. The app draws them for the site in CI: the
+  `gallery-screenshots` artifact of a Client (Windows) run holds `site-*-light.png`, at 1280 by 800 and
+  twice the pixels so they stay sharp (`ShellWindow.Renders.cs`, `SiteAsync`). Download the artifact
+  and run `node scripts/crop-screens.mjs <folder>`: it keeps the Review screen and the capture panel
+  whole and cuts the three small cards as the same region of three screens, so they match in size.
+  Sample data only. Run it again when the screens change.
 - **The share card and icons**: `node scripts/make-images.mjs` redraws `src/assets/og.png`,
   `public/favicon.ico` and `public/apple-touch-icon.png`.
 - **Headers** are in `public/_headers`; `tests/headers.test.ts` keeps them strict.

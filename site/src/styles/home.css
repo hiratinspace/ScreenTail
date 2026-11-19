@@ -236,7 +236,6 @@ html:not(.js-scene) .scene-note { grid-column: 2; grid-row: 5 / span 4; margin-t
 .realapp { padding-block: 120px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; }
 .realapp > h2 { margin-bottom: -14px; }
 .pan-hint { display: none; font-size: 13px; color: var(--ink-3); margin-top: -12px; }
-.small-shot .frame-fig { justify-self: start; }
 .frame-fig { position: relative; border: 1px solid var(--line-2); background: var(--white); padding: 14px; margin: 0; }
 .frame-fig::after { content: ''; position: absolute; inset: 10px -11px -11px 10px; border: 1px solid var(--line); z-index: -1; }
 .frame-fig img { border: 1px solid var(--line); }
@@ -244,7 +243,8 @@ html:not(.js-scene) .scene-note { grid-column: 2; grid-row: 5 / span 4; margin-t
 .realapp-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .realapp-row figure, .plain-fig { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-content: start; }
 .realapp-row figcaption, .plain-fig figcaption { font-size: 14px; color: var(--ink-3); }
-.realapp-row figcaption { order: -1; color: var(--ink-2); }
+.realapp-row figcaption { color: var(--ink-2); }
+.realapp-row img { width: 100%; aspect-ratio: 4 / 3; }
 
 /* Works with */
 .stack { padding-block: 120px 40px; }
