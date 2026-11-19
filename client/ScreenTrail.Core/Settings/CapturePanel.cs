@@ -129,11 +129,11 @@ public sealed class CapturePanel(ICaptureGateway gateway)
     }
 
     /// <summary>
-    /// When a new choice takes effect. The microphone reads the choice each time it opens, and within a
-    /// session it opens again after every pause and every moment capture stopped (a password field, an
-    /// excluded app), so it can be sooner than the next session.
+    /// When a new choice takes effect. A save tells the microphone to look again, and a session's listen
+    /// moves to the new device at the next pause in speech, never mid-sentence (2026-11-18). Outside a
+    /// session it is simply the device the next session opens.
     /// </summary>
-    public const string MicrophoneApplies = "A new microphone is used from the next session, or sooner if capture pauses and starts again.";
+    public const string MicrophoneApplies = "A new microphone is used straight away, from the next pause in what you are saying.";
 
     /// <summary>The capture devices the service found connected when the card loaded.</summary>
     public IReadOnlyList<MicrophoneDevice> Microphones { get; private set; } = [];

@@ -32,6 +32,18 @@ public sealed record NarrationOptions
     /// case to the first few seconds of a session and costs an idle day a tenth as much.
     /// </summary>
     public TimeSpan Idle { get; init; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// How long to wait before opening the microphone again, while a session is recording, after it
+    /// stopped (unplugged) or when there was none to open. Only for a source that
+    /// <see cref="IMicrophone.Reopens"/>.
+    ///
+    /// Until 2026-11-18 a microphone that stopped ended narration until the service restarted, and a
+    /// service that started with no microphone never listened at all, so a headset plugged in after
+    /// either was ignored for the rest of the day. Two seconds is a sentence at most, and the look is
+    /// one enumeration of the capture devices, only while a session records.
+    /// </summary>
+    public TimeSpan Reopen { get; init; } = TimeSpan.FromSeconds(2);
 }
 
 /// <summary>
@@ -98,8 +110,11 @@ public sealed class NarrationRecorder : IDisposable
     private TranscriptAssembler _assembler = new();
     private string? _assembling;
 
-    /// <summary>The session the detector last learned a room for, so a new one starts by listening to its own.</summary>
+    /// <summary>The session the detector last learned a room for, so a new one starts by listening to its own. Cleared when the device changes.</summary>
     private string? _heardSession;
+
+    /// <summary>Listens in a row that delivered nothing, for the back-off and for saying "unavailable" once.</summary>
+    private int _emptyLooks;
 
     /// <summary>
     /// The session a sentence still being said is counted against, or null when the gate is closed.
@@ -235,6 +250,22 @@ public sealed class NarrationRecorder : IDisposable
     public event Action<Exception>? Failed;
 
     /// <summary>
+    /// How many times the microphone stopped under a session that was still recording: unplugged,
+    /// disabled, or taken by Windows. Narration comes back when a device does (<see cref="NarrationOptions.Reopen"/>).
+    /// </summary>
+    public long MicrophoneLost { get; private set; }
+
+    /// <summary>How many times a listen moved to another device mid-session, at a pause in speech.</summary>
+    public long MicrophoneSwitched { get; private set; }
+
+    /// <summary>
+    /// Told when the microphone stopped under a session (<c>lost</c>), a listen moved to another device
+    /// (<c>switched</c>), or a connected device gave nothing (<c>unavailable</c>, once per run of tries),
+    /// so the host can log it. Those words only, never a device's name (INV-10).
+    /// </summary>
+    public event Action<string>? MicrophoneChanged;
+
+    /// <summary>
     /// A session started or ended, so there is a reason to look again.
     ///
     /// Called from the host when the capture state changes. It only wakes the loop: deciding what to do
@@ -252,9 +283,10 @@ public sealed class NarrationRecorder : IDisposable
     /// <summary>Listens until cancelled or until the microphone stops. Returns without throwing on either.</summary>
     public async Task RunAsync(CancellationToken ct = default)
     {
-        if (_microphone.DeviceName is null)
+        if (_microphone.DeviceName is null && !_microphone.Reopens)
         {
-            // AC2. Losing narration costs a better note; stopping here would cost the session.
+            // AC2. Losing narration costs a better note; stopping here would cost the session. A device
+            // source keeps looking instead: a headset plugged in later is heard from then on.
             return;
         }
 
@@ -280,12 +312,67 @@ public sealed class NarrationRecorder : IDisposable
                     continue;
                 }
 
-                if (!await ListenWhileRecordingAsync(ct).ConfigureAwait(false))
+                var end = await ListenWhileRecordingAsync(ct).ConfigureAwait(false);
+                if (end != ListenEnd.SessionEnded)
                 {
-                    // The microphone itself stopped -- unplugged, or revoked. That ended narration for
-                    // the life of the service before this change and still does; retrying a device that
-                    // has gone is a loop, not a recovery.
-                    return;
+                    // Another device, or the same one back, is another room as far as the detector is
+                    // concerned: a floor learned on a laptop's array in a noisy office would make a close
+                    // headset's quiet speech read as nothing, and the other way round would send the
+                    // room to the model (the 2026-10-12 review's reason for resetting per session).
+                    _heardSession = null;
+                }
+
+                if (end != ListenEnd.NothingToOpen)
+                {
+                    _emptyLooks = 0;
+                }
+
+                switch (end)
+                {
+                    case ListenEnd.Moved:
+                        // Another device is the one to use now, and nothing was being said: open it.
+                        MicrophoneSwitched++;
+                        MicrophoneChanged?.Invoke("switched");
+                        continue;
+
+                    case ListenEnd.Stopped when !_microphone.Reopens:
+                        // A file or a script ran out. That is the end of narration.
+                        return;
+
+                    case ListenEnd.NothingToOpen when !_microphone.Reopens:
+                        return;
+
+                    case ListenEnd.Stopped:
+                    case ListenEnd.NothingToOpen:
+                        // The device stopped (unplugged, or revoked), or there was none to open. Until
+                        // 2026-11-18 this ended narration until the service restarted. Now it waits a
+                        // moment, or for the session to change, and opens whatever is connected then: the
+                        // device chosen in Settings, or Windows' default. Counted when audio had been
+                        // arriving, so a session spent with no microphone at all is not a stream of losses,
+                        // and not when the service is stopping, which closes the device itself.
+                        if (end == ListenEnd.Stopped && !ct.IsCancellationRequested)
+                        {
+                            MicrophoneLost++;
+                            MicrophoneChanged?.Invoke("lost");
+                        }
+
+                        if (end == ListenEnd.NothingToOpen && _emptyLooks++ == 0 && _microphone.DeviceName is not null)
+                        {
+                            // A device is connected and gave nothing: blocked, held by another app, or
+                            // failing. Said once per run of empty looks, not once per look.
+                            MicrophoneChanged?.Invoke("unavailable");
+                        }
+
+                        // Two seconds, doubling while nothing opens, to thirty: a device that keeps
+                        // refusing is not opened and closed every two seconds for a whole session.
+                        var wait = end == ListenEnd.NothingToOpen
+                            ? TimeSpan.FromTicks(Math.Min(_options.Reopen.Ticks << Math.Min(_emptyLooks - 1, 4), TimeSpan.FromSeconds(30).Ticks))
+                            : _options.Reopen;
+                        _ = await _wanted.WaitAsync(wait, ct).ConfigureAwait(false);
+                        break;
+
+                    case ListenEnd.SessionEnded:
+                        break;
                 }
             }
 
@@ -345,22 +432,31 @@ public sealed class NarrationRecorder : IDisposable
     /// was being said at that moment is cut there and kept; the gate and the buffer are emptied on the
     /// way out, so nothing heard after the boundary can be joined on to it.
     /// </summary>
-    /// <returns>
-    /// True when the session ended and there may be another; false when the microphone itself stopped,
-    /// which is the end of narration rather than the end of a session.
-    /// </returns>
-    private async Task<bool> ListenWhileRecordingAsync(CancellationToken ct)
+    /// <returns>How the listen ended: the session went away, another device became the one to use, or the microphone stopped or never opened.</returns>
+    private async Task<ListenEnd> ListenWhileRecordingAsync(CancellationToken ct)
     {
         Listening = true;
+        var heardAnything = false;
         try
         {
             _suppressions = _backlog.Suppressions;
             await foreach (var chunk in _microphone.ListenAsync(ct).ConfigureAwait(false))
             {
+                heardAnything = true;
                 if (_recording() is not { } now)
                 {
                     await EndStretchAsync(ct).ConfigureAwait(false);
-                    return true;
+                    return ListenEnd.SessionEnded;
+                }
+
+                if (_holding is null && _carried is null && _microphone.DeviceMoved)
+                {
+                    // A headset was plugged in and made the default, or the chosen device is back, or a
+                    // new one was chosen in Settings. Moved at a pause, never mid-sentence: the gate is
+                    // closed, so nothing being said is cut in two. Until 2026-11-18 the old device was
+                    // kept until the session paused or ended.
+                    await EndStretchAsync(ct).ConfigureAwait(false);
+                    return ListenEnd.Moved;
                 }
 
                 if (_backlog.Suppressions != _suppressions)
@@ -413,12 +509,28 @@ public sealed class NarrationRecorder : IDisposable
             // The microphone itself stopped. Whatever was being said is still worth keeping, unless capture
             // was suppressed or the window in front went out of scope since it was heard.
             await EndStretchAsync(ct).ConfigureAwait(false);
-            return false;
+            return heardAnything ? ListenEnd.Stopped : ListenEnd.NothingToOpen;
         }
         finally
         {
             Listening = false;
         }
+    }
+
+    /// <summary>How one listen ended.</summary>
+    private enum ListenEnd
+    {
+        /// <summary>The session stopped recording; there may be another.</summary>
+        SessionEnded,
+
+        /// <summary>Another device became the one to use, at a pause in speech.</summary>
+        Moved,
+
+        /// <summary>Audio had been arriving and the device stopped: unplugged, disabled or revoked.</summary>
+        Stopped,
+
+        /// <summary>Nothing arrived: no device connected, or it would not open.</summary>
+        NothingToOpen,
     }
 
     /// <summary>

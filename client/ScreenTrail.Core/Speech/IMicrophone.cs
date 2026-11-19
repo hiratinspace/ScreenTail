@@ -49,6 +49,22 @@ public interface IMicrophone : IAsyncDisposable
     /// not as a call, so Windows does not turn other sound down while the card is open.
     /// </summary>
     IAsyncEnumerable<ReadOnlyMemory<short>> ListenToAsync(string? deviceId, CancellationToken ct = default) => ListenAsync(ct);
+
+    /// <summary>
+    /// Whether a listen that ended, or found no device, is worth opening again later in the same
+    /// session. True for a device: a headset unplugged comes back when it is plugged in, and a machine
+    /// with none gets one when a technician plugs one in. False for a file or a script, whose end is the
+    /// end of narration (the command-line transcriber, the tests that play a fixed recording).
+    /// </summary>
+    bool Reopens => false;
+
+    /// <summary>
+    /// Whether the device a listen would open now is a different one from the device the current
+    /// listen opened: a headset plugged in and made Windows' default, the device chosen in Settings
+    /// connected again, or a new choice saved. False while nothing is open, and false from a source that
+    /// cannot tell. Asked once per chunk by the recorder, so it must be cheap when nothing changed.
+    /// </summary>
+    bool DeviceMoved => false;
 }
 
 /// <param name="Id">Windows' endpoint id. Not a name and not personal: it is what Settings keeps.</param>
