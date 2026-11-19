@@ -564,6 +564,7 @@ public partial class ShellWindow : Window
         await RailAsync(state);
         await SmallWindowAsync(state);
         await HighDpiAsync(state);
+        await SiteAsync(state);
         await OnboardingAsync();
 
         // The windows of their own: the one dialog's questions, the shortcut sheet and ST-071's panel,
@@ -573,6 +574,7 @@ public partial class ShellWindow : Window
         await DialogsAsync(
             ("panel", () => new Diagnostics.DiagnosticsWindow()),
             ("panel-unanswered", () => new Diagnostics.DiagnosticsWindow(DiagnosticsPanel.Unanswered)));
+        await SitePanelAsync(() => new Diagnostics.DiagnosticsWindow());
 
         // Read by CI, which fails the step on anything but zero.
         var errors = Render.BindingErrors.Collected;
