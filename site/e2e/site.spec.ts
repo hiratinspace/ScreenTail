@@ -165,3 +165,19 @@ test('the first screen is the hero alone: the next section starts below the fold
   const viewport = page.viewportSize();
   expect(sceneTop).toBeGreaterThanOrEqual((viewport?.height ?? 0) - 1);
 });
+
+test('the pinned scene keeps its wall and its note inside the screen', async ({ page }) => {
+  await page.goto('/');
+  const scene = page.locator('#scene');
+  for (const at of [0.05, 0.9]) {
+    await scene.evaluate((el, f) => scrollTo({ top: el.getBoundingClientRect().top + scrollY + (el.getBoundingClientRect().height - innerHeight + 60) * f, behavior: 'instant' }), at);
+    await page.waitForTimeout(500);
+    const box = await page.evaluate(() => {
+      const rect = (q: string) => document.querySelector(q)!.getBoundingClientRect();
+      return { tally: rect('.tally').bottom, limit: rect('.wall-note').top, wall: rect('#wall'), note: rect('#scene-note') };
+    });
+    const shown = at < 0.5 ? box.wall : box.note;
+    expect(shown.top).toBeGreaterThanOrEqual(box.tally - 1);
+    expect(shown.bottom).toBeLessThanOrEqual(box.limit + 1);
+  }
+});

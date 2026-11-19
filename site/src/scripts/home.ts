@@ -191,16 +191,32 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
   const stamp = noteEl.querySelector<HTMLElement>('.sn-stamp');
   let offsets: [number, number][] = [];
   let lastBeat = -1;
+  let wallFit = 1;
+  let noteFit = 1;
+  let pinned = false;
+  // A window too short to hold the scene (a phone on its side) gets the still layout instead.
+  const short = matchMedia('(max-height: 600px)');
   const measure = () => {
     tiles.forEach((t) => { t.style.transform = ''; });
+    wall.style.transform = '';
+    // The wall and the note are scaled down to the room the stage has, so on any screen the whole
+    // beat is inside the pinned view: nothing runs under the caption or off the bottom.
+    const room = stageEl.clientHeight;
+    wallFit = clamp(room / Math.max(1, wall.offsetHeight), 0.4, 1);
+    noteFit = clamp(room / Math.max(1, noteEl.offsetHeight), 0.4, 1);
+    // Scaled from the top of the stage, where an overflowing box starts; one that fits stays centred.
+    wall.classList.toggle('scaled', wallFit < 1);
+    noteEl.classList.toggle('scaled', noteFit < 1);
+    if (wallFit < 1) wall.style.transform = `scale(${wallFit.toFixed(4)})`;
     const st = stageEl.getBoundingClientRect();
     const cx = st.left + st.width / 2, cy = st.top + st.height / 2;
     offsets = tiles.map((t) => {
       const r = t.getBoundingClientRect();
-      return [cx - (r.left + r.width / 2), cy - (r.top + r.height / 2)];
+      return [(cx - (r.left + r.width / 2)) / wallFit, (cy - (r.top + r.height / 2)) / wallFit];
     });
   };
   const tick = () => {
+    if (!pinned) return;
     const r = sceneEl.getBoundingClientRect();
     const p = clamp(-r.top / Math.max(1, r.height - innerHeight + 60));
     const beat = p < 0.2 ? 0 : p < 0.5 ? 1 : p < 0.82 ? 2 : 3;
@@ -229,22 +245,37 @@ if (sceneEl && wall && stageEl && tallyEl && noteEl) {
     });
     const n = ease(clamp((p - 0.52) / 0.1));
     noteEl.style.opacity = String(n);
-    noteEl.style.transform = `scale(${0.6 + 0.4 * n})`;
+    noteEl.style.transform = `scale(${((0.6 + 0.4 * n) * noteFit).toFixed(4)})`;
     noteParts.forEach((el, i) => el.style.setProperty('--o', clamp((p - 0.58 - i * 0.02) / 0.04).toFixed(3)));
     stamp?.classList.toggle('on', p > 0.84);
   };
+  const still = () => {
+    tiles.forEach((t) => { t.style.transform = ''; t.style.opacity = ''; t.classList.remove('healed'); });
+    wall.style.transform = '';
+    wall.classList.remove('scaled');
+    noteEl.classList.remove('scaled');
+    noteEl.style.opacity = '';
+    noteEl.style.transform = '';
+    noteParts.forEach((el) => el.style.removeProperty('--o'));
+    tallyEl.textContent = String(tiles.filter((t) => !t.classList.contains('bad')).length);
+    tallyEl.classList.remove('full');
+    lastBeat = -1;
+  };
+  const arrange = () => {
+    pinned = !short.matches;
+    document.documentElement.classList.toggle('js-scene', pinned);
+    if (pinned) { measure(); tick(); } else still();
+  };
   if (!reduce) {
-    document.documentElement.classList.add('js-scene');
-    measure();
+    arrange();
     let queued = false;
     addEventListener('scroll', () => {
       if (queued) return;
       queued = true;
       requestAnimationFrame(() => { queued = false; tick(); });
     }, { passive: true });
-    addEventListener('resize', () => { measure(); tick(); });
-    void document.fonts?.ready.then(() => { measure(); tick(); });
-    tick();
+    addEventListener('resize', arrange);
+    void document.fonts?.ready.then(arrange);
   }
 }
 
