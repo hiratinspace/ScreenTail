@@ -1,0 +1,4 @@
+<Project>
+  <!-- The package versions are the client's, so the harness cannot drift from what ships. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../../../client/Directory.Packages.props" />
+</Project>

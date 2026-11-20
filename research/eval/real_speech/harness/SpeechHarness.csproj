@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ST-031: runs the service's own speech pipeline on a recording, on any machine with .NET.
+
+       ScreenTrail.Service targets Windows, so its `transcribe` mode cannot start on a Mac or Linux box.
+       This compiles the same three source files (the recogniser, the WAV reader and the transcribe
+       tool) against the same Core, the same Whisper.net and the same whisper.cpp version, and nothing
+       else of the service. It is a measuring tool for research/eval/real_speech/measure.py: it is not in
+       ScreenTrail.sln, is not shipped, and no test or build depends on it. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ScreenTrail.Research.SpeechHarness</RootNamespace>
+    <AssemblyName>speech-harness</AssemblyName>
+    <!-- Package versions come from the client's list, through Directory.Packages.props beside this file. -->
+    <!-- CA1416: the three linked files are marked Windows-only because the service is. None of them
+         calls a Windows API: they are managed code over Core and Whisper.net. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../../../client/ScreenTrail.Service/Speech/WhisperRecogniser.cs" Link="Service/WhisperRecogniser.cs" />
+    <Compile Include="../../../../client/ScreenTrail.Service/Speech/WavFile.cs" Link="Service/WavFile.cs" />
+    <Compile Include="../../../../client/ScreenTrail.Service/Speech/Transcribe.cs" Link="Service/Transcribe.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Whisper.net" />
+    <PackageReference Include="Whisper.net.Runtime" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../client/ScreenTrail.Core/ScreenTrail.Core.csproj" />
+    <ProjectReference Include="../../../../client/ScreenTrail.Shared/ScreenTrail.Shared.csproj" />
+  </ItemGroup>
+</Project>

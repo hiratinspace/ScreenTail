@@ -3,6 +3,7 @@
 | Script | Measures | Ticket |
 |---|---|---|
 | `wer.py` | Word error rate between a reference narration and what the speech pipeline produced | ST-027 |
+| `real_speech/measure.py` | Word error with the sized encoder context on and off, on public recordings of real speech | ST-031 |
 | `draft_quality.py` | Draft quality: edit ratio, hallucinated steps, rubric, and the regression gate | ST-062 |
 | (none yet) | Redaction recall and false-positive rate against the labelled corpus | ST-042, needs ST-030 |
 
@@ -33,6 +34,32 @@ nothing, and a definition that capped the number would hide that.
 `research/fixtures/audio/` is empty. The WER number needs a real ten-minute narration recorded with a
 microphone, plus its reference text; neither can be generated. Until then this script is tested against
 synthetic pairs (`tests/test_wer.py`) and the criterion stays open.
+
+## `real_speech/measure.py`
+
+```
+python research/eval/real_speech/measure.py --work ~/screentrail-real-speech
+```
+
+`SCREENTRAIL_SPEECH_SIZED_CONTEXT=1` keeps a narrated session inside the processor budget
+(`docs/dev/performance.md`), and it is off until its word error is known on real speech. This measures
+it without waiting for ST-027's recording: it downloads the four headset recordings of one AMI meeting
+and a quarter of an hour of LibriSpeech (both CC BY 4.0), runs each through the service's own speech
+pipeline twice, once with the full encoder window and once with the sized one, and scores both with
+`wer.py`. `real_speech/RESULTS.md` holds the numbers and what they do and do not show.
+
+**The recordings are never committed.** `--work` has to be outside the checkout or ignored by git, and
+the script refuses otherwise. It needs .NET, and Docker unless `--runner native` is given.
+
+**Why a container.** The service targets Windows, so `real_speech/harness` compiles the same recogniser,
+WAV reader and transcribe tool for any machine. On a Mac, whisper.cpp's build runs on the graphics
+processor and the service's code has no way to say otherwise, which would be a different computation
+from the laptop's. The Linux build has the processor alone, as the Windows one does. On Windows or Linux
+`--runner native` runs it directly.
+
+**It is not ST-027's criterion.** A meeting is not a technician narrating a support session, and the
+absolute numbers are a meeting's: people talking over each other into each other's microphones, scored
+against a transcript that keeps every "um". The comparison between the two columns is what it is for.
 
 ## `draft_quality.py`
 

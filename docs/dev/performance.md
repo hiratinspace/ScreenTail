@@ -386,6 +386,23 @@ Five seconds of noise invented no words either way. There is no recorded speech 
 (`research/fixtures/audio/` holds only its README), so word error on a real technician's voice is
 unmeasured. The owner decides the default once ST-027's recorded narration exists.
 
+**On real speech it hears more that was not said (2026-11-19, `research/eval/real_speech/RESULTS.md`).**
+The same pipeline, run on a Mac in a Linux container over public recordings, both ways:
+
+| Recording | Words said | Word error, full | Word error, sized | Inserted words, full | sized |
+|---|---|---|---|---|---|
+| A meeting's main speaker, own headset (AMI ES2004a, B) | 1,067 | 14.5% | 14.9% | 19 | 23 |
+| The other three, own headsets (A, C, D) | 1,547 | 49.3% | 65.8% | 466 | 712 |
+| Read-aloud speech (LibriSpeech test-clean) | 2,017 | 3.8% | 4.5% | 17 | 40 |
+
+One person talking clearly loses little. Quiet stretches and other people's voices, which the full window
+calls blank and the hallucination filter drops, come back as words; a sentence is sometimes written
+several times; a word is sometimes added after the last one. That is what whisper.cpp is known to do
+with less than its thirty-second window. A meeting is not a support call and the laptop did not run this,
+so the absolute numbers are not ScreenTrail's; the direction is clear enough that the switch stays off as
+built. ST-027's recording is still what its own criterion needs, and a narrated session still trips the
+throttle.
+
 ### The demo build
 
 `scripts/windows/demo/start.ps1` published Debug (`run-local.ps1`'s default) while CI measures Release;
